@@ -58,7 +58,7 @@ Commands are argument arrays; shell syntax requires an explicit shell command. A
 
 The process inherits only `PATH`, `HOME`, and temporary-directory/system-root variables. `LANG` has a stable default. Add fixed nonsecret values through environment/check `env`, or explicit inherited names through environment `pass_env`. Do not put credentials in configuration. The runner supplies `LEVENSHTEIN_SOURCE`, `LEVENSHTEIN_WORKSPACE`, and `LEVENSHTEIN_FRESH` to scripts. An environment can declare `tools`: each entry has a version-printing `command` array and exact expected stdout in `version`. These validations run before preparation/check execution.
 
-A check may reference an entry in top-level `preparations` by ID. Each preparation declares `command`, repository-relative `inputs` and `outputs`, optional `env`, and `timeout`. Preparation runs in the target's workspace directory. Checks share compatible successful preparation within a run, with conflicting mutations serialized; missing outputs require preparation again. Preparation records can persist across processes through the local cache. Build/tool caches managed by the repository's commands remain usable.
+A check may reference an entry in top-level `preparations` by ID. Each preparation declares `command`, repository-relative `inputs` and `outputs`, optional `env`, and `timeout`. Preparation runs in the target's workspace directory. Declared output paths and their ancestors must not be symlinks. Checks share compatible successful preparation within a run, with conflicting mutations serialized; missing outputs require preparation again. Preparation records can persist across processes through the local cache. Build/tool caches managed by the repository's commands remain usable.
 
 ## Local caching
 

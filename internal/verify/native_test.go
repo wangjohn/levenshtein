@@ -123,3 +123,18 @@ func TestArtifactErrorRetainsOutput(t *testing.T) {
 		t.Fatalf("lost native diagnostics: %+v", result)
 	}
 }
+
+func TestRejectPreparationOutputAliases(t *testing.T) {
+	req := nativeRequest(t)
+	if err := os.Mkdir(filepath.Join(req.Source, "real"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("real", filepath.Join(req.Source, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	req.Preparation = &Preparation{Command: []string{"/bin/sh", "-c", "touch alias/ready"}, Inputs: []string{"."}, Outputs: []string{"alias/ready"}}
+	result := (&Native{}).Execute(context.Background(), req)
+	if result.Status != "error" || !strings.Contains(result.Error, "symlink") {
+		t.Fatalf("accepted aliased output: %+v", result)
+	}
+}
