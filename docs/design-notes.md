@@ -16,9 +16,40 @@ The [implementation plan](implementation.md) defines the pilot. The interface an
 
 Keep Dagger/native execution details behind internal executor interfaces and language-specific behavior inside shared check definitions. Version the repo configuration and result schema; preserve the current command entry point while migrating the Go-only configuration. Public plugin protocols and a general workflow language can wait.
 
+## Language adapter contract
+
+An adapter is an internal check implementation using the common planner, executors, and results. Keep the target/check/environment/run model; do not assign a single language to an entire repo. Each adapter defines:
+
+- **Workspace inputs:** distinguish the execution directory from the workspace root; include relevant root configuration, local dependencies, shared fixtures, generated inputs, and test configuration.
+- **Execution variants:** include selected packages/tests, toolchains, dependency selection, and language-specific options in the check identity and reported scope. Record resolved versions, not just a requested version range.
+- **Shared preparation:** declare preparation inputs, reusable outputs, compatibility, and read/write access. Lint, type checking, and tests can share compatible setup. Isolate environments with different dependency selections and serialize conflicting mutations; a generic command may keep setup embedded until it can declare a safe reusable boundary.
+- **Results and freshness:** preserve native output, collect required artifacts, and define how fresh verification bypasses verdict reuse while retaining compatible setup/build artifacts.
+
+### Rust and Python constraints
+
+- **Rust workspaces:** Cargo shares a root lockfile and build directory. Include workspace configuration and relevant path dependencies even when checking one member. Features, profiles, selected packages, and target platforms identify different verification scopes. See [Cargo workspaces](https://doc.rust-lang.org/cargo/reference/workspaces.html) and [test options](https://doc.rust-lang.org/cargo/commands/cargo-test.html).
+- **Rust build inputs:** account for `build.rs`, generated sources, environment inputs, native libraries, and required system tools. Declaring only Rust source files is insufficient; see [Cargo build scripts](https://doc.rust-lang.org/cargo/reference/build-scripts.html).
+- **Python environments:** pin the interpreter and resolved dependencies; include groups/extras, test plugins, configuration, and `conftest.py`/shared fixtures. A uv recipe is one option, not a requirement for every consumer. Reuse compatible preparation across checks; see [uv synchronization](https://docs.astral.sh/uv/concepts/projects/sync/).
+- **Python cache portability:** reuse compatible downloaded/built packages across workers. Reuse a complete virtual environment only when interpreter, platform, dependency selection, and filesystem layout match; otherwise recreate it from cached dependencies. Virtual environments contain absolute interpreter paths and are generally nonportable. Local package builds and dynamic metadata need their actual inputs reflected in underlying tool caches too. See [Python virtual environments](https://docs.python.org/3/library/venv.html) and [uv cache inputs](https://docs.astral.sh/uv/concepts/cache/).
+- **Python fresh runs:** pytest's cache records state such as previous failures, not reusable passing-suite verdicts. A fresh full-suite audit must execute the configured suite; `--last-failed` alone cannot satisfy it. Dependency caches can remain warm. See [pytest cache behavior](https://docs.pytest.org/en/stable/how-to/cache.html).
+
+Use the small Rust/Python fixtures in [implementation step 2](implementation.md#2-introduce-the-interface-and-cache-contract) to validate these boundaries before expanding shared language recipes.
+
 ## Cache contracts and invalidation
 
 Default ordinary runs to aggressive reuse, including successful check results. A reusable check implementation must define its input fingerprint, reusable outputs, environment requirements, and fresh-execution behavior. Native command checks participate in the same contract as container checks.
+
+### Separate cache layers
+
+Each layer has its own key and compatibility rules. Do not key all preparation on the complete check fingerprint.
+
+| Layer | Inputs that determine reuse |
+| --- | --- |
+| Tool/dependency preparation | Resolved toolchain, platform, manifests/lockfiles, dependency groups/extras, installer configuration, preparation implementation, and any local package/build inputs it consumes |
+| Compilation/build artifacts | Relevant source and dependencies, compiler/system tools, platform, build flags/profile/features, build scripts, and generated inputs |
+| Completed verification | Complete relevant source/test/configuration inputs, resolved environment, check implementation/options, and selected scope |
+
+For example, editing a Python test should invalidate its verification result while retaining an unchanged dependency environment. Rust source edits invalidate dependent results while Cargo reuses compatible build artifacts. Include source in preparation keys when preparation consumes it; local package builds are not determined by lockfiles alone. A check may omit layers it does not need.
 
 ### What identifies reusable work
 

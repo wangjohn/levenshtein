@@ -10,18 +10,31 @@ A repo can contain several components and languages. Use four concepts:
 
 | Concept | Responsibility | Example |
 | --- | --- | --- |
-| Target | A component's working directory and explicitly declared source inputs | A Go service or Swift application |
+| Target | A component's working directory, workspace context, and explicitly declared source inputs | A Go service, Swift application, Cargo package, or Python package |
 | Check | A named verification operation, its options, input fingerprint, and results | Shared Go lint, Swift tests, or a repo-owned script |
-| Environment | Execution requirements and tool versions | A pinned Linux container or a macOS/Swift toolchain |
+| Environment | Execution requirements, tool versions, and resolved dependency setup | A pinned Linux container or a macOS/Swift toolchain |
 | Run | A selection of checks and cache/freshness policy | `branch`, `pre-merge`, `main`, or a custom name |
 
-Keep configuration, planning, cache lookup, and reporting in a small Go runner outside the Dagger module. Preserve the `./verify` entry point. Dagger executes container checks; a native executor launches checks on the supplied host. Keep Go module rules, Swift toolchain details, and native diagnostic parsing inside check implementations. Planning should work without starting Docker or requiring Xcode; start an executor only when a selected check needs execution.
+Keep configuration, planning, cache lookup, and reporting in a small Go runner outside the Dagger module. Preserve the `./verify` entry point. Dagger executes container checks; a native executor launches checks on the supplied host. Keep language-specific workspace rules, toolchain details, dependency setup, and native diagnostic parsing inside check implementations. Planning should work without starting Docker or requiring Xcode; start an executor only when a selected check needs execution.
 
-Shared, versioned check definitions own reusable tool setup, defaults, options, execution, and interpretation of results. Start with the existing Go lint check and a `command` check for application-owned scripts; add shared Go/Swift test and lint definitions as consumers need them. An internal registry is enough initially. A new language should require a check implementation or configuration, with the same planner, run model, and result contract.
+Shared, versioned check definitions own reusable tool setup, defaults, options, execution, and interpretation of results. Start with the existing Go lint check and a `command` check for application-owned scripts; add shared language test and lint definitions as consumers need them. An internal registry is enough initially. A new language should require a check implementation or configuration, with the same planner, run model, and result contract.
 
-Targets declare the source files they need in addition to a working directory, including shared contracts or workspace manifests. Supply explicit product inputs for Family Books. Application tests and assertions stay beside their application code; shared rules and execution definitions live in Levenshtein. Consumers adopt shared improvements by updating a pinned revision.
+Targets distinguish the working directory from their workspace context and declare required inputs beyond that directory: root manifests/lockfiles, local dependencies, shared configuration, fixtures, generated inputs, or contracts. A repo may contain targets in several languages; a check may prepare multiple toolchains, as for a Python package with a Rust extension. Supply explicit product inputs for Family Books. Application tests and assertions stay beside their application code; shared rules and execution definitions live in Levenshtein. Consumers adopt shared improvements by updating a pinned revision.
 
 Existing CI owns workers, triggers, schedules, credentials, and merge gates. It supplies the appropriate workers for checks requiring execution. When a run spans jobs or platforms, aggregate results against the complete selected check list; missing checks or unavailable environments without eligible cached results leave the run incomplete. Levenshtein's own workflow verifies its runner and fixtures.
+
+## Rust and Python compatibility
+
+The same interface must accommodate both languages. These are design examples, not implemented integrations:
+
+| Concern | Rust | Python |
+| --- | --- | --- |
+| Target context | Cargo package plus workspace root and local dependencies | Package/service plus shared configuration, fixtures, and local dependencies |
+| Checks | Formatting, Clippy, and tests | Ruff, type checking, and pytest |
+| Execution variants | Toolchain, selected packages, features, build profile, and target platform | Interpreter, resolved dependencies, groups/extras, plugins, and test selection |
+| Reusable work | Dependency downloads and compatible compiled artifacts | Dependency downloads, built packages, and compatible prepared environments |
+
+Adapters include execution variants in result identity and report the scope verified. Keep these options inside check definitions; the planner needs no language-specific branches. Preserve repo-owned commands and dependency tools, then add shared recipes when repeated setup warrants them. [Design notes](design-notes.md#language-adapter-contract) cover language-specific cache constraints.
 
 ## Aggressive caching is a core requirement
 
@@ -34,13 +47,15 @@ Fast repeated verification and fast CI are primary acceptance criteria. Cache de
 | Analysis and test results | Reuse successful results for matching inputs | Bypass verdict reuse and execute verification |
 | Check setup | Share compatible preparation among selected checks | Share preparation while resetting mutable test/service state |
 
+Give dependency preparation, compilation, and completed verification separate cache keys derived from their own inputs. A source or test edit should invalidate dependent results while retaining compatible setup and build artifacts.
+
 A cacheable check supplies a fingerprint of its source and test inputs, relevant dependencies, invoked scripts and shared implementation, options, environment, and toolchain. Prefer fingerprints at a meaningful check/package scope so an unrelated edit does not invalidate everything. Include uncommitted changes and deletions. Record Git revisions as provenance; a new commit alone should not invalidate unchanged check inputs.
 
 For a repo-owned command, begin with the complete declared target source plus shared inputs, script/helper contents, arguments, and environment requirements. Narrow inputs as evidence permits. Checks against live or otherwise unbounded external state declare fresh execution; they still reuse dependency and compiler caches. Unknown input relationships broaden the fingerprint. They must not produce an unjustified cache hit.
 
 Persist useful caches across local runs, agents, and ephemeral CI jobs using supported existing cache storage or persistent execution workers. Wire persistence for both Dagger and native checks, and verify restoration in a new worker/process. Use exact fingerprints for completed results; dependency/build caches may use compatible restore fallbacks because the underlying tools revalidate their contents. Dedicated cache infrastructure is a later decision, not a prerequisite for shared cache reuse.
 
-Avoid duplicate work within a run: resolve checks once, share tool/build preparation, and coalesce identical work where the executor supports it. Run independent checks concurrently within explicit CPU, memory, and service limits. Treat incompatible mutable build directories and test state as isolated resources.
+Avoid duplicate work within a run: resolve checks once and give reusable preparation an identity, declared inputs/outputs, and access rules. Compatible checks share tool/dependency/build preparation; coalesce identical work where the executor supports it. Run independent checks concurrently within explicit CPU, memory, and service limits. Isolate incompatible mutable environments, build directories, and test state; serialize conflicting writers.
 
 Reports distinguish executed checks from reused results and record the original verification time, fingerprint, source/shared provenance, environment, cache lookup/restore cost, and execution time. Restore the diagnostics and required artifacts with the result. Missing, corrupt, or incompatible entries become misses. A cached success satisfies only the same required scope and environment. Incomplete execution, tool errors, and timeouts never become passing entries.
 
@@ -89,9 +104,16 @@ Retain the current lint behavior, native diagnostics, fixture coverage, consumer
 
 ### 2. Introduce the interface and cache contract
 
-Add versioned target/check/environment/run configuration, a planner, common results, and internal check/executor interfaces. Give each check an explicit input/cache contract. Carry forward the Go caches and expose cache-hit evidence; add native command execution and caching under the same result contract. Keep planning independent of execution tools.
+Add versioned target/check/environment/run configuration, a planner, common results, and internal check/executor interfaces. Give each check an explicit input/cache contract, including workspace context, execution variants, separate cache layers, and shareable preparation. Carry forward the Go caches and expose cache-hit evidence; add native command execution and caching under the same result contract. Keep planning independent of execution tools.
 
-**Done when:** an unchanged eligible check reuses its result without starting its executor, input changes invalidate the right result, and an unsupported or incomplete check cannot report success. A new check implementation requires no language-specific branches in the planner.
+Add two small compatibility fixtures while establishing the interface:
+
+- A Rust workspace with two packages and a local dependency.
+- A Python package with a locked dependency setup, shared pytest fixtures, and two checks sharing compatible preparation.
+
+Use minimal check definitions or repo-owned commands to exercise the contract; complete Rust/Python integrations remain consumer-driven.
+
+**Done when:** an unchanged eligible check reuses its result without starting its executor, input changes invalidate the right result, and an unsupported or incomplete check cannot report success. Both fixtures prove workspace/local-dependency and test-configuration invalidation, distinct result identities for execution variants, retained compatible preparation after source edits, and fresh test execution with dependency/build reuse. A new check implementation requires no language-specific branches in the planner.
 
 ### 3. Wrap Benchplan's existing checks
 
@@ -121,7 +143,7 @@ Give one scheduled job a concrete failure, slow check, or recurring mistake, plu
 
 ## Pilot completion
 
-- Existing Go checks and native Swift checks share the same core interface and result contract.
+- Existing Go checks and native Swift checks share the same core interface and result contract; small Rust/Python fixtures validate that contract beyond the pilot languages.
 - Real consumer tests and lint run consistently locally and in existing CI.
 - Aggressive reuse measurably reduces repeated work across local and CI runs, with verified invalidation.
 - Daily audits execute the complete configured suite fresh while retaining compatible build/dependency caches.
