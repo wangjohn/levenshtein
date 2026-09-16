@@ -16,9 +16,11 @@ import (
 )
 
 func main() { os.Exit(run()) }
+
 func run() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
 	code, err := runCommand(ctx, os.Args[1:], os.Stdout)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -32,6 +34,7 @@ func runCommand(ctx context.Context, args []string, output io.Writer) (int, erro
 		return 2, err
 	}
 	cacheRoot, _ := os.UserCacheDir()
+
 	opts, err := parseArgs(args, options{
 		source:   source,
 		shared:   os.Getenv("LEVENSHTEIN_SHARED_ROOT"),
@@ -43,6 +46,7 @@ func runCommand(ctx context.Context, args []string, output io.Writer) (int, erro
 	if err != nil {
 		return 2, err
 	}
+
 	source, err = filepath.Abs(opts.source)
 	if err != nil {
 		return 2, err
@@ -55,6 +59,7 @@ func runCommand(ctx context.Context, args []string, output io.Writer) (int, erro
 	if err != nil {
 		return 2, err
 	}
+
 	encoder := json.NewEncoder(output)
 	encoder.SetIndent("", "  ")
 	if opts.dry {
@@ -63,6 +68,7 @@ func runCommand(ctx context.Context, args []string, output io.Writer) (int, erro
 		}
 		return 0, nil
 	}
+
 	if opts.shared == "" {
 		return 2, fmt.Errorf("set --shared to the pinned Levenshtein checkout, or use its ./verify launcher")
 	}
@@ -70,6 +76,7 @@ func runCommand(ctx context.Context, args []string, output io.Writer) (int, erro
 	if err != nil {
 		return 2, err
 	}
+
 	cacheDir, err := filepath.Abs(opts.cacheDir)
 	if err != nil {
 		return 2, err
@@ -80,9 +87,11 @@ func runCommand(ctx context.Context, args []string, output io.Writer) (int, erro
 			return 2, fmt.Errorf("cache directory must be outside source and shared checkouts")
 		}
 	}
+
 	cache := &verify.Cache{Dir: cacheDir}
 	dagger := &verify.Dagger{}
 	defer dagger.Close()
+
 	report := verify.Execute(ctx, plan, shared, map[string]verify.Executor{
 		"dagger": verify.CachedExecutor{Cache: cache, Executor: dagger},
 		"native": verify.CachedExecutor{Cache: cache, Executor: &verify.Native{Cache: cache}},

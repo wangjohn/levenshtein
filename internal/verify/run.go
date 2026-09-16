@@ -20,6 +20,7 @@ type Result struct {
 	Stages      []StageResult   `json:"stages,omitempty"`
 	Details     json.RawMessage `json:"details,omitempty"`
 }
+
 type Report struct {
 	Version int      `json:"version"`
 	Run     string   `json:"run"`
@@ -27,11 +28,13 @@ type Report struct {
 	Plan    Plan     `json:"plan"`
 	Results []Result `json:"results"`
 }
+
 type Request struct {
 	Source, Shared string
 	Fresh          bool
 	PlannedCheck
 }
+
 type Executor interface {
 	Execute(context.Context, Request) Result
 }
@@ -50,12 +53,14 @@ func Execute(ctx context.Context, plan Plan, shared string, executors map[string
 		} else {
 			result.Error = fmt.Sprintf("executor %q is unavailable", check.Environment.Executor)
 		}
+
 		switch result.Status {
 		case "passed", "failed", "error", "cancelled", "incomplete":
 		default:
 			result.Status = "error"
 			result.Error = "executor returned an invalid status"
 		}
+
 		result.DurationMS = time.Since(start).Milliseconds()
 		if result.VerifiedAt.IsZero() {
 			result.VerifiedAt = start.UTC()
@@ -66,6 +71,7 @@ func Execute(ctx context.Context, plan Plan, shared string, executors map[string
 			r.Status = "failed"
 		}
 	}
+
 	if len(plan.Checks) == 0 {
 		r.Status = "incomplete"
 	}

@@ -16,6 +16,7 @@ func lockFile(ctx context.Context, path string) (func(), error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, err
 	}
+
 	lock := flock.New(path, flock.SetPermissions(0600))
 	locked, err := lock.TryLockContext(ctx, 20*time.Millisecond)
 	if err != nil || !locked {

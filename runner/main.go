@@ -43,6 +43,7 @@ func lint(ctx context.Context, source *dagger.Directory, module string, tools to
 	if _, err := source.File(path.Join(module, "go.mod")).Contents(ctx); err != nil {
 		return nil, fmt.Errorf("module %q needs a readable go.mod: %w", module, err)
 	}
+
 	ctr := dag.Container().From(tools.GoImage).
 		WithEnvVariable("GOTOOLCHAIN", "local").
 		WithMountedCache("/go/pkg/mod", dag.CacheVolume("levenshtein-go-mod-"+tools.Go)).
@@ -50,6 +51,7 @@ func lint(ctx context.Context, source *dagger.Directory, module string, tools to
 		WithExec([]string{"go", "install", "honnef.co/go/tools/cmd/staticcheck@" + tools.Staticcheck}).
 		WithDirectory("/src", source).
 		WithWorkdir(path.Join("/src", module))
+
 	// Go selects vendor mode for modules/workspaces that use it, and readonly otherwise.
 	packages, err := ctr.WithExec([]string{"go", "list", "./..."}).Stdout(ctx)
 	if err != nil {
@@ -58,6 +60,7 @@ func lint(ctx context.Context, source *dagger.Directory, module string, tools to
 	if strings.TrimSpace(packages) == "" {
 		return nil, fmt.Errorf("module %q contains no Go packages; refusing an empty pass", module)
 	}
+
 	if nonce == "" {
 		ctr = ctr.WithMountedCache("/root/.cache/staticcheck", dag.CacheVolume("levenshtein-staticcheck-"+tools.Staticcheck+"-"+tools.Go)).
 			WithEnvVariable("STATICCHECK_CACHE", "/root/.cache/staticcheck")
@@ -85,10 +88,12 @@ func parseFindings(exitCode int, stdout, stderr string, checks []string) ([]diag
 	if exitCode != 0 && exitCode != 1 {
 		return nil, fmt.Errorf("Staticcheck exited %d: %s\n%s", exitCode, stderr, stdout)
 	}
+
 	allowed := map[string]bool{}
 	for _, check := range checks {
 		allowed[check] = true
 	}
+
 	var findings []diagnostic
 	decoder := json.NewDecoder(strings.NewReader(stdout))
 	for {
@@ -106,6 +111,7 @@ func parseFindings(exitCode int, stdout, stderr string, checks []string) ([]diag
 		finding.Location.File = strings.TrimPrefix(finding.Location.File, "/src/")
 		findings = append(findings, finding)
 	}
+
 	if (exitCode == 0 && len(findings) != 0) || (exitCode == 1 && len(findings) == 0) {
 		return nil, fmt.Errorf("Staticcheck exit %d does not match diagnostics: %s\n%s", exitCode, stdout, stderr)
 	}
@@ -123,10 +129,12 @@ func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce strin
 			return fmt.Errorf("%s fixture must pass: findings=%v error=%v", name, findings, err)
 		}
 	}
+
 	bad, err := lint(ctx, fixtures.Directory("bad"), ".", tools, nonce)
 	if err != nil {
 		return fmt.Errorf("bad fixture must fail for its lint diagnostics, not a tool error: %w", err)
 	}
+
 	counts := map[string]int{}
 	for _, finding := range bad {
 		counts[finding.Code]++
@@ -136,6 +144,7 @@ func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce strin
 			return fmt.Errorf("bad fixture must produce exactly one %s diagnostic; got %v", check, counts)
 		}
 	}
+
 	for _, fixture := range []struct{ name, message string }{
 		{"broken", "undefined: undefinedFunction"},
 		{"empty", "contains no Go packages"},
@@ -163,10 +172,12 @@ func (m *Levenshtein) GoLint(ctx context.Context,
 	if !filepath.IsLocal(module) || path.Clean(module) != module || strings.Contains(module, "\\") {
 		return fmt.Errorf("invalid module path %q", module)
 	}
+
 	var tools toolchain
 	if err := json.Unmarshal(toolchainJSON, &tools); err != nil {
 		return err
 	}
+
 	findings, err := lint(ctx, source, module, tools, nonce)
 	if err != nil {
 		return err

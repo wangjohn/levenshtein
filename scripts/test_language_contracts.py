@@ -45,12 +45,15 @@ def exercise(language, temporary):
                 "Python lint and pytest did not share preparation")
     trace = source / "test-executions.txt"
     require(trace.read_text().count("executed") == 1, "cold verification did not execute tests")
+
     warm = run("warm")
     status(warm, "hit")
     require(trace.read_text().count("executed") == 1, "cache hit reexecuted tests")
     require(warm[-1]["verified_at"] == first[-1]["verified_at"], "cache hit changed original verification time")
+
     (source / "README.md").write_text("An unrelated documentation edit.\n")
     status(run("unrelated_edit"), "hit")
+
     fresh = run("fresh", "audit")
     status(fresh, "fresh")
     require(trace.read_text().count("executed") == 2, "fresh audit reused a test verdict")
@@ -86,16 +89,19 @@ def exercise(language, temporary):
     lock = source / ("Cargo.lock" if language == "rust" else "uv.lock")
     lock.write_text(lock.read_text() + "\n# lockfile input changed\n")
     status(run("lockfile_edit"), "miss")
+
     if language == "rust":
         broken = source / "crates/arithmetic/src/lib.rs"
         broken.write_text(broken.read_text().replace("a + b", "a + b + 1"))
     else:
         broken = source / "tests/conftest.py"
         broken.write_text(broken.read_text().replace("return 3", "return 99"))
+
     failure = run("dependency_or_fixture_failure", success=False)
     require(failure[-1]["status"] == "failed", f"{language}: expected actual assertion failure: {failure}")
     require("assert" in (failure[-1].get("stdout", "") + failure[-1].get("stderr", "")).lower(),
             "a tooling error substituted for the intended failed assertion")
+
     print(json.dumps({"language": language, "milliseconds": measurements}), flush=True)
 
 

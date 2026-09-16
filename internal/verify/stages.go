@@ -41,6 +41,7 @@ func (n *Native) stage(ctx context.Context, req Request, kind string, stage *Pre
 		r := Result{Status: "error", Error: err.Error()}
 		return info, &r
 	}
+
 	env := nativeEnv(req, stage.Env)
 	// Build keys also include dependency preparation, whose inputs may be outside
 	// the build source scope. Environment/version selection is always explicit.
@@ -53,8 +54,10 @@ func (n *Native) stage(ctx context.Context, req Request, kind string, stage *Pre
 		}
 		dependency = digest([]any{req.Preparation, d})
 	}
+
 	key := digest([]any{kind, req.Source, req.Target.Workspace, stage, inputs, env, req.Environment, runtime.GOOS, runtime.GOARCH, impl, dependency})
 	info.Key = key
+
 	path := ""
 	var prior stageEntry
 	if n.Cache != nil && req.Environment.Identity != "" {
@@ -71,6 +74,7 @@ func (n *Native) stage(ctx context.Context, req Request, kind string, stage *Pre
 			return info, nil
 		}
 	}
+
 	for _, out := range stage.Outputs {
 		if _, err := outputPath(req.Source, out); err != nil {
 			r := Result{Status: "error", Error: err.Error()}
@@ -80,6 +84,7 @@ func (n *Native) stage(ctx context.Context, req Request, kind string, stage *Pre
 	if r := validateTools(ctx, filepath.Join(req.Source, req.Target.Workspace), req.Environment.Tools, env); r != nil {
 		return info, r
 	}
+
 	result := command(ctx, filepath.Join(req.Source, req.Target.Workspace), stage.Command, env, stage.Timeout)
 	if result.Status != "passed" {
 		result.Error = kind + ": " + result.Error
@@ -96,6 +101,7 @@ func (n *Native) stage(ctx context.Context, req Request, kind string, stage *Pre
 		result.Error = err.Error()
 		return info, &result
 	}
+
 	after, err := snapshot(req.Source, stage.Inputs, stage.Outputs, false)
 	if err == nil && after == inputs && req.Environment.Identity != "" {
 		record := stageEntry{Key: key, Outputs: output}

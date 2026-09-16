@@ -21,6 +21,7 @@ func configureProcess(cmd *exec.Cmd) {
 		return err
 	}
 }
+
 func cleanupProcess(cmd *exec.Cmd) {
 	if cmd.Process != nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)

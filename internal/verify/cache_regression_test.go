@@ -15,11 +15,13 @@ func TestReviewFreshFailureInvalidatesOldSuccess(t *testing.T) {
 	if got := runner.Execute(context.Background(), req); got.Status != "passed" {
 		t.Fatal(got)
 	}
+
 	req.Fresh = true
 	executor.status = "failed"
 	if got := runner.Execute(context.Background(), req); got.Status != "failed" {
 		t.Fatal(got)
 	}
+
 	req.Fresh = false
 	if got := runner.Execute(context.Background(), req); got.Status == "passed" {
 		t.Fatalf("returned older green after fresh failure: %+v; calls=%d", got, executor.calls)
@@ -55,6 +57,7 @@ func TestReviewInputsChangedDuringCacheLockWait(t *testing.T) {
 	executor := &countingExecutor{status: "passed"}
 	cache := &Cache{Dir: t.TempDir()}
 	runner := CachedExecutor{Cache: cache, Executor: executor}
+
 	first := runner.Execute(context.Background(), req)
 	unlock, err := lockFile(context.Background(), filepath.Join(cache.Dir, "locks", "result-"+first.Cache.Key))
 	if err != nil {

@@ -19,11 +19,13 @@ type Config struct {
 	Preparations map[string]Preparation `json:"preparations,omitempty"`
 	Builds       map[string]Preparation `json:"builds,omitempty"`
 }
+
 type Target struct {
 	Dir       string   `json:"dir"`
 	Workspace string   `json:"workspace"`
 	Inputs    []string `json:"inputs"`
 }
+
 type Environment struct {
 	Executor string            `json:"executor"`
 	Identity string            `json:"identity,omitempty"`
@@ -31,10 +33,12 @@ type Environment struct {
 	PassEnv  []string          `json:"pass_env,omitempty"`
 	Tools    []Tool            `json:"tools,omitempty"`
 }
+
 type Tool struct {
 	Command []string `json:"command"`
 	Version string   `json:"version"`
 }
+
 type Preparation struct {
 	Command []string          `json:"command"`
 	Inputs  []string          `json:"inputs"`
@@ -42,6 +46,7 @@ type Preparation struct {
 	Env     map[string]string `json:"env,omitempty"`
 	Timeout string            `json:"timeout,omitempty"`
 }
+
 type Check struct {
 	Kind         string            `json:"kind"`
 	Target       string            `json:"target"`
@@ -55,6 +60,7 @@ type Check struct {
 	Build        string            `json:"build,omitempty"`
 	FreshCommand []string          `json:"fresh_command,omitempty"`
 }
+
 type Run struct {
 	Checks []string `json:"checks"`
 	Fresh  bool     `json:"fresh,omitempty"`
@@ -71,6 +77,7 @@ func decode(data []byte, value any) error {
 	}
 	return nil
 }
+
 func Load(source string) (Config, error) {
 	data, err := os.ReadFile(filepath.Join(source, "levenshtein.json"))
 	if os.IsNotExist(err) {
@@ -80,11 +87,13 @@ func Load(source string) (Config, error) {
 	}
 	return Parse(data)
 }
+
 func Parse(data []byte) (Config, error) {
 	var header map[string]json.RawMessage
 	if err := json.Unmarshal(data, &header); err != nil {
 		return Config{}, err
 	}
+
 	if _, ok := header["version"]; ok {
 		var cfg Config
 		if err := decode(data, &cfg); err != nil {
@@ -95,6 +104,7 @@ func Parse(data []byte) (Config, error) {
 		}
 		return cfg, nil
 	}
+
 	var old struct {
 		Modules []string            `json:"modules"`
 		Runs    map[string][]string `json:"runs"`
@@ -105,6 +115,7 @@ func Parse(data []byte) (Config, error) {
 	if len(old.Modules) == 0 {
 		return Config{}, fmt.Errorf("configure at least one Go module directory")
 	}
+
 	cfg := Config{Version: 1, Targets: map[string]Target{}, Environments: map[string]Environment{"go": {Executor: "dagger"}}, Checks: map[string]Check{}, Runs: map[string]Run{}}
 	seen := map[string]bool{}
 	for i, module := range old.Modules {
@@ -116,7 +127,9 @@ func Parse(data []byte) (Config, error) {
 		cfg.Targets[id] = Target{Dir: module, Workspace: ".", Inputs: []string{"."}}
 		cfg.Checks["go-lint/"+id] = Check{Kind: "go-lint", Target: id, Environment: "go"}
 	}
+
 	cfg.Checks["self-test"] = Check{Kind: "self-test", Target: "module-0", Environment: "go"}
+
 	for name, checks := range old.Runs {
 		run := Run{Fresh: name == "main"}
 		seen := map[string]bool{}

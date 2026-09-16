@@ -24,10 +24,12 @@ func (n *Native) Execute(ctx context.Context, req Request) Result {
 	if err != nil {
 		return Result{Status: "error", Error: err.Error()}
 	}
+
 	env := nativeEnv(req, req.Check.Env)
 	if result := validateTools(ctx, dir, req.Environment.Tools, env); result != nil {
 		return *result
 	}
+
 	// Hold ownership of mutable preparation through the check that consumes it.
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -40,10 +42,12 @@ func (n *Native) Execute(ctx context.Context, req Request) Result {
 			return *failure
 		}
 	}
+
 	args := req.Check.Command
 	if req.Fresh && len(req.Check.FreshCommand) > 0 {
 		args = req.Check.FreshCommand
 	}
+
 	result := command(ctx, dir, args, env, req.Check.Timeout)
 	result.Stages = stages
 	if result.Status == "passed" {

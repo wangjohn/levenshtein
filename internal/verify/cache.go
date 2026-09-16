@@ -16,27 +16,33 @@ type CacheInfo struct {
 	Reason   string `json:"reason,omitempty"`
 	LookupMS int64  `json:"lookup_ms"`
 }
+
 type StageResult struct {
 	Kind       string `json:"kind"`
 	Key        string `json:"key"`
 	Reused     bool   `json:"reused"`
 	DurationMS int64  `json:"duration_ms"`
 }
+
 type Cache struct{ Dir string }
+
 type CachedExecutor struct {
 	Cache    *Cache
 	Executor Executor
 }
+
 type artifact struct {
 	Path string
 	Mode uint32
 	Data []byte
 }
+
 type entry struct {
 	Key       string
 	Result    Result
 	Artifacts []artifact
 }
+
 type envelope struct {
 	Checksum string
 	Data     json.RawMessage
@@ -53,16 +59,19 @@ func writeRecord(path string, value any) error {
 	}
 	return atomicWrite(path, body, 0600)
 }
+
 func readRecord(path string, value any) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
+
 	data, err := io.ReadAll(io.LimitReader(f, 64<<20))
 	if err != nil {
 		return err
 	}
+
 	var e envelope
 	if err = json.Unmarshal(data, &e); err != nil {
 		return err
@@ -72,6 +81,7 @@ func readRecord(path string, value any) error {
 	}
 	return json.Unmarshal(e.Data, value)
 }
+
 func (c *Cache) load(req Request, key string) (Result, error) {
 	var e entry
 	if err := readRecord(filepath.Join(c.Dir, "results", key+".json"), &e); err != nil {
@@ -80,6 +90,7 @@ func (c *Cache) load(req Request, key string) (Result, error) {
 	if e.Key != key || e.Result.Status != "passed" || e.Result.VerifiedAt.IsZero() || len(e.Artifacts) != len(req.Check.Artifacts) {
 		return Result{}, fmt.Errorf("incomplete cached result")
 	}
+
 	// Validate every output destination before restoring any artifacts.
 	for i, a := range e.Artifacts {
 		if a.Path != req.Check.Artifacts[i] {
@@ -89,11 +100,13 @@ func (c *Cache) load(req Request, key string) (Result, error) {
 			return Result{}, err
 		}
 	}
+
 	root, err := os.OpenRoot(req.Source)
 	if err != nil {
 		return Result{}, err
 	}
 	defer root.Close()
+
 	for _, a := range e.Artifacts {
 		if err := atomicWriteRoot(root, a.Path, a.Data, os.FileMode(a.Mode)&0777); err != nil {
 			return Result{}, err
@@ -101,8 +114,10 @@ func (c *Cache) load(req Request, key string) (Result, error) {
 	}
 	return e.Result, nil
 }
+
 func (c *Cache) save(req Request, key string, result Result) error {
 	e := entry{Key: key, Result: result}
+
 	root, err := os.OpenRoot(req.Source)
 	if err != nil {
 		return err
@@ -128,11 +143,13 @@ func (c *Cache) save(req Request, key string, result Result) error {
 	}
 	return writeRecord(filepath.Join(c.Dir, "results", key+".json"), e)
 }
+
 func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 	start := time.Now()
 	if ctx.Err() != nil {
 		return Result{Status: "cancelled", Error: ctx.Err().Error()}
 	}
+
 	if c.Cache != nil && req.Environment.Executor == "native" {
 		unlock, err := lockFile(ctx, filepath.Join(c.Cache.Dir, "locks", "workspace-"+digest(req.Source)))
 		if err != nil {
@@ -140,6 +157,7 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 		}
 		defer unlock()
 	}
+
 	info := CacheInfo{Status: "disabled"}
 	eligible := req.Check.Cache || req.Environment.Executor == "dagger"
 	if c.Cache == nil || !eligible {
@@ -147,6 +165,7 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 		result.Cache = info
 		return result
 	}
+
 	key, unlock, err := c.Cache.lockedFingerprint(ctx, req)
 	if err != nil {
 		result := c.Executor.Execute(ctx, req)
@@ -161,6 +180,7 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 		req.Fresh = true
 		info.Reason = "previous execution did not publish a successful result; bypassing underlying verdict caches"
 	}
+
 	if !req.Fresh {
 		if result, err := c.Cache.load(req, key); err == nil {
 			after, changedErr := fingerprint(req)
@@ -174,6 +194,7 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 	} else {
 		info.Status = "fresh"
 	}
+
 	// A new observation supersedes an older success, including failure/cancellation.
 	if err := os.Remove(filepath.Join(c.Cache.Dir, "results", key+".json")); err != nil && !os.IsNotExist(err) {
 		return Result{Status: "error", Error: "cannot invalidate old cached result: " + err.Error()}
@@ -187,6 +208,7 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 	result.VerifiedAt = executed.UTC()
 	result.ExecutionMS = time.Since(executed).Milliseconds()
 	result.Cache = info
+
 	if result.Status == "passed" {
 		after, err := fingerprint(req)
 		if err != nil || after != key {
