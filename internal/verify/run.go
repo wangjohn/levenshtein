@@ -8,14 +8,17 @@ import (
 )
 
 type Result struct {
-	ID         string          `json:"id"`
-	Status     string          `json:"status"`
-	DurationMS int64           `json:"duration_ms"`
-	VerifiedAt time.Time       `json:"verified_at"`
-	Stdout     string          `json:"stdout,omitempty"`
-	Stderr     string          `json:"stderr,omitempty"`
-	Error      string          `json:"error,omitempty"`
-	Details    json.RawMessage `json:"details,omitempty"`
+	ID          string          `json:"id"`
+	Status      string          `json:"status"`
+	DurationMS  int64           `json:"duration_ms"`
+	VerifiedAt  time.Time       `json:"verified_at"`
+	Stdout      string          `json:"stdout,omitempty"`
+	Stderr      string          `json:"stderr,omitempty"`
+	Error       string          `json:"error,omitempty"`
+	Cache       CacheInfo       `json:"cache"`
+	ExecutionMS int64           `json:"execution_ms"`
+	Stages      []StageResult   `json:"stages,omitempty"`
+	Details     json.RawMessage `json:"details,omitempty"`
 }
 type Report struct {
 	Version int      `json:"version"`
@@ -54,7 +57,10 @@ func Execute(ctx context.Context, plan Plan, shared string, executors map[string
 			result.Error = "executor returned an invalid status"
 		}
 		result.DurationMS = time.Since(start).Milliseconds()
-		result.VerifiedAt = start.UTC()
+		if result.VerifiedAt.IsZero() {
+			result.VerifiedAt = start.UTC()
+			result.ExecutionMS = result.DurationMS
+		}
 		r.Results = append(r.Results, result)
 		if result.Status != "passed" {
 			r.Status = "failed"

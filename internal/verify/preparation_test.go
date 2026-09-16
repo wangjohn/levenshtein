@@ -9,8 +9,8 @@ import (
 
 func TestReviewConflictingPreparation(t *testing.T) {
 	req := nativeRequest(t)
-	prepA := &Preparation{Command: []string{"/bin/sh", "-c", "printf A > ready"}, Inputs: []string{"."}, Outputs: []string{"ready"}}
-	prepB := &Preparation{Command: []string{"/bin/sh", "-c", "printf B > ready"}, Inputs: []string{"."}, Outputs: []string{"ready"}}
+	prepA := &Preparation{Command: []string{"/bin/sh", "-c", "printf A > ready"}, Inputs: []string{"lock"}, Outputs: []string{"ready"}}
+	prepB := &Preparation{Command: []string{"/bin/sh", "-c", "printf B > ready"}, Inputs: []string{"lock"}, Outputs: []string{"ready"}}
 	req.Check.Command = []string{"/bin/sh", "-c", "cat ready"}
 	n := &Native{}
 	for i, prep := range []*Preparation{prepA, prepB, prepA} {

@@ -3,9 +3,7 @@ package verify
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
+
 	"fmt"
 	"os"
 	"os/exec"
@@ -20,8 +18,9 @@ import (
 // Native serializes mutable preparation within this runner. Cross-process reuse
 // is handled by the cache layer; repo commands remain trusted, unsandboxed code.
 type Native struct {
-	mu       sync.Mutex
-	prepared map[string][]string
+	mu     sync.Mutex
+	stages map[string]stageEntry
+	Cache  *Cache
 }
 
 func nativeEnv(req Request, extra map[string]string) []string {
@@ -143,48 +142,27 @@ func (n *Native) Execute(ctx context.Context, req Request) Result {
 	// Hold ownership of mutable preparation through the check that consumes it.
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	if req.Preparation != nil {
-		if n.prepared == nil {
-			n.prepared = map[string][]string{}
+	stages := []StageResult{}
+	for _, item := range []struct {
+		kind  string
+		stage *Preparation
+	}{{"preparation", req.Preparation}, {"build", req.Build}} {
+		if item.stage == nil {
+			continue
 		}
-		data, _ := json.Marshal(struct {
-			Source, Workspace string
-			Env               []string
-			Preparation       *Preparation
-		}{req.Source, req.Target.Workspace, nativeEnv(req, req.Preparation.Env), req.Preparation})
-		sum := sha256.Sum256(data)
-		key := hex.EncodeToString(sum[:])
-		_, known := n.prepared[key]
-		ready := known && outputsExist(req.Source, req.Preparation.Outputs)
-		if !ready {
-			owned := make([]string, 0, len(req.Preparation.Outputs))
-			for _, path := range req.Preparation.Outputs {
-				owned = append(owned, filepath.Join(req.Source, path))
-			}
-			for prior, outputs := range n.prepared {
-				for _, old := range outputs {
-					for _, path := range owned {
-						if old == path || strings.HasPrefix(old, path+string(filepath.Separator)) || strings.HasPrefix(path, old+string(filepath.Separator)) {
-							delete(n.prepared, prior)
-						}
-					}
-				}
-			}
-			if result := validateTools(ctx, filepath.Join(req.Source, req.Target.Workspace), req.Environment.Tools, nativeEnv(req, req.Preparation.Env)); result != nil {
-				return *result
-			}
-			prep := command(ctx, filepath.Join(req.Source, req.Target.Workspace), req.Preparation.Command, nativeEnv(req, req.Preparation.Env), req.Preparation.Timeout)
-			if prep.Status != "passed" {
-				prep.Error = "preparation: " + prep.Error
-				return prep
-			}
-			if !outputsExist(req.Source, req.Preparation.Outputs) {
-				return Result{Status: "error", Error: "preparation did not produce its declared outputs"}
-			}
-			n.prepared[key] = owned
+		info, failure := n.stage(ctx, req, item.kind, item.stage)
+		stages = append(stages, info)
+		if failure != nil {
+			failure.Stages = stages
+			return *failure
 		}
 	}
-	result := command(ctx, dir, req.Check.Command, env, req.Check.Timeout)
+	args := req.Check.Command
+	if req.Fresh && len(req.Check.FreshCommand) > 0 {
+		args = req.Check.FreshCommand
+	}
+	result := command(ctx, dir, args, env, req.Check.Timeout)
+	result.Stages = stages
 	if result.Status == "passed" {
 		for _, path := range req.Check.Artifacts {
 			full, err := contained(req.Source, path)

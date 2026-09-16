@@ -22,6 +22,8 @@ func run() int {
 		return 2
 	}
 	shared := os.Getenv("LEVENSHTEIN_SHARED_ROOT")
+	cacheRoot, _ := os.UserCacheDir()
+	cacheDir := filepath.Join(cacheRoot, "levenshtein", "verification-v1")
 	name := "branch"
 	named := false
 	dry := false
@@ -30,11 +32,11 @@ func run() int {
 		arg := args[i]
 		switch {
 		case arg == "--help" || arg == "-h":
-			fmt.Println("Usage: verify [RUN] [--source DIRECTORY] [--shared DIRECTORY] [--dry-run]")
+			fmt.Println("Usage: verify [RUN] [--source DIRECTORY] [--shared DIRECTORY] [--cache-dir DIRECTORY] [--dry-run]")
 			return 0
 		case arg == "--dry-run":
 			dry = true
-		case arg == "--source" || arg == "--shared":
+		case arg == "--source" || arg == "--shared" || arg == "--cache-dir":
 			if i+1 == len(args) {
 				fmt.Fprintln(os.Stderr, "missing value for", arg)
 				return 2
@@ -42,6 +44,8 @@ func run() int {
 			i++
 			if arg == "--source" {
 				source = args[i]
+			} else if arg == "--cache-dir" {
+				cacheDir = args[i]
 			} else {
 				shared = args[i]
 			}
@@ -95,7 +99,23 @@ func run() int {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
-	report := verify.Execute(ctx, plan, shared, map[string]verify.Executor{"dagger": verify.Dagger{}, "native": &verify.Native{}})
+	cacheDir, err = filepath.Abs(cacheDir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	for _, root := range []string{plan.Source, shared} {
+		relative, relErr := filepath.Rel(root, cacheDir)
+		if relErr == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			fmt.Fprintln(os.Stderr, "cache directory must be outside source and shared checkouts")
+			return 2
+		}
+	}
+	cache := &verify.Cache{Dir: cacheDir}
+	report := verify.Execute(ctx, plan, shared, map[string]verify.Executor{
+		"dagger": verify.CachedExecutor{Cache: cache, Executor: verify.Dagger{}},
+		"native": verify.CachedExecutor{Cache: cache, Executor: &verify.Native{Cache: cache}},
+	})
 	if err := encoder.Encode(report); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2

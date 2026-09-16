@@ -74,7 +74,7 @@ func TestNativeEnvironmentAndArtifacts(t *testing.T) {
 }
 func TestShareCompatiblePreparation(t *testing.T) {
 	req := nativeRequest(t)
-	req.Preparation = &Preparation{Command: []string{"/bin/sh", "-c", "echo prepare >> count; touch ready"}, Inputs: []string{"."}, Outputs: []string{"ready"}}
+	req.Preparation = &Preparation{Command: []string{"/bin/sh", "-c", "echo prepare >> count; touch ready"}, Inputs: []string{"lock"}, Outputs: []string{"ready"}}
 	req.Check.Command = []string{"/bin/sh", "-c", "test -f ready"}
 	native := &Native{}
 	for i := 0; i < 2; i++ {

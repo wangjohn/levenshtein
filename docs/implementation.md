@@ -2,7 +2,7 @@
 
 **Implemented:** a standalone Go CLI with versioned configuration, tool-free planning, common results, and the preserved pinned Go lint through Dagger. Legacy configuration, rule fixtures, and CI for Levenshtein itself remain supported. [Setup](setup.md) and [consumer CI](consumer-ci.md) document the current interface.
 
-**Next:** add aggressive caching, validate Rust/Python compatibility, then wrap Benchplan's existing checks. Native commands, pinned-tool validation, timeouts, artifacts, and shared preparation within a run are implemented. The cross-run cache policy below is planned; the current CLI accepts both legacy Go module lists and version 1 targets/checks/environments/runs, with `go-lint`, `self-test`, and native `command` checks. See [configuration](configuration.md).
+**Next:** validate Rust/Python compatibility, then wrap Benchplan's existing checks. Native commands, pinned-tool validation, timeouts, artifacts, and shared preparation within a run are implemented. Local result caching, separate preparation/build keys, artifact restoration, and fresh execution are implemented. Cross-worker cache transport and consumer adoption below remain planned; the current CLI accepts both legacy Go module lists and version 1 targets/checks/environments/runs, with `go-lint`, `self-test`, and native `command` checks. See [configuration](configuration.md).
 
 ## Core interface
 

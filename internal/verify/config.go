@@ -19,6 +19,7 @@ type Config struct {
 	Checks       map[string]Check       `json:"checks"`
 	Runs         map[string]Run         `json:"runs"`
 	Preparations map[string]Preparation `json:"preparations,omitempty"`
+	Builds       map[string]Preparation `json:"builds,omitempty"`
 }
 type Target struct {
 	Dir       string   `json:"dir"`
@@ -44,14 +45,17 @@ type Preparation struct {
 	Timeout string            `json:"timeout,omitempty"`
 }
 type Check struct {
-	Kind        string            `json:"kind"`
-	Target      string            `json:"target"`
-	Environment string            `json:"environment"`
-	Command     []string          `json:"command,omitempty"`
-	Env         map[string]string `json:"env,omitempty"`
-	Timeout     string            `json:"timeout,omitempty"`
-	Preparation string            `json:"preparation,omitempty"`
-	Artifacts   []string          `json:"artifacts,omitempty"`
+	Kind         string            `json:"kind"`
+	Target       string            `json:"target"`
+	Environment  string            `json:"environment"`
+	Command      []string          `json:"command,omitempty"`
+	Env          map[string]string `json:"env,omitempty"`
+	Timeout      string            `json:"timeout,omitempty"`
+	Preparation  string            `json:"preparation,omitempty"`
+	Artifacts    []string          `json:"artifacts,omitempty"`
+	Cache        bool              `json:"cache,omitempty"`
+	Build        string            `json:"build,omitempty"`
+	FreshCommand []string          `json:"fresh_command,omitempty"`
 }
 type Run struct {
 	Checks []string `json:"checks"`
@@ -164,6 +168,7 @@ type PlannedCheck struct {
 	Target      Target       `json:"target"`
 	Environment Environment  `json:"environment"`
 	Preparation *Preparation `json:"preparation,omitempty"`
+	Build       *Preparation `json:"build,omitempty"`
 }
 type Plan struct {
 	Version int            `json:"version"`
@@ -254,6 +259,27 @@ func (cfg Config) Plan(source, name string) (Plan, error) {
 			}
 			planned.Preparation = &preparation
 		}
+		if check.Build != "" {
+			preparation, ok := cfg.Builds[check.Build]
+			if !ok {
+				return p, fmt.Errorf("unknown build %q", check.Build)
+			}
+			if len(preparation.Command) == 0 || len(preparation.Inputs) == 0 || len(preparation.Outputs) == 0 {
+				return p, fmt.Errorf("preparation must declare command, inputs, and outputs")
+			}
+			if err := validateDuration(preparation.Timeout); err != nil {
+				return p, err
+			}
+			if err := validateEnv(preparation.Env); err != nil {
+				return p, err
+			}
+			for _, path := range append(append([]string{}, preparation.Inputs...), preparation.Outputs...) {
+				if !relative(path) {
+					return p, fmt.Errorf("invalid preparation path %q", path)
+				}
+			}
+			planned.Build = &preparation
+		}
 		p.Checks = append(p.Checks, planned)
 	}
 	return p, nil
@@ -263,7 +289,7 @@ func validateCheck(check Check, env Environment) error {
 		if check.Kind != "go-lint" && check.Kind != "self-test" {
 			return fmt.Errorf("unknown Dagger check %q", check.Kind)
 		}
-		if len(check.Command) > 0 || len(check.Env) > 0 || check.Timeout != "" || check.Preparation != "" || len(check.Artifacts) > 0 || env.Identity != "" || len(env.Env) > 0 || len(env.PassEnv) > 0 || len(env.Tools) > 0 {
+		if check.Build != "" || len(check.FreshCommand) > 0 || len(check.Command) > 0 || len(check.Env) > 0 || check.Timeout != "" || check.Preparation != "" || len(check.Artifacts) > 0 || env.Identity != "" || len(env.Env) > 0 || len(env.PassEnv) > 0 || len(env.Tools) > 0 {
 			return fmt.Errorf("native command options cannot be used for Dagger Go checks")
 		}
 		return nil
@@ -273,6 +299,12 @@ func validateCheck(check Check, env Environment) error {
 	}
 	if check.Kind != "command" || len(check.Command) == 0 || check.Command[0] == "" {
 		return fmt.Errorf("native check needs kind command and a nonempty command array")
+	}
+	if check.Cache && (env.Identity == "" || len(check.FreshCommand) == 0) {
+		return fmt.Errorf("cacheable native check needs environment identity and explicit fresh_command")
+	}
+	if len(check.FreshCommand) > 0 && check.FreshCommand[0] == "" {
+		return fmt.Errorf("fresh_command cannot be empty")
 	}
 	if err := validateDuration(check.Timeout); err != nil {
 		return err
