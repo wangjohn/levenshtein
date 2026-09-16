@@ -58,7 +58,8 @@ type report struct {
 func (m *Levenshtein) Verify(
 	ctx context.Context,
 	// Repository containing the Go modules to check.
-	// +ignore=["**/.git", "**/.env", "**/.env.*"]
+	// Public .env.example templates can be embedded by Go packages.
+	// +ignore=["**/.env", "**/.env.*", "!**/.env.example", "**/.git"]
 	source *dagger.Directory,
 	// +default="branch"
 	run string,
@@ -154,8 +155,8 @@ func lint(ctx context.Context, source *dagger.Directory, module string, tools to
 		WithMountedCache("/root/.cache/go-build", dag.CacheVolume("levenshtein-go-build-"+tools.Go)).
 		WithExec([]string{"go", "install", "honnef.co/go/tools/cmd/staticcheck@" + tools.Staticcheck}).
 		WithDirectory("/src", source).
-		WithWorkdir(path.Join("/src", module)).
-		WithEnvVariable("GOFLAGS", "-mod=readonly")
+		WithWorkdir(path.Join("/src", module))
+	// Go selects vendor mode for modules/workspaces that use it, and readonly otherwise.
 	packages, err := ctr.WithExec([]string{"go", "list", "./..."}).Stdout(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("discovering packages: %w", err)
@@ -222,9 +223,11 @@ func parseFindings(exitCode int, stdout, stderr string, checks []string) ([]diag
 
 func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce string) error {
 	fixtures := dag.CurrentModule().Source().Directory("testdata")
-	good, err := lint(ctx, fixtures.Directory("good"), ".", tools, nonce)
-	if err != nil || len(good) != 0 {
-		return fmt.Errorf("valid cleanup must pass: findings=%v error=%v", good, err)
+	for _, name := range []string{"good", "vendored", "embedded"} {
+		findings, err := lint(ctx, fixtures.Directory(name), ".", tools, nonce)
+		if err != nil || len(findings) != 0 {
+			return fmt.Errorf("%s fixture must pass: findings=%v error=%v", name, findings, err)
+		}
 	}
 	bad, err := lint(ctx, fixtures.Directory("bad"), ".", tools, nonce)
 	if err != nil {

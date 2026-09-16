@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+temporary=$(mktemp -d)
+trap 'rm -rf "$temporary"' EXIT
+
+"$root/verify" go-lint --source "$root/runner/testdata/vendored"
+
+# Workspace vendoring resolves dependencies from the workspace root, not app/.
+mkdir -p "$temporary/workspace"
+cp -R "$root/runner/testdata/vendored" "$temporary/workspace/app"
+mv "$temporary/workspace/app/vendor" "$temporary/workspace/vendor"
+{ printf '## workspace\n'; cat "$temporary/workspace/vendor/modules.txt"; } > "$temporary/modules.txt"
+mv "$temporary/modules.txt" "$temporary/workspace/vendor/modules.txt"
+printf 'go 1.27.1\n\nuse ./app\n' > "$temporary/workspace/go.work"
+printf '{"modules":["app"],"runs":{"go-lint":["go-lint"]}}\n' > "$temporary/workspace/levenshtein.json"
+"$root/verify" go-lint --source "$temporary/workspace"
+
+# Exercise the actual Dagger argument filter, including nested templates.
+cp -R "$root/runner/testdata/embedded" "$temporary/embedded"
+for directory in "$temporary/embedded" "$temporary/embedded/config"; do
+  for name in .env .env.local .env.example.local; do
+    printf 'SYNTHETIC_TEST_VALUE=must-be-excluded\n' > "$directory/$name"
+  done
+done
+"$root/verify" go-lint --source "$temporary/embedded"
+
+# Non-vendored projects must still fail on undeclared dependencies.
+cp -R "$root/runner/testdata/good" "$temporary/undeclared"
+printf 'package good\n\nimport _ "example.invalid/undeclared"\n' > "$temporary/undeclared/undeclared.go"
+if "$root/verify" go-lint --source "$temporary/undeclared" > "$temporary/undeclared.log" 2>&1; then
+  echo 'Undeclared dependency unexpectedly passed' >&2
+  exit 1
+fi
+if ! grep -q 'no required module provides package example.invalid/undeclared' "$temporary/undeclared.log"; then
+  cat "$temporary/undeclared.log"
+  echo 'Missing intended dependency error' >&2
+  exit 1
+fi
+echo 'Consumer regression checks passed'

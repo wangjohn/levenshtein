@@ -1,0 +1,3 @@
+# example.invalid/offline v1.0.0
+## explicit; go 1.27.1
+example.invalid/offline

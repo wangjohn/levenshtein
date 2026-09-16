@@ -43,6 +43,8 @@ From the Levenshtein checkout:
 
 Success prints a JSON report. Lint failures include rule IDs, locations, messages, and a rerun hint in the error output; the process exits nonzero. Tool errors, invalid configuration, and modules with no Go packages fail rather than reporting an empty pass. Reports include selected checks and completed results; execution stops at the first failure. Durable result files and cross-run history are deferred.
 
+Dependency resolution follows Go's defaults: use `vendor/` when enabled by the module or workspace, otherwise use read-only module resolution. Source filtering excludes `.git`, `.env`, and `.env.*` at every level, with an explicit exception for public `.env.example` templates so Go can embed them. Keep those templates free of secrets; other `.env.*` names remain excluded.
+
 ### What the rules catch
 
 | Rule | Mistake |
@@ -69,7 +71,7 @@ A single Go module at the source root works without configuration. For multiple 
 }
 ```
 
-Then run `./verify cleanup --source /path/to/repo`. A configuration file replaces the defaults. Module paths are relative to the source root. Every selected module is checked; change-based selection is not implemented yet. Check IDs currently available are `go-lint` and `self-test`. `self-test` validates Levenshtein's own good, bad, broken, and empty fixtures.
+Then run `./verify cleanup --source /path/to/repo`. A configuration file replaces the defaults. Module paths are relative to the source root. Every selected module is checked; change-based selection is not implemented yet. Check IDs currently available are `go-lint` and `self-test`. `self-test` validates Levenshtein's lint and consumer fixtures.
 
 This repo's `pre-merge` and `main` runs include `self-test`. The daily `main` run uses a unique execution input and a fresh Staticcheck analysis cache so a cached passing verdict cannot replace the audit. Download and compiler caches remain reusable. Add new checks explicitly to the configured full run during this pilot.
 
@@ -82,7 +84,7 @@ The checked-in workflow selects:
 - `main` daily at 07:23 UTC, using the default branch.
 - A configurable run for manual dispatch.
 
-CI also runs the runner's Go unit tests and verifies that the bad fixture fails with all three intended diagnostics. Configure the workflow's status as a required check in GitHub once the workflow has run. Publishing the code, enabling repository rules, and enrolling other repos are separate from adding this workflow.
+CI also runs the runner's Go unit tests, consumer regression checks, and verifies that the bad fixture fails with all three intended diagnostics. Configure the workflow's status as a required check in GitHub once the workflow has run. Publishing the code, enabling repository rules, and enrolling other repos are separate from adding this workflow.
 
 ## Pinned dependencies
 
@@ -107,9 +109,12 @@ Use Go 1.27.1 and the pinned Dagger CLI:
 dagger develop --compat=skip
 (cd runner && GOTOOLCHAIN=local dagger run go test ./...)
 ./verify pre-merge
+./scripts/test-consumers
 ```
 
-The generated Go SDK needs a Dagger session, including during unit tests. The deliberately broken Go module lives under `runner/testdata`, outside ordinary test discovery. The self-test requires good code to pass, bad code to emit exactly one of each intended rule, and broken/empty modules to fail verification. A compiler failure cannot substitute for an expected lint finding.
+The generated Go SDK needs a Dagger session, including during unit tests. The deliberately broken Go module lives under `runner/testdata`, outside ordinary test discovery. The self-test requires good code, vendored dependencies, and embedded templates to pass, bad code to emit exactly one of each intended rule, and broken/empty modules to fail verification. A compiler failure cannot substitute for an expected lint finding.
+
+`scripts/test-consumers` checks module and workspace vendoring through the launcher. It also adds synthetic private env files next to root and nested `.env.example` templates; each embed must match exactly one file, proving the templates survive filtering and the private files do not. A final case verifies undeclared dependencies still fail without vendoring.
 
 ### Initial measurements
 
