@@ -16,6 +16,8 @@ func contained(root, path string) (string, error) {
 	if !relative(path) {
 		return "", fmt.Errorf("path %q must be a clean repository-relative path", path)
 	}
+	// os.Root accepts relative symlinks that stay inside the root. Absolute
+	// symlinks are rejected, including aliases to another path inside this repo.
 	dir, err := os.OpenRoot(root)
 	if err != nil {
 		return "", err
