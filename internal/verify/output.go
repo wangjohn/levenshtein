@@ -30,3 +30,15 @@ func outputPath(root, path string) (string, error) {
 	}
 	return filepath.Join(root, path), nil
 }
+
+func outputsExist(source string, paths []string) bool {
+	for _, path := range paths {
+		if _, err := outputPath(source, path); err != nil {
+			return false
+		}
+		if _, err := contained(source, path); err != nil {
+			return false
+		}
+	}
+	return true
+}

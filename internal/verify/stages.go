@@ -8,6 +8,23 @@ import (
 	"time"
 )
 
+type namedStage struct {
+	kind       string
+	definition *Preparation
+}
+
+// All consumers use preparation-before-build order and skip absent stages.
+func (check PlannedCheck) stages() []namedStage {
+	var stages []namedStage
+	if check.Preparation != nil {
+		stages = append(stages, namedStage{"preparation", check.Preparation})
+	}
+	if check.Build != nil {
+		stages = append(stages, namedStage{"build", check.Build})
+	}
+	return stages
+}
+
 type stageEntry struct{ Key, Outputs string }
 
 func (n *Native) stage(ctx context.Context, req Request, kind string, stage *Preparation) (StageResult, *Result) {
