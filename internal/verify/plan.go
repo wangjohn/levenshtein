@@ -13,6 +13,7 @@ type PlannedCheck struct {
 	Environment Environment  `json:"environment"`
 	Preparation *Preparation `json:"preparation,omitempty"`
 }
+
 type Plan struct {
 	Version int            `json:"version"`
 	Run     string         `json:"run"`
@@ -30,10 +31,12 @@ func (cfg Config) Plan(source, name string) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
+
 	run, ok := cfg.Runs[name]
 	if !ok || len(run.Checks) == 0 {
 		return Plan{}, fmt.Errorf("run %q is missing or empty", name)
 	}
+
 	p := Plan{Version: 1, Run: name, Fresh: run.Fresh, Source: source}
 	seen := map[string]bool{}
 	for _, id := range run.Checks {
@@ -53,9 +56,11 @@ func (cfg Config) Plan(source, name string) (Plan, error) {
 		if !ok {
 			return p, fmt.Errorf("check %q: unknown environment %q", id, check.Environment)
 		}
+
 		if err := validateCheck(check, env); err != nil {
 			return p, fmt.Errorf("check %q: %w", id, err)
 		}
+
 		if target.Workspace == "" {
 			target.Workspace = "."
 		}
@@ -72,6 +77,7 @@ func (cfg Config) Plan(source, name string) (Plan, error) {
 				return p, fmt.Errorf("%q is not a directory", path)
 			}
 		}
+
 		if len(target.Inputs) == 0 {
 			return p, fmt.Errorf("target %q must declare input paths", check.Target)
 		}
@@ -80,6 +86,7 @@ func (cfg Config) Plan(source, name string) (Plan, error) {
 				return p, fmt.Errorf("invalid input path %q", path)
 			}
 		}
+
 		planned := PlannedCheck{ID: id, Check: check, Target: target, Environment: env}
 		planned.Preparation, err = resolveStage(cfg.Preparations, "preparation", check.Preparation)
 		if err != nil {

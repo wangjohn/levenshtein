@@ -16,12 +16,14 @@ func validateCheck(check Check, env Environment) error {
 		}
 		return nil
 	}
+
 	if env.Executor != "native" {
 		return fmt.Errorf("unsupported executor %q", env.Executor)
 	}
 	if check.Kind != "command" || len(check.Command) == 0 || check.Command[0] == "" {
 		return fmt.Errorf("native check needs kind command and a nonempty command array")
 	}
+
 	if err := validateDuration(check.Timeout); err != nil {
 		return err
 	}
@@ -36,11 +38,13 @@ func validateCheck(check Check, env Environment) error {
 			return fmt.Errorf("invalid environment name %q", name)
 		}
 	}
+
 	for _, tool := range env.Tools {
 		if len(tool.Command) == 0 || tool.Command[0] == "" || tool.Version == "" {
 			return fmt.Errorf("tool needs command and exact version output")
 		}
 	}
+
 	for _, path := range check.Artifacts {
 		if !relative(path) || path == "." {
 			return fmt.Errorf("invalid artifact path %q", path)
@@ -48,6 +52,7 @@ func validateCheck(check Check, env Environment) error {
 	}
 	return nil
 }
+
 func validateDuration(value string) error {
 	if value == "" {
 		return nil
@@ -58,9 +63,11 @@ func validateDuration(value string) error {
 	}
 	return nil
 }
+
 func envName(name string) bool {
 	return name != "" && !strings.ContainsAny(name, "=\x00") && !strings.HasPrefix(name, "LEVENSHTEIN_")
 }
+
 func validateEnv(values map[string]string) error {
 	for name, value := range values {
 		if !envName(name) || strings.ContainsRune(value, 0) {
@@ -75,6 +82,7 @@ func resolveStage(stages map[string]Preparation, kind, name string) (*Preparatio
 	if name == "" {
 		return nil, nil
 	}
+
 	stage, ok := stages[name]
 	if !ok {
 		return nil, fmt.Errorf("unknown %s %q", kind, name)

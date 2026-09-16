@@ -28,10 +28,12 @@ func (n *Native) Execute(ctx context.Context, req Request) Result {
 	if err != nil {
 		return Result{Status: "error", Error: err.Error()}
 	}
+
 	env := nativeEnv(req, req.Check.Env)
 	if result := validateTools(ctx, dir, req.Environment.Tools, env); result != nil {
 		return *result
 	}
+
 	// Hold ownership of mutable preparation through the check that consumes it.
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -80,6 +82,7 @@ func (n *Native) Execute(ctx context.Context, req Request) Result {
 			n.prepared[key] = owned
 		}
 	}
+
 	result := command(ctx, dir, req.Check.Command, env, req.Check.Timeout)
 	if result.Status == "passed" {
 		for _, path := range req.Check.Artifacts {
@@ -99,6 +102,7 @@ func (n *Native) Execute(ctx context.Context, req Request) Result {
 	}
 	return result
 }
+
 func outputsExist(source string, paths []string) bool {
 	for _, path := range paths {
 		if _, err := outputPath(source, path); err != nil {

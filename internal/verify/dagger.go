@@ -35,6 +35,7 @@ var daggerFunctions = map[string]string{"go-lint": "goLint", "self-test": "selfT
 
 func (d *Dagger) Execute(ctx context.Context, req Request) Result {
 	result := daggerResult(d.execute(ctx, req))
+
 	if err := ctx.Err(); err != nil {
 		result.Status = "cancelled"
 		result.Error = err.Error()
@@ -47,13 +48,16 @@ func (d *Dagger) execute(ctx context.Context, req Request) error {
 	if !ok {
 		return fmt.Errorf("unsupported Dagger check %q", req.Check.Kind)
 	}
+
 	if err := d.connect(ctx, req.Shared); err != nil {
 		return err
 	}
+
 	nonce := ""
 	if req.Fresh {
 		nonce = rand.Text()
 	}
+
 	query := d.client.QueryBuilder().Select("levenshtein").Select(function).Arg("nonce", nonce)
 	if req.Check.Kind == "go-lint" {
 		source := d.client.Host().Directory(req.Source, dagger.HostDirectoryOpts{Exclude: []string{"**/.env", "**/.env.*", "!**/.env.example", "**/.git"}})
@@ -70,12 +74,14 @@ func (d *Dagger) connect(ctx context.Context, shared string) error {
 	if strings.TrimSpace(string(version)) != engineconn.CLIVersion {
 		return fmt.Errorf("Dagger SDK version does not match .dagger-version")
 	}
+
 	if d.client != nil {
 		if d.shared != shared {
 			return fmt.Errorf("a Dagger session cannot change its shared module")
 		}
 		return nil
 	}
+
 	client, err := dagger.Connect(ctx, dagger.WithLogOutput(os.Stderr), dagger.WithSkipWorkspaceModules())
 	if err != nil {
 		return err
@@ -92,17 +98,20 @@ func daggerResult(err error) Result {
 	if err == nil {
 		return Result{Status: "passed"}
 	}
+
 	result := Result{Status: "error", Error: err.Error()}
 	var failure *gqlerror.Error
 	if !errors.As(err, &failure) {
 		return result
 	}
+
 	result.Stdout, _ = failure.Extensions["stdout"].(string)
 	result.Stderr, _ = failure.Extensions["stderr"].(string)
 	findings, ok := failure.Extensions["levenshteinFindings"]
 	if !ok {
 		return result
 	}
+
 	data, encodeErr := json.Marshal(findings)
 	if encodeErr != nil {
 		return result
@@ -111,6 +120,7 @@ func daggerResult(err error) Result {
 	if json.Unmarshal(data, &diagnostics) != nil || len(diagnostics) == 0 {
 		return result
 	}
+
 	result.Status = "failed"
 	result.Details, _ = json.Marshal(struct {
 		Findings []json.RawMessage `json:"findings"`
