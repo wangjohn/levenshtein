@@ -4,7 +4,9 @@ The first slice runs three shared Go lint rules in Dagger. The runner accepts a 
 
 ## Prerequisites
 
-The source launcher requires Go **1.27.1**. For Go check execution, use a running Docker-compatible container runtime and Dagger **0.21.9**. Install the pinned CLI with the checked-in archive checksums:
+The source launcher requires Go **1.27.1**. Go checks require a running Docker-compatible container runtime. The Go SDK downloads and checksum-verifies Dagger **0.21.9** automatically. Native commands and planning do not start Dagger.
+
+To develop the shared Dagger module or use `dagger check` directly, install the pinned CLI with the checked-in archive checksums:
 
 ```sh
 ./scripts/install-dagger
@@ -19,7 +21,7 @@ brew install colima docker
 colima start levenshtein --runtime docker --vm-type vz --cpu 2 --memory 4 --disk 20
 ```
 
-Docker Desktop or an existing Docker engine also works. CI uses the Docker engine supplied by the GitHub-hosted Ubuntu runner. Dagger downloads its pinned engine and builds its Go SDK on the first invocation; allow extra time for the initial run.
+Docker Desktop or an existing Docker engine also works. CI uses the Docker engine supplied by the GitHub-hosted Ubuntu runner. Dagger downloads its pinned engine and builds the module on the first invocation; allow extra time for the initial run.
 
 Generate the ignored SDK files once before verifying Levenshtein itself:
 
@@ -97,7 +99,7 @@ Stable versions checked on September 15, 2026:
 | Go for lint and local development | 1.27.1 | `.go-version`, fixture modules, `runner/toolchain.json` |
 | Go language version of the Dagger wrapper | 1.26.7 | `runner/go.mod`, capped by the stable Dagger SDK |
 | Go container | 1.27.1 on Debian Trixie | Tag and immutable image digest in `runner/toolchain.json` |
-| Dagger CLI / engine / SDK | 0.21.9 | `.dagger-version`, `dagger.json`, generated module dependencies |
+| Dagger CLI / engine / SDK | 0.21.9 | `.dagger-version`, `dagger.json`, root `go.mod`, generated module dependencies |
 | Staticcheck | 2026.2.1 (`honnef.co/go/tools` v0.8.1) | `runner/toolchain.json` |
 | Actions checkout / setup-go | 7.0.1 / 7.0.0 | Full commit hashes in the workflow |
 
@@ -123,8 +125,16 @@ The generated Go SDK needs a Dagger session, including during unit tests. The de
 
 On an Intel Mac with a two-CPU, 4 GiB Colima VM, the first `pre-merge` run after SDK setup took **136 seconds**, including the Go image download and Staticcheck compilation. A repeat took **2.5 seconds**; a fresh `main` audit took **14 seconds**. A single fixture check took **1.8 seconds**. These are small-pilot measurements, not guarantees for application repos; initial CLI/VM installation and SDK setup are excluded.
 
-Before another repo adopts this setup, check out an explicit Levenshtein commit and invoke its launcher with `--source`. Automated distribution and version-update PRs are later work; check implementations remain in this repo.
+Before another repo adopts this setup, check out an explicit Levenshtein commit and invoke its launcher with `--source`. [Release archives](releases.md) package the CLI and shared checks together; automated publication and version-update PRs are later work.
 
 ## Standalone planning and configuration
 
 The `./verify` launcher now builds a standalone Go CLI. Planning and configuration validation work without Dagger; execution of Go checks still uses the pinned Dagger module. The existing configuration remains supported, and [version 1 configuration](configuration.md) adds named targets, checks, environments, and explicit run freshness.
+
+## Dagger integration
+
+The wrapper uses the official Go SDK and one engine session per run. It loads the pinned shared module once and passes each consumer directory, module path, and freshness token as function arguments. Dagger owns container execution, dependency downloads, compilation caches, and execution caching. A fresh audit reruns analysis while retaining download and compiler caches.
+
+`GoLint` and `SelfTest` are also native Dagger checks: `dagger check -l` lists them and `dagger check` runs them against this checkout. The wrapper calls the same functions with explicit consumer inputs; named-run selection lives only in the standalone CLI. The former Dagger `verify` and `check` functions have been removed. Use `./verify` for Levenshtein runs.
+
+Shared module identity must remain separate from consumer inputs. Loading a synthetic module directory containing consumer files would change Dagger's cache namespace on every source edit or fresh audit. See [dependency choices](dependencies.md).

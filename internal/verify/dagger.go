@@ -1,74 +1,125 @@
 package verify
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"dagger.io/dagger"
+	"dagger.io/dagger/engineconn"
+	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
-type Dagger struct{}
+// Dagger shares one SDK session and a stable module across a verification run.
+// Consumer sources and fresh-run inputs are function arguments, so they do not
+// change the module's download and compiler cache namespace.
+type Dagger struct {
+	client *dagger.Client
+	shared string
+}
 
-func (Dagger) Execute(ctx context.Context, req Request) Result {
-	r := Result{Status: "error"}
+func (d *Dagger) Close() error {
+	if d.client != nil {
+		return d.client.Close()
+	}
+	return nil
+}
+
+func (d *Dagger) Execute(ctx context.Context, req Request) (result Result) {
+	result.Status = "error"
+	defer func() {
+		if ctx.Err() != nil {
+			result.Status = "cancelled"
+			result.Error = ctx.Err().Error()
+		}
+	}()
+	function := ""
+	switch req.Check.Kind {
+	case "go-lint":
+		function = "goLint"
+	case "self-test":
+		function = "selfTest"
+	default:
+		result.Error = fmt.Sprintf("unsupported Dagger check %q", req.Check.Kind)
+		return
+	}
 	version, err := os.ReadFile(filepath.Join(req.Shared, ".dagger-version"))
 	if err != nil {
-		r.Error = err.Error()
-		return r
+		result.Error = err.Error()
+		return
 	}
-	actual, err := exec.CommandContext(ctx, "dagger", "version").Output()
-	if err != nil {
-		r.Error = fmt.Sprintf("Dagger %s is required: %v", strings.TrimSpace(string(version)), err)
-		return r
+	if strings.TrimSpace(string(version)) != engineconn.CLIVersion {
+		result.Error = "Dagger SDK version does not match .dagger-version"
+		return
 	}
-	if !strings.HasPrefix(string(actual), "dagger v"+strings.TrimSpace(string(version))+" ") {
-		r.Error = "Dagger version does not match .dagger-version"
-		return r
-	}
-	args := []string{"--mod", req.Shared, "call", "check", "--source", req.Source, "--module", req.Target.Dir, "--check", req.Check.Kind}
-	if req.Fresh {
-		nonce := make([]byte, 16)
-		if _, err := rand.Read(nonce); err != nil {
-			r.Error = err.Error()
-			return r
+	if d.client == nil {
+		d.client, err = dagger.Connect(ctx, dagger.WithLogOutput(os.Stderr), dagger.WithSkipWorkspaceModules())
+		if err != nil {
+			result.Error = err.Error()
+			return
 		}
-		args = append(args, "--nonce", hex.EncodeToString(nonce))
+		if err := d.client.ModuleSource(req.Shared).AsModule().Serve(ctx); err != nil {
+			_ = d.client.Close()
+			d.client = nil
+			result.Error = err.Error()
+			return
+		}
+		d.shared = req.Shared
 	}
-	cmd := exec.CommandContext(ctx, "dagger", args...)
-	var out, stderr bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &stderr
-	err = cmd.Run()
-	r.Stderr = stderr.String()
-	if ctx.Err() != nil {
-		r.Status = "cancelled"
-		r.Error = ctx.Err().Error()
-		return r
+	if d.shared != req.Shared {
+		result.Error = "a Dagger session cannot change its shared module"
+		return
 	}
-	if err != nil {
-		r.Error = err.Error()
-		r.Stdout = out.String()
-		return r
+
+	nonce := ""
+	if req.Fresh {
+		value := make([]byte, 16)
+		if _, err := rand.Read(value); err != nil {
+			result.Error = err.Error()
+			return
+		}
+		nonce = hex.EncodeToString(value)
 	}
-	var response struct {
-		Status string `json:"status"`
+	query := d.client.QueryBuilder().Select("levenshtein").Select(function).Arg("nonce", nonce)
+	if req.Check.Kind == "go-lint" {
+		source := d.client.Host().Directory(req.Source, dagger.HostDirectoryOpts{Exclude: []string{"**/.env", "**/.env.*", "!**/.env.example", "**/.git"}})
+		query = query.Arg("source", source).Arg("module", req.Target.Dir)
 	}
-	if err := json.Unmarshal(out.Bytes(), &response); err != nil {
-		r.Error = fmt.Sprintf("invalid Dagger result: %v", err)
-		r.Stdout = out.String()
-		return r
+	return daggerResult(query.Execute(ctx))
+}
+
+func daggerResult(err error) Result {
+	if err == nil {
+		return Result{Status: "passed"}
 	}
-	if response.Status != "passed" && response.Status != "failed" && response.Status != "error" {
-		r.Error = "incomplete Dagger result"
-		return r
+	result := Result{Status: "error", Error: err.Error()}
+	var failure *gqlerror.Error
+	if !errors.As(err, &failure) {
+		return result
 	}
-	r.Status = response.Status
-	r.Details = append(json.RawMessage(nil), out.Bytes()...)
-	return r
+	result.Stdout, _ = failure.Extensions["stdout"].(string)
+	result.Stderr, _ = failure.Extensions["stderr"].(string)
+	findings, ok := failure.Extensions["levenshteinFindings"]
+	if !ok {
+		return result
+	}
+	data, encodeErr := json.Marshal(findings)
+	if encodeErr != nil {
+		return result
+	}
+	var diagnostics []json.RawMessage
+	if json.Unmarshal(data, &diagnostics) != nil || len(diagnostics) == 0 {
+		return result
+	}
+	result.Status = "failed"
+	result.Details, _ = json.Marshal(struct {
+		Findings []json.RawMessage `json:"findings"`
+	}{diagnostics})
+	return result
 }
