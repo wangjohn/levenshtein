@@ -84,10 +84,13 @@ func run() int {
 		}
 	}
 	cache := &verify.Cache{Dir: cacheDir}
+	dagger := &verify.Dagger{}
+	defer dagger.Close()
 	report := verify.Execute(ctx, plan, shared, map[string]verify.Executor{
-		"dagger": verify.CachedExecutor{Cache: cache, Executor: verify.Dagger{}},
+		"dagger": verify.CachedExecutor{Cache: cache, Executor: dagger},
 		"native": verify.CachedExecutor{Cache: cache, Executor: &verify.Native{Cache: cache}},
 	})
+
 	if err := encoder.Encode(report); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2

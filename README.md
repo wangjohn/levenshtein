@@ -25,12 +25,14 @@ For example, add a Go rule that catches misplaced `defer` calls, then adopt it a
 
 To check another Go repo: `./verify go-lint --source /path/to/repo`. [Use it from your existing CI](docs/consumer-ci.md).
 
-**Next:** wrap Benchplan's existing Swift checks through a common interface for container and native execution, with aggressive caching for fast repeated runs. Levenshtein's own workflow and daily schedule check its runner and fixtures.
+**Next:** adopt the runner in Benchplan, measure real Swift checks, and persist compatible caches across CI workers. Levenshtein's own workflow and daily schedule check its runner and fixtures.
 
 ## Documentation
 
 - [Setup and usage](docs/setup.md): run the Go checks locally and in CI.
 - [Configuration](docs/configuration.md): standalone planning, targets, and runs.
 - [Language fixtures](docs/language-fixtures.md): Rust/Python compatibility checks.
+- [Dependency choices](docs/dependencies.md): which responsibilities use established tools.
+- [Release archives](docs/releases.md): package the CLI and shared checks with GoReleaser.
 - [Implementation plan](docs/implementation.md): what we are building first and how.
 - [Design notes](docs/design-notes.md): cache contracts and ideas for later.

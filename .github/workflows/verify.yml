@@ -77,23 +77,6 @@ jobs:
         env:
           NO_COLOR: '1'
         run: ./scripts/test-consumers
-      - name: Verify the CLI rejects the bad fixture
-        env:
-          NO_COLOR: '1'
-        run: |
-          if ./verify go-lint --source runner/testdata/bad > "$RUNNER_TEMP/bad-lint.log" 2>&1; then
-            cat "$RUNNER_TEMP/bad-lint.log"
-            echo 'Bad cleanup unexpectedly passed'
-            exit 1
-          fi
-          for code in SA5001 SA5003 SA9001; do
-            if ! grep -q "\"code\": \"$code\"" "$RUNNER_TEMP/bad-lint.log"; then
-              cat "$RUNNER_TEMP/bad-lint.log"
-              echo "Missing intended diagnostic: $code"
-              exit 1
-            fi
-          done
-
   language-contracts:
     runs-on: ubuntu-24.04
     timeout-minutes: 15

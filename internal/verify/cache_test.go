@@ -156,7 +156,7 @@ func TestArtifactRestorationRejectsSymlink(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(root, "alias")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := safeArtifact(root, "alias/report"); err == nil {
+	if _, err := outputPath(root, "alias/report"); err == nil {
 		t.Fatal("artifact escaped through alias")
 	}
 }
