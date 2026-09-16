@@ -253,3 +253,44 @@ func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce strin
 	}
 	return nil
 }
+
+// Check executes one selected check without loading consumer configuration.
+// Planning and run policy belong to the standalone runner.
+func (m *Levenshtein) Check(
+	ctx context.Context,
+	// +ignore=["**/.env", "**/.env.*", "!**/.env.example", "**/.git"]
+	source *dagger.Directory,
+	module string,
+	check string,
+	// +optional
+	nonce string,
+) (string, error) {
+	var tools toolchain
+	if err := json.Unmarshal(toolchainJSON, &tools); err != nil {
+		return "", err
+	}
+	r := report{Run: check, Status: "passed", Modules: []string{module}, Selected: []string{check}, Tools: tools, Results: []result{}}
+	item := result{Check: check, Module: module, Status: "passed"}
+	var err error
+	switch check {
+	case "go-lint":
+		cfg := config{Modules: []string{module}, Runs: map[string][]string{check: {check}}}
+		if _, err := cfg.selectChecks(check); err != nil {
+			return "", err
+		}
+		item.Findings, err = lint(ctx, source, module, tools, nonce)
+		if len(item.Findings) > 0 {
+			item.Status = "failed"
+		}
+	case "self-test":
+		err = m.selfTest(ctx, tools, nonce)
+	default:
+		return "", fmt.Errorf("unknown check %q", check)
+	}
+	if err != nil {
+		return "", err
+	}
+	r.Status = item.Status
+	r.Results = append(r.Results, item)
+	return render(r), nil
+}

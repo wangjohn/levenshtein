@@ -1,56 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
 root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-run=branch
-source_dir=$root
-dry_run=false
-run_set=false
-
-usage() {
-  cat <<'USAGE'
-Usage: ./verify [RUN] [--source DIRECTORY] [--dry-run]
-
-Runs come from the source repo's levenshtein.json. The default is branch.
-Examples:
-  ./verify go-lint
-  ./verify pre-merge
-  ./verify go-lint --source /path/to/another/go/repo
-  ./verify main --dry-run
-USAGE
-}
-
-while (($#)); do
-  case "$1" in
-    --help|-h) usage; exit 0 ;;
-    --source)
-      if (($# < 2)); then echo 'Missing directory after --source' >&2; exit 2; fi
-      source_dir=$2; shift 2 ;;
-    --source=*) source_dir=${1#*=}; shift ;;
-    --dry-run) dry_run=true; shift ;;
-    -*) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
-    *)
-      if [[ $run_set == true ]]; then echo "Unexpected argument: $1" >&2; exit 2; fi
-      run=$1; run_set=true; shift ;;
-  esac
-done
-
-if [[ ! -d $source_dir ]]; then echo "Source directory does not exist: $source_dir" >&2; exit 2; fi
-source_dir=$(CDPATH= cd -- "$source_dir" && pwd)
-required=$(<"$root/.dagger-version")
-if ! command -v dagger >/dev/null 2>&1; then
-  echo "Dagger $required is required. See docs/setup.md." >&2; exit 2
+# Build through Go's incremental cache. Keep the binary outside source inputs.
+cache_root=${XDG_CACHE_HOME:-${HOME}/.cache}
+key=$(printf '%s' "$root" | cksum | awk '{print $1}')
+bin_dir="$cache_root/levenshtein/bin/$key"
+mkdir -p "$bin_dir"
+required=$(<"$root/.go-version")
+if [[ $(go env GOVERSION) != "go$required" ]]; then
+  echo "Go $required is required. See docs/setup.md." >&2
+  exit 2
 fi
-actual=$(dagger version)
-case "$actual" in
-  "dagger v$required "*) ;;
-  *) echo "Expected Dagger $required; found: $actual. See docs/setup.md." >&2; exit 2 ;;
-esac
-
-args=(--mod "$root" call verify --source "$source_dir" --run "$run")
-if [[ $dry_run == true ]]; then args+=(--dry-run); fi
-# Change the execution input for full audits while preserving build caches.
-if [[ $run == main && $dry_run == false ]]; then
-  args+=(--nonce "$(date -u +%s)-$$-$RANDOM")
-fi
-exec dagger "${args[@]}"
+(cd "$root" && GOWORK=off GOTOOLCHAIN=local go build -o "$bin_dir/levenshtein" ./cmd/levenshtein)
+exec "$bin_dir/levenshtein" --shared "$root" --source "$root" "$@"
