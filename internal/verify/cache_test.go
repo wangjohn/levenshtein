@@ -103,7 +103,7 @@ func TestCacheArtifactsCorruptionAndFailedResults(t *testing.T) {
 	req.Check.Command = []string{"different"}
 	executor.status = "failed"
 	for i := 0; i < 2; i++ {
-		if result := runner.Execute(context.Background(), req); result.Status != "failed" || result.Cache.Status != "miss" {
+		if result := runner.Execute(context.Background(), req); result.Status != "failed" || result.Cache.Status == "hit" {
 			t.Fatalf("cached failure: %+v", result)
 		}
 	}
@@ -183,5 +183,33 @@ func TestUnpinnedEnvironmentDoesNotPersistPreparation(t *testing.T) {
 		if result.Status != "passed" || result.Stages[0].Reused {
 			t.Fatalf("unpinned environment persisted: %+v", result)
 		}
+	}
+}
+
+type verdictCachingExecutor struct{ failFresh bool }
+
+func (e *verdictCachingExecutor) Execute(ctx context.Context, req Request) Result {
+	if req.Fresh && e.failFresh {
+		return Result{Status: "failed"}
+	}
+	return Result{Status: "passed"}
+}
+func TestFreshFailureBypassesUnderlyingVerdictCache(t *testing.T) {
+	req := cacheRequest(t)
+	req.Environment.Executor = "dagger"
+	executor := &verdictCachingExecutor{}
+	runner := CachedExecutor{Cache: &Cache{Dir: t.TempDir()}, Executor: executor}
+	if result := runner.Execute(context.Background(), req); result.Status != "passed" {
+		t.Fatal(result)
+	}
+	executor.failFresh = true
+	req.Fresh = true
+	if result := runner.Execute(context.Background(), req); result.Status != "failed" {
+		t.Fatal(result)
+	}
+	req.Fresh = false
+	result := runner.Execute(context.Background(), req)
+	if result.Status != "failed" || result.Cache.Status != "fresh" {
+		t.Fatalf("lower-level cached success hid known failure: %+v", result)
 	}
 }
