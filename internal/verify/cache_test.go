@@ -172,3 +172,16 @@ func TestInputSymlinkDisablesResultCache(t *testing.T) {
 		t.Fatalf("unsafe input cached: %+v", result)
 	}
 }
+
+func TestUnpinnedEnvironmentDoesNotPersistPreparation(t *testing.T) {
+	req := cacheRequest(t)
+	req.Environment.Identity = ""
+	req.Preparation = &Preparation{Command: []string{"/bin/sh", "-c", "printf environment > ready"}, Inputs: []string{"lock"}, Outputs: []string{"ready"}}
+	cache := &Cache{Dir: t.TempDir()}
+	for i := 0; i < 2; i++ {
+		result := (&Native{Cache: cache}).Execute(context.Background(), req)
+		if result.Status != "passed" || result.Stages[0].Reused {
+			t.Fatalf("unpinned environment persisted: %+v", result)
+		}
+	}
+}

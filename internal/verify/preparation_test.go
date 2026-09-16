@@ -9,6 +9,7 @@ import (
 
 func TestReviewConflictingPreparation(t *testing.T) {
 	req := nativeRequest(t)
+	req.Environment.Identity = "conflicting-preparation-fixture"
 	prepA := &Preparation{Command: []string{"/bin/sh", "-c", "printf A > ready"}, Inputs: []string{"lock"}, Outputs: []string{"ready"}}
 	prepB := &Preparation{Command: []string{"/bin/sh", "-c", "printf B > ready"}, Inputs: []string{"lock"}, Outputs: []string{"ready"}}
 	req.Check.Command = []string{"/bin/sh", "-c", "cat ready"}

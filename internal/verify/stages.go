@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
@@ -35,14 +36,14 @@ func (n *Native) stage(ctx context.Context, req Request, kind string, stage *Pre
 		}
 		dependency = digest([]any{req.Preparation, d})
 	}
-	key := digest([]any{kind, req.Source, req.Target.Workspace, stage, inputs, env, req.Environment, impl, dependency})
+	key := digest([]any{kind, req.Source, req.Target.Workspace, stage, inputs, env, req.Environment, runtime.GOOS, runtime.GOARCH, impl, dependency})
 	info.Key = key
 	path := ""
 	var prior stageEntry
-	if n.Cache != nil {
+	if n.Cache != nil && req.Environment.Identity != "" {
 		path = filepath.Join(n.Cache.Dir, "stages", key+".json")
 		_ = readRecord(path, &prior)
-	} else if n.stages != nil {
+	} else if req.Environment.Identity != "" && n.stages != nil {
 		prior = n.stages[key]
 	}
 	if prior.Key == key && outputsExist(req.Source, stage.Outputs) {
@@ -79,7 +80,7 @@ func (n *Native) stage(ctx context.Context, req Request, kind string, stage *Pre
 		return info, &result
 	}
 	after, err := snapshot(req.Source, stage.Inputs, stage.Outputs, false)
-	if err == nil && after == inputs {
+	if err == nil && after == inputs && req.Environment.Identity != "" {
 		record := stageEntry{Key: key, Outputs: output}
 		if path != "" {
 			_ = writeRecord(path, record)
