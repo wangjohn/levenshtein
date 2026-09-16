@@ -1,6 +1,6 @@
 # Setup and usage
 
-The first slice runs three shared Go lint rules in Dagger. The same module runs locally and in GitHub Actions. Application test commands and consumer rollout are the next implementation steps.
+The first slice runs three shared Go lint rules in Dagger. The runner accepts a source checkout and a named run; your existing CI supplies workers and decides when to invoke it. See [use from an application repo](consumer-ci.md) for local and CI examples. Wrapping application test commands is the next implementation step.
 
 ## Prerequisites
 
@@ -73,18 +73,20 @@ A single Go module at the source root works without configuration. For multiple 
 
 Then run `./verify cleanup --source /path/to/repo`. A configuration file replaces the defaults. Module paths are relative to the source root. Every selected module is checked; change-based selection is not implemented yet. Check IDs currently available are `go-lint` and `self-test`. `self-test` validates Levenshtein's lint and consumer fixtures.
 
-This repo's `pre-merge` and `main` runs include `self-test`. The daily `main` run uses a unique execution input and a fresh Staticcheck analysis cache so a cached passing verdict cannot replace the audit. Download and compiler caches remain reusable. Add new checks explicitly to the configured full run during this pilot.
+This repo's `pre-merge` and `main` runs include `self-test`. Invoking `main` uses a unique execution input and a fresh Staticcheck analysis cache so a cached passing verdict cannot replace the audit. Download and compiler caches remain reusable. Each repo's CI owns its daily schedule. Add new checks explicitly to the configured full run during this pilot.
 
-## CI policy
+## Levenshtein's own CI
 
-The checked-in workflow selects:
+The checked-in `Levenshtein self-checks` workflow verifies this repo's runner and fixtures. Its cron schedules that verification only. Application repos call the shared runner from their own CI, as shown in the [consumer guide](consumer-ci.md).
+
+For Levenshtein itself, the workflow selects:
 
 - `branch` for draft PR updates and pushes to `main`.
 - `pre-merge` for ready PRs and merge-queue candidates.
 - `main` daily at 07:23 UTC, using the default branch.
 - A configurable run for manual dispatch.
 
-CI also runs the runner's Go unit tests, consumer regression checks, and verifies that the bad fixture fails with all three intended diagnostics. Configure the workflow's status as a required check in GitHub once the workflow has run. Publishing the code, enabling repository rules, and enrolling other repos are separate from adding this workflow.
+This workflow also runs the runner's Go unit tests, consumer regression fixtures, and verifies that the bad fixture fails with all three intended diagnostics. Its job remains named `verify`; configure that status as a required check for Levenshtein once it has run. Application repos maintain their own merge gates and schedules.
 
 ## Pinned dependencies
 

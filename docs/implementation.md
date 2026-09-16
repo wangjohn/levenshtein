@@ -1,6 +1,8 @@
 # Implementation plan
 
-Status: Dagger path selected. The first slice implements pinned Go lint, configurable runs, rule fixtures, and a GitHub Actions workflow. See [setup and usage](setup.md) for the current behavior. Consumer rollout, application test commands, and background improvement jobs remain planned.
+Status: Dagger path selected. The first slice implements pinned Go lint, configurable runs, rule fixtures, and CI for Levenshtein itself. See [setup and usage](setup.md) for the current behavior and [consumer CI](consumer-ci.md) for invoking it from another repo.
+
+**Next milestone:** wrap a Go application's existing tests alongside shared lint, then run both locally and in that application's existing CI. Application test execution and enrollment of a real consumer are still to be implemented.
 
 The [README](../README.md) is the product overview. This document defines the pilot scope, implementation sequence, and completion criteria.
 
@@ -37,7 +39,7 @@ Start with two Go repositories and their existing CI. Use Postgres only if a pil
 - **Useful results:** native failure output, check names, timings, and rerun commands, plus a small machine-readable result file. Store these with existing CI logs and artifacts.
 - **An improvement loop:** one bounded background job proposes a repair or shared check for human review. Update consuming repos manually at first.
 
-The shared code lives in Levenshtein; each application repo invokes its pinned version. Existing CI supplies workers, schedules, and required status checks. This is enough infrastructure for the pilot.
+The shared code lives in Levenshtein; each application repo invokes its pinned version. Existing CI supplies workers, triggers, schedules, credentials, and required status checks. Levenshtein selects checks, prepares their execution environment, and reports their results. Application tests stay in the application repo. Levenshtein's own workflow verifies the shared runner and its fixtures; each consumer owns its CI integration.
 
 ## Everyday use
 
@@ -51,7 +53,7 @@ Current interface (check scope will grow through the pilot):
 
 A **check** verifies something. A **run** selects checks and can combine tests, lint rules, and CI/CD assertions. Names are configurable: use `./verify <name>` for any run.
 
-Ship these defaults:
+Recommend these runs and invocation times; each repo's CI owns the event mapping:
 
 | Run | When | What runs |
 | --- | --- | --- |
@@ -63,7 +65,7 @@ Ship these defaults:
 
 Start with explicit core checks and simple path/package mappings. Include task-specific acceptance checks and new or modified tests in change verification. A Go package change runs its lint and focused tests; uncertain dependencies broaden the relevant suite. Check importance follows failure consequences and known defects.
 
-The `main` run executes checks fresh daily, including on days without changes. Build artifacts can be reused, but cached passing verdicts cannot replace the audit. Declare its supported environments; missing expected prerequisites make the run incomplete. Complete audits run on their cadence rather than every main-branch push.
+The consuming repo's CI schedules `main` daily, including on days without changes. Invoking `main` executes the configured audit immediately. Build artifacts can be reused, but cached passing verdicts cannot replace the audit. Declare its supported environments; missing expected prerequisites make the run incomplete. Complete audits run on their cadence rather than every main-branch push.
 
 Required checks must pass for the final proposed revision and relevant base state. Report the scope actually verified. Missing results, tool failures, and timeouts cannot become a passing gate, and a `branch` pass does not satisfy an unfinished `pre-merge` run.
 
@@ -101,17 +103,19 @@ scripts/install-dagger # checksummed CLI installer
 
 Generated Dagger files follow the chosen release's conventions. Keep intentionally failing fixtures outside ordinary application test discovery and validate their expected outcomes explicitly.
 
-### 2. Make the first consumer testable and lintable
+### 2. Wrap the first consumer's existing tests (next)
 
-Add the launcher, a small repo configuration, and a thin CI workflow to the first consumer. Configuration declares the shared revision, native commands, core checks, input mappings, and custom run names. Introduce formatting, a selected set of Go correctness checks, the repo's existing tests, and workflow lint. Preserve the repo's accepted conventions instead of enabling every available linter.
+Choose a Go application and record how its tests already run, including package scope, flags, and any required services. Add a shared `go-test` check that invokes those native Go tests through Dagger and composes with `go-lint` in named runs. `go-test` is planned; the current runner accepts only `go-lint` and `self-test`.
 
-The consumer launcher passes that repo's source directory and run configuration to the pinned shared module. Application code stays in the consumer repo; check implementations stay in Levenshtein.
+Keep test files and assertions in the application repo. The shared wrapper owns tool versions, environment setup, execution, and reporting. Preserve native failure output and nonzero exit status. A fresh `main` audit must bypass both Dagger's execution cache and Go's cached test results, while allowing dependency and compiler caches.
 
-Implement `branch`, `pre-merge`, `main`, and the configurable `go-lint` example. Use explicit package/path mappings first. Keep required core checks, task acceptance, and new or modified tests in scope; broaden for uncertain dependencies. Results need only selected check names, outcomes, timings, source/shared versions, and native logs.
+Pin Levenshtein in the consumer and add an invocation to its existing CI. Pass the consumer's source directory and run configuration to the shared module, following the [consumer guide](consumer-ci.md). Start with explicit core tests for `branch` and `pre-merge` and the complete applicable suite for `main`. Add change-based selection after this path works.
 
-**Done when:** local and CI runs use the same shared definitions; an ordinary edit stays focused; a risky change broadens checks; a new check enters the complete suite; and another run can be added through configuration.
+**Done when:** the real consumer runs its existing tests and shared lint through the same command locally and in its existing CI; a failing assertion and a lint violation each fail the CI job with useful output; custom runs work; and `main` reruns tests even without source changes. Add formatting and other checks after proving this path.
 
 ### 3. Connect the run policy to real CI events
+
+Configure events and schedules in the consuming repo's CI. The runner receives the chosen run and checked-out source; Levenshtein's own workflow remains responsible for checking Levenshtein itself.
 
 For GitHub Actions, use local/draft-PR feedback for `branch`. Run `pre-merge` when a PR is opened ready for review, becomes ready, or receives new commits while ready. Configure it as a required check and ensure the tested candidate includes the relevant base revision. Include `merge_group` if the repo uses a merge queue. Trigger `main` on a daily schedule and allow manual invocation. Existing CI providers can use their equivalent mechanisms. See GitHub's [PR, merge-queue, and schedule events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows).
 

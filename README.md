@@ -4,9 +4,9 @@
 
 Tests and lint rules give coding agents clear requirements and fast feedback. Levenshtein makes them easy to set up and improve, so teams can verify AI-generated changes before shipping to production.
 
-Levenshtein keeps shared rules, test commands, and CI checks in one repo. Your application repos use a pinned version of that setup. Improve it once, then adopt the change wherever it applies.
+Levenshtein keeps shared verification rules and execution setup in one repo. Your application repos use a pinned version. Improve it once, then adopt the change wherever it applies. Application tests stay beside the application code.
 
-It works with your existing CI: the CI provider runs the jobs, and Levenshtein supplies the shared checks and configuration.
+Your existing CI—GitHub Actions, CircleCI, or another provider—owns triggers, schedules, and workers. Levenshtein wraps the checks: select what to run, prepare the environment, and return results. The same wrapper runs locally.
 
 For example, add a Go rule that catches misplaced `defer` calls, then adopt it across your Go repos. Fixes to shared tests and CI checks follow the same path.
 
@@ -17,15 +17,15 @@ For example, add a Go rule that catches misplaced `defer` calls, then adopt it a
 ```sh
 ./verify              # fast checks for your branch
 ./verify pre-merge    # key checks before merging
-./verify main         # fresh audit; CI runs this daily
+./verify main         # fresh audit; schedule this in your repo's CI
 ./verify go-lint      # shared Go rules, such as misplaced defers
 ```
 
 `./verify` defaults to `branch`. Add your own named runs through configuration. Run the same checks locally and in CI.
 
-To check another Go repo: `./verify go-lint --source /path/to/repo`.
+To check another Go repo: `./verify go-lint --source /path/to/repo`. [Use it from your existing CI](docs/consumer-ci.md).
 
-Shared application tests, adoption across repos, and background agents that propose improvements are next steps in the pilot.
+**Next:** wrap a Go repo's existing tests alongside lint and run both from that repo's CI. Levenshtein's own workflow and daily schedule check its runner and fixtures.
 
 ## Documentation
 

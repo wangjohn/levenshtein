@@ -1,4 +1,7 @@
-name: verify
+name: Levenshtein self-checks
+
+# Verify Levenshtein's own runner and fixtures. Application repos invoke the
+# shared runner from their existing CI and own their schedules (docs/consumer-ci.md).
 
 on:
   pull_request:
@@ -13,6 +16,7 @@ on:
         default: pre-merge
         type: string
   schedule:
+    # Fresh daily verification of Levenshtein itself.
     - cron: '23 7 * * *'
 
 permissions:
