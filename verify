@@ -7,7 +7,7 @@ key=$(printf '%s' "$root" | cksum | awk '{print $1}')
 bin_dir="$cache_root/levenshtein/bin/$key"
 mkdir -p "$bin_dir"
 required=$(<"$root/.go-version")
-if [[ $(go env GOVERSION) != "go$required" ]]; then
+if [[ $(GOWORK=off GOTOOLCHAIN=local go env GOVERSION) != "go$required" ]]; then
   echo "Go $required is required. See docs/setup.md." >&2
   exit 2
 fi
