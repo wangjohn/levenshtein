@@ -12,7 +12,7 @@ For example, add a Go rule that catches misplaced `defer` calls, then adopt it a
 
 ## Usage
 
-**First working slice:** shared Go lint for misplaced `defer`/`Close` calls, with Dagger and pinned tools. [Set it up](docs/setup.md).
+**Available now:** shared Go cleanup lint through Dagger, native commands, and local caching of results and compatible setup/builds. [Set up Go checks](docs/setup.md) or [configure native checks](docs/configuration.md).
 
 ```sh
 ./verify              # fast checks for your branch
