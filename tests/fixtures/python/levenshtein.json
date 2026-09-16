@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "targets": {
+    "package": {
+      "dir": ".",
+      "workspace": ".",
+      "inputs": [
+        "pyproject.toml",
+        "uv.lock",
+        ".python-version",
+        "src",
+        "tests",
+        "scripts"
+      ]
+    }
+  },
+  "environments": {
+    "python": {
+      "executor": "native",
+      "identity": "python-3.14.7-uv-0.12.15-fixture",
+      "pass_env": [
+        "UV_PYTHON_INSTALL_DIR",
+        "UV_CACHE_DIR"
+      ],
+      "env": {
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"
+      },
+      "tools": [
+        {
+          "command": [
+            "uv",
+            "self",
+            "version",
+            "--short"
+          ],
+          "version": "0.12.15"
+        }
+      ]
+    }
+  },
+  "preparations": {
+    "dependencies": {
+      "command": [
+        "uv",
+        "sync",
+        "--locked",
+        "--no-install-project"
+      ],
+      "inputs": [
+        "pyproject.toml",
+        "uv.lock",
+        ".python-version"
+      ],
+      "outputs": [
+        ".venv"
+      ]
+    }
+  },
+  "checks": {
+    "lint": {
+      "kind": "command",
+      "target": "package",
+      "environment": "python",
+      "command": [
+        ".venv/bin/python",
+        "scripts/lint.py"
+      ],
+      "fresh_command": [
+        ".venv/bin/python",
+        "scripts/lint.py"
+      ],
+      "cache": true,
+      "preparation": "dependencies"
+    },
+    "tests": {
+      "kind": "command",
+      "target": "package",
+      "environment": "python",
+      "command": [
+        ".venv/bin/python",
+        "-m",
+        "pytest",
+        "-q"
+      ],
+      "fresh_command": [
+        ".venv/bin/python",
+        "-m",
+        "pytest",
+        "-q"
+      ],
+      "cache": true,
+      "preparation": "dependencies",
+      "artifacts": [
+        "test-executions.txt"
+      ]
+    }
+  },
+  "runs": {
+    "branch": {
+      "checks": [
+        "lint",
+        "tests"
+      ]
+    },
+    "audit": {
+      "checks": [
+        "lint",
+        "tests"
+      ],
+      "fresh": true
+    }
+  }
+}
