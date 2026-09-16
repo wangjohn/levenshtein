@@ -114,3 +114,12 @@ func TestNativeConfiguration(t *testing.T) {
 		t.Fatal("invalid timeout accepted")
 	}
 }
+
+func TestArtifactErrorRetainsOutput(t *testing.T) {
+	req := nativeRequest(t)
+	req.Check.Artifacts = []string{"missing"}
+	result := (&Native{}).Execute(context.Background(), req)
+	if result.Status != "error" || result.Stdout != "hello" || result.Stderr != "warning" {
+		t.Fatalf("lost native diagnostics: %+v", result)
+	}
+}

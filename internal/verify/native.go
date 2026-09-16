@@ -21,7 +21,7 @@ import (
 // is handled by the cache layer; repo commands remain trusted, unsandboxed code.
 type Native struct {
 	mu       sync.Mutex
-	prepared map[string]bool
+	prepared map[string][]string
 }
 
 func nativeEnv(req Request, extra map[string]string) []string {
@@ -137,21 +137,15 @@ func (n *Native) Execute(ctx context.Context, req Request) Result {
 		return Result{Status: "error", Error: err.Error()}
 	}
 	env := nativeEnv(req, req.Check.Env)
-	for _, tool := range req.Environment.Tools {
-		result := command(ctx, dir, tool.Command, nativeEnv(req, nil), "30s")
-		if result.Status != "passed" {
-			result.Error = "tool validation: " + result.Error
-			result.Status = "error"
-			return result
-		}
-		if strings.TrimSpace(result.Stdout) != tool.Version {
-			return Result{Status: "error", Error: fmt.Sprintf("tool %q version mismatch: expected %q, got %q", tool.Command[0], tool.Version, strings.TrimSpace(result.Stdout))}
-		}
+	if result := validateTools(ctx, dir, req.Environment.Tools, env); result != nil {
+		return *result
 	}
+	// Hold ownership of mutable preparation through the check that consumes it.
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	if req.Preparation != nil {
-		n.mu.Lock()
 		if n.prepared == nil {
-			n.prepared = map[string]bool{}
+			n.prepared = map[string][]string{}
 		}
 		data, _ := json.Marshal(struct {
 			Source, Workspace string
@@ -160,32 +154,50 @@ func (n *Native) Execute(ctx context.Context, req Request) Result {
 		}{req.Source, req.Target.Workspace, nativeEnv(req, req.Preparation.Env), req.Preparation})
 		sum := sha256.Sum256(data)
 		key := hex.EncodeToString(sum[:])
-		ready := n.prepared[key] && outputsExist(req.Source, req.Preparation.Outputs)
+		_, known := n.prepared[key]
+		ready := known && outputsExist(req.Source, req.Preparation.Outputs)
 		if !ready {
+			owned := make([]string, 0, len(req.Preparation.Outputs))
+			for _, path := range req.Preparation.Outputs {
+				owned = append(owned, filepath.Join(req.Source, path))
+			}
+			for prior, outputs := range n.prepared {
+				for _, old := range outputs {
+					for _, path := range owned {
+						if old == path || strings.HasPrefix(old, path+string(filepath.Separator)) || strings.HasPrefix(path, old+string(filepath.Separator)) {
+							delete(n.prepared, prior)
+						}
+					}
+				}
+			}
+			if result := validateTools(ctx, filepath.Join(req.Source, req.Target.Workspace), req.Environment.Tools, nativeEnv(req, req.Preparation.Env)); result != nil {
+				return *result
+			}
 			prep := command(ctx, filepath.Join(req.Source, req.Target.Workspace), req.Preparation.Command, nativeEnv(req, req.Preparation.Env), req.Preparation.Timeout)
 			if prep.Status != "passed" {
-				n.mu.Unlock()
 				prep.Error = "preparation: " + prep.Error
 				return prep
 			}
 			if !outputsExist(req.Source, req.Preparation.Outputs) {
-				n.mu.Unlock()
 				return Result{Status: "error", Error: "preparation did not produce its declared outputs"}
 			}
-			n.prepared[key] = true
+			n.prepared[key] = owned
 		}
-		n.mu.Unlock()
 	}
 	result := command(ctx, dir, req.Check.Command, env, req.Check.Timeout)
 	if result.Status == "passed" {
 		for _, path := range req.Check.Artifacts {
 			full, err := contained(req.Source, path)
 			if err != nil {
-				return Result{Status: "error", Error: fmt.Sprintf("required artifact %q: %v", path, err)}
+				result.Status = "error"
+				result.Error = fmt.Sprintf("required artifact %q: %v", path, err)
+				return result
 			}
 			info, err := os.Lstat(full)
 			if err != nil || !info.Mode().IsRegular() {
-				return Result{Status: "error", Error: fmt.Sprintf("required artifact %q must be a regular file", path)}
+				result.Status = "error"
+				result.Error = fmt.Sprintf("required artifact %q must be a regular file", path)
+				return result
 			}
 		}
 	}
@@ -198,4 +210,20 @@ func outputsExist(source string, paths []string) bool {
 		}
 	}
 	return true
+}
+
+func validateTools(ctx context.Context, dir string, tools []Tool, env []string) *Result {
+	for _, tool := range tools {
+		result := command(ctx, dir, tool.Command, env, "30s")
+		if result.Status != "passed" {
+			result.Error = "tool validation: " + result.Error
+			result.Status = "error"
+			return &result
+		}
+		if strings.TrimSpace(result.Stdout) != tool.Version {
+			return &Result{Status: "error", Error: fmt.Sprintf("tool %q version mismatch: expected %q, got %q", tool.Command[0], tool.Version, strings.TrimSpace(result.Stdout))}
+		}
+	}
+
+	return nil
 }
