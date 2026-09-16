@@ -3,7 +3,7 @@ package verify
 import "fmt"
 
 func validateCheck(check Check, env Environment) error {
-	if env.Executor != "dagger" {
+	if env.Executor != ExecutorDagger {
 		return fmt.Errorf("unsupported executor %q", env.Executor)
 	}
 	if daggerFunctions[check.Kind] == "" {

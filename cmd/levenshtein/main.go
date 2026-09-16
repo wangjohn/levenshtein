@@ -77,11 +77,11 @@ func runCommand(ctx context.Context, args []string, output io.Writer) (int, erro
 	dagger := &verify.Dagger{}
 	defer dagger.Close()
 
-	report := verify.Execute(ctx, plan, shared, map[string]verify.Executor{"dagger": dagger})
+	report := verify.Execute(ctx, plan, shared, map[verify.ExecutorKind]verify.Executor{verify.ExecutorDagger: dagger})
 	if err := encoder.Encode(report); err != nil {
 		return 2, err
 	}
-	if report.Status != "passed" {
+	if report.Status != verify.StatusPassed {
 		return 1, nil
 	}
 	return 0, nil
