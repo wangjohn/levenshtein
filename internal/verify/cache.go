@@ -182,7 +182,7 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 		result.Cache = info
 		return result
 	}
-	key, err := fingerprint(req)
+	key, unlock, err := c.Cache.lockedFingerprint(ctx, req)
 	if err != nil {
 		result := c.Executor.Execute(ctx, req)
 		result.Cache = CacheInfo{Status: "unavailable", Reason: err.Error()}
@@ -190,22 +190,23 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 	}
 	info.Key = key
 	info.Status = "miss"
-	unlock, err := lockFile(ctx, filepath.Join(c.Cache.Dir, "locks", "result-"+key))
-	if err != nil {
-		result := c.Executor.Execute(ctx, req)
-		result.Cache = CacheInfo{Status: "unavailable", Reason: err.Error()}
-		return result
-	}
 	defer unlock()
 	if !req.Fresh {
 		if result, err := c.Cache.load(req, key); err == nil {
-			info.Status = "hit"
-			info.LookupMS = time.Since(start).Milliseconds()
-			result.Cache = info
-			return result
+			after, changedErr := fingerprint(req)
+			if changedErr == nil && after == key {
+				info.Status = "hit"
+				info.LookupMS = time.Since(start).Milliseconds()
+				result.Cache = info
+				return result
+			}
 		}
 	} else {
 		info.Status = "fresh"
+	}
+	// A new observation supersedes an older success, including failure/cancellation.
+	if err := os.Remove(filepath.Join(c.Cache.Dir, "results", key+".json")); err != nil && !os.IsNotExist(err) {
+		return Result{Status: "error", Error: "cannot invalidate old cached result: " + err.Error()}
 	}
 	info.LookupMS = time.Since(start).Milliseconds()
 	executed := time.Now()
@@ -224,4 +225,26 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 		}
 	}
 	return result
+}
+
+func (c *Cache) lockedFingerprint(ctx context.Context, req Request) (string, func(), error) {
+	for attempt := 0; attempt < 3; attempt++ {
+		key, err := fingerprint(req)
+		if err != nil {
+			return "", nil, err
+		}
+		unlock, err := lockFile(ctx, filepath.Join(c.Dir, "locks", "result-"+key))
+		if err != nil {
+			return "", nil, err
+		}
+		current, err := fingerprint(req)
+		if err == nil && current == key {
+			return key, unlock, nil
+		}
+		unlock()
+		if err != nil {
+			return "", nil, err
+		}
+	}
+	return "", nil, fmt.Errorf("inputs kept changing during cache lookup")
 }

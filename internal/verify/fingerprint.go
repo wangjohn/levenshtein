@@ -114,10 +114,7 @@ func outputPaths(req Request) []string {
 func implementation(req Request) (string, error) {
 	paths := []string{"go.mod", "go.sum", "cmd", "internal"}
 	if req.Environment.Executor == "dagger" {
-		paths = append(paths, ".dagger-version", "dagger.json", "runner/main.go", "runner/config.go", "runner/toolchain.json", "runner/go.mod", "runner/go.sum")
-		if req.Check.Kind == "self-test" {
-			paths = append(paths, "runner/testdata")
-		}
+		paths = append(paths, ".dagger-version", "dagger.json", "runner")
 	}
 	return snapshot(req.Shared, paths, nil, false)
 }
