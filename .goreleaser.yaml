@@ -24,6 +24,7 @@ archives:
       - runner/go.mod
       - runner/go.sum
       - runner/toolchain.json
+      - runner/lint/**
       - runner/testdata/**
 checksum:
   name_template: checksums.txt
