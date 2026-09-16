@@ -115,11 +115,8 @@ func snapshot(root string, paths, excludes []string, outputs bool) (string, erro
 }
 func outputPaths(req Request) []string {
 	out := append([]string{}, req.Check.Artifacts...)
-	if req.Preparation != nil {
-		out = append(out, req.Preparation.Outputs...)
-	}
-	if req.Build != nil {
-		out = append(out, req.Build.Outputs...)
+	for _, stage := range req.stages() {
+		out = append(out, stage.definition.Outputs...)
 	}
 	return out
 }
@@ -132,11 +129,8 @@ func implementation(req Request) (string, error) {
 }
 func fingerprint(req Request) (string, error) {
 	paths := append([]string{}, req.Target.Inputs...)
-	if req.Preparation != nil {
-		paths = append(paths, req.Preparation.Inputs...)
-	}
-	if req.Build != nil {
-		paths = append(paths, req.Build.Inputs...)
+	for _, stage := range req.stages() {
+		paths = append(paths, stage.definition.Inputs...)
 	}
 	sort.Strings(paths)
 	source, err := snapshot(req.Source, paths, outputPaths(req), false)

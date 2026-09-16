@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 
 	"github.com/spf13/pflag"
@@ -19,68 +19,65 @@ func main() { os.Exit(run()) }
 func run() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	source, err := os.Getwd()
+	code, err := runCommand(ctx, os.Args[1:], os.Stdout)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		return 2
+	}
+	return code
+}
+
+func runCommand(ctx context.Context, args []string, output io.Writer) (int, error) {
+	source, err := os.Getwd()
+	if err != nil {
+		return 2, err
 	}
 	cacheRoot, _ := os.UserCacheDir()
-	opts, err := parseArgs(os.Args[1:], options{
+	opts, err := parseArgs(args, options{
 		source:   source,
 		shared:   os.Getenv("LEVENSHTEIN_SHARED_ROOT"),
 		cacheDir: filepath.Join(cacheRoot, "levenshtein", "verification-v1"),
-	}, os.Stdout)
+	}, output)
 	if errors.Is(err, pflag.ErrHelp) {
-		return 0
+		return 0, nil
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 2
+		return 2, err
 	}
-	shared := opts.shared
-
 	source, err = filepath.Abs(opts.source)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 2
+		return 2, err
 	}
 	cfg, err := verify.Load(source)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 2
+		return 2, err
 	}
 	plan, err := cfg.Plan(source, opts.name)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 2
+		return 2, err
 	}
-	encoder := json.NewEncoder(os.Stdout)
+	encoder := json.NewEncoder(output)
 	encoder.SetIndent("", "  ")
 	if opts.dry {
 		if err := encoder.Encode(plan); err != nil {
-			return 2
+			return 2, err
 		}
-		return 0
+		return 0, nil
 	}
-	if shared == "" {
-		fmt.Fprintln(os.Stderr, "set --shared to the pinned Levenshtein checkout, or use its ./verify launcher")
-		return 2
+	if opts.shared == "" {
+		return 2, fmt.Errorf("set --shared to the pinned Levenshtein checkout, or use its ./verify launcher")
 	}
-	shared, err = filepath.Abs(shared)
+	shared, err := filepath.Abs(opts.shared)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 2
+		return 2, err
 	}
 	cacheDir, err := filepath.Abs(opts.cacheDir)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 2
+		return 2, err
 	}
 	for _, root := range []string{plan.Source, shared} {
 		relative, relErr := filepath.Rel(root, cacheDir)
-		if relErr == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-			fmt.Fprintln(os.Stderr, "cache directory must be outside source and shared checkouts")
-			return 2
+		if relErr == nil && filepath.IsLocal(relative) {
+			return 2, fmt.Errorf("cache directory must be outside source and shared checkouts")
 		}
 	}
 	cache := &verify.Cache{Dir: cacheDir}
@@ -92,11 +89,10 @@ func run() int {
 	})
 
 	if err := encoder.Encode(report); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 2
+		return 2, err
 	}
 	if report.Status != "passed" {
-		return 1
+		return 1, nil
 	}
-	return 0
+	return 0, nil
 }
