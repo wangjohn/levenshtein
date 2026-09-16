@@ -191,6 +191,11 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 	info.Key = key
 	info.Status = "miss"
 	defer unlock()
+	retryPath := filepath.Join(c.Cache.Dir, "results", key+".retry")
+	if _, err := os.Stat(retryPath); err == nil {
+		req.Fresh = true
+		info.Reason = "previous execution did not publish a successful result; bypassing underlying verdict caches"
+	}
 	if !req.Fresh {
 		if result, err := c.Cache.load(req, key); err == nil {
 			after, changedErr := fingerprint(req)
@@ -208,6 +213,9 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 	if err := os.Remove(filepath.Join(c.Cache.Dir, "results", key+".json")); err != nil && !os.IsNotExist(err) {
 		return Result{Status: "error", Error: "cannot invalidate old cached result: " + err.Error()}
 	}
+	if err := atomicWrite(retryPath, []byte("verification pending\n"), 0600); err != nil {
+		return Result{Status: "error", Error: "cannot record verification freshness: " + err.Error()}
+	}
 	info.LookupMS = time.Since(start).Milliseconds()
 	executed := time.Now()
 	result := c.Executor.Execute(ctx, req)
@@ -222,6 +230,10 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 		}
 		if err := c.Cache.save(req, key, result); err != nil {
 			result.Cache.Reason = "cache write unavailable: " + err.Error()
+		} else {
+			if err := os.Remove(retryPath); err != nil {
+				result.Cache.Reason = "freshness marker cleanup unavailable: " + err.Error()
+			}
 		}
 	}
 	return result

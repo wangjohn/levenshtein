@@ -213,6 +213,9 @@ func (cfg Config) Plan(source, name string) (Plan, error) {
 		if err := validateCheck(check, env); err != nil {
 			return p, fmt.Errorf("check %q: %w", id, err)
 		}
+		if run.Fresh && env.Executor == "native" && len(check.FreshCommand) == 0 {
+			return p, fmt.Errorf("check %q: fresh native runs require an explicit fresh_command", id)
+		}
 		if target.Workspace == "" {
 			target.Workspace = "."
 		}

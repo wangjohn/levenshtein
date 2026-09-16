@@ -139,3 +139,16 @@ func TestRejectPreparationOutputAliases(t *testing.T) {
 		t.Fatalf("accepted aliased output: %+v", result)
 	}
 }
+
+func TestFreshRunRequiresNativeFreshCommand(t *testing.T) {
+	cfg := Config{Version: 1, Targets: map[string]Target{"app": {Dir: ".", Inputs: []string{"."}}}, Environments: map[string]Environment{"host": {Executor: "native"}}, Checks: map[string]Check{"test": {Kind: "command", Target: "app", Environment: "host", Command: []string{"true"}}}, Runs: map[string]Run{"audit": {Checks: []string{"test"}, Fresh: true}}}
+	if _, err := cfg.Plan(t.TempDir(), "audit"); err == nil {
+		t.Fatal("freshness was silently assumed for a generic command")
+	}
+	check := cfg.Checks["test"]
+	check.FreshCommand = []string{"true"}
+	cfg.Checks["test"] = check
+	if _, err := cfg.Plan(t.TempDir(), "audit"); err != nil {
+		t.Fatal(err)
+	}
+}
