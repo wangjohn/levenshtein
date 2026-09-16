@@ -88,7 +88,7 @@ For Levenshtein itself, the workflow selects:
 - `main` daily at 07:23 UTC, using the default branch.
 - A configurable run for manual dispatch.
 
-This workflow also runs the runner's Go unit tests, consumer regression fixtures, and verifies that the bad fixture fails with all three intended diagnostics. Its job remains named `verify`; configure that status as a required check for Levenshtein once it has run. Application repos maintain their own merge gates and schedules.
+This workflow also runs the runner's Go unit tests, consumer regression fixtures, and verifies that the bad fixture fails with all three intended diagnostics. Require both `verify` and `language-contracts` for Levenshtein once they have run; the second job exercises the Rust and Python contracts. Application repos maintain their own merge gates and schedules.
 
 ## Pinned dependencies
 
