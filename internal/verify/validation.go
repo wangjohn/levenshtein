@@ -7,7 +7,7 @@ import (
 )
 
 func validateCheck(check Check, env Environment) error {
-	if env.Executor == "dagger" {
+	if env.Executor == ExecutorDagger {
 		if daggerFunctions[check.Kind] == "" {
 			return fmt.Errorf("unknown Dagger check %q", check.Kind)
 		}
@@ -17,10 +17,10 @@ func validateCheck(check Check, env Environment) error {
 		return nil
 	}
 
-	if env.Executor != "native" {
+	if env.Executor != ExecutorNative {
 		return fmt.Errorf("unsupported executor %q", env.Executor)
 	}
-	if check.Kind != "command" || len(check.Command) == 0 || check.Command[0] == "" {
+	if check.Kind != CheckCommand || len(check.Command) == 0 || check.Command[0] == "" {
 		return fmt.Errorf("native check needs kind command and a nonempty command array")
 	}
 

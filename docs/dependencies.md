@@ -6,7 +6,7 @@ Levenshtein owns shared verification policy: named runs, target inputs, environm
 | --- | --- |
 | Command-line flags and help | `spf13/pflag` |
 | Container execution, module loading, engine lifecycle, and caching | Official Dagger Go SDK |
-| Go cleanup lint | Staticcheck |
+| Go lint and custom policy | Staticcheck runner with `go/analysis` analyzers |
 | Paths confined to a repository | Go `filepath.IsLocal` and `os.Root` |
 | Binary builds, release archives, and checksums | GoReleaser |
 

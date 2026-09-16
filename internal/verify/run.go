@@ -7,9 +7,10 @@ import (
 	"time"
 )
 
+//levenshtein:record
 type Result struct {
 	ID         string          `json:"id"`
-	Status     string          `json:"status"`
+	Status     Status          `json:"status"`
 	DurationMS int64           `json:"duration_ms"`
 	VerifiedAt time.Time       `json:"verified_at"`
 	Stdout     string          `json:"stdout,omitempty"`
@@ -18,10 +19,11 @@ type Result struct {
 	Details    json.RawMessage `json:"details,omitempty"`
 }
 
+//levenshtein:record
 type Report struct {
 	Version int      `json:"version"`
 	Run     string   `json:"run"`
-	Status  string   `json:"status"`
+	Status  Status   `json:"status"`
 	Plan    Plan     `json:"plan"`
 	Results []Result `json:"results"`
 }
@@ -36,38 +38,61 @@ type Executor interface {
 	Execute(context.Context, Request) Result
 }
 
-func Execute(ctx context.Context, plan Plan, shared string, executors map[string]Executor) Report {
-	r := Report{Version: 1, Run: plan.Run, Status: "passed", Plan: plan, Results: []Result{}}
+func Execute(ctx context.Context, plan Plan, shared string, executors map[ExecutorKind]Executor) Report {
+	status := StatusPassed
+	results := []Result{}
 	for _, check := range plan.Checks {
-		result := Result{ID: check.ID, Status: "incomplete"}
 		start := time.Now()
-		if ctx.Err() != nil {
-			result.Status = "cancelled"
-			result.Error = ctx.Err().Error()
-		} else if executor := executors[check.Environment.Executor]; executor != nil {
-			result = executor.Execute(ctx, Request{Source: plan.Source, Shared: shared, Fresh: plan.Fresh, PlannedCheck: check})
-			result.ID = check.ID
-		} else {
-			result.Error = fmt.Sprintf("executor %q is unavailable", check.Environment.Executor)
-		}
-
-		switch result.Status {
-		case "passed", "failed", "error", "cancelled", "incomplete":
-		default:
-			result.Status = "error"
-			result.Error = "executor returned an invalid status"
-		}
-
-		result.DurationMS = time.Since(start).Milliseconds()
-		result.VerifiedAt = start.UTC()
-		r.Results = append(r.Results, result)
-		if result.Status != "passed" {
-			r.Status = "failed"
+		outcome := executeCheck(ctx, check, Request{Source: plan.Source, Shared: shared, Fresh: plan.Fresh, PlannedCheck: check}, executors)
+		results = append(results, Result{
+			ID:         check.ID,
+			Status:     outcome.Status,
+			DurationMS: time.Since(start).Milliseconds(),
+			VerifiedAt: start.UTC(),
+			Stdout:     outcome.Stdout,
+			Stderr:     outcome.Stderr,
+			Error:      outcome.Error,
+			Details:    outcome.Details,
+		})
+		if outcome.Status != StatusPassed {
+			status = StatusFailed
 		}
 	}
 
 	if len(plan.Checks) == 0 {
-		r.Status = "incomplete"
+		status = StatusIncomplete
 	}
-	return r
+	return Report{Version: 1, Run: plan.Run, Status: status, Plan: plan, Results: results}
+}
+
+func executeCheck(ctx context.Context, check PlannedCheck, req Request, executors map[ExecutorKind]Executor) Result {
+	if err := ctx.Err(); err != nil {
+		return Result{Status: StatusCancelled, Error: err.Error()}
+	}
+	executor := executors[check.Environment.Executor]
+	if executor == nil {
+		return Result{Status: StatusIncomplete, Error: fmt.Sprintf("executor %q is unavailable", check.Environment.Executor)}
+	}
+
+	result := executor.Execute(ctx, req)
+	switch result.Status {
+	case StatusPassed, StatusFailed, StatusError, StatusCancelled, StatusIncomplete:
+		return result
+	default:
+		return Result{Status: StatusError, Error: "executor returned an invalid status", Stdout: result.Stdout, Stderr: result.Stderr, Details: result.Details}
+	}
+}
+
+// withOutcome replaces an outcome while preserving its diagnostics and metadata.
+func (r Result) withOutcome(status Status, message string) Result {
+	return Result{
+		ID:         r.ID,
+		Status:     status,
+		DurationMS: r.DurationMS,
+		VerifiedAt: r.VerifiedAt,
+		Stdout:     r.Stdout,
+		Stderr:     r.Stderr,
+		Error:      message,
+		Details:    r.Details,
+	}
 }

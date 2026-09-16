@@ -22,11 +22,11 @@ type Native struct {
 
 func (n *Native) Execute(ctx context.Context, req Request) Result {
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
-		return Result{Status: "error", Error: "native execution currently supports macOS and Linux"}
+		return Result{Status: StatusError, Error: "native execution currently supports macOS and Linux"}
 	}
 	dir, err := contained(req.Source, req.Target.Dir)
 	if err != nil {
-		return Result{Status: "error", Error: err.Error()}
+		return Result{Status: StatusError, Error: err.Error()}
 	}
 
 	env := nativeEnv(req, req.Check.Env)
@@ -55,7 +55,7 @@ func (n *Native) Execute(ctx context.Context, req Request) Result {
 			for _, path := range req.Preparation.Outputs {
 				full, err := outputPath(req.Source, path)
 				if err != nil {
-					return Result{Status: "error", Error: err.Error()}
+					return Result{Status: StatusError, Error: err.Error()}
 				}
 				owned = append(owned, full)
 			}
@@ -72,31 +72,26 @@ func (n *Native) Execute(ctx context.Context, req Request) Result {
 				return *result
 			}
 			prep := command(ctx, filepath.Join(req.Source, req.Target.Workspace), req.Preparation.Command, nativeEnv(req, req.Preparation.Env), req.Preparation.Timeout)
-			if prep.Status != "passed" {
-				prep.Error = "preparation: " + prep.Error
-				return prep
+			if prep.Status != StatusPassed {
+				return prep.withOutcome(prep.Status, "preparation: "+prep.Error)
 			}
 			if !outputsExist(req.Source, req.Preparation.Outputs) {
-				return Result{Status: "error", Error: "preparation did not produce its declared outputs"}
+				return Result{Status: StatusError, Error: "preparation did not produce its declared outputs"}
 			}
 			n.prepared[key] = owned
 		}
 	}
 
 	result := command(ctx, dir, req.Check.Command, env, req.Check.Timeout)
-	if result.Status == "passed" {
+	if result.Status == StatusPassed {
 		for _, path := range req.Check.Artifacts {
 			full, err := contained(req.Source, path)
 			if err != nil {
-				result.Status = "error"
-				result.Error = fmt.Sprintf("required artifact %q: %v", path, err)
-				return result
+				return result.withOutcome(StatusError, fmt.Sprintf("required artifact %q: %v", path, err))
 			}
 			info, err := os.Lstat(full)
 			if err != nil || !info.Mode().IsRegular() {
-				result.Status = "error"
-				result.Error = fmt.Sprintf("required artifact %q must be a regular file", path)
-				return result
+				return result.withOutcome(StatusError, fmt.Sprintf("required artifact %q must be a regular file", path))
 			}
 		}
 	}
