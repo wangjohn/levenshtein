@@ -1,5 +1,7 @@
 package typed
 
+import "choices"
+
 type Status string
 
 const Passed Status = "passed"
@@ -38,4 +40,11 @@ func check(r Result, input string) Status {
 	_ = Status(input)       // Dynamic boundary conversion is allowed.
 	_ = Result{Status: raw} // want "use a typed constant"
 	return "passed"         // want "use a typed constant"
+}
+
+func imported(s choices.Status) {
+	if s == "passed" { // want "use a typed constant"
+	}
+	if s == choices.Passed {
+	}
 }

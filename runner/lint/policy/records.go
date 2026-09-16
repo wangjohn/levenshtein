@@ -39,16 +39,20 @@ func runRecords(pass *analysis.Pass) (any, error) {
 					continue
 				}
 				object := pass.TypesInfo.Defs[spec.Name]
+				if spec.Assign.IsValid() {
+					pass.Reportf(spec.Pos(), "levenshtein:record must mark the original type, not an alias")
+					continue
+				}
+				if object.Parent() != pass.Pkg.Scope() {
+					pass.Reportf(spec.Pos(), "levenshtein:record requires a package-level struct type")
+					continue
+				}
 				named, ok := types.Unalias(object.Type()).(*types.Named)
 				if !ok {
 					continue
 				}
 				if _, ok := named.Underlying().(*types.Struct); !ok {
 					pass.Reportf(spec.Pos(), "levenshtein:record requires a struct type")
-					continue
-				}
-				if spec.Assign.IsValid() {
-					pass.Reportf(spec.Pos(), "levenshtein:record must mark the original type, not an alias")
 					continue
 				}
 				pass.ExportObjectFact(object, new(recordFact))
