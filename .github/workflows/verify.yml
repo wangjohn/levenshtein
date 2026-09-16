@@ -1,0 +1,87 @@
+name: Levenshtein self-checks
+
+# Verify Levenshtein's own runner and fixtures. Application repos invoke the
+# shared runner from their existing CI and own their schedules (docs/consumer-ci.md).
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  merge_group:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run:
+        description: Configured verification run
+        default: pre-merge
+        type: string
+  schedule:
+    # Fresh daily verification of Levenshtein itself.
+    - cron: '23 7 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: runner/go.sum
+      - name: Install pinned Dagger
+        run: |
+          ./scripts/install-dagger "$RUNNER_TEMP/levenshtein-bin"
+          echo "$RUNNER_TEMP/levenshtein-bin" >> "$GITHUB_PATH"
+      - name: Generate the pinned Go SDK
+        run: dagger develop --compat=skip
+      - name: Unit tests
+        working-directory: runner
+        env:
+          GOTOOLCHAIN: local
+        run: dagger run go test -count=1 ./...
+      - name: Verify
+        env:
+          EVENT: ${{ github.event_name }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+          REQUESTED_RUN: ${{ inputs.run }}
+          NO_COLOR: '1'
+        run: |
+          run=pre-merge
+          if [[ "$EVENT" == schedule ]]; then
+            run=main
+          elif [[ "$EVENT" == workflow_dispatch ]]; then
+            run="$REQUESTED_RUN"
+          elif [[ "$EVENT" == push || "$DRAFT" == true ]]; then
+            run=branch
+          fi
+          ./verify "$run"
+      - name: Consumer regression checks
+        env:
+          NO_COLOR: '1'
+        run: ./scripts/test-consumers
+      - name: Verify the CLI rejects the bad fixture
+        env:
+          NO_COLOR: '1'
+        run: |
+          if ./verify go-lint --source runner/testdata/bad > "$RUNNER_TEMP/bad-lint.log" 2>&1; then
+            cat "$RUNNER_TEMP/bad-lint.log"
+            echo 'Bad cleanup unexpectedly passed'
+            exit 1
+          fi
+          for code in SA5001 SA5003 SA9001; do
+            if ! grep -q "\"code\": \"$code\"" "$RUNNER_TEMP/bad-lint.log"; then
+              cat "$RUNNER_TEMP/bad-lint.log"
+              echo "Missing intended diagnostic: $code"
+              exit 1
+            fi
+          done

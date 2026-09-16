@@ -1,0 +1,10 @@
+{
+  "modules": ["runner"],
+  "runs": {
+    "branch": ["go-lint"],
+    "pre-merge": ["go-lint", "self-test"],
+    "main": ["go-lint", "self-test"],
+    "go-lint": ["go-lint"],
+    "self-test": ["self-test"]
+  }
+}
