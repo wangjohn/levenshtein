@@ -37,6 +37,7 @@ func TestDaggerResultSeparatesLintFromInfrastructureFailures(t *testing.T) {
 
 func TestDaggerRejectsUnknownCheckBeforeStartingEngine(t *testing.T) {
 	runner := &Dagger{}
+
 	result := runner.Execute(context.Background(), Request{PlannedCheck: PlannedCheck{Check: Check{Kind: "typo"}}})
 	if result.Status != "error" || runner.client != nil {
 		t.Fatalf("%+v", result)
