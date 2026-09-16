@@ -3,13 +3,15 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"github.com/wangjohn/levenshtein/internal/verify"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
+
+	"github.com/spf13/pflag"
+	"github.com/wangjohn/levenshtein/internal/verify"
 )
 
 func main() { os.Exit(run()) }
@@ -21,49 +23,20 @@ func run() int {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
-	shared := os.Getenv("LEVENSHTEIN_SHARED_ROOT")
-	name := "branch"
-	named := false
-	dry := false
-	args := os.Args[1:]
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		switch {
-		case arg == "--help" || arg == "-h":
-			fmt.Println("Usage: verify [RUN] [--source DIRECTORY] [--shared DIRECTORY] [--dry-run]")
-			return 0
-		case arg == "--dry-run":
-			dry = true
-		case arg == "--source" || arg == "--shared":
-			if i+1 == len(args) {
-				fmt.Fprintln(os.Stderr, "missing value for", arg)
-				return 2
-			}
-			i++
-			if arg == "--source" {
-				source = args[i]
-			} else {
-				shared = args[i]
-			}
-		case strings.HasPrefix(arg, "--source="):
-			source = strings.TrimPrefix(arg, "--source=")
-		case strings.HasPrefix(arg, "-"):
-			fmt.Fprintln(os.Stderr, "unknown option", arg)
-			return 2
-		default:
-			if named {
-				fmt.Fprintln(os.Stderr, "unexpected argument", arg)
-				return 2
-			}
-			name = arg
-			named = true
-		}
+	opts, err := parseArgs(os.Args[1:], options{
+		source: source,
+		shared: os.Getenv("LEVENSHTEIN_SHARED_ROOT"),
+	}, os.Stdout)
+	if errors.Is(err, pflag.ErrHelp) {
+		return 0
 	}
-	if source == "" {
-		fmt.Fprintln(os.Stderr, "source directory cannot be empty")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
-	source, err = filepath.Abs(source)
+	shared := opts.shared
+
+	source, err = filepath.Abs(opts.source)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
@@ -73,14 +46,14 @@ func run() int {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
-	plan, err := cfg.Plan(source, name)
+	plan, err := cfg.Plan(source, opts.name)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
-	if dry {
+	if opts.dry {
 		if err := encoder.Encode(plan); err != nil {
 			return 2
 		}
