@@ -68,7 +68,9 @@ func run() int {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
-	report := verify.Execute(ctx, plan, shared, map[string]verify.Executor{"dagger": verify.Dagger{}})
+	dagger := &verify.Dagger{}
+	defer dagger.Close()
+	report := verify.Execute(ctx, plan, shared, map[string]verify.Executor{"dagger": dagger})
 	if err := encoder.Encode(report); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2

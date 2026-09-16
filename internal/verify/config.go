@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 type Config struct {
@@ -115,25 +114,6 @@ func Parse(data []byte) (Config, error) {
 		cfg.Runs[name] = run
 	}
 	return cfg, nil
-}
-
-// Paths are literal repository-relative paths, not globs.
-func relative(path string) bool {
-	return path != "" && !filepath.IsAbs(path) && filepath.Clean(path) == path && path != ".." && !strings.HasPrefix(path, ".."+string(filepath.Separator)) && !strings.Contains(path, "\\")
-}
-func contained(root, path string) (string, error) {
-	if !relative(path) {
-		return "", fmt.Errorf("path %q must be a clean repository-relative path", path)
-	}
-	resolved, err := filepath.EvalSymlinks(filepath.Join(root, path))
-	if err != nil {
-		return "", err
-	}
-	rel, err := filepath.Rel(root, resolved)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("path %q escapes source repository", path)
-	}
-	return resolved, nil
 }
 
 type PlannedCheck struct {
