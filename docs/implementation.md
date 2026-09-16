@@ -1,152 +1,135 @@
 # Implementation plan
 
-Status: Dagger path selected. The first slice implements pinned Go lint, configurable runs, rule fixtures, and CI for Levenshtein itself. See [setup and usage](setup.md) for the current behavior and [consumer CI](consumer-ci.md) for invoking it from another repo.
+**Implemented:** pinned Go lint through Dagger, configurable runs, rule fixtures, and CI for Levenshtein itself. [Setup](setup.md) and [consumer CI](consumer-ci.md) document the current interface.
 
-**Next milestone:** wrap a Go application's existing tests alongside shared lint, then run both locally and in that application's existing CI. Application test execution and enrollment of a real consumer are still to be implemented.
+**Next:** introduce a language-independent runner with aggressive caching and native macOS execution, then wrap Benchplan's existing checks. The architecture and cache policy below are planned; the current runner still accepts only Go module lists and the `go-lint` / `self-test` checks.
 
-The [README](../README.md) is the product overview. This document defines the pilot scope, implementation sequence, and completion criteria.
+## Core interface
 
-## Starting paths
+A repo can contain several components and languages. Use four concepts:
 
-These are alternative execution approaches. Each can centralize shared checks and use the existing CI provider.
+| Concept | Responsibility | Example |
+| --- | --- | --- |
+| Target | A component's working directory and explicitly declared source inputs | A Go service or Swift application |
+| Check | A named verification operation, its options, input fingerprint, and results | Shared Go lint, Swift tests, or a repo-owned script |
+| Environment | Execution requirements and tool versions | A pinned Linux container or a macOS/Swift toolchain |
+| Run | A selection of checks and cache/freshness policy | `branch`, `pre-merge`, `main`, or a custom name |
 
-| Path | What we build | Main tradeoff | When to choose it |
-| --- | --- | --- | --- |
-| Shared workflows and native commands | Shared linter configuration, scripts, and a reusable CI workflow | Smallest setup; local tool versions and service setup still need explicit management | Proving reuse quickly across similar Go repos |
-| Dagger module and a small launcher | Shared containerized checks, invoked through `./verify` locally and in CI | Consistent execution setup; requires Dagger and a container runtime, with startup cost to measure | Recommended for the intended mix of repos, agents, and eventual service tests |
-| Standalone Go CLI | A distributed binary that selects checks and invokes native tools | Convenient entry point; we own tool installation, environment handling, and distribution | Container requirements are unacceptable and a wrapper has become insufficient |
-| Hosted service | Repository integration, run history, rollout coordination, and agent jobs | Adds authentication, storage, operations, and tenancy work | Several users need coordination that existing CI and version updates cannot provide |
+Keep configuration, planning, cache lookup, and reporting in a small Go runner outside the Dagger module. Preserve the `./verify` entry point. Dagger executes container checks; a native executor launches checks on the supplied host. Keep Go module rules, Swift toolchain details, and native diagnostic parsing inside check implementations. Planning should work without starting Docker or requiring Xcode; start an executor only when a selected check needs execution.
 
-**Selected:** the Dagger path. Validate it with the defer/Close lint family before expanding it. Measure both a cold run and repeated local runs. Keep the repo-facing commands small; do not build multiple execution backends or a compiled CLI in the pilot. If container setup or latency makes this unsuitable, reconsider native commands with the same shared checks and run names.
+Shared, versioned check definitions own reusable tool setup, defaults, options, execution, and interpretation of results. Start with the existing Go lint check and a `command` check for application-owned scripts; add shared Go/Swift test and lint definitions as consumers need them. An internal registry is enough initially. A new language should require a check implementation or configuration, with the same planner, run model, and result contract.
 
-GitHub [reusable workflows](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows) support centralized workflow code and commit-pinned references. Dagger provides [shareable modules with pinned dependencies](https://docs.dagger.io/0.21/features/reusability/) and supports a [container runtime](https://docs.dagger.io/reference/container-runtimes/docker). These are implementation building blocks; Levenshtein supplies the shared verification policy and improvement process.
+Targets declare the source files they need in addition to a working directory, including shared contracts or workspace manifests. Supply explicit product inputs for Family Books. Application tests and assertions stay beside their application code; shared rules and execution definitions live in Levenshtein. Consumers adopt shared improvements by updating a pinned revision.
 
-## Before writing the runner
+Existing CI owns workers, triggers, schedules, credentials, and merge gates. It supplies the appropriate workers for checks requiring execution. When a run spans jobs or platforms, aggregate results against the complete selected check list; missing checks or unavailable environments without eligible cached results leave the run incomplete. Levenshtein's own workflow verifies its runner and fixtures.
 
-1. Choose the first Go consumer repo and a second repo for proving reuse. Record current commands, Go versions, module layout, CI provider, services, and one recurring mistake. Until a consumer is selected, use a small fixture project inside Levenshtein.
-2. For the recommended path, make a container runtime and a pinned Dagger CLI available locally and in CI. Select a compatible engine/SDK/toolchain combination using documentation for that release. The default [Dagger installation guide](https://docs.dagger.io/getting-started/install/) currently describes a beta; do not mix examples from different release lines or assume the host's Go version is suitable.
-3. Choose one small check with a bad example and a legitimate example. A practical starting point is Staticcheck's [SA5001](https://staticcheck.dev/docs/checks/#SA5001), which detects deferring `Close` before checking an error. Existing checks also cover some other misplaced-defer patterns. Verify the specific fixture; they do not establish that every `defer` in a loop is wrong.
+## Aggressive caching is a core requirement
 
-Implementation snapshot, September 15, 2026: the first slice uses Go 1.27.1, Dagger 0.21.9, and Staticcheck 2026.2.1. The local setup uses Colima and Docker. No external consumer repo has been enrolled.
+Fast repeated verification and fast CI are primary acceptance criteria. Cache dependency downloads, tool installation, compilation, analysis, and completed check results by default wherever their inputs can be fingerprinted. This applies to container and native checks. Cache integration and persistence belong in the pilot.
 
-## Pilot scope and ownership
+| Layer | Ordinary runs | Fresh audits |
+| --- | --- | --- |
+| Tool installation and dependencies | Reuse pinned downloads and setup | Reuse |
+| Compilation and build artifacts | Reuse compatible incremental artifacts | Reuse |
+| Analysis and test results | Reuse successful results for matching inputs | Bypass verdict reuse and execute verification |
+| Check setup | Share compatible preparation among selected checks | Share preparation while resetting mutable test/service state |
 
-Start with two Go repositories and their existing CI. Use Postgres only if a pilot needs it. The pilot has five parts:
+A cacheable check supplies a fingerprint of its source and test inputs, relevant dependencies, invoked scripts and shared implementation, options, environment, and toolchain. Prefer fingerprints at a meaningful check/package scope so an unrelated edit does not invalidate everything. Include uncommitted changes and deletions. Record Git revisions as provenance; a new commit alone should not invalidate unchanged check inputs.
 
-- **Shared checks:** versioned folders of linter configuration, test commands, CI checks, and small fixtures. Use existing tools; add custom rules for demonstrated gaps.
-- **A small runner:** a Dagger-based wrapper that uses the same pinned tools and check definitions locally and in CI. Keep test state isolated and start services only for checks that need them.
-- **Repo configuration:** native commands, named runs, and a pinned shared revision. Application-specific tests stay beside the application code. CI workflows decide when runs execute.
-- **Useful results:** native failure output, check names, timings, and rerun commands, plus a small machine-readable result file. Store these with existing CI logs and artifacts.
-- **An improvement loop:** one bounded background job proposes a repair or shared check for human review. Update consuming repos manually at first.
+For a repo-owned command, begin with the complete declared target source plus shared inputs, script/helper contents, arguments, and environment requirements. Narrow inputs as evidence permits. Checks against live or otherwise unbounded external state declare fresh execution; they still reuse dependency and compiler caches. Unknown input relationships broaden the fingerprint. They must not produce an unjustified cache hit.
 
-The shared code lives in Levenshtein; each application repo invokes its pinned version. Existing CI supplies workers, triggers, schedules, credentials, and required status checks. Levenshtein selects checks, prepares their execution environment, and reports their results. Application tests stay in the application repo. Levenshtein's own workflow verifies the shared runner and its fixtures; each consumer owns its CI integration.
+Persist useful caches across local runs, agents, and ephemeral CI jobs using supported existing cache storage or persistent execution workers. Wire persistence for both Dagger and native checks, and verify restoration in a new worker/process. Use exact fingerprints for completed results; dependency/build caches may use compatible restore fallbacks because the underlying tools revalidate their contents. Dedicated cache infrastructure is a later decision, not a prerequisite for shared cache reuse.
 
-## Everyday use
+Avoid duplicate work within a run: resolve checks once, share tool/build preparation, and coalesce identical work where the executor supports it. Run independent checks concurrently within explicit CPU, memory, and service limits. Treat incompatible mutable build directories and test state as isolated resources.
 
-Current interface (check scope will grow through the pilot):
+Reports distinguish executed checks from reused results and record the original verification time, fingerprint, source/shared provenance, environment, cache lookup/restore cost, and execution time. Restore the diagnostics and required artifacts with the result. Missing, corrupt, or incompatible entries become misses. A cached success satisfies only the same required scope and environment. Incomplete execution, tool errors, and timeouts never become passing entries.
+
+See [cache contracts](design-notes.md#cache-contracts-and-invalidation) for invalidation and sharing details.
+
+## Runs and freshness
+
+The existing command names remain familiar:
 
 ```sh
-./verify                # defaults to branch
-./verify pre-merge      # required checks before merging
-./verify go-lint        # shared Go checks, e.g. misplaced defers
+./verify
+./verify pre-merge
+./verify main
+./verify <custom-run> --dry-run
 ```
 
-A **check** verifies something. A **run** selects checks and can combine tests, lint rules, and CI/CD assertions. Names are configurable: use `./verify <name>` for any run.
+Proposed run policy (not yet supported by the current configuration schema):
 
-Recommend these runs and invocation times; each repo's CI owns the event mapping:
-
-| Run | When | What runs |
+| Run | Recommended scope | Cache policy |
 | --- | --- | --- |
-| `branch` | During editing and ordinary PR updates | Main inexpensive lint and correctness checks, plus focused tests |
-| `pre-merge` | Before merging | Critical regression and policy checks, plus important checks relevant to the change |
-| `main` | Once a day on the configured default branch | The complete applicable suite, including newly registered checks |
+| `branch` | Fast lint and core/focused tests | Aggressive reuse of setup, artifacts, and eligible results |
+| `pre-merge` | Critical regression and policy checks for the final candidate | The same aggressive reuse, keyed to the actual selected inputs and scope |
+| `main` | Complete applicable suite, scheduled daily by the consumer's CI | Fresh verification with dependency/build reuse |
+| Custom | Consumer-defined check selection | Explicit choice of normal reuse or fresh verification |
 
-`./verify pre-merge --dry-run` lists selected checks and modules without executing them. The flag works with any run. The first slice uses explicit module lists; reasons based on changed files come later.
+Make freshness an explicit run property, such as `fresh: true`, rather than a behavior available only to the name `main`. Fresh execution bypasses the shared result cache, Dagger's cached check execution, and native test/analysis verdict caches. It preserves compatible downloads and compilation. Each adapter implements and verifies that contract. A successful fresh run may populate results for later ordinary runs; reports retain when verification actually occurred.
 
-Start with explicit core checks and simple path/package mappings. Include task-specific acceptance checks and new or modified tests in change verification. A Go package change runs its lint and focused tests; uncertain dependencies broaden the relevant suite. Check importance follows failure consequences and known defects.
+Start with explicit core check selections and input scopes. Cache fingerprints determine whether selected work can be reused. More advanced change-based selection determines which checks are selected and remains separate. Required core checks, task acceptance, and new/modified tests remain covered; uncertain dependencies broaden verification. Add new checks to the full run explicitly during the pilot.
 
-The consuming repo's CI schedules `main` daily, including on days without changes. Invoking `main` executes the configured audit immediately. Build artifacts can be reused, but cached passing verdicts cannot replace the audit. Declare its supported environments; missing expected prerequisites make the run incomplete. Complete audits run on their cadence rather than every main-branch push.
+Each repo's CI maps events to runs. Recommended defaults are `branch` for editing/draft updates, `pre-merge` for ready PRs and merge candidates, and a daily fresh `main` audit. A branch result cannot stand in for an unfinished pre-merge selection. Result reuse must match the actual candidate's relevant inputs, including base state when the check depends on it.
 
-Required checks must pass for the final proposed revision and relevant base state. Report the scope actually verified. Missing results, tool failures, and timeouts cannot become a passing gate, and a `branch` pass does not satisfy an unfinished `pre-merge` run.
+## Pilot repositories
 
-## How improvements spread
+- **Benchplan first:** it already has Swift packages, XCTest suites, and native verification scripts. Wrap selected existing scripts on macOS, preserve their assertions, and validate the required toolchain. Its documented headless workaround does not replace SwiftPM, simulator, or native app verification gates. Measure each check before assigning it to a run.
+- **Family Books as product code develops:** the inspected checkout has planned Go and Swift product directories but no runnable product yet. Enroll explicit product targets when they exist, using synthetic fixtures and declared shared inputs. Its private `personal/` tree stays outside product verification inputs.
 
-1. Capture a bug, flaky check, slow run, or recurring review comment in an issue.
-2. Reproduce the problem and propose the cheapest reliable check or repair.
-3. Validate it against a bad example and a legitimate example; measure the added runtime.
-4. Review the change and update one consuming repo's pinned revision.
-5. Apply the same improvement to the second applicable repo.
-
-For example, repeated cleanup mistakes could lead to a shared Go rule in the configured `go-lint` run. It flags `defer file.Close()` inside a loop when each iteration should close its file. The diagnostic explains that cleanup waits for the surrounding function to return and suggests moving each iteration's work into a helper with its own `defer`. Validate the problematic pattern and the correct helper before sharing the rule. Behavioral bugs still need regression tests; share those where repositories expose the same relevant behavior.
-
-A scheduled agent job works on one candidate at a time with an enforced time/cost limit. It proposes changes for review and avoids repeating unchanged findings. If the `main` audit catches a regression missed before merge, consider adding a focused check to `pre-merge`.
-
-Use ordinary issues and Markdown for acceptance criteria. For bug fixes, demonstrate failure on the bad revision and success on the fix. Agents may propose changes to checks, but weakening assertions, adding suppressions, or changing required coverage needs separate review. A passing retry alone does not prove a flake was repaired.
+Keep the working Go lint path as a regression case while adding native execution. The pilot should prove the interface across real setups and show one shared improvement transferring to a second applicable consumer.
 
 ## Build order
 
-### 1. Make one shared check work end to end
+### 1. Preserve the working Go check
 
-Create the shared Go check configuration, a small Dagger runner, a thin `verify` launcher, and good/bad fixtures. Pin the tool versions. Start with an existing analyzer; a new custom analyzer is needed only if the chosen defect is not covered adequately.
+Retain the current lint behavior, native diagnostics, fixture coverage, consumer support, and nonzero failure propagation while extracting the neutral runner. Keep existing commands working until a documented configuration migration is available.
 
-**Done when:** `./verify go-lint` passes the good fixture, fails the bad fixture for the intended diagnostic, prints the finding and rerun command, and preserves failure through CI. Record cold and warm durations. The first useful result is a shared check running correctly, not a general check framework.
+**Done when:** current good/bad/broken/empty/vendor/embed regressions still behave correctly through the extracted runner.
 
-Implemented code locations, alongside the existing docs:
+### 2. Introduce the interface and cache contract
 
-```text
-runner/                 # shared Go Dagger module and pinned toolchain.json
-runner/testdata/        # good/bad/broken/empty Go modules
-verify                  # thin launcher; --source accepts a consumer checkout
-scripts/install-dagger # checksummed CLI installer
-.github/workflows/      # verification of Levenshtein and its fixtures
-```
+Add versioned target/check/environment/run configuration, a planner, common results, and internal check/executor interfaces. Give each check an explicit input/cache contract. Carry forward the Go caches and expose cache-hit evidence; add native command execution and caching under the same result contract. Keep planning independent of execution tools.
 
-Generated Dagger files follow the chosen release's conventions. Keep intentionally failing fixtures outside ordinary application test discovery and validate their expected outcomes explicitly.
+**Done when:** an unchanged eligible check reuses its result without starting its executor, input changes invalidate the right result, and an unsupported or incomplete check cannot report success. A new check implementation requires no language-specific branches in the planner.
 
-### 2. Wrap the first consumer's existing tests (next)
+### 3. Wrap Benchplan's existing checks
 
-Choose a Go application and record how its tests already run, including package scope, flags, and any required services. Add a shared `go-test` check that invokes those native Go tests through Dagger and composes with `go-lint` in named runs. `go-test` is planned; the current runner accepts only `go-lint` and `self-test`.
+Record current commands, toolchain requirements, runtime, and source/input relationships. Wrap a small useful selection of repo-owned checks and validate native toolchain requirements. Preserve native output and useful artifacts. Persist compatible Swift build products and completed results. Add ordinary `swift test` and native app gates as their prerequisites are satisfied.
 
-Keep test files and assertions in the application repo. The shared wrapper owns tool versions, environment setup, execution, and reporting. Preserve native failure output and nonzero exit status. A fresh `main` audit must bypass both Dagger's execution cache and Go's cached test results, while allowing dependency and compiler caches.
+**Done when:** the same wrapper runs locally and on a macOS CI worker, a real assertion/lint failure fails the job, repeated unchanged checks hit caches, changed inputs rerun affected work, and a fresh audit executes its checks despite cached passing results.
 
-Pin Levenshtein in the consumer and add an invocation to its existing CI. Pass the consumer's source directory and run configuration to the shared module, following the [consumer guide](consumer-ci.md). Start with explicit core tests for `branch` and `pre-merge` and the complete applicable suite for `main`. Add change-based selection after this path works.
+### 4. Prove fast CI and correct invalidation
 
-**Done when:** the real consumer runs its existing tests and shared lint through the same command locally and in its existing CI; a failing assertion and a lint violation each fail the CI job with useful output; custom runs work; and `main` reruns tests even without source changes. Add formatting and other checks after proving this path.
+Connect consumer-owned PR, merge, manual, and daily events. Restore caches across CI jobs, including on a new worker with the same declared environment, and aggregate all required check results. Benchmark cold execution, unchanged warm execution, a small source edit, an unrelated target edit, and a fresh audit. Measure startup/planning, hashing, lookup/restore, setup, compilation, and actual check execution separately.
 
-### 3. Connect the run policy to real CI events
+Set per-run latency budgets from the measured consumer baseline and track median/tail latency, cache hit rate, and work avoided. An unchanged warm run should approach lookup/restore/reporting cost. Cache overhead that exceeds the saved work must be reduced. Performance is part of adoption acceptance.
 
-Configure events and schedules in the consuming repo's CI. The runner receives the chosen run and checked-out source; Levenshtein's own workflow remains responsible for checking Levenshtein itself.
+**Done when:** benchmarks demonstrate reuse across processes/jobs; source/test/fixture/configuration/script/dependency/toolchain changes invalidate dependent results; unrelated target changes retain eligible hits; corrupt/missing artifacts trigger recomputation; and fresh audits retain build reuse while rerunning verification. A deliberately failing change still blocks the correct gate.
 
-For GitHub Actions, use local/draft-PR feedback for `branch`. Run `pre-merge` when a PR is opened ready for review, becomes ready, or receives new commits while ready. Configure it as a required check and ensure the tested candidate includes the relevant base revision. Include `merge_group` if the repo uses a merge queue. Trigger `main` on a daily schedule and allow manual invocation. Existing CI providers can use their equivalent mechanisms. See GitHub's [PR, merge-queue, and schedule events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows).
+### 5. Prove that an improvement transfers
 
-Keep execution on one pinned Levenshtein revision; a reusable workflow reference and fetched check definitions must not silently use different versions. Shared-code changes in Levenshtein must run their own fixture and compatibility checks before release. App-repo updates remain explicit version changes.
+Enroll a second applicable consumer as it becomes runnable. Improve one shared rule or execution definition, validate bad and legitimate examples, measure runtime/cache effects, then update each consumer's pin. Both repos keep their native tests and existing CI provider.
 
-**Done when:** a deliberately failing change is blocked, a development result cannot satisfy an incomplete pre-merge gate, and a scheduled audit executes the whole applicable suite fresh. Record its revision and completion time. Scheduling is not a guarantee of execution; make missed or incomplete audits visible in the CI summary.
+**Done when:** both consumers benefit from one maintained definition, with a reviewed version/configuration update as the adoption step. Shared changes invalidate only the checks whose effective implementation or inputs changed.
 
-### 4. Prove that an improvement transfers
+### 6. Add one bounded improvement agent
 
-Enroll the second Go repo with the same shared setup. Change one lint rule or check in Levenshtein, validate it against fixtures and the first consumer, then update the second repo's pin. Use a real historical mistake where possible.
+Give one scheduled job a concrete failure, slow check, or recurring mistake, plus time/cost limits. Require a reproducer, before/after evidence, performance/cache measurements, and a proposed change for review. Foreground verification gets resource priority. Changes that weaken assertions, suppress findings, or reduce required coverage need separate review; a passing retry alone does not prove a flake was repaired.
 
-**Done when:** both repos catch the intended defect from one maintained definition, with no duplicated rule implementation. Adoption consists of a small reviewed version/configuration change.
+**Done when:** an agent proposes one useful repair or shared check, validates correctness and speed, and the reviewed change follows the consumer adoption path.
 
-### 5. Add the smallest useful background agent job
+## Pilot completion
 
-Once results exist, schedule one agent job with access to recent failures or a supplied issue. Limit it to one candidate and an enforced time/cost budget. Require a reproducer, before/after evidence, and a proposed diff. Human review controls acceptance and rollout. Keep write credentials separate from untrusted verification jobs.
-
-**Done when:** the agent proposes one useful repair or shared improvement, validates it without weakening acceptance, and the reviewed change can follow the same two-repo adoption path. Automatic deployment, broad comment mining, fleet analytics, and automatic rollout remain deferred.
-
-## The pilot is done when
-
-- Both repos run shared lint, tests, and CI checks consistently locally and in CI.
-- Deliberate failures block the right gate; custom runs and daily discovery work.
-- One shared improvement catches a demonstrated mistake in both repos.
-- An agent uses the diagnostics to fix a real problem without weakening acceptance.
-- Timings show everyday feedback stays fast, with the complete applicable suite executed daily.
+- Existing Go checks and native Swift checks share the same core interface and result contract.
+- Real consumer tests and lint run consistently locally and in existing CI.
+- Aggressive reuse measurably reduces repeated work across local and CI runs, with verified invalidation.
+- Daily audits execute the complete configured suite fresh while retaining compatible build/dependency caches.
+- Missing or failed required work blocks the correct gate, including across platforms.
+- One shared improvement benefits two applicable consumers, and one bounded agent job demonstrates an improvement without weakening acceptance.
 
 ## Later, when needed
 
-Defer advanced test impact analysis, distributed sharding, shared-cache infrastructure, automated rollout, portfolio analytics, formal agent evaluations, LLM grading, general plugin interfaces, and dedicated failure-reproduction tooling.
+Advanced static test impact analysis, distributed sharding, a dedicated cache service, automated fleet rollout, dashboards, formal agent evaluations, LLM grading, and public plugin protocols remain optional expansions. Cache integration/persistence and bounded parallel execution are part of the pilot. Deployment orchestration, artifact promotion, and rollback management remain with existing delivery workflows.
 
-Deployment orchestration, artifact promotion, and rollback management also wait; the pilot verifies CI configuration and invokes existing checks.
-
-These are possible V1 expansions, driven by measured problems. They are not all requirements for V1. [Optional design notes](design-notes.md) retain implementation considerations without expanding the pilot.
+[Design notes](design-notes.md) retain the implementation considerations for these decisions.

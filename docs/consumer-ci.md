@@ -2,7 +2,7 @@
 
 Your CI checks out the application, chooses a run, and invokes a pinned Levenshtein version. Levenshtein prepares the check environment and returns results and an exit status. Application tests and CI schedules belong to the application repo.
 
-**Available now:** shared Go lint. Wrapping the application's existing tests is the [next implementation milestone](implementation.md#2-wrap-the-first-consumers-existing-tests-next).
+**Available now:** shared Go lint. The [next implementation phase](implementation.md#core-interface) introduces language-independent checks, native macOS execution, and aggressive caching, then [wraps Benchplan's existing checks](implementation.md#3-wrap-benchplans-existing-checks). The example below uses the current Go interface.
 
 ## The same command locally and in CI
 
