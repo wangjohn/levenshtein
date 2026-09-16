@@ -33,7 +33,7 @@ For defined string types with package-level typed constants, the check also reje
 
 ## Construct value records together: LV1002
 
-Mark structs that represent completed values with `//levenshtein:record` on the type declaration. Compute intermediate values in local variables, then construct the record where it is returned or published:
+Mark package-level structs that represent completed values with `//levenshtein:record` on the type declaration. Compute intermediate values in local variables, then construct the record where it is returned or published:
 
 ```go
 //levenshtein:record
