@@ -35,3 +35,5 @@ Legacy `modules` and array-valued `runs` remain supported. They translate into G
 The CLI emits a versioned JSON report with the resolved plan and a result for every selected check. Results distinguish `passed`, `failed`, `error`, `cancelled`, and `incomplete`, with timing and native output/details. A run succeeds only when every selected check passes. Planning/configuration errors exit 2; unsuccessful verification exits 1.
 
 Application repos retain their own CI triggers, workers, schedules, and merge gates. Pin the shared checkout as described in [consumer CI](consumer-ci.md).
+
+Directory paths must be clean and relative to the repository. Relative symlinks are allowed only when they stay inside the repository; absolute symlink aliases are rejected, even when they point back inside it. Use the real directory path or a relative alias.
