@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+version=$(<"$root/.dagger-version")
+destination=${1:-"${HOME}/.local/bin"}
+case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;; *) echo 'Unsupported operating system' >&2; exit 2 ;; esac
+case "$(uname -m)" in x86_64|amd64) arch=amd64 ;; arm64|aarch64) arch=arm64 ;; *) echo 'Unsupported architecture' >&2; exit 2 ;; esac
+archive="dagger_v${version}_${os}_${arch}.tar.gz"
+checksum=$(awk -v name="$archive" '$2 == name {print $1}' "$root/scripts/dagger-checksums.txt")
+if [[ -z $checksum ]]; then echo "No reviewed checksum for $archive" >&2; exit 2; fi
+temporary=$(mktemp -d)
+trap 'rm -rf "$temporary"' EXIT
+curl --fail --silent --show-error --location --retry 3 \
+  "https://github.com/dagger/dagger/releases/download/v${version}/${archive}" \
+  --output "$temporary/$archive"
+actual=$(shasum -a 256 "$temporary/$archive")
+if [[ ${actual%% *} != "$checksum" ]]; then echo 'Dagger archive checksum mismatch' >&2; exit 1; fi
+tar -xzf "$temporary/$archive" -C "$temporary" dagger
+mkdir -p "$destination"
+install -m 0755 "$temporary/dagger" "$destination/dagger"
+"$destination/dagger" version

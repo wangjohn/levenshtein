@@ -1,0 +1,3 @@
+2ed6e998d820bfb4800ed5644e1b9586f03078b14243c7fdf3bdd9e0eb0d5bfe  dagger_v0.21.9_darwin_amd64.tar.gz
+551a4d5432860547bf4f088181cbd0902668289171959de97568ea0f0ecb35ee  dagger_v0.21.9_darwin_arm64.tar.gz
+33eea0b08d6be444bada18e64b2216459100d6070abcb4b5345cee40c9fff982  dagger_v0.21.9_linux_amd64.tar.gz
