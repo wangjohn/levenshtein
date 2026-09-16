@@ -40,12 +40,18 @@ jobs:
           cache-dependency-path: |
             go.sum
             runner/go.sum
+            runner/lint/go.sum
       - name: Standalone runner tests and planning
         env:
           GOTOOLCHAIN: local
         run: |
           go test -race ./...
           ./verify branch --dry-run
+      - name: Go policy analyzer tests
+        working-directory: runner/lint
+        env:
+          GOTOOLCHAIN: local
+        run: go test -race ./...
       - name: Install pinned Dagger
         run: |
           ./scripts/install-dagger "$RUNNER_TEMP/levenshtein-bin"

@@ -48,7 +48,9 @@ func lint(ctx context.Context, source *dagger.Directory, module string, tools to
 		WithEnvVariable("GOTOOLCHAIN", "local").
 		WithMountedCache("/go/pkg/mod", dag.CacheVolume("levenshtein-go-mod-"+tools.Go)).
 		WithMountedCache("/root/.cache/go-build", dag.CacheVolume("levenshtein-go-build-"+tools.Go)).
-		WithExec([]string{"go", "install", "honnef.co/go/tools/cmd/staticcheck@" + tools.Staticcheck}).
+		WithDirectory("/policy", dag.CurrentModule().Source().Directory("lint")).
+		WithWorkdir("/policy").
+		WithExec([]string{"go", "build", "-trimpath", "-o", "/go/bin/levenshtein-lint", "./cmd/levenshtein-lint"}).
 		WithDirectory("/src", source).
 		WithWorkdir(path.Join("/src", module))
 
@@ -68,7 +70,7 @@ func lint(ctx context.Context, source *dagger.Directory, module string, tools to
 		ctr = ctr.WithEnvVariable("LEVENSHTEIN_RUN_NONCE", nonce).
 			WithEnvVariable("STATICCHECK_CACHE", "/tmp/staticcheck-fresh")
 	}
-	checked := ctr.WithExec([]string{"/go/bin/staticcheck", "-f=json", "-checks=" + strings.Join(tools.Checks, ","), "./..."}, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
+	checked := ctr.WithExec([]string{"/go/bin/levenshtein-lint", "-f=json", "-checks=" + strings.Join(tools.Checks, ","), "./..."}, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
 	exitCode, err := checked.ExitCode(ctx)
 	if err != nil {
 		return nil, err
@@ -157,7 +159,7 @@ func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce strin
 	return nil
 }
 
-// GoLint runs the shared cleanup rules.
+// GoLint runs the shared Go policy and cleanup rules.
 // +check
 func (m *Levenshtein) GoLint(ctx context.Context,
 	// +optional
@@ -183,7 +185,7 @@ func (m *Levenshtein) GoLint(ctx context.Context,
 		return err
 	}
 	if len(findings) != 0 {
-		return &gqlerror.Error{Message: "Go cleanup lint failed", Extensions: map[string]any{"levenshteinFindings": findings}}
+		return &gqlerror.Error{Message: "Go policy lint failed", Extensions: map[string]any{"levenshteinFindings": findings}}
 	}
 	return nil
 }

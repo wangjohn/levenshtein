@@ -1,5 +1,5 @@
 {
-  "modules": [".", "runner"],
+  "modules": [".", "runner", "runner/lint"],
   "runs": {
     "branch": ["go-lint"],
     "pre-merge": ["go-lint", "self-test"],

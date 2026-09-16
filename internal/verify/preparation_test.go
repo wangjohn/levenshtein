@@ -42,7 +42,7 @@ func TestReviewToolEnvironment(t *testing.T) {
 	req.Check.Env = map[string]string{"PATH": filepath.Join(root, "wrong")}
 	req.Check.Command = []string{"tool"}
 	got := (&Native{}).Execute(context.Background(), req)
-	if got.Status == "passed" && got.Stdout == "wrong" {
+	if got.Status == StatusPassed && got.Stdout == "wrong" {
 		t.Errorf("version validation passed but executed wrong tool: %+v", got)
 	}
 }

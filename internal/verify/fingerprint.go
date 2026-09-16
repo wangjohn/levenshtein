@@ -129,7 +129,7 @@ func outputPaths(req Request) []string {
 
 func implementation(req Request) (string, error) {
 	paths := []string{"go.mod", "go.sum", "cmd", "internal"}
-	if req.Environment.Executor == "dagger" {
+	if req.Environment.Executor == ExecutorDagger {
 		paths = append(paths, ".dagger-version", "dagger.json", "runner")
 	}
 	return snapshot(req.Shared, paths, nil, false)
@@ -152,7 +152,7 @@ func fingerprint(req Request) (string, error) {
 
 	req.Fresh = false
 	var env []string
-	if req.Environment.Executor == "native" {
+	if req.Environment.Executor == ExecutorNative {
 		env = nativeEnv(req, req.Check.Env)
 	}
 	return digest(struct {

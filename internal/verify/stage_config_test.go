@@ -20,8 +20,8 @@ func TestPreparationAndBuildHaveTheSamePlanningRules(t *testing.T) {
 			t.Run(kind+"/"+tc.name, func(t *testing.T) {
 				stage := Preparation{Command: []string{"true"}, Inputs: []string{"lock"}, Outputs: []string{"ready"}}
 				tc.change(&stage)
-				check := Check{Kind: "command", Target: "app", Environment: "host", Command: []string{"true"}}
-				cfg := Config{Version: 1, Targets: map[string]Target{"app": {Dir: ".", Inputs: []string{"."}}}, Environments: map[string]Environment{"host": {Executor: "native"}}, Runs: map[string]Run{"branch": {Checks: []string{"test"}}}}
+				check := Check{Kind: CheckCommand, Target: "app", Environment: "host", Command: []string{"true"}}
+				cfg := Config{Version: 1, Targets: map[string]Target{"app": {Dir: ".", Inputs: []string{"."}}}, Environments: map[string]Environment{"host": {Executor: ExecutorNative}}, Runs: map[string]Run{"branch": {Checks: []string{"test"}}}}
 				if kind == "preparation" {
 					check.Preparation = "setup"
 					cfg.Preparations = map[string]Preparation{"setup": stage}

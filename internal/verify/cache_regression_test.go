@@ -10,27 +10,27 @@ import (
 
 func TestReviewFreshFailureInvalidatesOldSuccess(t *testing.T) {
 	req := cacheRequest(t)
-	executor := &countingExecutor{status: "passed"}
+	executor := &countingExecutor{status: StatusPassed}
 	runner := CachedExecutor{Cache: &Cache{Dir: t.TempDir()}, Executor: executor}
-	if got := runner.Execute(context.Background(), req); got.Status != "passed" {
+	if got := runner.Execute(context.Background(), req); got.Status != StatusPassed {
 		t.Fatal(got)
 	}
 
 	req.Fresh = true
-	executor.status = "failed"
-	if got := runner.Execute(context.Background(), req); got.Status != "failed" {
+	executor.status = StatusFailed
+	if got := runner.Execute(context.Background(), req); got.Status != StatusFailed {
 		t.Fatal(got)
 	}
 
 	req.Fresh = false
-	if got := runner.Execute(context.Background(), req); got.Status == "passed" {
+	if got := runner.Execute(context.Background(), req); got.Status == StatusPassed {
 		t.Fatalf("returned older green after fresh failure: %+v; calls=%d", got, executor.calls)
 	}
 }
 
 func TestReviewDaggerImplementationFilesAreInputs(t *testing.T) {
 	req := cacheRequest(t)
-	req.Environment.Executor = "dagger"
+	req.Environment.Executor = ExecutorDagger
 	before, err := fingerprint(req)
 	if err != nil {
 		t.Fatal(err)
@@ -53,8 +53,8 @@ func TestReviewDaggerImplementationFilesAreInputs(t *testing.T) {
 
 func TestReviewInputsChangedDuringCacheLockWait(t *testing.T) {
 	req := cacheRequest(t)
-	req.Environment.Executor = "dagger"
-	executor := &countingExecutor{status: "passed"}
+	req.Environment.Executor = ExecutorDagger
+	executor := &countingExecutor{status: StatusPassed}
 	cache := &Cache{Dir: t.TempDir()}
 	runner := CachedExecutor{Cache: cache, Executor: executor}
 
@@ -71,7 +71,7 @@ func TestReviewInputsChangedDuringCacheLockWait(t *testing.T) {
 	}
 	unlock()
 	got := <-done
-	if got.Cache.Status == "hit" {
+	if got.Cache.Status == CacheHit {
 		t.Fatalf("returned old cached pass after source changed during lock wait: %+v", got)
 	}
 }

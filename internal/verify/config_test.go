@@ -75,8 +75,13 @@ func TestTargetCannotEscapeRepository(t *testing.T) {
 	}
 }
 
+const (
+	executorFake    ExecutorKind = "fake"
+	executorMissing ExecutorKind = "missing"
+)
+
 type fakeExecutor struct {
-	status string
+	status Status
 	calls  int
 }
 
@@ -86,16 +91,16 @@ func (f *fakeExecutor) Execute(context.Context, Request) Result {
 }
 
 func TestAccountForEverySelectedCheck(t *testing.T) {
-	plan := Plan{Checks: []PlannedCheck{{ID: "one", Environment: Environment{Executor: "fake"}}, {ID: "two", Environment: Environment{Executor: "missing"}}}}
-	executor := &fakeExecutor{status: "failed"}
-	report := Execute(context.Background(), plan, "", map[string]Executor{"fake": executor})
-	if report.Status != "failed" || len(report.Results) != 2 || report.Results[1].Status != "incomplete" {
+	plan := Plan{Checks: []PlannedCheck{{ID: "one", Environment: Environment{Executor: executorFake}}, {ID: "two", Environment: Environment{Executor: executorMissing}}}}
+	executor := &fakeExecutor{status: StatusFailed}
+	report := Execute(context.Background(), plan, "", map[ExecutorKind]Executor{executorFake: executor})
+	if report.Status != StatusFailed || len(report.Results) != 2 || report.Results[1].Status != StatusIncomplete {
 		t.Fatalf("lost required work: %+v", report)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	report = Execute(ctx, plan, "", map[string]Executor{"fake": executor})
-	if executor.calls != 1 || report.Results[0].Status != "cancelled" {
+	report = Execute(ctx, plan, "", map[ExecutorKind]Executor{executorFake: executor})
+	if executor.calls != 1 || report.Results[0].Status != StatusCancelled {
 		t.Fatalf("executed after cancellation: %+v", report)
 	}
 }
