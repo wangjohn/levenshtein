@@ -18,11 +18,11 @@ type Native struct {
 
 func (n *Native) Execute(ctx context.Context, req Request) Result {
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
-		return Result{Status: "error", Error: "native execution currently supports macOS and Linux"}
+		return Result{Status: StatusError, Error: "native execution currently supports macOS and Linux"}
 	}
 	dir, err := contained(req.Source, req.Target.Dir)
 	if err != nil {
-		return Result{Status: "error", Error: err.Error()}
+		return Result{Status: StatusError, Error: err.Error()}
 	}
 
 	env := nativeEnv(req, req.Check.Env)
@@ -38,8 +38,7 @@ func (n *Native) Execute(ctx context.Context, req Request) Result {
 		info, failure := n.stage(ctx, req, item.kind, item.definition)
 		stages = append(stages, info)
 		if failure != nil {
-			failure.Stages = stages
-			return *failure
+			return failure.withStages(stages)
 		}
 	}
 
@@ -48,21 +47,16 @@ func (n *Native) Execute(ctx context.Context, req Request) Result {
 		args = req.Check.FreshCommand
 	}
 
-	result := command(ctx, dir, args, env, req.Check.Timeout)
-	result.Stages = stages
-	if result.Status == "passed" {
+	result := command(ctx, dir, args, env, req.Check.Timeout).withStages(stages)
+	if result.Status == StatusPassed {
 		for _, path := range req.Check.Artifacts {
 			full, err := contained(req.Source, path)
 			if err != nil {
-				result.Status = "error"
-				result.Error = fmt.Sprintf("required artifact %q: %v", path, err)
-				return result
+				return result.withOutcome(StatusError, fmt.Sprintf("required artifact %q: %v", path, err))
 			}
 			info, err := os.Lstat(full)
 			if err != nil || !info.Mode().IsRegular() {
-				result.Status = "error"
-				result.Error = fmt.Sprintf("required artifact %q must be a regular file", path)
-				return result
+				return result.withOutcome(StatusError, fmt.Sprintf("required artifact %q must be a regular file", path))
 			}
 		}
 	}

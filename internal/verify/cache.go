@@ -10,18 +10,20 @@ import (
 	"time"
 )
 
+//levenshtein:record
 type CacheInfo struct {
-	Status   string `json:"status"`
-	Key      string `json:"key,omitempty"`
-	Reason   string `json:"reason,omitempty"`
-	LookupMS int64  `json:"lookup_ms"`
+	Status   CacheStatus `json:"status"`
+	Key      string      `json:"key,omitempty"`
+	Reason   string      `json:"reason,omitempty"`
+	LookupMS int64       `json:"lookup_ms"`
 }
 
+//levenshtein:record
 type StageResult struct {
-	Kind       string `json:"kind"`
-	Key        string `json:"key"`
-	Reused     bool   `json:"reused"`
-	DurationMS int64  `json:"duration_ms"`
+	Kind       StageKind `json:"kind"`
+	Key        string    `json:"key"`
+	Reused     bool      `json:"reused"`
+	DurationMS int64     `json:"duration_ms"`
 }
 
 type Cache struct{ Dir string }
@@ -87,7 +89,7 @@ func (c *Cache) load(req Request, key string) (Result, error) {
 	if err := readRecord(filepath.Join(c.Dir, "results", key+".json"), &e); err != nil {
 		return Result{}, err
 	}
-	if e.Key != key || e.Result.Status != "passed" || e.Result.VerifiedAt.IsZero() || len(e.Artifacts) != len(req.Check.Artifacts) {
+	if e.Key != key || e.Result.Status != StatusPassed || e.Result.VerifiedAt.IsZero() || len(e.Artifacts) != len(req.Check.Artifacts) {
 		return Result{}, fmt.Errorf("incomplete cached result")
 	}
 
@@ -147,83 +149,85 @@ func (c *Cache) save(req Request, key string, result Result) error {
 func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 	start := time.Now()
 	if ctx.Err() != nil {
-		return Result{Status: "cancelled", Error: ctx.Err().Error()}
+		return Result{Status: StatusCancelled, Error: ctx.Err().Error()}
 	}
 
-	if c.Cache != nil && req.Environment.Executor == "native" {
+	if c.Cache != nil && req.Environment.Executor == ExecutorNative {
 		unlock, err := lockFile(ctx, filepath.Join(c.Cache.Dir, "locks", "workspace-"+digest(req.Source)))
 		if err != nil {
-			return Result{Status: "error", Error: "cannot lock native workspace: " + err.Error()}
+			return Result{Status: StatusError, Error: "cannot lock native workspace: " + err.Error()}
 		}
 		defer unlock()
 	}
 
-	info := CacheInfo{Status: "disabled"}
-	eligible := req.Check.Cache || req.Environment.Executor == "dagger"
+	eligible := req.Check.Cache || req.Environment.Executor == ExecutorDagger
 	if c.Cache == nil || !eligible {
 		result := c.Executor.Execute(ctx, req)
-		result.Cache = info
-		return result
+		return result.withCache(CacheInfo{Status: CacheDisabled})
 	}
 
 	key, unlock, err := c.Cache.lockedFingerprint(ctx, req)
 	if err != nil {
 		result := c.Executor.Execute(ctx, req)
-		result.Cache = CacheInfo{Status: "unavailable", Reason: err.Error()}
-		return result
+		return result.withCache(CacheInfo{Status: CacheUnavailable, Reason: err.Error()})
 	}
-	info.Key = key
-	info.Status = "miss"
+	status, reason := CacheMiss, ""
 	defer unlock()
 	retryPath := filepath.Join(c.Cache.Dir, "results", key+".retry")
 	if _, err := os.Stat(retryPath); err == nil {
 		req.Fresh = true
-		info.Reason = "previous execution did not publish a successful result; bypassing underlying verdict caches"
+		reason = "previous execution did not publish a successful result; bypassing underlying verdict caches"
 	}
 
 	if !req.Fresh {
 		if result, err := c.Cache.load(req, key); err == nil {
 			after, changedErr := fingerprint(req)
 			if changedErr == nil && after == key {
-				info.Status = "hit"
-				info.LookupMS = time.Since(start).Milliseconds()
-				result.Cache = info
-				return result
+				return result.withCache(CacheInfo{Status: CacheHit, Key: key, Reason: reason, LookupMS: time.Since(start).Milliseconds()})
 			}
 		}
 	} else {
-		info.Status = "fresh"
+		status = CacheFresh
 	}
 
 	// A new observation supersedes an older success, including failure/cancellation.
 	if err := os.Remove(filepath.Join(c.Cache.Dir, "results", key+".json")); err != nil && !os.IsNotExist(err) {
-		return Result{Status: "error", Error: "cannot invalidate old cached result: " + err.Error()}
+		return Result{Status: StatusError, Error: "cannot invalidate old cached result: " + err.Error()}
 	}
 	if err := atomicWrite(retryPath, []byte("verification pending\n"), 0600); err != nil {
-		return Result{Status: "error", Error: "cannot record verification freshness: " + err.Error()}
+		return Result{Status: StatusError, Error: "cannot record verification freshness: " + err.Error()}
 	}
-	info.LookupMS = time.Since(start).Milliseconds()
+	lookupMS := time.Since(start).Milliseconds()
 	executed := time.Now()
-	result := c.Executor.Execute(ctx, req)
-	result.VerifiedAt = executed.UTC()
-	result.ExecutionMS = time.Since(executed).Milliseconds()
-	result.Cache = info
+	outcome := c.Executor.Execute(ctx, req)
+	result := Result{
+		ID:          outcome.ID,
+		Status:      outcome.Status,
+		DurationMS:  outcome.DurationMS,
+		VerifiedAt:  executed.UTC(),
+		Stdout:      outcome.Stdout,
+		Stderr:      outcome.Stderr,
+		Error:       outcome.Error,
+		Cache:       CacheInfo{Status: status, Key: key, Reason: reason, LookupMS: lookupMS},
+		ExecutionMS: time.Since(executed).Milliseconds(),
+		Stages:      outcome.Stages,
+		Details:     outcome.Details,
+	}
 
-	if result.Status == "passed" {
+	if result.Status == StatusPassed {
 		after, err := fingerprint(req)
 		if err != nil || after != key {
-			result.Cache.Reason = "inputs changed during execution; result was not cached"
-			return result
+			return result.withCache(CacheInfo{Status: status, Key: key, Reason: "inputs changed during execution; result was not cached", LookupMS: lookupMS})
 		}
 		if err := c.Cache.save(req, key, result); err != nil {
-			result.Cache.Reason = "cache write unavailable: " + err.Error()
+			reason = "cache write unavailable: " + err.Error()
 		} else {
 			if err := os.Remove(retryPath); err != nil {
-				result.Cache.Reason = "freshness marker cleanup unavailable: " + err.Error()
+				reason = "freshness marker cleanup unavailable: " + err.Error()
 			}
 		}
 	}
-	return result
+	return result.withCache(CacheInfo{Status: status, Key: key, Reason: reason, LookupMS: lookupMS})
 }
 
 func (c *Cache) lockedFingerprint(ctx context.Context, req Request) (string, func(), error) {

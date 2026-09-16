@@ -76,14 +76,12 @@ func executable(dir string, env []string, name string) (string, error) {
 }
 
 func command(ctx context.Context, dir string, args, env []string, timeout string) Result {
-	r := Result{Status: "error"}
 	duration := 5 * time.Minute
 	if timeout != "" {
 		var err error
 		duration, err = time.ParseDuration(timeout)
 		if err != nil || duration <= 0 {
-			r.Error = "invalid timeout"
-			return r
+			return Result{Status: StatusError, Error: "invalid timeout"}
 		}
 	}
 
@@ -91,8 +89,7 @@ func command(ctx context.Context, dir string, args, env []string, timeout string
 	defer cancel()
 	path, err := executable(dir, env, args[0])
 	if err != nil {
-		r.Error = err.Error()
-		return r
+		return Result{Status: StatusError, Error: err.Error()}
 	}
 
 	cmd := exec.CommandContext(child, path, args[1:]...)
@@ -107,36 +104,34 @@ func command(ctx context.Context, dir string, args, env []string, timeout string
 	err = cmd.Run()
 	cleanupProcess(cmd)
 
-	r.Stdout = stdout.String()
-	r.Stderr = stderr.String()
-
+	status := StatusError
+	message := ""
 	switch {
 	case ctx.Err() != nil:
-		r.Status = "cancelled"
-		r.Error = ctx.Err().Error()
+		status, message = StatusCancelled, ctx.Err().Error()
 	case child.Err() != nil:
-		r.Error = "command timed out"
+		message = "command timed out"
 	case err == nil:
-		r.Status = "passed"
+		status = StatusPassed
 	default:
 		if _, ok := err.(*exec.ExitError); ok {
-			r.Status = "failed"
+			status = StatusFailed
 		}
-		r.Error = err.Error()
+		message = err.Error()
 	}
-	return r
+
+	return Result{Status: status, Error: message, Stdout: stdout.String(), Stderr: stderr.String()}
 }
 
 func validateTools(ctx context.Context, dir string, tools []Tool, env []string) *Result {
 	for _, tool := range tools {
 		result := command(ctx, dir, tool.Command, env, "30s")
-		if result.Status != "passed" {
-			result.Error = "tool validation: " + result.Error
-			result.Status = "error"
-			return &result
+		if result.Status != StatusPassed {
+			failure := result.withOutcome(StatusError, "tool validation: "+result.Error)
+			return &failure
 		}
 		if strings.TrimSpace(result.Stdout) != tool.Version {
-			return &Result{Status: "error", Error: fmt.Sprintf("tool %q version mismatch: expected %q, got %q", tool.Command[0], tool.Version, strings.TrimSpace(result.Stdout))}
+			return &Result{Status: StatusError, Error: fmt.Sprintf("tool %q version mismatch: expected %q, got %q", tool.Command[0], tool.Version, strings.TrimSpace(result.Stdout))}
 		}
 	}
 

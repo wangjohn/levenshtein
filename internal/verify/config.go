@@ -27,7 +27,7 @@ type Target struct {
 }
 
 type Environment struct {
-	Executor string            `json:"executor"`
+	Executor ExecutorKind      `json:"executor"`
 	Identity string            `json:"identity,omitempty"`
 	Env      map[string]string `json:"env,omitempty"`
 	PassEnv  []string          `json:"pass_env,omitempty"`
@@ -48,7 +48,7 @@ type Preparation struct {
 }
 
 type Check struct {
-	Kind         string            `json:"kind"`
+	Kind         CheckKind         `json:"kind"`
 	Target       string            `json:"target"`
 	Environment  string            `json:"environment"`
 	Command      []string          `json:"command,omitempty"`
@@ -116,7 +116,7 @@ func Parse(data []byte) (Config, error) {
 		return Config{}, fmt.Errorf("configure at least one Go module directory")
 	}
 
-	cfg := Config{Version: 1, Targets: map[string]Target{}, Environments: map[string]Environment{"go": {Executor: "dagger"}}, Checks: map[string]Check{}, Runs: map[string]Run{}}
+	cfg := Config{Version: 1, Targets: map[string]Target{}, Environments: map[string]Environment{"go": {Executor: ExecutorDagger}}, Checks: map[string]Check{}, Runs: map[string]Run{}}
 	seen := map[string]bool{}
 	for i, module := range old.Modules {
 		if !relative(module) || seen[module] {
@@ -125,10 +125,10 @@ func Parse(data []byte) (Config, error) {
 		seen[module] = true
 		id := fmt.Sprintf("module-%d", i)
 		cfg.Targets[id] = Target{Dir: module, Workspace: ".", Inputs: []string{"."}}
-		cfg.Checks["go-lint/"+id] = Check{Kind: "go-lint", Target: id, Environment: "go"}
+		cfg.Checks["go-lint/"+id] = Check{Kind: CheckGoLint, Target: id, Environment: "go"}
 	}
 
-	cfg.Checks["self-test"] = Check{Kind: "self-test", Target: "module-0", Environment: "go"}
+	cfg.Checks["self-test"] = Check{Kind: CheckSelfTest, Target: "module-0", Environment: "go"}
 
 	for name, checks := range old.Runs {
 		run := Run{Fresh: name == "main"}

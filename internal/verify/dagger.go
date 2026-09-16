@@ -31,14 +31,13 @@ func (d *Dagger) Close() error {
 }
 
 // These are the Dagger functions supported by both planning and execution.
-var daggerFunctions = map[string]string{"go-lint": "goLint", "self-test": "selfTest"}
+var daggerFunctions = map[CheckKind]string{CheckGoLint: "goLint", CheckSelfTest: "selfTest"}
 
 func (d *Dagger) Execute(ctx context.Context, req Request) Result {
 	result := daggerResult(d.execute(ctx, req))
 
 	if err := ctx.Err(); err != nil {
-		result.Status = "cancelled"
-		result.Error = err.Error()
+		return Result{Status: StatusCancelled, Error: err.Error(), Stdout: result.Stdout, Stderr: result.Stderr, Details: result.Details}
 	}
 	return result
 }
@@ -59,7 +58,7 @@ func (d *Dagger) execute(ctx context.Context, req Request) error {
 	}
 
 	query := d.client.QueryBuilder().Select("levenshtein").Select(function).Arg("nonce", nonce)
-	if req.Check.Kind == "go-lint" {
+	if req.Check.Kind == CheckGoLint {
 		source := d.client.Host().Directory(req.Source, dagger.HostDirectoryOpts{Exclude: []string{"**/.env", "**/.env.*", "!**/.env.example", "**/.git"}})
 		query = query.Arg("source", source).Arg("module", req.Target.Dir)
 	}
@@ -96,34 +95,27 @@ func (d *Dagger) connect(ctx context.Context, shared string) error {
 
 func daggerResult(err error) Result {
 	if err == nil {
-		return Result{Status: "passed"}
+		return Result{Status: StatusPassed}
 	}
 
-	result := Result{Status: "error", Error: err.Error()}
 	var failure *gqlerror.Error
 	if !errors.As(err, &failure) {
-		return result
+		return Result{Status: StatusError, Error: err.Error()}
+	}
+	stdout, _ := failure.Extensions["stdout"].(string)
+	stderr, _ := failure.Extensions["stderr"].(string)
+	status := StatusError
+	var details json.RawMessage
+	if findings, ok := failure.Extensions["levenshteinFindings"]; ok {
+		data, encodeErr := json.Marshal(findings)
+		var diagnostics []json.RawMessage
+		if encodeErr == nil && json.Unmarshal(data, &diagnostics) == nil && len(diagnostics) > 0 {
+			status = StatusFailed
+			details, _ = json.Marshal(struct {
+				Findings []json.RawMessage `json:"findings"`
+			}{diagnostics})
+		}
 	}
 
-	result.Stdout, _ = failure.Extensions["stdout"].(string)
-	result.Stderr, _ = failure.Extensions["stderr"].(string)
-	findings, ok := failure.Extensions["levenshteinFindings"]
-	if !ok {
-		return result
-	}
-
-	data, encodeErr := json.Marshal(findings)
-	if encodeErr != nil {
-		return result
-	}
-	var diagnostics []json.RawMessage
-	if json.Unmarshal(data, &diagnostics) != nil || len(diagnostics) == 0 {
-		return result
-	}
-
-	result.Status = "failed"
-	result.Details, _ = json.Marshal(struct {
-		Findings []json.RawMessage `json:"findings"`
-	}{diagnostics})
-	return result
+	return Result{Status: status, Error: err.Error(), Stdout: stdout, Stderr: stderr, Details: details}
 }
