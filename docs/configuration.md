@@ -24,7 +24,7 @@
 }
 ```
 
-Currently supported checks are `go-lint` and Levenshtein's own `self-test`, using the Dagger executor. Tool versions remain pinned in the shared checkout. Native commands and result caching are subsequent implementation steps.
+Supported checks are `go-lint` and Levenshtein's own `self-test` using Dagger, plus native `command` checks. Go tool versions remain pinned in the shared checkout. Completed-result caching is the next implementation step.
 
 A run selects check IDs. `fresh: true` forces verification execution while retaining compatible dependency/build caches. Any run name can use it; versioned configuration gives `main` no special behavior. Unknown checks, executors, references, and configuration fields fail explicitly.
 
@@ -35,3 +35,27 @@ Legacy `modules` and array-valued `runs` remain supported. They translate into G
 The CLI emits a versioned JSON report with the resolved plan and a result for every selected check. Results distinguish `passed`, `failed`, `error`, `cancelled`, and `incomplete`, with timing and native output/details. A run succeeds only when every selected check passes. Planning/configuration errors exit 2; unsuccessful verification exits 1.
 
 Application repos retain their own CI triggers, workers, schedules, and merge gates. Pin the shared checkout as described in [consumer CI](consumer-ci.md).
+
+## Native commands
+
+Native commands execute on the supplied macOS or Linux worker. They are trusted repo code, not a sandbox. Levenshtein does not provision Xcode or change CI worker selection.
+
+```json
+{
+  "version": 1,
+  "targets": {"app": {"dir": ".", "inputs": ["src", "tests", "scripts"]}},
+  "environments": {
+    "host": {"executor": "native", "identity": "my-pinned-worker", "env": {"MODE": "test"}}
+  },
+  "checks": {
+    "tests": {"kind": "command", "target": "app", "environment": "host", "command": ["bash", "scripts/test.sh"], "timeout": "5m", "artifacts": ["reports/tests.xml"]}
+  },
+  "runs": {"branch": {"checks": ["tests"]}}
+}
+```
+
+Commands are argument arrays; shell syntax requires an explicit shell command. Artifact paths are repository-relative regular files and are required on success. Timeouts default to five minutes and terminate the process group, including child processes. Native output is retained in the result; a nonzero exit fails verification, while missing tools, missing artifacts, and timeouts are errors.
+
+The process inherits only `PATH`, `HOME`, and temporary-directory/system-root variables. `LANG` has a stable default. Add fixed nonsecret values through environment/check `env`, or explicit inherited names through environment `pass_env`. Do not put credentials in configuration. The runner supplies `LEVENSHTEIN_SOURCE`, `LEVENSHTEIN_WORKSPACE`, and `LEVENSHTEIN_FRESH` to scripts. An environment can declare `tools`: each entry has a version-printing `command` array and exact expected stdout in `version`. These validations run before preparation/check execution.
+
+A check may reference an entry in top-level `preparations` by ID. Each preparation declares `command`, repository-relative `inputs` and `outputs`, optional `env`, and `timeout`. Preparation runs in the target's workspace directory. Checks share compatible successful preparation within a run, with conflicting mutations serialized; missing outputs require preparation again. Cross-process caching is the next implementation step. Build/tool caches managed by the repository's commands remain usable.

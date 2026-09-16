@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type Config struct {
@@ -17,6 +18,7 @@ type Config struct {
 	Environments map[string]Environment `json:"environments"`
 	Checks       map[string]Check       `json:"checks"`
 	Runs         map[string]Run         `json:"runs"`
+	Preparations map[string]Preparation `json:"preparations,omitempty"`
 }
 type Target struct {
 	Dir       string   `json:"dir"`
@@ -24,12 +26,32 @@ type Target struct {
 	Inputs    []string `json:"inputs"`
 }
 type Environment struct {
-	Executor string `json:"executor"`
+	Executor string            `json:"executor"`
+	Identity string            `json:"identity,omitempty"`
+	Env      map[string]string `json:"env,omitempty"`
+	PassEnv  []string          `json:"pass_env,omitempty"`
+	Tools    []Tool            `json:"tools,omitempty"`
+}
+type Tool struct {
+	Command []string `json:"command"`
+	Version string   `json:"version"`
+}
+type Preparation struct {
+	Command []string          `json:"command"`
+	Inputs  []string          `json:"inputs"`
+	Outputs []string          `json:"outputs"`
+	Env     map[string]string `json:"env,omitempty"`
+	Timeout string            `json:"timeout,omitempty"`
 }
 type Check struct {
-	Kind        string `json:"kind"`
-	Target      string `json:"target"`
-	Environment string `json:"environment"`
+	Kind        string            `json:"kind"`
+	Target      string            `json:"target"`
+	Environment string            `json:"environment"`
+	Command     []string          `json:"command,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
+	Timeout     string            `json:"timeout,omitempty"`
+	Preparation string            `json:"preparation,omitempty"`
+	Artifacts   []string          `json:"artifacts,omitempty"`
 }
 type Run struct {
 	Checks []string `json:"checks"`
@@ -137,10 +159,11 @@ func contained(root, path string) (string, error) {
 }
 
 type PlannedCheck struct {
-	ID          string      `json:"id"`
-	Check       Check       `json:"check"`
-	Target      Target      `json:"target"`
-	Environment Environment `json:"environment"`
+	ID          string       `json:"id"`
+	Check       Check        `json:"check"`
+	Target      Target       `json:"target"`
+	Environment Environment  `json:"environment"`
+	Preparation *Preparation `json:"preparation,omitempty"`
 }
 type Plan struct {
 	Version int            `json:"version"`
@@ -209,16 +232,92 @@ func (cfg Config) Plan(source, name string) (Plan, error) {
 				return p, fmt.Errorf("invalid input path %q", path)
 			}
 		}
-		p.Checks = append(p.Checks, PlannedCheck{ID: id, Check: check, Target: target, Environment: env})
+		planned := PlannedCheck{ID: id, Check: check, Target: target, Environment: env}
+		if check.Preparation != "" {
+			preparation, ok := cfg.Preparations[check.Preparation]
+			if !ok {
+				return p, fmt.Errorf("unknown preparation %q", check.Preparation)
+			}
+			if len(preparation.Command) == 0 || len(preparation.Inputs) == 0 || len(preparation.Outputs) == 0 {
+				return p, fmt.Errorf("preparation must declare command, inputs, and outputs")
+			}
+			if err := validateDuration(preparation.Timeout); err != nil {
+				return p, err
+			}
+			if err := validateEnv(preparation.Env); err != nil {
+				return p, err
+			}
+			for _, path := range append(append([]string{}, preparation.Inputs...), preparation.Outputs...) {
+				if !relative(path) {
+					return p, fmt.Errorf("invalid preparation path %q", path)
+				}
+			}
+			planned.Preparation = &preparation
+		}
+		p.Checks = append(p.Checks, planned)
 	}
 	return p, nil
 }
 func validateCheck(check Check, env Environment) error {
-	if env.Executor != "dagger" {
+	if env.Executor == "dagger" {
+		if check.Kind != "go-lint" && check.Kind != "self-test" {
+			return fmt.Errorf("unknown Dagger check %q", check.Kind)
+		}
+		if len(check.Command) > 0 || len(check.Env) > 0 || check.Timeout != "" || check.Preparation != "" || len(check.Artifacts) > 0 || env.Identity != "" || len(env.Env) > 0 || len(env.PassEnv) > 0 || len(env.Tools) > 0 {
+			return fmt.Errorf("native command options cannot be used for Dagger Go checks")
+		}
+		return nil
+	}
+	if env.Executor != "native" {
 		return fmt.Errorf("unsupported executor %q", env.Executor)
 	}
-	if check.Kind != "go-lint" && check.Kind != "self-test" {
-		return fmt.Errorf("unknown check kind %q", check.Kind)
+	if check.Kind != "command" || len(check.Command) == 0 || check.Command[0] == "" {
+		return fmt.Errorf("native check needs kind command and a nonempty command array")
+	}
+	if err := validateDuration(check.Timeout); err != nil {
+		return err
+	}
+	if err := validateEnv(env.Env); err != nil {
+		return err
+	}
+	if err := validateEnv(check.Env); err != nil {
+		return err
+	}
+	for _, name := range env.PassEnv {
+		if !envName(name) {
+			return fmt.Errorf("invalid environment name %q", name)
+		}
+	}
+	for _, tool := range env.Tools {
+		if len(tool.Command) == 0 || tool.Command[0] == "" || tool.Version == "" {
+			return fmt.Errorf("tool needs command and exact version output")
+		}
+	}
+	for _, path := range check.Artifacts {
+		if !relative(path) || path == "." {
+			return fmt.Errorf("invalid artifact path %q", path)
+		}
+	}
+	return nil
+}
+func validateDuration(value string) error {
+	if value == "" {
+		return nil
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil || d <= 0 {
+		return fmt.Errorf("invalid positive timeout %q", value)
+	}
+	return nil
+}
+func envName(name string) bool {
+	return name != "" && !strings.ContainsAny(name, "=\x00") && !strings.HasPrefix(name, "LEVENSHTEIN_")
+}
+func validateEnv(values map[string]string) error {
+	for name, value := range values {
+		if !envName(name) || strings.ContainsRune(value, 0) {
+			return fmt.Errorf("invalid environment entry %q", name)
+		}
 	}
 	return nil
 }
