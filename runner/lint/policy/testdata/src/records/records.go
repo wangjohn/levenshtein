@@ -39,3 +39,14 @@ func allowed() {
 }
 
 func consume(*Result) {}
+
+//levenshtein:record
+type Wrong int // want "levenshtein:record requires a struct type"
+
+//levenshtein:record
+type WrongAlias = Result // want "levenshtein:record must mark the original type"
+
+func localMarker() {
+	//levenshtein:record
+	type Local struct{ N int } // want "levenshtein:record requires a package-level struct type"
+}
