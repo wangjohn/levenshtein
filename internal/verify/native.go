@@ -208,24 +208,3 @@ func validateTools(ctx context.Context, dir string, tools []Tool, env []string) 
 
 	return nil
 }
-
-// Mutable output paths must not alias another preparation through a symlink.
-func outputPath(root, path string) (string, error) {
-	if !relative(path) || path == "." {
-		return "", fmt.Errorf("invalid output path %q", path)
-	}
-	full := filepath.Join(root, path)
-	for current := full; current != root; current = filepath.Dir(current) {
-		info, err := os.Lstat(current)
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
-			return "", err
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return "", fmt.Errorf("output path %q contains a symlink", path)
-		}
-	}
-	return full, nil
-}

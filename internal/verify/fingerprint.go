@@ -31,19 +31,31 @@ func excluded(path string, excludes []string) bool {
 	return false
 }
 
+// WalkDir must inspect a declared root symlink itself, just as it does child entries.
+type snapshotFS struct {
+	fs.FS
+	root *os.Root
+}
+
+func (s snapshotFS) Stat(name string) (fs.FileInfo, error) {
+	return s.root.Lstat(filepath.FromSlash(name))
+}
+
 // Snapshot hashes content, names and modes, including untracked files and missing
 // paths. Source symlinks disable result reuse; output snapshots retain link text.
 func snapshot(root string, paths, excludes []string, outputs bool) (string, error) {
+	dir, err := os.OpenRoot(root)
+	if err != nil {
+		return "", err
+	}
+	defer dir.Close()
 	entries := map[string]string{}
 	for _, path := range paths {
 		if !relative(path) {
 			return "", fmt.Errorf("invalid input %q", path)
 		}
-		err := filepath.WalkDir(filepath.Join(root, path), func(full string, entry fs.DirEntry, err error) error {
-			rel, relErr := filepath.Rel(root, full)
-			if relErr != nil {
-				return relErr
-			}
+		err := fs.WalkDir(snapshotFS{FS: dir.FS(), root: dir}, filepath.ToSlash(path), func(name string, entry fs.DirEntry, err error) error {
+			rel := filepath.FromSlash(name)
 			if excluded(rel, excludes) {
 				if entry != nil && entry.IsDir() {
 					return filepath.SkipDir
@@ -65,7 +77,7 @@ func snapshot(root string, paths, excludes []string, outputs bool) (string, erro
 				if !outputs {
 					return fmt.Errorf("source symlink %q requires fresh execution", rel)
 				}
-				link, err := os.Readlink(full)
+				link, err := dir.Readlink(rel)
 				if err != nil {
 					return err
 				}
@@ -79,7 +91,7 @@ func snapshot(root string, paths, excludes []string, outputs bool) (string, erro
 			if !info.Mode().IsRegular() {
 				return fmt.Errorf("unsupported input file %q", rel)
 			}
-			file, err := os.Open(full)
+			file, err := dir.Open(rel)
 			if err != nil {
 				return err
 			}

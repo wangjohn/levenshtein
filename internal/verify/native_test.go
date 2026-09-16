@@ -15,7 +15,7 @@ func nativeRequest(t *testing.T) Request {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Request{Source: source, PlannedCheck: PlannedCheck{ID: "test", Check: Check{Kind: "command", Command: []string{"/bin/sh", "-c", "printf hello; printf warning >&2"}}, Target: Target{Dir: ".", Workspace: ".", Inputs: []string{"."}}, Environment: Environment{Executor: "native"}}}
+	return Request{Source: source, Shared: t.TempDir(), PlannedCheck: PlannedCheck{ID: "test", Check: Check{Kind: "command", Command: []string{"/bin/sh", "-c", "printf hello; printf warning >&2"}}, Target: Target{Dir: ".", Workspace: ".", Inputs: []string{"."}}, Environment: Environment{Executor: "native"}}}
 }
 func TestNativeCommandOutcomes(t *testing.T) {
 	for _, tc := range []struct{ name, script, status string }{{"pass", "printf hello; printf warning >&2", "passed"}, {"assertion", "printf failure; exit 3", "failed"}} {

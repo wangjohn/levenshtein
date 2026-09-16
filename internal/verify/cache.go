@@ -42,31 +42,6 @@ type envelope struct {
 	Data     json.RawMessage
 }
 
-func atomicWrite(path string, data []byte, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(filepath.Dir(path), ".pending-")
-	if err != nil {
-		return err
-	}
-	name := f.Name()
-	defer os.Remove(name)
-	if err = f.Chmod(mode); err == nil {
-		_, err = f.Write(data)
-	}
-	if err == nil {
-		err = f.Sync()
-	}
-	closeErr := f.Close()
-	if err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		return err
-	}
-	return os.Rename(name, path)
-}
 func writeRecord(path string, value any) error {
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -97,25 +72,6 @@ func readRecord(path string, value any) error {
 	}
 	return json.Unmarshal(e.Data, value)
 }
-func safeArtifact(root, path string) (string, error) {
-	if !relative(path) || path == "." {
-		return "", fmt.Errorf("invalid artifact path %q", path)
-	}
-	full := filepath.Join(root, path)
-	for current := full; current != root; current = filepath.Dir(current) {
-		info, err := os.Lstat(current)
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
-			return "", err
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return "", fmt.Errorf("artifact path %q contains a symlink", path)
-		}
-	}
-	return full, nil
-}
 func (c *Cache) load(req Request, key string) (Result, error) {
 	var e entry
 	if err := readRecord(filepath.Join(c.Dir, "results", key+".json"), &e); err != nil {
@@ -129,13 +85,17 @@ func (c *Cache) load(req Request, key string) (Result, error) {
 		if a.Path != req.Check.Artifacts[i] {
 			return Result{}, fmt.Errorf("artifact scope mismatch")
 		}
-		if _, err := safeArtifact(req.Source, a.Path); err != nil {
+		if _, err := outputPath(req.Source, a.Path); err != nil {
 			return Result{}, err
 		}
 	}
+	root, err := os.OpenRoot(req.Source)
+	if err != nil {
+		return Result{}, err
+	}
+	defer root.Close()
 	for _, a := range e.Artifacts {
-		full, _ := safeArtifact(req.Source, a.Path)
-		if err := atomicWrite(full, a.Data, os.FileMode(a.Mode)&0777); err != nil {
+		if err := atomicWriteRoot(root, a.Path, a.Data, os.FileMode(a.Mode)&0777); err != nil {
 			return Result{}, err
 		}
 	}
@@ -143,19 +103,24 @@ func (c *Cache) load(req Request, key string) (Result, error) {
 }
 func (c *Cache) save(req Request, key string, result Result) error {
 	e := entry{Key: key, Result: result}
+	root, err := os.OpenRoot(req.Source)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
 	for _, path := range req.Check.Artifacts {
-		full, err := safeArtifact(req.Source, path)
+		_, err := outputPath(req.Source, path)
 		if err != nil {
 			return err
 		}
-		info, err := os.Stat(full)
+		info, err := root.Stat(path)
 		if err != nil {
 			return err
 		}
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("artifact is not a regular file")
 		}
-		data, err := os.ReadFile(full)
+		data, err := root.ReadFile(path)
 		if err != nil {
 			return err
 		}

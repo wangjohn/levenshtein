@@ -55,7 +55,7 @@ func (n *Native) stage(ctx context.Context, req Request, kind string, stage *Pre
 		}
 	}
 	for _, out := range stage.Outputs {
-		if _, err := safeArtifact(req.Source, out); err != nil {
+		if _, err := outputPath(req.Source, out); err != nil {
 			r := Result{Status: "error", Error: err.Error()}
 			return info, &r
 		}
