@@ -3,7 +3,6 @@ package verify
 import (
 	"context"
 	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,67 +30,62 @@ func (d *Dagger) Close() error {
 	return nil
 }
 
-func (d *Dagger) Execute(ctx context.Context, req Request) (result Result) {
-	result.Status = "error"
-	defer func() {
-		if ctx.Err() != nil {
-			result.Status = "cancelled"
-			result.Error = ctx.Err().Error()
-		}
-	}()
-	function := ""
-	switch req.Check.Kind {
-	case "go-lint":
-		function = "goLint"
-	case "self-test":
-		function = "selfTest"
-	default:
-		result.Error = fmt.Sprintf("unsupported Dagger check %q", req.Check.Kind)
-		return
-	}
-	version, err := os.ReadFile(filepath.Join(req.Shared, ".dagger-version"))
-	if err != nil {
-		result.Error = err.Error()
-		return
-	}
-	if strings.TrimSpace(string(version)) != engineconn.CLIVersion {
-		result.Error = "Dagger SDK version does not match .dagger-version"
-		return
-	}
-	if d.client == nil {
-		d.client, err = dagger.Connect(ctx, dagger.WithLogOutput(os.Stderr), dagger.WithSkipWorkspaceModules())
-		if err != nil {
-			result.Error = err.Error()
-			return
-		}
-		if err := d.client.ModuleSource(req.Shared).AsModule().Serve(ctx); err != nil {
-			_ = d.client.Close()
-			d.client = nil
-			result.Error = err.Error()
-			return
-		}
-		d.shared = req.Shared
-	}
-	if d.shared != req.Shared {
-		result.Error = "a Dagger session cannot change its shared module"
-		return
-	}
+// These are the Dagger functions supported by both planning and execution.
+var daggerFunctions = map[string]string{"go-lint": "goLint", "self-test": "selfTest"}
 
+func (d *Dagger) Execute(ctx context.Context, req Request) Result {
+	result := daggerResult(d.execute(ctx, req))
+	if err := ctx.Err(); err != nil {
+		result.Status = "cancelled"
+		result.Error = err.Error()
+	}
+	return result
+}
+
+func (d *Dagger) execute(ctx context.Context, req Request) error {
+	function, ok := daggerFunctions[req.Check.Kind]
+	if !ok {
+		return fmt.Errorf("unsupported Dagger check %q", req.Check.Kind)
+	}
+	if err := d.connect(ctx, req.Shared); err != nil {
+		return err
+	}
 	nonce := ""
 	if req.Fresh {
-		value := make([]byte, 16)
-		if _, err := rand.Read(value); err != nil {
-			result.Error = err.Error()
-			return
-		}
-		nonce = hex.EncodeToString(value)
+		nonce = rand.Text()
 	}
 	query := d.client.QueryBuilder().Select("levenshtein").Select(function).Arg("nonce", nonce)
 	if req.Check.Kind == "go-lint" {
 		source := d.client.Host().Directory(req.Source, dagger.HostDirectoryOpts{Exclude: []string{"**/.env", "**/.env.*", "!**/.env.example", "**/.git"}})
 		query = query.Arg("source", source).Arg("module", req.Target.Dir)
 	}
-	return daggerResult(query.Execute(ctx))
+	return query.Execute(ctx)
+}
+
+func (d *Dagger) connect(ctx context.Context, shared string) error {
+	version, err := os.ReadFile(filepath.Join(shared, ".dagger-version"))
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(version)) != engineconn.CLIVersion {
+		return fmt.Errorf("Dagger SDK version does not match .dagger-version")
+	}
+	if d.client != nil {
+		if d.shared != shared {
+			return fmt.Errorf("a Dagger session cannot change its shared module")
+		}
+		return nil
+	}
+	client, err := dagger.Connect(ctx, dagger.WithLogOutput(os.Stderr), dagger.WithSkipWorkspaceModules())
+	if err != nil {
+		return err
+	}
+	if err := client.ModuleSource(shared).AsModule().Serve(ctx); err != nil {
+		_ = client.Close()
+		return err
+	}
+	d.client, d.shared = client, shared
+	return nil
 }
 
 func daggerResult(err error) Result {

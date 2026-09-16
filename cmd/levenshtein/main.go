@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -18,65 +19,63 @@ func main() { os.Exit(run()) }
 func run() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	code, err := runCommand(ctx, os.Args[1:], os.Stdout)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+	}
+	return code
+}
+
+func runCommand(ctx context.Context, args []string, output io.Writer) (int, error) {
 	source, err := os.Getwd()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 2
+		return 2, err
 	}
-	opts, err := parseArgs(os.Args[1:], options{
+	opts, err := parseArgs(args, options{
 		source: source,
 		shared: os.Getenv("LEVENSHTEIN_SHARED_ROOT"),
-	}, os.Stdout)
+	}, output)
 	if errors.Is(err, pflag.ErrHelp) {
-		return 0
+		return 0, nil
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 2
+		return 2, err
 	}
-	shared := opts.shared
-
 	source, err = filepath.Abs(opts.source)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 2
+		return 2, err
 	}
 	cfg, err := verify.Load(source)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 2
+		return 2, err
 	}
 	plan, err := cfg.Plan(source, opts.name)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 2
+		return 2, err
 	}
-	encoder := json.NewEncoder(os.Stdout)
+	encoder := json.NewEncoder(output)
 	encoder.SetIndent("", "  ")
 	if opts.dry {
 		if err := encoder.Encode(plan); err != nil {
-			return 2
+			return 2, err
 		}
-		return 0
+		return 0, nil
 	}
-	if shared == "" {
-		fmt.Fprintln(os.Stderr, "set --shared to the pinned Levenshtein checkout, or use its ./verify launcher")
-		return 2
+	if opts.shared == "" {
+		return 2, fmt.Errorf("set --shared to the pinned Levenshtein checkout, or use its ./verify launcher")
 	}
-	shared, err = filepath.Abs(shared)
+	shared, err := filepath.Abs(opts.shared)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 2
+		return 2, err
 	}
 	dagger := &verify.Dagger{}
 	defer dagger.Close()
 	report := verify.Execute(ctx, plan, shared, map[string]verify.Executor{"dagger": dagger})
 	if err := encoder.Encode(report); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 2
+		return 2, err
 	}
 	if report.Status != "passed" {
-		return 1
+		return 1, nil
 	}
-	return 0
+	return 0, nil
 }
