@@ -16,6 +16,7 @@ func outputPath(root, path string) (string, error) {
 		return "", err
 	}
 	defer dir.Close()
+
 	for current := path; current != "."; current = filepath.Dir(current) {
 		info, err := dir.Lstat(current)
 		if os.IsNotExist(err) {

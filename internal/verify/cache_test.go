@@ -21,6 +21,7 @@ func (e *countingExecutor) Execute(ctx context.Context, req Request) Result {
 	}
 	return Result{Status: e.status, Stdout: "original diagnostics"}
 }
+
 func cacheRequest(t *testing.T) Request {
 	t.Helper()
 	req := nativeRequest(t)
@@ -34,15 +35,18 @@ func cacheRequest(t *testing.T) Request {
 	}
 	return req
 }
+
 func TestResultCacheInvalidationAndFreshness(t *testing.T) {
 	req := cacheRequest(t)
 	cache := &Cache{Dir: t.TempDir()}
 	executor := &countingExecutor{status: "passed"}
 	runner := CachedExecutor{Cache: cache, Executor: executor}
+
 	first := runner.Execute(context.Background(), req)
 	if first.Cache.Status != "miss" || executor.calls != 1 {
 		t.Fatalf("cold: %+v", first)
 	}
+
 	second := runner.Execute(context.Background(), req)
 	if second.Cache.Status != "hit" || executor.calls != 1 || !second.VerifiedAt.Equal(first.VerifiedAt) {
 		t.Fatalf("warm: %+v", second)
@@ -59,14 +63,17 @@ func TestResultCacheInvalidationAndFreshness(t *testing.T) {
 	if result := runner.Execute(context.Background(), req); result.Cache.Status != "miss" || executor.calls != 2 {
 		t.Fatalf("input edit: %+v", result)
 	}
+
 	req.Fresh = true
 	if result := runner.Execute(context.Background(), req); result.Cache.Status != "fresh" || executor.calls != 3 {
 		t.Fatalf("fresh: %+v", result)
 	}
+
 	req.Fresh = false
 	if result := runner.Execute(context.Background(), req); result.Cache.Status != "hit" {
 		t.Fatalf("fresh should populate ordinary result: %+v", result)
 	}
+
 	req.Check.Env = map[string]string{"FEATURE": "other"}
 	if result := runner.Execute(context.Background(), req); result.Cache.Status != "miss" {
 		t.Fatalf("variant: %+v", result)
@@ -78,12 +85,14 @@ func TestResultCacheInvalidationAndFreshness(t *testing.T) {
 		t.Fatalf("deletion: %+v", result)
 	}
 }
+
 func TestCacheArtifactsCorruptionAndFailedResults(t *testing.T) {
 	req := cacheRequest(t)
 	req.Check.Artifacts = []string{"report.txt"}
 	cache := &Cache{Dir: t.TempDir()}
 	executor := &countingExecutor{status: "passed", artifact: "report.txt"}
 	runner := CachedExecutor{Cache: cache, Executor: executor}
+
 	first := runner.Execute(context.Background(), req)
 	if err := os.Remove(filepath.Join(req.Source, "report.txt")); err != nil {
 		t.Fatal(err)
@@ -100,6 +109,7 @@ func TestCacheArtifactsCorruptionAndFailedResults(t *testing.T) {
 	if result := runner.Execute(context.Background(), req); result.Cache.Status != "miss" || executor.calls != 2 {
 		t.Fatalf("corruption: %+v", result)
 	}
+
 	req.Check.Command = []string{"different"}
 	executor.status = "failed"
 	for i := 0; i < 2; i++ {
@@ -111,6 +121,7 @@ func TestCacheArtifactsCorruptionAndFailedResults(t *testing.T) {
 		t.Fatalf("failure reused: %d", executor.calls)
 	}
 }
+
 func TestPersistentPreparationAcrossExecutors(t *testing.T) {
 	req := cacheRequest(t)
 	req.Preparation = &Preparation{Command: []string{"/bin/sh", "-c", "echo prep >> count; printf environment > ready"}, Inputs: []string{"lock"}, Outputs: []string{"ready"}}
@@ -126,16 +137,20 @@ func TestPersistentPreparationAcrossExecutors(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(req.Source, "ready"), []byte("overwritten by another environment"), 0600); err != nil {
 		t.Fatal(err)
 	}
+
 	result := (&Native{Cache: cache}).Execute(context.Background(), req)
 	if result.Status != "passed" || result.Stages[0].Reused {
 		t.Fatalf("overwritten setup reused: %+v", result)
 	}
+
 	req.Fresh = true
+
 	result = (&Native{Cache: cache}).Execute(context.Background(), req)
 	if result.Status != "passed" || !result.Stages[0].Reused {
 		t.Fatalf("fresh erased preparation: %+v", result)
 	}
 }
+
 func TestCacheLockCancellation(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "lock")
 	unlock, err := lockFile(context.Background(), path)
@@ -150,6 +165,7 @@ func TestCacheLockCancellation(t *testing.T) {
 		t.Fatal("conflicting writer entered lock")
 	}
 }
+
 func TestArtifactRestorationRejectsSymlink(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
@@ -160,13 +176,16 @@ func TestArtifactRestorationRejectsSymlink(t *testing.T) {
 		t.Fatal("artifact escaped through alias")
 	}
 }
+
 func TestInputSymlinkDisablesResultCache(t *testing.T) {
 	req := cacheRequest(t)
 	if err := os.Symlink("input", filepath.Join(req.Source, "alias")); err != nil {
 		t.Fatal(err)
 	}
+
 	req.Target.Inputs = []string{"alias"}
 	executor := &countingExecutor{status: "passed"}
+
 	result := (CachedExecutor{Cache: &Cache{Dir: t.TempDir()}, Executor: executor}).Execute(context.Background(), req)
 	if result.Status != "passed" || result.Cache.Status != "unavailable" {
 		t.Fatalf("unsafe input cached: %+v", result)
@@ -194,6 +213,7 @@ func (e *verdictCachingExecutor) Execute(ctx context.Context, req Request) Resul
 	}
 	return Result{Status: "passed"}
 }
+
 func TestFreshFailureBypassesUnderlyingVerdictCache(t *testing.T) {
 	req := cacheRequest(t)
 	req.Environment.Executor = "dagger"
@@ -202,12 +222,15 @@ func TestFreshFailureBypassesUnderlyingVerdictCache(t *testing.T) {
 	if result := runner.Execute(context.Background(), req); result.Status != "passed" {
 		t.Fatal(result)
 	}
+
 	executor.failFresh = true
 	req.Fresh = true
 	if result := runner.Execute(context.Background(), req); result.Status != "failed" {
 		t.Fatal(result)
 	}
+
 	req.Fresh = false
+
 	result := runner.Execute(context.Background(), req)
 	if result.Status != "failed" || result.Cache.Status != "fresh" {
 		t.Fatalf("lower-level cached success hid known failure: %+v", result)

@@ -31,9 +31,11 @@ func nativeEnv(req Request, extra map[string]string) []string {
 	for key, value := range extra {
 		values[key] = value
 	}
+
 	values["LEVENSHTEIN_SOURCE"] = req.Source
 	values["LEVENSHTEIN_WORKSPACE"] = filepath.Join(req.Source, req.Target.Workspace)
 	values["LEVENSHTEIN_FRESH"] = fmt.Sprint(req.Fresh)
+
 	keys := make([]string, 0, len(values))
 	for key := range values {
 		keys = append(keys, key)
@@ -45,6 +47,7 @@ func nativeEnv(req Request, extra map[string]string) []string {
 	}
 	return env
 }
+
 func executable(dir string, env []string, name string) (string, error) {
 	if strings.ContainsAny(name, "/\\") {
 		if !filepath.IsAbs(name) {
@@ -52,6 +55,7 @@ func executable(dir string, env []string, name string) (string, error) {
 		}
 		return name, nil
 	}
+
 	path := ""
 	for _, entry := range env {
 		if strings.HasPrefix(entry, "PATH=") {
@@ -70,6 +74,7 @@ func executable(dir string, env []string, name string) (string, error) {
 	}
 	return "", fmt.Errorf("executable %q not found in configured PATH", name)
 }
+
 func command(ctx context.Context, dir string, args, env []string, timeout string) Result {
 	r := Result{Status: "error"}
 	duration := 5 * time.Minute
@@ -81,6 +86,7 @@ func command(ctx context.Context, dir string, args, env []string, timeout string
 			return r
 		}
 	}
+
 	child, cancel := context.WithTimeout(ctx, duration)
 	defer cancel()
 	path, err := executable(dir, env, args[0])
@@ -88,6 +94,7 @@ func command(ctx context.Context, dir string, args, env []string, timeout string
 		r.Error = err.Error()
 		return r
 	}
+
 	cmd := exec.CommandContext(child, path, args[1:]...)
 	cmd.Dir = dir
 	cmd.Env = env
@@ -96,10 +103,13 @@ func command(ctx context.Context, dir string, args, env []string, timeout string
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+
 	err = cmd.Run()
 	cleanupProcess(cmd)
+
 	r.Stdout = stdout.String()
 	r.Stderr = stderr.String()
+
 	switch {
 	case ctx.Err() != nil:
 		r.Status = "cancelled"
@@ -116,6 +126,7 @@ func command(ctx context.Context, dir string, args, env []string, timeout string
 	}
 	return r
 }
+
 func validateTools(ctx context.Context, dir string, tools []Tool, env []string) *Result {
 	for _, tool := range tools {
 		result := command(ctx, dir, tool.Command, env, "30s")

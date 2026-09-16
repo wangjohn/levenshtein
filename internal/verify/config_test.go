@@ -25,6 +25,7 @@ func TestLegacyTranslation(t *testing.T) {
 		t.Fatalf("lost main freshness: %+v %v", plan, err)
 	}
 }
+
 func TestVersionedPlanningNeedsNoTools(t *testing.T) {
 	t.Setenv("PATH", "")
 	cfg, err := Parse([]byte(`{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"lint":{"kind":"go-lint","target":"app","environment":"go"}},"runs":{"audit":{"checks":["lint"],"fresh":true},"main":{"checks":["lint"]}}}`))
@@ -40,6 +41,7 @@ func TestVersionedPlanningNeedsNoTools(t *testing.T) {
 		t.Fatalf("freshness still depends on name: %+v %v", plan, err)
 	}
 }
+
 func TestRejectInvalidConfiguration(t *testing.T) {
 	for _, input := range []string{
 		`null`, `{}`, `{"version":2}`, `{"version":1,"typo":true}`, `{"modules":["."],"runs":{"branch":["typo"]}}`,
@@ -58,6 +60,7 @@ func TestRejectInvalidConfiguration(t *testing.T) {
 		})
 	}
 }
+
 func TestTargetCannotEscapeRepository(t *testing.T) {
 	source := t.TempDir()
 	if err := os.Symlink(t.TempDir(), filepath.Join(source, "outside")); err != nil {
@@ -81,6 +84,7 @@ func (f *fakeExecutor) Execute(context.Context, Request) Result {
 	f.calls++
 	return Result{Status: f.status}
 }
+
 func TestAccountForEverySelectedCheck(t *testing.T) {
 	plan := Plan{Checks: []PlannedCheck{{ID: "one", Environment: Environment{Executor: "fake"}}, {ID: "two", Environment: Environment{Executor: "missing"}}}}
 	executor := &fakeExecutor{status: "failed"}

@@ -27,6 +27,7 @@ func parseArgs(args []string, opts options, output io.Writer) (options, error) {
 		fmt.Fprintln(output, "Usage: verify [RUN] [flags]\n\nRUN defaults to branch. Flags may appear before or after RUN.\n\nFlags:")
 		flags.PrintDefaults()
 	}
+
 	if err := flags.Parse(args); err != nil {
 		return opts, err
 	}
@@ -37,6 +38,7 @@ func parseArgs(args []string, opts options, output io.Writer) (options, error) {
 	if flags.NArg() > 1 {
 		return opts, fmt.Errorf("expected at most one run, got %q", flags.Args())
 	}
+
 	opts.name = "branch"
 	if flags.NArg() == 1 {
 		opts.name = flags.Arg(0)

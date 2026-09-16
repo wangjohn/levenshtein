@@ -23,6 +23,7 @@ func TestReviewConflictingPreparation(t *testing.T) {
 		}
 	}
 }
+
 func TestReviewToolEnvironment(t *testing.T) {
 	req := nativeRequest(t)
 	root := req.Source
@@ -35,6 +36,7 @@ func TestReviewToolEnvironment(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+
 	req.Environment.Env = map[string]string{"PATH": filepath.Join(root, "expected")}
 	req.Environment.Tools = []Tool{{Command: []string{"tool"}, Version: "expected"}}
 	req.Check.Env = map[string]string{"PATH": filepath.Join(root, "wrong")}

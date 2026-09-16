@@ -19,6 +19,7 @@ func digest(value any) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
+
 func excluded(path string, excludes []string) bool {
 	if filepath.Base(path) == ".git" {
 		return true
@@ -49,11 +50,13 @@ func snapshot(root string, paths, excludes []string, outputs bool) (string, erro
 		return "", err
 	}
 	defer dir.Close()
+
 	entries := map[string]string{}
 	for _, path := range paths {
 		if !relative(path) {
 			return "", fmt.Errorf("invalid input %q", path)
 		}
+
 		err := fs.WalkDir(snapshotFS{FS: dir.FS(), root: dir}, filepath.ToSlash(path), func(name string, entry fs.DirEntry, err error) error {
 			rel := filepath.FromSlash(name)
 			if excluded(rel, excludes) {
@@ -69,6 +72,7 @@ func snapshot(root string, paths, excludes []string, outputs bool) (string, erro
 			if err != nil {
 				return err
 			}
+
 			info, err := entry.Info()
 			if err != nil {
 				return err
@@ -91,6 +95,7 @@ func snapshot(root string, paths, excludes []string, outputs bool) (string, erro
 			if !info.Mode().IsRegular() {
 				return fmt.Errorf("unsupported input file %q", rel)
 			}
+
 			file, err := dir.Open(rel)
 			if err != nil {
 				return err
@@ -113,6 +118,7 @@ func snapshot(root string, paths, excludes []string, outputs bool) (string, erro
 	}
 	return digest(entries), nil
 }
+
 func outputPaths(req Request) []string {
 	out := append([]string{}, req.Check.Artifacts...)
 	for _, stage := range req.stages() {
@@ -120,6 +126,7 @@ func outputPaths(req Request) []string {
 	}
 	return out
 }
+
 func implementation(req Request) (string, error) {
 	paths := []string{"go.mod", "go.sum", "cmd", "internal"}
 	if req.Environment.Executor == "dagger" {
@@ -127,6 +134,7 @@ func implementation(req Request) (string, error) {
 	}
 	return snapshot(req.Shared, paths, nil, false)
 }
+
 func fingerprint(req Request) (string, error) {
 	paths := append([]string{}, req.Target.Inputs...)
 	for _, stage := range req.stages() {
@@ -141,6 +149,7 @@ func fingerprint(req Request) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	req.Fresh = false
 	var env []string
 	if req.Environment.Executor == "native" {
