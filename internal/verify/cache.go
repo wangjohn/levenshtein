@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-//levenshtein:record
 type CacheInfo struct {
 	Status   CacheStatus `json:"status"`
 	Key      string      `json:"key,omitempty"`
@@ -18,7 +17,6 @@ type CacheInfo struct {
 	LookupMS int64       `json:"lookup_ms"`
 }
 
-//levenshtein:record
 type StageResult struct {
 	Kind       StageKind `json:"kind"`
 	Key        string    `json:"key"`

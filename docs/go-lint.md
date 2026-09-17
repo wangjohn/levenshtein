@@ -5,12 +5,19 @@
 | Rule | Policy |
 | --- | --- |
 | SA5001, SA5003, SA9001 | Staticcheck's defer/close checks |
-| LV1001 | Give string discriminator fields a defined type and use typed constants for enum values |
-| LV1002 | Assemble value records with struct literals instead of assigning their fields throughout a function |
+| LV1001 | Give enum-like strings defined types and typed constants |
+| LV1002 | Construct new structs together with literals, without opt-in markers |
 
 ## Typed choices: LV1001
 
-Fields named `Status`, `State`, `Kind`, `Mode`, or `Executor` (case insensitive) must use a defined type instead of plain `string` or an alias of `string`. Other text fields, such as paths and messages, remain ordinary strings. This is a naming convention, not an attempt to infer every enum from its values.
+Fields named `Status`, `State`, `Kind`, `Mode`, or `Executor` (case insensitive) must use a defined type instead of plain `string` or an alias of `string`. Other text fields, such as paths and messages, remain ordinary strings. LV1001 also detects enum-like usage regardless of the name, for fields, parameters, and local variables:
+
+- A switch on a plain string variable or field with at least two distinct nonempty constant choices.
+- An OR-chain of equality comparisons, or an AND-chain of inequality comparisons, against at least two distinct nonempty constant choices for the same variable or field.
+
+For example, `priority == "high" || priority == "low"` requires a defined type and typed constants. A single special-case comparison such as `filename == "README.md"` does not. Empty-string checks do not count as enum alternatives. Named string constants and constant expressions count too.
+
+These are usage heuristics, not proof of a closed domain. A multi-value filename switch can still need a suppression. Calls, indexed expressions, separate comparisons in unrelated statements, and arbitrary validator functions are not inferred as enums. The diagnostic is attached to the switch or comparison so Staticcheck suppression can explain a legitimate open-ended string domain.
 
 ```go
 type Status string
@@ -33,16 +40,11 @@ For defined string types with package-level typed constants, the check also reje
 
 ## Construct value records together: LV1002
 
-Mark package-level structs that represent completed values with `//levenshtein:record` on the type declaration. Compute intermediate values in local variables, then construct the record where it is returned or published:
+LV1002 applies to all struct types: named, anonymous, local, imported, and aliases. No annotation is required; the former `//levenshtein:record` marker has no special meaning.
+
+Compute intermediate values first, then construct the struct:
 
 ```go
-//levenshtein:record
-type Result struct {
-    Status     Status
-    VerifiedAt time.Time
-    Error      string
-}
-
 return Result{
     Status:     status,
     VerifiedAt: executed.UTC(),
@@ -50,9 +52,11 @@ return Result{
 }
 ```
 
-The rule rejects field writes, increment/decrement operations, and taking addresses of fields on marked records, including aliases, pointer access, and use from another package. Whole-value assignment and struct literals are allowed. State-bearing structs (subprocesses, mutexes, caches) stay unmarked. The marker applies to tests too; build modified test values with a new literal.
+The analyzer tracks new local values made with a literal, `&T{}`, `new(T)`, or a zero-valued `var`. It reports at the creation/declaration when fields are assigned before the value is first used, including nested value fields and construction in `if` branches. One diagnostic covers a construction sequence.
 
-This is a source-level construction rule, not deep immutability: it does not prove effects inside arbitrary callees, JSON decoding, or mutations through previously obtained references. It does not require explicitly listing zero-valued fields.
+A read, alias, address escape, call using the value, or compound update ends that construction window. Updating parameters, receivers, values returned by factories, or objects already used remains allowed. This conservative local analysis does not follow aliases or prove effects inside callees. Across loops and other complex control flow it stops tracking referenced outer values, while still checking new values created inside their blocks.
+
+The rule promotes clear initialization, not immutability. Whole-value assignments remain allowed. It does not require listing zero-valued fields or force construction to the end of a function. For unavoidable staged setup, put `//lint:ignore LV1002 <reason>` immediately before the reported declaration.
 
 ## Development and exceptions
 

@@ -138,10 +138,10 @@ func Parse(data []byte) (Config, error) {
 				return Config{}, fmt.Errorf("duplicate check %q", check)
 			}
 			seen[check] = true
-			switch check {
-			case "self-test":
+			switch CheckKind(check) {
+			case CheckSelfTest:
 				run.Checks = append(run.Checks, check)
-			case "go-lint":
+			case CheckGoLint:
 				for i := range old.Modules {
 					run.Checks = append(run.Checks, fmt.Sprintf("go-lint/module-%d", i))
 				}

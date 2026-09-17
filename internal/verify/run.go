@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-//levenshtein:record
 type Result struct {
 	ID          string          `json:"id"`
 	Status      Status          `json:"status"`
@@ -22,7 +21,6 @@ type Result struct {
 	Details     json.RawMessage `json:"details,omitempty"`
 }
 
-//levenshtein:record
 type Report struct {
 	Version int      `json:"version"`
 	Run     string   `json:"run"`
