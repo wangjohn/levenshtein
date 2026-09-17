@@ -25,7 +25,10 @@ func (check PlannedCheck) stages() []namedStage {
 	return stages
 }
 
-type stageEntry struct{ Key, Outputs string }
+type stageEntry struct {
+	Key     string
+	Outputs string
+}
 
 func (n *Native) stage(ctx context.Context, req Request, kind StageKind, stage *Preparation) (StageResult, *Result) {
 	start := time.Now()
