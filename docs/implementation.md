@@ -1,8 +1,8 @@
 # Implementation plan
 
-**Implemented:** pinned Go lint through Dagger, configurable runs, rule fixtures, and CI for Levenshtein itself. [Setup](setup.md) and [consumer CI](consumer-ci.md) document the current interface.
+**Implemented:** a standalone Go CLI with versioned configuration, tool-free planning, common results, and the preserved pinned Go lint through Dagger. Legacy configuration, rule fixtures, and CI for Levenshtein itself remain supported. [Setup](setup.md) and [consumer CI](consumer-ci.md) document the current interface.
 
-**Next:** introduce a language-independent runner with aggressive caching and native macOS execution, then wrap Benchplan's existing checks. The architecture and cache policy below are planned; the current runner still accepts only Go module lists and the `go-lint` / `self-test` checks.
+**Next:** add native commands and aggressive caching, validate Rust/Python compatibility, then wrap Benchplan's existing checks. The native executor and cache policy below are planned; the current CLI accepts both legacy Go module lists and version 1 targets/checks/environments/runs, with `go-lint` / `self-test` checks. See [configuration](configuration.md).
 
 ## Core interface
 

@@ -4,6 +4,20 @@ root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 temporary=$(mktemp -d)
 trap 'rm -rf "$temporary"' EXIT
 
+# A passing shared checkout must not hide findings in the requested consumer.
+"$root/verify" go-lint --source "$root/runner/testdata/good"
+if "$root/verify" go-lint --source "$root/runner/testdata/bad" > "$temporary/bad.json" 2> "$temporary/bad.log"; then
+  echo 'Bad cleanup unexpectedly passed' >&2
+  exit 1
+fi
+for expected in '"status": "failed"' '"code": "SA5001"' '"code": "SA5003"' '"code": "SA9001"'; do
+  if ! grep -q "$expected" "$temporary/bad.json"; then
+    cat "$temporary/bad.json" "$temporary/bad.log"
+    echo "Missing structured lint result: $expected" >&2
+    exit 1
+  fi
+done
+
 "$root/verify" go-lint --source "$root/runner/testdata/vendored"
 
 # Workspace vendoring resolves dependencies from the workspace root, not app/.

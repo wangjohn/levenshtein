@@ -6,7 +6,7 @@ Your CI checks out the application, chooses a run, and invokes a pinned Levensht
 
 ## The same command locally and in CI
 
-Use the [runtime prerequisites](setup.md#prerequisites): a Docker-compatible runtime and the Dagger CLI pinned by your Levenshtein checkout. Keep the application and Levenshtein in separate directories:
+Use the [runtime prerequisites](setup.md#prerequisites): Go for the source launcher and a Docker-compatible runtime for Go checks. The SDK provisions the pinned Dagger CLI. Keep the application and Levenshtein in separate directories:
 
 ```text
 workspace/
@@ -59,13 +59,14 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: wangjohn/levenshtein
-          ref: 23f26802f95399a5f15e8f4d61c1723c757dcca6
+          ref: ba9acb3d59ef5b25fffe852e4d86028f69b723cb
           path: levenshtein
           persist-credentials: false
-      - name: Install pinned Dagger
-        run: |
-          ./levenshtein/scripts/install-dagger "$RUNNER_TEMP/levenshtein-bin"
-          echo "$RUNNER_TEMP/levenshtein-bin" >> "$GITHUB_PATH"
+      - name: Set up Go for the source launcher
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: levenshtein/.go-version
+          cache-dependency-path: levenshtein/go.sum
       - name: Verify application
         env:
           EVENT: ${{ github.event_name }}
@@ -84,4 +85,4 @@ The job's normal shell failure handling propagates the launcher's nonzero exit s
 
 ## CircleCI and other providers
 
-Use the same arrangement in an existing job: check out the application and pinned shared revision, provide a Docker-compatible runtime, install the pinned Dagger CLI, and invoke `verify` with the application source. Configure PR triggers, daily schedules, and required results through that provider. Provider-specific bootstrap configuration remains in the consuming repo; the shared checks receive a source directory and a run name.
+Use the same arrangement in an existing job: check out the application and pinned shared revision, provide Go for the source launcher and a Docker-compatible runtime, and invoke `verify` with the application source. Configure PR triggers, daily schedules, and required results through that provider. Provider-specific bootstrap configuration remains in the consuming repo; the shared checks receive a source directory and a run name.
