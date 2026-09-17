@@ -41,6 +41,7 @@ jobs:
             go.sum
             runner/go.sum
             runner/lint/go.sum
+            runner/tools/go.sum
       - name: Standalone runner tests and planning
         env:
           GOTOOLCHAIN: local
@@ -52,6 +53,10 @@ jobs:
         env:
           GOTOOLCHAIN: local
         run: go test -race ./...
+      - name: Expanded check fixtures
+        run: |
+          ./scripts/test-checks
+          ./scripts/test-tool-checks
       - name: Install pinned Dagger
         run: |
           ./scripts/install-dagger "$RUNNER_TEMP/levenshtein-bin"
@@ -82,7 +87,9 @@ jobs:
       - name: Consumer regression checks
         env:
           NO_COLOR: '1'
-        run: ./scripts/test-consumers
+        run: |
+          ./scripts/test-consumers
+          ./scripts/test-shared-checks
   language-contracts:
     runs-on: ubuntu-24.04
     timeout-minutes: 15

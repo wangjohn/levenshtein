@@ -23,7 +23,7 @@ func contained(root, path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer dir.Close()
+	defer func() { _ = dir.Close() }() // Directory handle cleanup; writes are closed separately.
 	if _, err := dir.Stat(path); err != nil {
 		return "", fmt.Errorf("path %q is unavailable or escapes source repository: %w", path, err)
 	}

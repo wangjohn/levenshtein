@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+temporary=$(mktemp -d)
+trap 'rm -rf "$temporary"' EXIT
+
+(cd "$root" && go build -o "$temporary/verify" ./cmd/levenshtein)
+for fixture in resources-good resources-bad vet-bad; do
+  mkdir -p "$temporary/$fixture"
+  cp "$root/runner/testdata/$fixture/"* "$temporary/$fixture/"
+  cat > "$temporary/$fixture/levenshtein.json" <<'JSON'
+{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"http":{"kind":"go-http","target":"app","environment":"go"},"sql":{"kind":"go-sql","target":"app","environment":"go"},"vet":{"kind":"go-vet","target":"app","environment":"go"}},"runs":{"http":{"checks":["http"]},"sql":{"checks":["sql"]},"vet":{"checks":["vet"]}}}
+JSON
+done
+for check in http sql vet; do
+  "$temporary/verify" "$check" --source "$temporary/resources-good" --shared "$root" --cache-dir "$temporary/cache" > "$temporary/good.json"
+  fixture=resources-bad
+  case "$check" in
+    http) code=bodyclose ;;
+    sql) code=sqlclosecheck ;;
+    vet) fixture=vet-bad; code=go-vet ;;
+  esac
+  status=0
+  "$temporary/verify" "$check" --source "$temporary/$fixture" --shared "$root" --cache-dir "$temporary/cache" > "$temporary/bad.json" || status=$?
+  if [[ $status != 1 ]] || ! grep -q "\"code\": \"$code\"" "$temporary/bad.json"; then
+    cat "$temporary/bad.json"
+    echo "Expected $check finding through the current CLI, got exit $status" >&2
+    exit 1
+  fi
+done
+echo 'Shared-check CLI integration passed'

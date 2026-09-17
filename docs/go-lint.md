@@ -4,7 +4,9 @@
 
 | Rule | Policy |
 | --- | --- |
-| SA5001, SA5003, SA9001 | Staticcheck's defer/close checks |
+| `SA*` | All correctness checks in the pinned Staticcheck release |
+| `errcheck` | Report implicitly discarded errors; explicit `_ =` remains allowed |
+| `exhaustive` | Require enum switches to cover declared values |
 | LV1001 | Give enum-like strings defined types and typed constants |
 | LV1002 | Construct new structs together with literals, without opt-in markers |
 
@@ -60,7 +62,7 @@ The rule promotes clear initialization, not immutability. Whole-value assignment
 
 ## Development and exceptions
 
-The analyzers use Go's `go/analysis` framework and Staticcheck's runner for package loading, caching, diagnostics, and suppression. Generated Go files are skipped. Analyzer regression fixtures live in `runner/lint/policy/testdata` and run with `cd runner/lint && go test ./...`.
+The analyzers use Go's `go/analysis` framework and Staticcheck's runner for package loading, caching, diagnostics, and suppression. LV1001 and LV1002 skip generated Go files; upstream analyzers retain their own generated-code behavior. Analyzer regression fixtures live in `runner/lint/policy/testdata` and run with `cd runner/lint && go test ./...`.
 
 For an exceptional interop requirement, use Staticcheck's normal directive with a reason, for example `//lint:ignore LV1001 external schema requires this field`. Prefer a proper type or record literal when possible.
 
@@ -71,3 +73,65 @@ You can run the same linter directly without Dagger:
 cd /path/to/consumer
 /tmp/levenshtein-lint -checks=all ./...
 ```
+
+## Named checks and suggested runs
+
+Runs select checks by name; existing CI still owns triggers and schedules.
+
+| Check | Scope | Suggested use |
+| --- | --- | --- |
+| `go-lint` | Staticcheck `SA*`, errcheck, exhaustive, LV1001/LV1002 | Branch and pre-merge |
+| `go-vet` | The pinned Go toolchain's default vet checks | Branch and pre-merge |
+| `go-http` | bodyclose: HTTP response-body closure | HTTP clients/services |
+| `go-sql` | sqlclosecheck: deferred SQL rows and statement closure | Database users |
+| `workflow-lint` | actionlint: GitHub Actions syntax and expressions | Repos with GitHub Actions |
+| `go-vuln` | govulncheck: reachable known vulnerabilities | Dependency updates and daily |
+| `self-test` | Levenshtein's own good/bad fixtures | Shared-check development |
+
+For example, an HTTP service can compose checks using the current versioned interface:
+
+```json
+{
+  "version": 1,
+  "targets": {"app": {"dir": ".", "workspace": ".", "inputs": ["."]}},
+  "environments": {"go": {"executor": "dagger"}},
+  "checks": {
+    "lint": {"kind": "go-lint", "target": "app", "environment": "go"},
+    "http": {"kind": "go-http", "target": "app", "environment": "go"},
+    "audit": {"kind": "go-vuln", "target": "app", "environment": "go"}
+  },
+  "runs": {
+    "branch": {"checks": ["lint", "http"]},
+    "dependency-audit": {"checks": ["audit"]},
+    "main": {"checks": ["lint", "http", "audit"], "rerun_checks": true}
+  }
+}
+```
+
+Each Go check runs for its selected target. Use a repository-root target (`dir: "."`) for `workflow-lint`; a workflow-less repo should omit it. Legacy module-list configurations also accept the named checks and expand Go checks across their modules, with workflow lint once at the root. HTTP and SQL checks do not replace application tests. ShellCheck and Pyflakes integration is explicitly disabled so results do not depend on optional host tools.
+
+Go vet and standalone tool failures retain native output, including file/line details, inside the report's diagnostic message. Their outer location identifies the module/root rather than pretending the message was parsed into individual source diagnostics. Tool errors never pass; govulncheck's vulnerability exit code is distinguished from network or tool failures.
+
+### Errors and enum switches
+
+Keep errcheck's upstream exclusions for operations documented never to fail. Intentionally ignored errors require explicit `_ =`, preferably with a reason; do not add broad Close/Write exclusions. Check write/flush/close errors when they affect persisted data. A default switch branch does not satisfy exhaustive; list all declared enum values, or use a narrow justified suppression for intentionally partial switches. These checks do not prove runtime enum validity or that an assigned error is handled.
+
+### Cache and freshness
+
+Dagger shares pinned tool builds, dependency downloads, and compiler caches. Staticcheck retains its own analysis cache. Its `SA*` selection expands only when the pinned analyzer version changes; review new findings with dependency upgrades.
+
+Vulnerability data can change without source changes. A `go-vuln` check always bypasses the local result cache, even with `cache: true` and in custom runs. The Dagger executor generates a unique nonce before invoking `sharedCheck`; the nonce enters after tool construction, forcing a new advisory lookup and scan while reusing tool builds. Ordinary checks retain their result caches. Direct Dagger callers must supply a unique `nonce` for each vulnerability invocation.
+
+The report does not claim an immutable vulnerability-database snapshot. Network/database failures fail verification. Levenshtein's daily `main` run includes the scan; consumer CI owns its daily and dependency-change triggers. Pinned standalone tools live in `runner/tools/go.mod`, separate from Staticcheck's analysis dependencies in `runner/lint/go.mod`.
+
+### Goroutine leak checks in application tests
+
+Goroutine leaks require runtime tests, not another static analyzer. A consumer can pin `go.uber.org/goleak v1.3.0` and integrate it at package scope:
+
+```go
+func TestMain(m *testing.M) {
+    goleak.VerifyTestMain(m)
+}
+```
+
+Use imports `testing` and `go.uber.org/goleak`. Package-level verification works with parallel tests; per-test leak checks can mistake other running tests for leaks. Combine this with the repository's normal tests/race tests, and explicitly account for legitimate background goroutines. Levenshtein does not inject TestMain into consumer packages.

@@ -17,3 +17,19 @@ func choose(value untyped) {
 	case "high", "low":
 	}
 }
+
+// Deliberately omit a declared enum member.
+type choice int
+
+const (
+	first choice = iota
+	second
+)
+
+func incomplete(value choice) bool {
+	switch value {
+	case first:
+		return true
+	}
+	return false
+}

@@ -24,7 +24,7 @@ func parseArgs(args []string, opts options, output io.Writer) (options, error) {
 	flags.BoolVar(&opts.dry, "dry-run", false, "Print the verification plan without running checks")
 	help := flags.BoolP("help", "h", false, "Show usage")
 	flags.Usage = func() {
-		fmt.Fprintln(output, "Usage: verify [RUN] [flags]\n\nRUN defaults to branch. Flags may appear before or after RUN.\n\nFlags:")
+		_, _ = fmt.Fprintln(output, "Usage: verify [RUN] [flags]\n\nRUN defaults to branch. Flags may appear before or after RUN.\n\nFlags:")
 		flags.PrintDefaults()
 	}
 

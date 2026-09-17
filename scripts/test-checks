@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+temporary=$(mktemp -d)
+trap 'rm -rf "$temporary"' EXIT
+(cd "$root/runner/lint" && go build -o "$temporary/lint" ./cmd/levenshtein-lint)
+
+(cd "$root/runner/testdata/good" && "$temporary/lint" -checks='SA*,errcheck,exhaustive,LV1001,LV1002' ./...)
+(cd "$root/runner/testdata/resources-good" && "$temporary/lint" -checks=bodyclose,sqlclosecheck ./...)
+
+expect_failure() {
+  local fixture=$1 codes=$2
+  shift 2
+  if (cd "$root/runner/testdata/$fixture" && "$@") > "$temporary/output" 2>&1; then
+    echo "$fixture unexpectedly passed" >&2
+    exit 1
+  fi
+  for code in $codes; do
+    if ! grep -q "$code" "$temporary/output"; then
+      cat "$temporary/output" >&2
+      echo "Missing intended diagnostic: $code" >&2
+      exit 1
+    fi
+  done
+}
+
+expect_failure bad 'SA5001 SA5003 SA9001 LV1001 LV1002 errcheck exhaustive' "$temporary/lint" -checks='SA*,errcheck,exhaustive,LV1001,LV1002' ./...
+expect_failure resources-bad 'bodyclose sqlclosecheck' "$temporary/lint" -checks=bodyclose,sqlclosecheck ./...
+expect_failure vet-bad 'passes lock by value' go vet ./...
+echo 'Expanded check regression fixtures passed'

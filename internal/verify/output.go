@@ -15,7 +15,7 @@ func outputPath(root, path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer dir.Close()
+	defer func() { _ = dir.Close() }() // Directory handle cleanup; writes are closed separately.
 
 	for current := path; current != "."; current = filepath.Dir(current) {
 		info, err := dir.Lstat(current)

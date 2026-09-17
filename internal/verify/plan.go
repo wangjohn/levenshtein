@@ -65,6 +65,10 @@ func (cfg Config) Plan(source, name string) (Plan, error) {
 			return p, fmt.Errorf("check %q: fresh native runs require an explicit rerun_command", id)
 		}
 
+		if check.Kind == CheckWorkflowLint && target.Dir != "." {
+			return p, fmt.Errorf("check %q: workflow-lint requires a repository-root target", id)
+		}
+
 		if target.Workspace == "" {
 			target.Workspace = "."
 		}

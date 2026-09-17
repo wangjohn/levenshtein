@@ -31,7 +31,15 @@ func (d *Dagger) Close() error {
 }
 
 // These are the Dagger functions supported by both planning and execution.
-var daggerFunctions = map[CheckKind]string{CheckGoLint: "goLint", CheckSelfTest: "selfTest"}
+var daggerFunctions = map[CheckKind]string{
+	CheckGoLint:       "goLint",
+	CheckSelfTest:     "selfTest",
+	CheckGoVet:        "sharedCheck",
+	CheckGoHTTP:       "sharedCheck",
+	CheckGoSQL:        "sharedCheck",
+	CheckGoVuln:       "sharedCheck",
+	CheckWorkflowLint: "sharedCheck",
+}
 
 func (d *Dagger) Execute(ctx context.Context, req Request) Result {
 	result := daggerResult(d.execute(ctx, req))
@@ -52,15 +60,15 @@ func (d *Dagger) execute(ctx context.Context, req Request) error {
 		return err
 	}
 
-	nonce := ""
-	if req.RerunChecks {
-		nonce = rand.Text()
-	}
+	nonce := executionNonce(req)
 
 	query := d.client.QueryBuilder().Select("levenshtein").Select(function).Arg("nonce", nonce)
-	if req.Check.Kind == CheckGoLint {
+	if req.Check.Kind != CheckSelfTest {
 		source := d.client.Host().Directory(req.Source, dagger.HostDirectoryOpts{Exclude: []string{"**/.env", "**/.env.*", "!**/.env.example", "**/.git"}})
 		query = query.Arg("source", source).Arg("module", req.Target.Dir)
+	}
+	if function == "sharedCheck" {
+		query = query.Arg("check", string(req.Check.Kind))
 	}
 	return query.Execute(ctx)
 }
@@ -81,7 +89,7 @@ func (d *Dagger) connect(ctx context.Context, shared string) error {
 		return nil
 	}
 
-	client, err := dagger.Connect(ctx, dagger.WithLogOutput(os.Stderr), dagger.WithSkipWorkspaceModules())
+	client, err := dagger.Connect(ctx, dagger.WithLogOutput(os.Stderr))
 	if err != nil {
 		return err
 	}
@@ -118,4 +126,12 @@ func daggerResult(err error) Result {
 	}
 
 	return Result{Status: status, Error: err.Error(), Stdout: stdout, Stderr: stderr, Details: details}
+}
+
+// Generate freshness outside Dagger's cached function invocation.
+func executionNonce(req Request) string {
+	if req.RerunChecks || req.Check.Kind == CheckGoVuln {
+		return rand.Text()
+	}
+	return ""
 }

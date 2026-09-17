@@ -49,7 +49,7 @@ func snapshot(root string, paths, excludes []string, outputs bool) (string, erro
 	if err != nil {
 		return "", err
 	}
-	defer dir.Close()
+	defer func() { _ = dir.Close() }() // Directory handle cleanup; writes are closed separately.
 
 	entries := map[string]string{}
 	for _, path := range paths {
@@ -130,7 +130,7 @@ func outputPaths(req Request) []string {
 func implementation(req Request) (string, error) {
 	paths := []string{"go.mod", "go.sum", "cmd", "internal"}
 	if req.Environment.Executor == ExecutorDagger {
-		paths = append(paths, ".dagger-version", "dagger.json", "runner")
+		paths = append(paths, ".dagger-version", "dagger.json", "runner", "sdk")
 	}
 	return snapshot(req.Shared, paths, nil, false)
 }

@@ -90,7 +90,7 @@ func runCommand(ctx context.Context, args []string, output io.Writer) (int, erro
 
 	cache := &verify.Cache{Dir: cacheDir}
 	dagger := &verify.Dagger{}
-	defer dagger.Close()
+	defer func() { _ = dagger.Close() }() // Session teardown does not change the reported verification result.
 
 	report := verify.Execute(ctx, plan, shared, map[verify.ExecutorKind]verify.Executor{
 		verify.ExecutorDagger: verify.CachedExecutor{Cache: cache, Executor: dagger},

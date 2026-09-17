@@ -18,7 +18,7 @@ func TestAtomicArtifactKeepsRootAndPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }() // Directory handle cleanup; writes are closed separately.
 	if err := atomicWriteRoot(root, "reports/test.txt", []byte("old"), 0755); err != nil {
 		t.Fatal(err)
 	}

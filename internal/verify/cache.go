@@ -65,7 +65,7 @@ func readRecord(path string, value any) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // Read-only file cleanup.
 
 	data, err := io.ReadAll(io.LimitReader(f, 64<<20))
 	if err != nil {
@@ -105,7 +105,7 @@ func (c *Cache) load(req Request, key string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }() // Directory handle cleanup; writes are closed separately.
 
 	for _, a := range e.Artifacts {
 		if err := atomicWriteRoot(root, a.Path, a.Data, os.FileMode(a.Mode)&0777); err != nil {
@@ -122,7 +122,7 @@ func (c *Cache) save(req Request, key string, result Result) error {
 	if err != nil {
 		return err
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }() // Directory handle cleanup; writes are closed separately.
 	for _, path := range req.Check.Artifacts {
 		_, err := outputPath(req.Source, path)
 		if err != nil {
@@ -156,6 +156,14 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 			return Result{Status: StatusError, Error: "cannot lock native workspace: " + err.Error()}
 		}
 		defer unlock()
+	}
+
+	// Advisory data changes independently of source fingerprints. Never reuse
+	// a vulnerability verdict, even when the consumer enables result caching.
+	if req.Check.Kind == CheckGoVuln {
+		req.RerunChecks = true
+		result := c.Executor.Execute(ctx, req)
+		return result.withCache(CacheInfo{Status: CacheDisabled, Reason: "vulnerability scans always query current advisory data"})
 	}
 
 	eligible := req.Check.Cache || req.Environment.Executor == ExecutorDagger

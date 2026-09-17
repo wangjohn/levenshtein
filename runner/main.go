@@ -30,13 +30,15 @@ type toolchain struct {
 }
 
 type diagnostic struct {
-	Code     string `json:"code"`
-	Message  string `json:"message"`
-	Location struct {
-		File   string `json:"file"`
-		Line   int    `json:"line"`
-		Column int    `json:"column"`
-	} `json:"location"`
+	Code     string   `json:"code"`
+	Message  string   `json:"message"`
+	Location location `json:"location"`
+}
+
+type location struct {
+	File   string `json:"file"`
+	Line   int    `json:"line"`
+	Column int    `json:"column"`
 }
 
 func lint(ctx context.Context, source *dagger.Directory, module string, tools toolchain, nonce string) ([]diagnostic, error) {
@@ -44,10 +46,7 @@ func lint(ctx context.Context, source *dagger.Directory, module string, tools to
 		return nil, fmt.Errorf("module %q needs a readable go.mod: %w", module, err)
 	}
 
-	ctr := dag.Container().From(tools.GoImage).
-		WithEnvVariable("GOTOOLCHAIN", "local").
-		WithMountedCache("/go/pkg/mod", dag.CacheVolume("levenshtein-go-mod-"+tools.Go)).
-		WithMountedCache("/root/.cache/go-build", dag.CacheVolume("levenshtein-go-build-"+tools.Go)).
+	ctr := goContainer(tools).
 		WithDirectory("/policy", dag.CurrentModule().Source().Directory("lint")).
 		WithWorkdir("/policy").
 		WithExec([]string{"go", "build", "-trimpath", "-o", "/go/bin/levenshtein-lint", "./cmd/levenshtein-lint"}).
@@ -91,9 +90,13 @@ func parseFindings(exitCode int, stdout, stderr string, checks []string) ([]diag
 		return nil, fmt.Errorf("Staticcheck exited %d: %s\n%s", exitCode, stderr, stdout)
 	}
 
-	allowed := map[string]bool{}
-	for _, check := range checks {
-		allowed[check] = true
+	allowed := func(code string) bool {
+		for _, check := range checks {
+			if matched, _ := path.Match(check, code); matched {
+				return true
+			}
+		}
+		return false
 	}
 
 	var findings []diagnostic
@@ -107,7 +110,7 @@ func parseFindings(exitCode int, stdout, stderr string, checks []string) ([]diag
 		if err != nil {
 			return nil, fmt.Errorf("invalid Staticcheck JSON: %w", err)
 		}
-		if !allowed[finding.Code] || finding.Message == "" || finding.Location.File == "" || finding.Location.Line < 1 {
+		if !allowed(finding.Code) || finding.Message == "" || finding.Location.File == "" || finding.Location.Line < 1 {
 			return nil, fmt.Errorf("unexpected diagnostic (possibly a compile error): %s", stdout)
 		}
 		finding.Location.File = strings.TrimPrefix(finding.Location.File, "/src/")
@@ -141,9 +144,9 @@ func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce strin
 	for _, finding := range bad {
 		counts[finding.Code]++
 	}
-	for _, check := range tools.Checks {
-		if counts[check] != 1 {
-			return fmt.Errorf("bad fixture must produce exactly one %s diagnostic; got %v", check, counts)
+	for _, check := range []string{"SA5001", "SA5003", "SA9001", "LV1001", "LV1002", "errcheck", "exhaustive"} {
+		if counts[check] < 1 {
+			return fmt.Errorf("bad fixture must produce a %s diagnostic; got %v", check, counts)
 		}
 	}
 

@@ -21,9 +21,14 @@ const (
 type CheckKind string
 
 const (
-	CheckGoLint   CheckKind = "go-lint"
-	CheckSelfTest CheckKind = "self-test"
-	CheckCommand  CheckKind = "command"
+	CheckGoLint       CheckKind = "go-lint"
+	CheckGoVet        CheckKind = "go-vet"
+	CheckGoHTTP       CheckKind = "go-http"
+	CheckGoSQL        CheckKind = "go-sql"
+	CheckGoVuln       CheckKind = "go-vuln"
+	CheckWorkflowLint CheckKind = "workflow-lint"
+	CheckSelfTest     CheckKind = "self-test"
+	CheckCommand      CheckKind = "command"
 )
 
 // CacheStatus describes reuse without conflating it with verification outcomes.

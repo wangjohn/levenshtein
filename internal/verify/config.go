@@ -81,7 +81,7 @@ func decode(data []byte, value any) error {
 func Load(source string) (Config, error) {
 	data, err := os.ReadFile(filepath.Join(source, "levenshtein.json"))
 	if os.IsNotExist(err) {
-		data = []byte(`{"modules":["."],"runs":{"branch":["go-lint"],"pre-merge":["go-lint"],"main":["go-lint"],"go-lint":["go-lint"]}}`)
+		data = []byte(`{"modules":["."],"runs":{"branch":["go-lint","go-vet"],"pre-merge":["go-lint","go-vet"],"main":["go-lint","go-vet","go-vuln"],"go-lint":["go-lint"],"go-vet":["go-vet"],"go-http":["go-http"],"go-sql":["go-sql"],"go-vuln":["go-vuln"],"workflow-lint":["workflow-lint"]}}`)
 	} else if err != nil {
 		return Config{}, err
 	}
@@ -125,8 +125,13 @@ func Parse(data []byte) (Config, error) {
 		seen[module] = true
 		id := fmt.Sprintf("module-%d", i)
 		cfg.Targets[id] = Target{Dir: module, Workspace: ".", Inputs: []string{"."}}
-		cfg.Checks["go-lint/"+id] = Check{Kind: CheckGoLint, Target: id, Environment: "go"}
+		for _, kind := range []CheckKind{CheckGoLint, CheckGoVet, CheckGoHTTP, CheckGoSQL, CheckGoVuln} {
+			cfg.Checks[string(kind)+"/"+id] = Check{Kind: kind, Target: id, Environment: "go"}
+		}
 	}
+
+	cfg.Targets["repository"] = Target{Dir: ".", Workspace: ".", Inputs: []string{"."}}
+	cfg.Checks["workflow-lint"] = Check{Kind: CheckWorkflowLint, Target: "repository", Environment: "go"}
 
 	cfg.Checks["self-test"] = Check{Kind: CheckSelfTest, Target: "module-0", Environment: "go"}
 
@@ -139,11 +144,13 @@ func Parse(data []byte) (Config, error) {
 			}
 			seen[check] = true
 			switch CheckKind(check) {
-			case CheckSelfTest:
+			case CheckCommand:
+				return Config{}, fmt.Errorf("native commands require versioned configuration")
+			case CheckSelfTest, CheckWorkflowLint:
 				run.Checks = append(run.Checks, check)
-			case CheckGoLint:
+			case CheckGoLint, CheckGoVet, CheckGoHTTP, CheckGoSQL, CheckGoVuln:
 				for i := range old.Modules {
-					run.Checks = append(run.Checks, fmt.Sprintf("go-lint/module-%d", i))
+					run.Checks = append(run.Checks, fmt.Sprintf("%s/module-%d", check, i))
 				}
 			default:
 				return Config{}, fmt.Errorf("unknown legacy check %q", check)

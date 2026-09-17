@@ -7,7 +7,7 @@ func Read(name string) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }() // Read-only cleanup; no buffered writes to flush.
 	return nil
 }
 
@@ -24,7 +24,7 @@ func ReadAll(names []string) error {
 func CloseFiles(files <-chan *os.File) {
 	for file := range files {
 		func() {
-			defer file.Close()
+			defer func() { _ = file.Close() }() // Read-only cleanup; no buffered writes to flush.
 		}()
 	}
 }

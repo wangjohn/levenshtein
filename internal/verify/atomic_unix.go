@@ -18,7 +18,7 @@ func atomicWrite(path string, data []byte, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }() // Directory handle cleanup; writes are closed separately.
 	return atomicWriteRoot(root, filepath.Base(path), data, mode)
 }
 
@@ -33,7 +33,7 @@ func atomicWriteRoot(root *os.Root, path string, data []byte, mode os.FileMode) 
 	if err != nil {
 		return err
 	}
-	defer pending.Cleanup()
+	defer func() { _ = pending.Cleanup() }() // Best-effort cleanup; atomic write errors are returned.
 	if _, err := pending.Write(data); err != nil {
 		return err
 	}
