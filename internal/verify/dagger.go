@@ -64,7 +64,10 @@ func (d *Dagger) execute(ctx context.Context, req Request) error {
 
 	query := d.client.QueryBuilder().Select("levenshtein").Select(function).Arg("nonce", nonce)
 	if req.Check.Kind != CheckSelfTest {
-		source := d.client.Host().Directory(req.Source, dagger.HostDirectoryOpts{Exclude: []string{"**/.env", "**/.env.*", "!**/.env.example", "**/.git"}})
+		source, err := daggerSource(d.client, req.Source, req.Target.Inputs)
+		if err != nil {
+			return err
+		}
 		query = query.Arg("source", source).Arg("module", req.Target.Dir)
 	}
 	if function == "sharedCheck" {

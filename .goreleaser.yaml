@@ -21,9 +21,15 @@ archives:
       - cmd/**
       - internal/**
       - runner/main.go
+      - runner/checks.go
       - runner/go.mod
       - runner/go.sum
       - runner/toolchain.json
+      - runner/tools/**
+      - sdk/patched-go/dagger.json
+      - sdk/patched-go/pyproject.toml
+      - sdk/patched-go/src/**/*.py
+      - sdk/patched-go/README.md
       - runner/lint/**
       - runner/testdata/**
 checksum:

@@ -32,6 +32,14 @@ A run selects check IDs. `rerun_checks: true` forces verification execution whil
 
 Legacy `modules` and array-valued `runs` remain supported. They translate into Go targets/checks, and legacy `main` retains fresh behavior. A source without configuration still receives the original single-module Go defaults.
 
+## Source boundaries
+
+For Dagger checks, target `inputs` controls both the files imported into Dagger and source fingerprinting. Declare real, literal repository-relative files/directories, including local dependencies and workspace files outside the target directory. Optional missing paths are allowed; adding them later invalidates the cache. Glob and negation syntax is rejected.
+
+Only declared paths are imported. Within them, `.git`, `.env`, and `.env.*` are excluded, except public `.env.example` templates. Symlinks inside declared inputs or along their ancestors are rejected, including aliases to other directories inside the repo. Declare the real paths instead. The no-config and legacy interfaces use `inputs: ["."]`, which imports the whole source tree subject to the exclusions above; use version 1 with explicit product paths for mixed product/private repos.
+
+Native inputs only define cache identity. Native commands are trusted host processes with normal filesystem access; they are not sandboxed by the input list. Native relative symlinks may stay inside the repository, but disable completed-result reuse. Dagger's stricter rule prevents importing undeclared source through aliases.
+
 ## Results
 
 The CLI emits a versioned JSON report with the resolved plan and a result for every selected check. Results distinguish `passed`, `failed`, `error`, `cancelled`, and `incomplete`, with timing and native output/details. A run succeeds only when every selected check passes. Planning/configuration errors exit 2; unsuccessful verification exits 1.
@@ -76,4 +84,4 @@ Preparation records persist across CLI processes only with an explicit provision
 
 Native execution and artifact restoration serialize per source workspace across local processes; identical result work also coalesces through file locks. Fresh runs bypass completed results while retaining compatible stage outputs. A failed or interrupted execution invalidates the previous result and requires fresh verification on the next attempt, including bypassing underlying Dagger/native verdict caches. Reports expose result cache status/key/lookup time, original verification time/execution duration, total duration, and preparation/build reuse and timings. The source launcher still performs a cached Go build; use a prebuilt CLI when measuring verification startup separately.
 
-Directory paths must be clean and relative to the repository. Relative symlinks are allowed only when they stay inside the repository; absolute symlink aliases are rejected, even when they point back inside it. Use the real directory path or a relative alias.
+Directory paths must be clean and relative to the repository. Native relative symlinks are allowed only when they stay inside the repository; absolute aliases are rejected. Dagger source inputs reject all symlinks as described above.
