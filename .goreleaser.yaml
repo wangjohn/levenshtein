@@ -1,0 +1,30 @@
+version: 2
+project_name: levenshtein
+builds:
+  - main: ./cmd/levenshtein
+    binary: levenshtein
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+archives:
+  - formats: [tar.gz]
+    files:
+      - README.md
+      - docs/**
+      - dagger.json
+      - .dagger-version
+      - .go-version
+      - go.mod
+      - go.sum
+      - cmd/**
+      - internal/**
+      - runner/main.go
+      - runner/go.mod
+      - runner/go.sum
+      - runner/toolchain.json
+      - runner/lint/**
+      - runner/testdata/**
+checksum:
+  name_template: checksums.txt

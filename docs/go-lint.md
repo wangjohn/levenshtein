@@ -6,13 +6,20 @@
 | --- | --- |
 | `SA*` | All correctness checks in the pinned Staticcheck release |
 | `errcheck` | Report implicitly discarded errors; explicit `_ =` remains allowed |
-| `exhaustive` | Require enum switches to cover declared values, even with a default branch |
-| LV1001 | Give string discriminator fields a defined type and use typed constants for enum values |
-| LV1002 | Assemble value records with struct literals instead of assigning their fields throughout a function |
+| `exhaustive` | Require enum switches to cover declared values |
+| LV1001 | Give enum-like strings defined types and typed constants |
+| LV1002 | Construct new structs together with literals, without opt-in markers |
 
 ## Typed choices: LV1001
 
-Fields named `Status`, `State`, `Kind`, `Mode`, or `Executor` (case insensitive) must use a defined type instead of plain `string` or an alias of `string`. Other text fields, such as paths and messages, remain ordinary strings. This is a naming convention, not an attempt to infer every enum from its values.
+Fields named `Status`, `State`, `Kind`, `Mode`, or `Executor` (case insensitive) must use a defined type instead of plain `string` or an alias of `string`. Other text fields, such as paths and messages, remain ordinary strings. LV1001 also detects enum-like usage regardless of the name, for fields, parameters, and local variables:
+
+- A switch on a string variable or field with at least two distinct nonempty constant choices.
+- An OR-chain of equality comparisons, or an AND-chain of inequality comparisons, against at least two distinct nonempty constant choices for the same variable or field.
+
+For example, `priority == "high" || priority == "low"` requires a defined type and typed constants. A single special-case comparison such as `filename == "README.md"` does not. Empty-string checks do not count as enum alternatives. Named string constants and constant expressions count too. These patterns also apply to defined string types with no package-level constants: adding only `type Priority string` does not bypass the requirement for typed constants. References to constants of the matching defined type, including local constants, are accepted.
+
+These are usage heuristics, not proof of a closed domain. A multi-value filename switch can still need a suppression. Calls, indexed expressions, separate comparisons in unrelated statements, and arbitrary validator functions are not inferred as enums. The diagnostic is attached to the switch or comparison so Staticcheck suppression can explain a legitimate open-ended string domain.
 
 ```go
 type Status string
@@ -35,16 +42,11 @@ For defined string types with package-level typed constants, the check also reje
 
 ## Construct value records together: LV1002
 
-Mark package-level structs that represent completed values with `//levenshtein:record` on the type declaration. Compute intermediate values in local variables, then construct the record where it is returned or published:
+LV1002 applies to all struct types: named, anonymous, local, imported, and aliases. No annotation is required; the former `//levenshtein:record` marker has no special meaning.
+
+Compute intermediate values first, then construct the struct:
 
 ```go
-//levenshtein:record
-type Result struct {
-    Status     Status
-    VerifiedAt time.Time
-    Error      string
-}
-
 return Result{
     Status:     status,
     VerifiedAt: executed.UTC(),
@@ -52,13 +54,13 @@ return Result{
 }
 ```
 
-The rule rejects field writes, increment/decrement operations, and taking addresses of fields on marked records, including aliases, pointer access, and use from another package. Whole-value assignment and struct literals are allowed. State-bearing structs (subprocesses, mutexes, caches) stay unmarked. The marker applies to tests too; build modified test values with a new literal.
+The analyzer tracks new local values made with a literal, `&T{}`, `new(T)`, or a zero-valued `var`. It reports at the creation/declaration when fields are assigned before the value is first used, including nested value fields and construction in `if` branches. One diagnostic covers a construction sequence.
 
-This is a source-level construction rule, not deep immutability: it does not prove effects inside arbitrary callees, JSON decoding, or mutations through previously obtained references. It does not require explicitly listing zero-valued fields.
+A read, alias, address escape, call using the value, or compound update ends that construction window. Updating parameters, receivers, values returned by factories, or objects already used remains allowed. This conservative local analysis does not follow aliases or prove effects inside callees. Across loops and other complex control flow it stops tracking referenced outer values, while still checking new values created inside their blocks.
+
+The rule promotes clear initialization, not immutability. Whole-value assignments remain allowed. It does not require listing zero-valued fields or force construction to the end of a function. For unavoidable staged setup, put `//lint:ignore LV1002 <reason>` immediately before the reported declaration.
 
 ## Development and exceptions
-
-The analyzer dependencies are pinned in `runner/lint/go.mod`; standalone tools are pinned separately in `runner/tools/go.mod` to avoid changing Staticcheck's compatible analysis dependencies.
 
 The analyzers use Go's `go/analysis` framework and Staticcheck's runner for package loading, caching, diagnostics, and suppression. LV1001 and LV1002 skip generated Go files; upstream analyzers retain their own generated-code behavior. Analyzer regression fixtures live in `runner/lint/policy/testdata` and run with `cd runner/lint && go test ./...`.
 
@@ -86,20 +88,27 @@ Runs select checks by name; existing CI still owns triggers and schedules.
 | `go-vuln` | govulncheck: reachable known vulnerabilities | Dependency updates and daily |
 | `self-test` | Levenshtein's own good/bad fixtures | Shared-check development |
 
-For example, an HTTP service can define:
+For example, an HTTP service can compose checks using the current versioned interface:
 
 ```json
 {
-  "modules": ["."],
+  "version": 1,
+  "targets": {"app": {"dir": ".", "workspace": ".", "inputs": ["."]}},
+  "environments": {"go": {"executor": "dagger"}},
+  "checks": {
+    "lint": {"kind": "go-lint", "target": "app", "environment": "go"},
+    "http": {"kind": "go-http", "target": "app", "environment": "go"},
+    "audit": {"kind": "go-vuln", "target": "app", "environment": "go"}
+  },
   "runs": {
-    "branch": ["go-lint", "go-vet", "go-http"],
-    "pre-merge": ["go-lint", "go-vet", "go-http", "workflow-lint"],
-    "main": ["go-lint", "go-vet", "go-http", "workflow-lint", "go-vuln"]
+    "branch": {"checks": ["lint", "http"]},
+    "dependency-audit": {"checks": ["audit"]},
+    "main": {"checks": ["lint", "http", "audit"], "rerun_checks": true}
   }
 }
 ```
 
-Every Go check runs for each configured module; workflow lint runs once at the repository root. HTTP and SQL checks do not replace application tests. A workflow-less repo should omit workflow lint. ShellCheck and Pyflakes integration is explicitly disabled so results do not depend on optional host tools.
+Each Go check runs for its selected target. Use a repository-root target (`dir: "."`) for `workflow-lint`; a workflow-less repo should omit it. Legacy module-list configurations also accept the named checks and expand Go checks across their modules, with workflow lint once at the root. HTTP and SQL checks do not replace application tests. ShellCheck and Pyflakes integration is explicitly disabled so results do not depend on optional host tools.
 
 Go vet and standalone tool failures retain native output, including file/line details, inside the report's diagnostic message. Their outer location identifies the module/root rather than pretending the message was parsed into individual source diagnostics. Tool errors never pass; govulncheck's vulnerability exit code is distinguished from network or tool failures.
 
@@ -111,7 +120,9 @@ Keep errcheck's upstream exclusions for operations documented never to fail. Int
 
 Dagger shares pinned tool builds, dependency downloads, and compiler caches. Staticcheck retains its own analysis cache. Its `SA*` selection expands only when the pinned analyzer version changes; review new findings with dependency upgrades.
 
-Vulnerability data can change without source changes. The launcher supplies a unique audit nonce on every invocation, including custom run names. This prevents Dagger from reusing the enclosing function result. Only `go-vuln` consumes the audit nonce, **after** tool construction, forcing a new advisory lookup and scan while reusing tool builds and ordinary lint results. Direct Dagger callers must provide a unique `auditNonce`. Do not wrap this check in a source-only result cache. The report does not claim an immutable vulnerability-database snapshot. Network/database failures fail verification. Levenshtein's daily `main` run includes the scan; consumer CI must configure its own daily and dependency-change triggers.
+Vulnerability data can change without source changes. A `go-vuln` check always bypasses the local result cache, even with `cache: true` and in custom runs. The Dagger executor generates a unique nonce before invoking `sharedCheck`; the nonce enters after tool construction, forcing a new advisory lookup and scan while reusing tool builds. Ordinary checks retain their result caches. Direct Dagger callers must supply a unique `nonce` for each vulnerability invocation.
+
+The report does not claim an immutable vulnerability-database snapshot. Network/database failures fail verification. Levenshtein's daily `main` run includes the scan; consumer CI owns its daily and dependency-change triggers. Pinned standalone tools live in `runner/tools/go.mod`, separate from Staticcheck's analysis dependencies in `runner/lint/go.mod`.
 
 ### Goroutine leak checks in application tests
 

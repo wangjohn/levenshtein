@@ -1,8 +1,8 @@
 # Implementation plan
 
-**Implemented:** pinned Go lint through Dagger, configurable runs, rule fixtures, and CI for Levenshtein itself. [Setup](setup.md) and [consumer CI](consumer-ci.md) document the current interface.
+**Implemented:** a standalone Go CLI with versioned configuration, tool-free planning, common results, and the preserved pinned Go lint through Dagger. Legacy configuration, rule fixtures, and CI for Levenshtein itself remain supported. [Setup](setup.md) and [consumer CI](consumer-ci.md) document the current interface.
 
-**Next:** introduce a language-independent runner with aggressive caching and native macOS execution, then wrap Benchplan's existing checks. The architecture and cache policy below are planned; the current runner still accepts only Go module lists and the [named shared checks](go-lint.md).
+**Next:** wrap Benchplan's existing checks and connect consumer CI cache persistence. Rust/Python compatibility fixtures now validate the shared interface; see [fixture checks](language-fixtures.md). Native commands, pinned-tool validation, timeouts, artifacts, and shared preparation within a run are implemented. Local result caching, separate preparation/build keys, artifact restoration, and fresh execution are implemented. Cross-worker cache transport and consumer adoption below remain planned; the current CLI accepts both legacy Go module lists and version 1 targets/checks/environments/runs, with `go-lint`, `self-test`, and native `command` checks. See [configuration](configuration.md).
 
 ## Core interface
 
@@ -25,7 +25,7 @@ Existing CI owns workers, triggers, schedules, credentials, and merge gates. It 
 
 ## Rust and Python compatibility
 
-The same interface must accommodate both languages. These are design examples, not implemented integrations:
+The same interface must accommodate both languages. The [compatibility fixtures](language-fixtures.md) exercise this interface through native commands. Full shared language integrations remain consumer-driven:
 
 | Concern | Rust | Python |
 | --- | --- | --- |
@@ -81,7 +81,7 @@ Proposed run policy (not yet supported by the current configuration schema):
 | `main` | Complete applicable suite, scheduled daily by the consumer's CI | Fresh verification with dependency/build reuse |
 | Custom | Consumer-defined check selection | Explicit choice of normal reuse or fresh verification |
 
-Make freshness an explicit run property, such as `fresh: true`, rather than a behavior available only to the name `main`. Fresh execution bypasses the shared result cache, Dagger's cached check execution, and native test/analysis verdict caches. It preserves compatible downloads and compilation. Each adapter implements and verifies that contract. A successful fresh run may populate results for later ordinary runs; reports retain when verification actually occurred.
+Make freshness an explicit run property, such as `rerun_checks: true`, rather than a behavior available only to the name `main`. Fresh execution bypasses the shared result cache, Dagger's cached check execution, and native test/analysis verdict caches. It preserves compatible downloads and compilation. Each adapter implements and verifies that contract. A successful fresh run may populate results for later ordinary runs; reports retain when verification actually occurred.
 
 Start with explicit core check selections and input scopes. Cache fingerprints determine whether selected work can be reused. More advanced change-based selection determines which checks are selected and remains separate. Required core checks, task acceptance, and new/modified tests remain covered; uncertain dependencies broaden verification. Add new checks to the full run explicitly during the pilot.
 

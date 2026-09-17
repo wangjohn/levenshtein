@@ -1,47 +1,42 @@
 {
-  "modules": [
-    "runner",
-    "runner/lint"
-  ],
+  "version": 1,
+  "targets": {
+    "root": {"dir": ".", "workspace": ".", "inputs": ["."]},
+    "runner": {"dir": "runner", "workspace": ".", "inputs": ["."]},
+    "lint": {"dir": "runner/lint", "workspace": ".", "inputs": ["."]}
+  },
+  "environments": {
+    "go": {"executor": "dagger"}
+  },
+  "checks": {
+    "go-lint/root": {"kind": "go-lint", "target": "root", "environment": "go"},
+    "go-lint/runner": {"kind": "go-lint", "target": "runner", "environment": "go"},
+    "go-lint/lint": {"kind": "go-lint", "target": "lint", "environment": "go"},
+    "go-vet/root": {"kind": "go-vet", "target": "root", "environment": "go"},
+    "go-vet/runner": {"kind": "go-vet", "target": "runner", "environment": "go"},
+    "go-vet/lint": {"kind": "go-vet", "target": "lint", "environment": "go"},
+    "go-http/root": {"kind": "go-http", "target": "root", "environment": "go"},
+    "go-http/runner": {"kind": "go-http", "target": "runner", "environment": "go"},
+    "go-http/lint": {"kind": "go-http", "target": "lint", "environment": "go"},
+    "go-sql/root": {"kind": "go-sql", "target": "root", "environment": "go"},
+    "go-sql/runner": {"kind": "go-sql", "target": "runner", "environment": "go"},
+    "go-sql/lint": {"kind": "go-sql", "target": "lint", "environment": "go"},
+    "go-vuln/root": {"kind": "go-vuln", "target": "root", "environment": "go"},
+    "go-vuln/runner": {"kind": "go-vuln", "target": "runner", "environment": "go"},
+    "go-vuln/lint": {"kind": "go-vuln", "target": "lint", "environment": "go"},
+    "workflow-lint": {"kind": "workflow-lint", "target": "root", "environment": "go"},
+    "self-test": {"kind": "self-test", "target": "root", "environment": "go"}
+  },
   "runs": {
-    "branch": [
-      "go-lint",
-      "go-vet",
-      "workflow-lint"
-    ],
-    "pre-merge": [
-      "go-lint",
-      "go-vet",
-      "workflow-lint",
-      "self-test"
-    ],
-    "main": [
-      "go-lint",
-      "go-vet",
-      "workflow-lint",
-      "self-test",
-      "go-vuln"
-    ],
-    "go-lint": [
-      "go-lint"
-    ],
-    "go-vet": [
-      "go-vet"
-    ],
-    "go-http": [
-      "go-http"
-    ],
-    "go-sql": [
-      "go-sql"
-    ],
-    "go-vuln": [
-      "go-vuln"
-    ],
-    "workflow-lint": [
-      "workflow-lint"
-    ],
-    "self-test": [
-      "self-test"
-    ]
+    "go-lint": {"checks": ["go-lint/root", "go-lint/runner", "go-lint/lint"]},
+    "go-vet": {"checks": ["go-vet/root", "go-vet/runner", "go-vet/lint"]},
+    "go-http": {"checks": ["go-http/root", "go-http/runner", "go-http/lint"]},
+    "go-sql": {"checks": ["go-sql/root", "go-sql/runner", "go-sql/lint"]},
+    "go-vuln": {"checks": ["go-vuln/root", "go-vuln/runner", "go-vuln/lint"]},
+    "workflow-lint": {"checks": ["workflow-lint"]},
+    "self-test": {"checks": ["self-test"]},
+    "branch": {"checks": ["go-lint/root", "go-lint/runner", "go-lint/lint", "go-vet/root", "go-vet/runner", "go-vet/lint", "workflow-lint"]},
+    "pre-merge": {"checks": ["go-lint/root", "go-lint/runner", "go-lint/lint", "go-vet/root", "go-vet/runner", "go-vet/lint", "workflow-lint", "self-test"]},
+    "main": {"checks": ["go-lint/root", "go-lint/runner", "go-lint/lint", "go-vet/root", "go-vet/runner", "go-vet/lint", "workflow-lint", "self-test", "go-vuln/root", "go-vuln/runner", "go-vuln/lint"], "rerun_checks": true}
   }
 }

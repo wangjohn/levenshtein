@@ -4,24 +4,17 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
-	"strings"
+	"maps"
 
 	"golang.org/x/tools/go/analysis"
 )
 
-// Records requires explicitly marked value records to be constructed together.
+// Records detects staged construction before a new local struct is first used.
 var Records = &analysis.Analyzer{
-	Name:      "LV1002",
-	Doc:       "construct types marked //levenshtein:record with struct literals instead of field assignments",
-	Run:       runRecords,
-	FactTypes: []analysis.Fact{new(recordFact)},
+	Name: "LV1002",
+	Doc:  "construct new local structs with literals instead of assigning their fields before first use",
+	Run:  runRecords,
 }
-
-type recordFact struct{}
-
-func (*recordFact) AFact() {}
-
-func (*recordFact) String() string { return "record" }
 
 func runRecords(pass *analysis.Pass) (any, error) {
 	for _, file := range pass.Files {
@@ -29,59 +22,15 @@ func runRecords(pass *analysis.Pass) (any, error) {
 			continue
 		}
 		ast.Inspect(file, func(node ast.Node) bool {
-			decl, ok := node.(*ast.GenDecl)
-			if !ok || decl.Tok != token.TYPE {
-				return true
+			var body *ast.BlockStmt
+			switch n := node.(type) {
+			case *ast.FuncDecl:
+				body = n.Body
+			case *ast.FuncLit:
+				body = n.Body
 			}
-			for _, spec := range decl.Specs {
-				spec := spec.(*ast.TypeSpec)
-				if !recordComment(spec.Doc) && !recordComment(decl.Doc) {
-					continue
-				}
-				object := pass.TypesInfo.Defs[spec.Name]
-				if spec.Assign.IsValid() {
-					pass.Reportf(spec.Pos(), "levenshtein:record must mark the original type, not an alias")
-					continue
-				}
-				if object.Parent() != pass.Pkg.Scope() {
-					pass.Reportf(spec.Pos(), "levenshtein:record requires a package-level struct type")
-					continue
-				}
-				named, ok := types.Unalias(object.Type()).(*types.Named)
-				if !ok {
-					continue
-				}
-				if _, ok := named.Underlying().(*types.Struct); !ok {
-					pass.Reportf(spec.Pos(), "levenshtein:record requires a struct type")
-					continue
-				}
-				pass.ExportObjectFact(object, new(recordFact))
-			}
-			return false
-		})
-	}
-
-	for _, file := range pass.Files {
-		if ast.IsGenerated(file) {
-			continue
-		}
-		ast.Inspect(file, func(node ast.Node) bool {
-			switch node := node.(type) {
-			case *ast.AssignStmt:
-				for _, lhs := range node.Lhs {
-					checkWrite(pass, lhs)
-				}
-			case *ast.IncDecStmt:
-				checkWrite(pass, node.X)
-			case *ast.RangeStmt:
-				if node.Tok == token.ASSIGN {
-					checkWrite(pass, node.Key)
-					checkWrite(pass, node.Value)
-				}
-			case *ast.UnaryExpr:
-				if node.Op == token.AND {
-					checkWrite(pass, node.X)
-				}
+			if body != nil {
+				checkConstruction(pass, body)
 			}
 			return true
 		})
@@ -89,50 +38,148 @@ func runRecords(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-func recordComment(group *ast.CommentGroup) bool {
-	if group == nil {
+func structType(t types.Type) bool {
+	if t == nil {
 		return false
 	}
-	for _, comment := range group.List {
-		if strings.TrimSpace(comment.Text) == "//levenshtein:record" {
-			return true
+	if pointer, ok := types.Unalias(t).(*types.Pointer); ok {
+		t = pointer.Elem()
+	}
+	_, ok := t.Underlying().(*types.Struct)
+	return ok
+}
+
+func newStruct(pass *analysis.Pass, expr ast.Expr) bool {
+	switch n := ast.Unparen(expr).(type) {
+	case *ast.CompositeLit:
+		return structType(pass.TypesInfo.TypeOf(n))
+	case *ast.UnaryExpr:
+		return n.Op == token.AND && newStruct(pass, n.X)
+	case *ast.CallExpr:
+		id, ok := n.Fun.(*ast.Ident)
+		if !ok {
+			return false
 		}
+		builtin, ok := pass.TypesInfo.ObjectOf(id).(*types.Builtin)
+		return ok && builtin.Name() == "new" && structType(pass.TypesInfo.TypeOf(n))
 	}
 	return false
 }
 
-func checkWrite(pass *analysis.Pass, expr ast.Expr) {
-	for expr != nil {
-		switch node := ast.Unparen(expr).(type) {
-		case *ast.SelectorExpr:
-			selection := pass.TypesInfo.Selections[node]
-			if selection == nil || selection.Kind() != types.FieldVal {
-				return
-			}
-			t := selection.Recv()
-			// A promoted field may belong to a marked embedded record.
-			for _, index := range selection.Index() {
-				t = types.Unalias(t)
-				if pointer, ok := t.(*types.Pointer); ok {
-					t = types.Unalias(pointer.Elem())
-				}
-				if named, ok := t.(*types.Named); ok && pass.ImportObjectFact(named.Obj(), new(recordFact)) {
-					pass.Reportf(expr.Pos(), "construct %s with a struct literal instead of assigning its fields", named.Obj().Name())
-					return
-				}
-				structure, ok := t.Underlying().(*types.Struct)
-				if !ok {
-					break
-				}
-				t = structure.Field(index).Type()
-			}
-			expr = node.X
-		case *ast.IndexExpr:
-			expr = node.X
-		case *ast.StarExpr:
-			expr = node.X
-		default:
+func fieldRoot(pass *analysis.Pass, expr ast.Expr) *types.Var {
+	switch n := ast.Unparen(expr).(type) {
+	case *ast.Ident:
+		object, _ := pass.TypesInfo.ObjectOf(n).(*types.Var)
+		return object
+	case *ast.SelectorExpr:
+		if selection := pass.TypesInfo.Selections[n]; selection != nil && selection.Kind() == types.FieldVal {
+			return fieldRoot(pass, n.X)
+		}
+	case *ast.StarExpr:
+		return fieldRoot(pass, n.X)
+	}
+	return nil
+}
+
+func checkConstruction(pass *analysis.Pass, body *ast.BlockStmt) {
+	pending := map[*types.Var]token.Pos{}
+	reported := map[token.Pos]bool{}
+	// Any read, alias, escape, or compound update ends the construction window.
+	consume := func(node ast.Node) {
+		if node == nil {
 			return
 		}
+		ast.Inspect(node, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok {
+				if object, ok := pass.TypesInfo.ObjectOf(id).(*types.Var); ok {
+					delete(pending, object)
+				}
+			}
+			return true
+		})
 	}
+	var visit func(ast.Stmt)
+	visit = func(stmt ast.Stmt) {
+		switch n := stmt.(type) {
+		case *ast.BlockStmt:
+			for _, child := range n.List {
+				visit(child)
+			}
+		case *ast.IfStmt:
+			if n.Init != nil {
+				visit(n.Init)
+			}
+			consume(n.Cond)
+			before := maps.Clone(pending)
+			visit(n.Body)
+			pending = maps.Clone(before)
+			if n.Else != nil {
+				visit(n.Else)
+			}
+			pending = before
+			consume(n)
+		case *ast.DeclStmt:
+			consume(n)
+			decl, ok := n.Decl.(*ast.GenDecl)
+			if !ok || decl.Tok != token.VAR {
+				return
+			}
+			for _, spec := range decl.Specs {
+				value := spec.(*ast.ValueSpec)
+				for i, name := range value.Names {
+					object, _ := pass.TypesInfo.Defs[name].(*types.Var)
+					if object == nil || name.Name == "_" {
+						continue
+					}
+					if len(value.Values) == 0 {
+						if _, ok := object.Type().Underlying().(*types.Struct); ok {
+							pending[object] = name.Pos()
+						}
+					} else if len(value.Values) == len(value.Names) && newStruct(pass, value.Values[i]) {
+						pending[object] = name.Pos()
+					}
+				}
+			}
+		case *ast.AssignStmt:
+			for _, rhs := range n.Rhs {
+				consume(rhs)
+			}
+			for i, lhs := range n.Lhs {
+				if _, ok := ast.Unparen(lhs).(*ast.SelectorExpr); ok && n.Tok == token.ASSIGN {
+					object := fieldRoot(pass, lhs)
+					if pos, ok := pending[object]; ok {
+						if !reported[pos] {
+							pass.Reportf(pos, "construct %s with a struct literal instead of assigning its fields before first use", object.Name())
+							reported[pos] = true
+						}
+						delete(pending, object)
+					}
+				}
+				consume(lhs)
+				id, ok := lhs.(*ast.Ident)
+				if !ok || id.Name == "_" || len(n.Lhs) != len(n.Rhs) || !newStruct(pass, n.Rhs[i]) {
+					continue
+				}
+				object, _ := pass.TypesInfo.ObjectOf(id).(*types.Var)
+				if object != nil {
+					pending[object] = id.Pos()
+				}
+			}
+		default:
+			// Control flow and closures can observe or escape a value. Be conservative;
+			// still inspect fresh construction inside their individual blocks.
+			consume(n)
+			ast.Inspect(n, func(child ast.Node) bool {
+				if _, ok := child.(*ast.FuncLit); ok {
+					return false
+				}
+				if block, ok := child.(*ast.BlockStmt); ok {
+					checkConstruction(pass, block)
+					return false
+				}
+				return true
+			})
+		}
+	}
+	visit(body)
 }

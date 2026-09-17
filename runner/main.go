@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"path/filepath"
 	"strings"
-	"time"
 
 	"dagger/levenshtein/internal/dagger"
+
+	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
 type Levenshtein struct{}
@@ -37,151 +39,6 @@ type location struct {
 	File   string `json:"file"`
 	Line   int    `json:"line"`
 	Column int    `json:"column"`
-}
-
-type Status string
-
-const (
-	StatusPlanned Status = "planned"
-	StatusPassed  Status = "passed"
-	StatusFailed  Status = "failed"
-	StatusError   Status = "error"
-)
-
-//levenshtein:record
-type result struct {
-	Check      string       `json:"check"`
-	Module     string       `json:"module,omitempty"`
-	Status     Status       `json:"status"`
-	DurationMS int64        `json:"duration_ms"`
-	Findings   []diagnostic `json:"findings,omitempty"`
-}
-
-//levenshtein:record
-type report struct {
-	Run      string    `json:"run"`
-	Status   Status    `json:"status"`
-	Modules  []string  `json:"modules"`
-	Selected []string  `json:"selected"`
-	Tools    toolchain `json:"tools"`
-	Results  []result  `json:"results"`
-}
-
-// Verify executes a configured run against an explicitly supplied repository.
-func (m *Levenshtein) Verify(
-	ctx context.Context,
-	// Repository containing the Go modules to check.
-	// Public .env.example templates can be embedded by Go packages.
-	// +ignore=["**/.env", "**/.env.*", "!**/.env.example", "**/.git"]
-	source *dagger.Directory,
-	// +default="branch"
-	run string,
-	// Preview selected checks without executing them.
-	// +optional
-	dryRun bool,
-	// Unique execution input for a fresh main audit; set by the launcher.
-	// +optional
-	nonce string,
-	// Unique invocation input for vulnerability scans, independent of source changes.
-	// +optional
-	auditNonce string,
-) (string, error) {
-	var tools toolchain
-	if err := json.Unmarshal(toolchainJSON, &tools); err != nil {
-		return "", err
-	}
-	cfg := defaultConfig()
-	entries, err := source.Entries(ctx)
-	if err != nil {
-		return "", err
-	}
-	for _, entry := range entries {
-		if entry == "levenshtein.json" {
-			content, err := source.File(entry).Contents(ctx)
-			if err != nil {
-				return "", err
-			}
-			cfg, err = parseConfig(content)
-			if err != nil {
-				return "", err
-			}
-		}
-	}
-	checks, err := cfg.selectChecks(run)
-	if err != nil {
-		return "", err
-	}
-
-	results := []result{}
-	renderReport := func(status Status) string {
-		return render(report{
-			Run:      run,
-			Status:   status,
-			Modules:  cfg.Modules,
-			Selected: checks,
-			Tools:    tools,
-			Results:  results,
-		})
-	}
-
-	if dryRun {
-		return renderReport(StatusPlanned), nil
-	}
-	if run == "main" && nonce == "" {
-		return "", fmt.Errorf("main requires a unique nonce for fresh execution; use ./verify main")
-	}
-	for _, check := range checks {
-		checkNonce := nonce
-		if check == "go-vuln" {
-			if auditNonce == "" {
-				return "", fmt.Errorf("go-vuln requires a unique audit nonce; use ./verify")
-			}
-			checkNonce = auditNonce
-		}
-		if check == "self-test" {
-			start := time.Now()
-			err := m.selfTest(ctx, tools, nonce)
-			status := StatusPassed
-			if err != nil {
-				status = StatusError
-			}
-			results = append(results, result{Check: check, Status: status, DurationMS: time.Since(start).Milliseconds()})
-			if err != nil {
-				return "", fmt.Errorf("%s\nself-test: %w", renderReport(StatusFailed), err)
-			}
-			continue
-		}
-		modules := cfg.Modules
-		if check == "workflow-lint" {
-			modules = []string{"."}
-		}
-		for _, module := range modules {
-			start := time.Now()
-			findings, err := executeCheck(ctx, source, module, tools, check, checkNonce)
-			status := StatusPassed
-			if err != nil {
-				status = StatusError
-			} else if len(findings) != 0 {
-				status = StatusFailed
-			}
-			results = append(results, result{Check: check, Module: module, Status: status, DurationMS: time.Since(start).Milliseconds(), Findings: findings})
-			if status != StatusPassed {
-				if err != nil {
-					return "", fmt.Errorf("%s\n%s could not complete: %w", renderReport(StatusFailed), check, err)
-				}
-				return "", fmt.Errorf("%s\n%s found %d issue(s); fix the reported locations and rerun ./verify %q with the same --source", renderReport(StatusFailed), check, len(findings), run)
-			}
-		}
-	}
-	return renderReport(StatusPassed), nil
-}
-
-func render(r report) string {
-	data, err := json.MarshalIndent(r, "", "  ")
-	if err != nil {
-		panic(err) // report contains only JSON-compatible values.
-	}
-	return string(data)
 }
 
 func lint(ctx context.Context, source *dagger.Directory, module string, tools toolchain, nonce string) ([]diagnostic, error) {
@@ -303,4 +160,48 @@ func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce strin
 		}
 	}
 	return nil
+}
+
+// GoLint runs the shared Go policy and cleanup rules.
+// +check
+func (m *Levenshtein) GoLint(ctx context.Context,
+	// +optional
+	// +defaultPath="/"
+	// +ignore=["**/.env", "**/.env.*", "!**/.env.example", "**/.git"]
+	source *dagger.Directory,
+	// +default="."
+	module string,
+	// +optional
+	nonce string,
+) error {
+	if !filepath.IsLocal(module) || path.Clean(module) != module || strings.Contains(module, "\\") {
+		return fmt.Errorf("invalid module path %q", module)
+	}
+
+	var tools toolchain
+	if err := json.Unmarshal(toolchainJSON, &tools); err != nil {
+		return err
+	}
+
+	findings, err := lint(ctx, source, module, tools, nonce)
+	if err != nil {
+		return err
+	}
+	if len(findings) != 0 {
+		return &gqlerror.Error{Message: "Go policy lint failed", Extensions: map[string]any{"levenshteinFindings": findings}}
+	}
+	return nil
+}
+
+// SelfTest checks the shared lint rules against good and bad examples.
+// +check
+func (m *Levenshtein) SelfTest(ctx context.Context,
+	// +optional
+	nonce string,
+) error {
+	var tools toolchain
+	if err := json.Unmarshal(toolchainJSON, &tools); err != nil {
+		return err
+	}
+	return m.selfTest(ctx, tools, nonce)
 }
