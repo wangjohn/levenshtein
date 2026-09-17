@@ -15,10 +15,14 @@ done
 for check in http sql vet; do
   "$temporary/verify" "$check" --source "$temporary/resources-good" --shared "$root" --cache-dir "$temporary/cache" > "$temporary/good.json"
   fixture=resources-bad
-  if [[ $check == vet ]]; then fixture=vet-bad; fi
+  case "$check" in
+    http) code=bodyclose ;;
+    sql) code=sqlclosecheck ;;
+    vet) fixture=vet-bad; code=go-vet ;;
+  esac
   status=0
   "$temporary/verify" "$check" --source "$temporary/$fixture" --shared "$root" --cache-dir "$temporary/cache" > "$temporary/bad.json" || status=$?
-  if [[ $status != 1 ]] || ! grep -q '"status": "failed"' "$temporary/bad.json"; then
+  if [[ $status != 1 ]] || ! grep -q "\"code\": \"$code\"" "$temporary/bad.json"; then
     cat "$temporary/bad.json"
     echo "Expected $check finding through the current CLI, got exit $status" >&2
     exit 1
