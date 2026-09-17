@@ -20,8 +20,9 @@ func nativeRequest(t *testing.T) Request {
 
 func TestNativeCommandOutcomes(t *testing.T) {
 	for _, tc := range []struct {
-		name, script string
-		status       Status
+		name   string
+		script string
+		status Status
 	}{{"pass", "printf hello; printf warning >&2", StatusPassed}, {"assertion", "printf failure; exit 3", StatusFailed}} {
 		t.Run(tc.name, func(t *testing.T) {
 			req := nativeRequest(t)

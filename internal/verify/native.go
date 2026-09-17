@@ -42,9 +42,10 @@ func (n *Native) Execute(ctx context.Context, req Request) Result {
 			n.prepared = map[string][]string{}
 		}
 		data, _ := json.Marshal(struct {
-			Source, Workspace string
-			Env               []string
-			Preparation       *Preparation
+			Source      string
+			Workspace   string
+			Env         []string
+			Preparation *Preparation
 		}{req.Source, req.Target.Workspace, nativeEnv(req, req.Preparation.Env), req.Preparation})
 		sum := sha256.Sum256(data)
 		key := hex.EncodeToString(sum[:])
