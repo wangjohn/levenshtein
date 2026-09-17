@@ -57,3 +57,30 @@ func unstable(values []string, f func() string) {
 	if values[0] == "one" || values[0] == "two" {
 	}
 }
+
+type Priority string
+type PriorityAlias = Priority
+
+func definedChoices(priority Priority, alias PriorityAlias) {
+	switch priority { // want "string choice with multiple alternatives"
+	case "high", "low":
+	}
+	if priority == "high" || priority == "low" { // want "string choice with multiple alternatives"
+	}
+	if "high" != alias && "low" != alias { // want "string choice with multiple alternatives"
+	}
+	if priority == "high" { // One special value does not establish an enum.
+	}
+}
+
+func localConstants(priority Priority) {
+	const high Priority = "high"
+	const low Priority = "low"
+	switch priority {
+	case high, low:
+	}
+	if priority == high || priority == low {
+	}
+	if priority == high || priority == "low" { // want "string choice with multiple alternatives"
+	}
+}

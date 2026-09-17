@@ -13,6 +13,7 @@ import (
 func checkEnumUsage(pass *analysis.Pass, node ast.Node) bool {
 	var subject ast.Expr
 	values := map[string]bool{}
+	var choices []ast.Expr
 	switch n := node.(type) {
 	case *ast.SwitchStmt:
 		subject = n.Tag
@@ -24,6 +25,7 @@ func checkEnumUsage(pass *analysis.Pass, node ast.Node) bool {
 				}
 				if value != "" {
 					values[value] = true
+					choices = append(choices, expr)
 				}
 			}
 		}
@@ -64,6 +66,7 @@ func checkEnumUsage(pass *analysis.Pass, node ast.Node) bool {
 			}
 			if value != "" {
 				values[value] = true
+				choices = append(choices, literal)
 			}
 			return true
 		}
@@ -73,11 +76,39 @@ func checkEnumUsage(pass *analysis.Pass, node ast.Node) bool {
 	default:
 		return false
 	}
-	if subject == nil || len(values) < 2 || !types.Identical(pass.TypesInfo.TypeOf(subject), types.Typ[types.String]) {
+	if subject == nil || len(values) < 2 {
 		return false
 	}
 	if !sameSubject(pass, subject, subject) {
 		return false
+	}
+	t := pass.TypesInfo.TypeOf(subject)
+	if t == nil || !types.Identical(t.Underlying(), types.Typ[types.String]) {
+		return false
+	}
+	if !types.Identical(t, types.Typ[types.String]) {
+		// Existing enums are checked expression by expression by runTypedValues.
+		if enumType(t) {
+			return false
+		}
+		allTyped := true
+		for _, choice := range choices {
+			var object types.Object
+			switch expr := ast.Unparen(choice).(type) {
+			case *ast.Ident:
+				object = pass.TypesInfo.ObjectOf(expr)
+			case *ast.SelectorExpr:
+				object = pass.TypesInfo.ObjectOf(expr.Sel)
+			}
+			constant, ok := object.(*types.Const)
+			if !ok || !types.Identical(constant.Type(), t) {
+				allTyped = false
+				break
+			}
+		}
+		if allTyped {
+			return false
+		}
 	}
 	pass.Reportf(node.Pos(), "string choice with multiple alternatives needs a defined string type and typed constants")
 	return true
