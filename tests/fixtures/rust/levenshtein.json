@@ -62,7 +62,7 @@
         "--workspace",
         "--locked"
       ],
-      "fresh_command": [
+      "rerun_command": [
         "cargo",
         "test",
         "--workspace",
@@ -85,7 +85,7 @@
       "checks": [
         "tests"
       ],
-      "fresh": true
+      "rerun_checks": true
     }
   }
 }
