@@ -105,8 +105,14 @@ class PatchedGo:
         container = container.without_directory(
             posixpath.join("/src", await mod_source.source_subpath(), "internal/dagger")
         )
+        # The Go generator requires a relative filename, whereas Dagger's
+        # custom SDK contract supplies an absolute output path.
         return container.with_entrypoint([
-            "codegen", "generate-typedefs", "--output", output_file_path,
+            "sh", "-ec",
+            'output="$1"; shift; '
+            'codegen generate-typedefs --output typedefs.json "$@"; '
+            'cp typedefs.json "$output"',
+            "generate-typedefs", output_file_path,
             *await self.arguments(mod_source),
         ])
 
