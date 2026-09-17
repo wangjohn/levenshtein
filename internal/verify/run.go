@@ -29,8 +29,9 @@ type Report struct {
 }
 
 type Request struct {
-	Source, Shared string
-	Fresh          bool
+	Source string
+	Shared string
+	Fresh  bool
 	PlannedCheck
 }
 
