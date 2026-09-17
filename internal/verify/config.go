@@ -81,7 +81,7 @@ func decode(data []byte, value any) error {
 func Load(source string) (Config, error) {
 	data, err := os.ReadFile(filepath.Join(source, "levenshtein.json"))
 	if os.IsNotExist(err) {
-		data = []byte(`{"modules":["."],"runs":{"branch":["go-lint"],"pre-merge":["go-lint"],"main":["go-lint"],"go-lint":["go-lint"]}}`)
+		data = []byte(`{"modules":["."],"runs":{"branch":["go-lint","go-vet"],"pre-merge":["go-lint","go-vet"],"main":["go-lint","go-vet","go-vuln"],"go-lint":["go-lint"],"go-vet":["go-vet"],"go-http":["go-http"],"go-sql":["go-sql"],"go-vuln":["go-vuln"],"workflow-lint":["workflow-lint"]}}`)
 	} else if err != nil {
 		return Config{}, err
 	}

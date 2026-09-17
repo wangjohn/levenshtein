@@ -70,3 +70,17 @@ func TestWorkflowLintRequiresRootTarget(t *testing.T) {
 		t.Fatal("accepted non-root workflow target")
 	}
 }
+
+func TestUnconfiguredRepoGetsSharedCheckDefaults(t *testing.T) {
+	source := t.TempDir()
+	cfg, err := Load(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, count := range map[string]int{"branch": 2, "pre-merge": 2, "main": 3, "go-vuln": 1, "go-http": 1, "go-sql": 1, "workflow-lint": 1} {
+		plan, err := cfg.Plan(source, name)
+		if err != nil || len(plan.Checks) != count {
+			t.Fatalf("%s: %+v %v", name, plan, err)
+		}
+	}
+}

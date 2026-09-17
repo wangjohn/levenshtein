@@ -26,6 +26,8 @@
 
 Dagger checks include `go-lint`, `go-vet`, `go-http`, `go-sql`, `go-vuln`, `workflow-lint`, and Levenshtein's own `self-test`; native checks use `command`. See the [shared checks](go-lint.md) for scope and examples. Workflow lint requires a repository-root target. Go tool versions remain pinned in the shared checkout. Local caching is described below.
 
+Without a configuration file, `branch` and `pre-merge` run `go-lint` and `go-vet`; `main` also runs `go-vuln`. Named runs for each shared check are available. An explicit configuration replaces these defaults.
+
 A run selects check IDs. `rerun_checks: true` forces verification execution while retaining compatible dependency/build caches. It replaces the earlier `fresh` setting; use `rerun_checks` in configuration and `LEVENSHTEIN_RERUN_CHECKS` in scripts. Any run name can use it; versioned configuration gives `main` no special behavior. Unknown checks, executors, references, and configuration fields fail explicitly.
 
 Legacy `modules` and array-valued `runs` remain supported. They translate into Go targets/checks, and legacy `main` retains fresh behavior. A source without configuration still receives the original single-module Go defaults.
