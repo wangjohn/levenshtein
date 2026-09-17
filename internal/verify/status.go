@@ -25,3 +25,21 @@ const (
 	CheckSelfTest CheckKind = "self-test"
 	CheckCommand  CheckKind = "command"
 )
+
+// CacheStatus describes reuse without conflating it with verification outcomes.
+type CacheStatus string
+
+const (
+	CacheDisabled    CacheStatus = "disabled"
+	CacheUnavailable CacheStatus = "unavailable"
+	CacheMiss        CacheStatus = "miss"
+	CacheHit         CacheStatus = "hit"
+	CacheFresh       CacheStatus = "fresh"
+)
+
+type StageKind string
+
+const (
+	StagePreparation StageKind = "preparation"
+	StageBuild       StageKind = "build"
+)

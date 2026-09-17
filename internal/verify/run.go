@@ -9,14 +9,17 @@ import (
 
 //levenshtein:record
 type Result struct {
-	ID         string          `json:"id"`
-	Status     Status          `json:"status"`
-	DurationMS int64           `json:"duration_ms"`
-	VerifiedAt time.Time       `json:"verified_at"`
-	Stdout     string          `json:"stdout,omitempty"`
-	Stderr     string          `json:"stderr,omitempty"`
-	Error      string          `json:"error,omitempty"`
-	Details    json.RawMessage `json:"details,omitempty"`
+	ID          string          `json:"id"`
+	Status      Status          `json:"status"`
+	DurationMS  int64           `json:"duration_ms"`
+	VerifiedAt  time.Time       `json:"verified_at"`
+	Stdout      string          `json:"stdout,omitempty"`
+	Stderr      string          `json:"stderr,omitempty"`
+	Error       string          `json:"error,omitempty"`
+	Cache       CacheInfo       `json:"cache"`
+	ExecutionMS int64           `json:"execution_ms"`
+	Stages      []StageResult   `json:"stages,omitempty"`
+	Details     json.RawMessage `json:"details,omitempty"`
 }
 
 //levenshtein:record
@@ -45,15 +48,24 @@ func Execute(ctx context.Context, plan Plan, shared string, executors map[Execut
 	for _, check := range plan.Checks {
 		start := time.Now()
 		outcome := executeCheck(ctx, check, Request{Source: plan.Source, Shared: shared, RerunChecks: plan.RerunChecks, PlannedCheck: check}, executors)
+		duration := time.Since(start).Milliseconds()
+		verifiedAt, executionMS := outcome.VerifiedAt, outcome.ExecutionMS
+		if verifiedAt.IsZero() {
+			verifiedAt, executionMS = start.UTC(), duration
+		}
+
 		results = append(results, Result{
-			ID:         check.ID,
-			Status:     outcome.Status,
-			DurationMS: time.Since(start).Milliseconds(),
-			VerifiedAt: start.UTC(),
-			Stdout:     outcome.Stdout,
-			Stderr:     outcome.Stderr,
-			Error:      outcome.Error,
-			Details:    outcome.Details,
+			ID:          check.ID,
+			Status:      outcome.Status,
+			DurationMS:  duration,
+			VerifiedAt:  verifiedAt,
+			Stdout:      outcome.Stdout,
+			Stderr:      outcome.Stderr,
+			Error:       outcome.Error,
+			Cache:       outcome.Cache,
+			ExecutionMS: executionMS,
+			Stages:      outcome.Stages,
+			Details:     outcome.Details,
 		})
 		if outcome.Status != StatusPassed {
 			status = StatusFailed
@@ -80,20 +92,55 @@ func executeCheck(ctx context.Context, check PlannedCheck, req Request, executor
 	case StatusPassed, StatusFailed, StatusError, StatusCancelled, StatusIncomplete:
 		return result
 	default:
-		return Result{Status: StatusError, Error: "executor returned an invalid status", Stdout: result.Stdout, Stderr: result.Stderr, Details: result.Details}
+		return result.withOutcome(StatusError, "executor returned an invalid status")
 	}
 }
 
-// withOutcome replaces an outcome while preserving its diagnostics and metadata.
+// withOutcome preserves diagnostics and metadata while replacing the outcome.
 func (r Result) withOutcome(status Status, message string) Result {
 	return Result{
-		ID:         r.ID,
-		Status:     status,
-		DurationMS: r.DurationMS,
-		VerifiedAt: r.VerifiedAt,
-		Stdout:     r.Stdout,
-		Stderr:     r.Stderr,
-		Error:      message,
-		Details:    r.Details,
+		ID:          r.ID,
+		Status:      status,
+		DurationMS:  r.DurationMS,
+		VerifiedAt:  r.VerifiedAt,
+		Stdout:      r.Stdout,
+		Stderr:      r.Stderr,
+		Error:       message,
+		Cache:       r.Cache,
+		ExecutionMS: r.ExecutionMS,
+		Stages:      r.Stages,
+		Details:     r.Details,
+	}
+}
+
+func (r Result) withStages(stages []StageResult) Result {
+	return Result{
+		ID:          r.ID,
+		Status:      r.Status,
+		DurationMS:  r.DurationMS,
+		VerifiedAt:  r.VerifiedAt,
+		Stdout:      r.Stdout,
+		Stderr:      r.Stderr,
+		Error:       r.Error,
+		Cache:       r.Cache,
+		ExecutionMS: r.ExecutionMS,
+		Stages:      stages,
+		Details:     r.Details,
+	}
+}
+
+func (r Result) withCache(cache CacheInfo) Result {
+	return Result{
+		ID:          r.ID,
+		Status:      r.Status,
+		DurationMS:  r.DurationMS,
+		VerifiedAt:  r.VerifiedAt,
+		Stdout:      r.Stdout,
+		Stderr:      r.Stderr,
+		Error:       r.Error,
+		Cache:       cache,
+		ExecutionMS: r.ExecutionMS,
+		Stages:      r.Stages,
+		Details:     r.Details,
 	}
 }

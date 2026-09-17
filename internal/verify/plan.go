@@ -12,6 +12,7 @@ type PlannedCheck struct {
 	Target      Target       `json:"target"`
 	Environment Environment  `json:"environment"`
 	Preparation *Preparation `json:"preparation,omitempty"`
+	Build       *Preparation `json:"build,omitempty"`
 }
 
 type Plan struct {
@@ -60,6 +61,9 @@ func (cfg Config) Plan(source, name string) (Plan, error) {
 		if err := validateCheck(check, env); err != nil {
 			return p, fmt.Errorf("check %q: %w", id, err)
 		}
+		if run.RerunChecks && env.Executor == ExecutorNative && len(check.RerunCommand) == 0 {
+			return p, fmt.Errorf("check %q: fresh native runs require an explicit rerun_command", id)
+		}
 
 		if target.Workspace == "" {
 			target.Workspace = "."
@@ -89,6 +93,10 @@ func (cfg Config) Plan(source, name string) (Plan, error) {
 
 		planned := PlannedCheck{ID: id, Check: check, Target: target, Environment: env}
 		planned.Preparation, err = resolveStage(cfg.Preparations, "preparation", check.Preparation)
+		if err != nil {
+			return p, err
+		}
+		planned.Build, err = resolveStage(cfg.Builds, "build", check.Build)
 		if err != nil {
 			return p, err
 		}

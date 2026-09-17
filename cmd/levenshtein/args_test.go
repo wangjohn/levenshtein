@@ -54,10 +54,31 @@ func TestHelp(t *testing.T) {
 		if !errors.Is(err, pflag.ErrHelp) {
 			t.Fatalf("help error = %v", err)
 		}
-		for _, text := range []string{"Usage: verify", "--source", "--shared", "--dry-run", "--help"} {
+		for _, text := range []string{"Usage: verify", "--source", "--shared", "--dry-run", "--help", "--cache-dir"} {
 			if !strings.Contains(output.String(), text) {
 				t.Errorf("help missing %q: %s", text, &output)
 			}
 		}
+	}
+}
+
+func TestCacheDirFlag(t *testing.T) {
+	for _, args := range [][]string{
+		nil,
+		{"branch", "--cache-dir", "/cache"},
+		{"--cache-dir=/cache", "branch"},
+	} {
+		var output bytes.Buffer
+		want := "/default/cache"
+		if len(args) > 0 {
+			want = "/cache"
+		}
+		opts, err := parseArgs(args, options{source: "/app", cacheDir: "/default/cache"}, &output)
+		if err != nil || opts.cacheDir != want {
+			t.Fatalf("cache directory for %q = %q, %v", args, opts.cacheDir, err)
+		}
+	}
+	if _, err := parseArgs([]string{"--cache-dir"}, options{source: "/app"}, &bytes.Buffer{}); err == nil {
+		t.Fatal("missing cache directory accepted")
 	}
 }

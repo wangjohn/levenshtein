@@ -1,6 +1,6 @@
 # Setup and usage
 
-The first slice runs three shared Go lint rules in Dagger. The runner accepts a source checkout and a named run; your existing CI supplies workers and decides when to invoke it. See [use from an application repo](consumer-ci.md) for local and CI examples. The [implementation plan](implementation.md) adds a common interface for native/container checks and aggressive cache reuse, starting with Benchplan; native commands are supported, while shared result caching and Benchplan adoption are subsequent steps.
+The first slice runs three shared Go lint rules in Dagger. The runner accepts a source checkout and a named run; your existing CI supplies workers and decides when to invoke it. See [use from an application repo](consumer-ci.md) for local and CI examples. The [implementation plan](implementation.md) adds a common interface for native/container checks and aggressive cache reuse, starting with Benchplan; native commands and local result caching are supported; Benchplan adoption and cross-worker cache transport are subsequent steps.
 
 ## Prerequisites
 

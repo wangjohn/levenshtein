@@ -11,7 +11,7 @@ func validateCheck(check Check, env Environment) error {
 		if daggerFunctions[check.Kind] == "" {
 			return fmt.Errorf("unknown Dagger check %q", check.Kind)
 		}
-		if len(check.Command) > 0 || len(check.Env) > 0 || check.Timeout != "" || check.Preparation != "" || len(check.Artifacts) > 0 || env.Identity != "" || len(env.Env) > 0 || len(env.PassEnv) > 0 || len(env.Tools) > 0 {
+		if check.Build != "" || len(check.RerunCommand) > 0 || len(check.Command) > 0 || len(check.Env) > 0 || check.Timeout != "" || check.Preparation != "" || len(check.Artifacts) > 0 || env.Identity != "" || len(env.Env) > 0 || len(env.PassEnv) > 0 || len(env.Tools) > 0 {
 			return fmt.Errorf("native command options cannot be used for Dagger Go checks")
 		}
 		return nil
@@ -22,6 +22,12 @@ func validateCheck(check Check, env Environment) error {
 	}
 	if check.Kind != CheckCommand || len(check.Command) == 0 || check.Command[0] == "" {
 		return fmt.Errorf("native check needs kind command and a nonempty command array")
+	}
+	if check.Cache && (env.Identity == "" || len(check.RerunCommand) == 0) {
+		return fmt.Errorf("cacheable native check needs environment identity and explicit rerun_command")
+	}
+	if len(check.RerunCommand) > 0 && check.RerunCommand[0] == "" {
+		return fmt.Errorf("rerun_command cannot be empty")
 	}
 
 	if err := validateDuration(check.Timeout); err != nil {

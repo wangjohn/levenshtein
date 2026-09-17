@@ -33,10 +33,12 @@ func runCommand(ctx context.Context, args []string, output io.Writer) (int, erro
 	if err != nil {
 		return 2, err
 	}
+	cacheRoot, _ := os.UserCacheDir()
 
 	opts, err := parseArgs(args, options{
-		source: source,
-		shared: os.Getenv("LEVENSHTEIN_SHARED_ROOT"),
+		source:   source,
+		shared:   os.Getenv("LEVENSHTEIN_SHARED_ROOT"),
+		cacheDir: filepath.Join(cacheRoot, "levenshtein", "verification-v1"),
 	}, output)
 	if errors.Is(err, pflag.ErrHelp) {
 		return 0, nil
@@ -74,10 +76,27 @@ func runCommand(ctx context.Context, args []string, output io.Writer) (int, erro
 	if err != nil {
 		return 2, err
 	}
+
+	cacheDir, err := filepath.Abs(opts.cacheDir)
+	if err != nil {
+		return 2, err
+	}
+	for _, root := range []string{plan.Source, shared} {
+		relative, relErr := filepath.Rel(root, cacheDir)
+		if relErr == nil && filepath.IsLocal(relative) {
+			return 2, fmt.Errorf("cache directory must be outside source and shared checkouts")
+		}
+	}
+
+	cache := &verify.Cache{Dir: cacheDir}
 	dagger := &verify.Dagger{}
 	defer dagger.Close()
 
-	report := verify.Execute(ctx, plan, shared, map[verify.ExecutorKind]verify.Executor{verify.ExecutorDagger: dagger, verify.ExecutorNative: &verify.Native{}})
+	report := verify.Execute(ctx, plan, shared, map[verify.ExecutorKind]verify.Executor{
+		verify.ExecutorDagger: verify.CachedExecutor{Cache: cache, Executor: dagger},
+		verify.ExecutorNative: verify.CachedExecutor{Cache: cache, Executor: &verify.Native{Cache: cache}},
+	})
+
 	if err := encoder.Encode(report); err != nil {
 		return 2, err
 	}

@@ -17,6 +17,7 @@ type Config struct {
 	Checks       map[string]Check       `json:"checks"`
 	Runs         map[string]Run         `json:"runs"`
 	Preparations map[string]Preparation `json:"preparations,omitempty"`
+	Builds       map[string]Preparation `json:"builds,omitempty"`
 }
 
 type Target struct {
@@ -47,14 +48,17 @@ type Preparation struct {
 }
 
 type Check struct {
-	Kind        CheckKind         `json:"kind"`
-	Target      string            `json:"target"`
-	Environment string            `json:"environment"`
-	Command     []string          `json:"command,omitempty"`
-	Env         map[string]string `json:"env,omitempty"`
-	Timeout     string            `json:"timeout,omitempty"`
-	Preparation string            `json:"preparation,omitempty"`
-	Artifacts   []string          `json:"artifacts,omitempty"`
+	Kind         CheckKind         `json:"kind"`
+	Target       string            `json:"target"`
+	Environment  string            `json:"environment"`
+	Command      []string          `json:"command,omitempty"`
+	Env          map[string]string `json:"env,omitempty"`
+	Timeout      string            `json:"timeout,omitempty"`
+	Preparation  string            `json:"preparation,omitempty"`
+	Artifacts    []string          `json:"artifacts,omitempty"`
+	Cache        bool              `json:"cache,omitempty"`
+	Build        string            `json:"build,omitempty"`
+	RerunCommand []string          `json:"rerun_command,omitempty"`
 }
 
 type Run struct {

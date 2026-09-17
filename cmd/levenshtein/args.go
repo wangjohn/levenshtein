@@ -8,10 +8,11 @@ import (
 )
 
 type options struct {
-	source string
-	shared string
-	name   string
-	dry    bool
+	cacheDir string
+	source   string
+	shared   string
+	name     string
+	dry      bool
 }
 
 func parseArgs(args []string, opts options, output io.Writer) (options, error) {
@@ -19,6 +20,7 @@ func parseArgs(args []string, opts options, output io.Writer) (options, error) {
 	flags.SetOutput(output)
 	flags.StringVar(&opts.source, "source", opts.source, "Repository directory to verify")
 	flags.StringVar(&opts.shared, "shared", opts.shared, "Pinned Levenshtein checkout")
+	flags.StringVar(&opts.cacheDir, "cache-dir", opts.cacheDir, "Verification cache directory outside source and shared checkouts")
 	flags.BoolVar(&opts.dry, "dry-run", false, "Print the verification plan without running checks")
 	help := flags.BoolP("help", "h", false, "Show usage")
 	flags.Usage = func() {

@@ -2,7 +2,9 @@
 
 package verify
 
-import "os/exec"
+import (
+	"os/exec"
+)
 
 func configureProcess(cmd *exec.Cmd) {}
 
