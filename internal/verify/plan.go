@@ -91,16 +91,18 @@ func (cfg Config) Plan(source, name string) (Plan, error) {
 			}
 		}
 
-		planned := PlannedCheck{ID: id, Check: check, Target: target, Environment: env}
-		planned.Preparation, err = resolveStage(cfg.Preparations, "preparation", check.Preparation)
+		preparation, err := resolveStage(cfg.Preparations, "preparation", check.Preparation)
 		if err != nil {
 			return p, err
 		}
-		planned.Build, err = resolveStage(cfg.Builds, "build", check.Build)
+		build, err := resolveStage(cfg.Builds, "build", check.Build)
 		if err != nil {
 			return p, err
 		}
-		p.Checks = append(p.Checks, planned)
+		p.Checks = append(p.Checks, PlannedCheck{
+			ID: id, Check: check, Target: target, Environment: env,
+			Preparation: preparation, Build: build,
+		})
 	}
 	return p, nil
 }

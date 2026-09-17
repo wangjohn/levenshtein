@@ -14,7 +14,7 @@ import (
 // TypedValues keeps finite choices distinct from arbitrary text.
 var TypedValues = &analysis.Analyzer{
 	Name: "LV1001",
-	Doc:  "use defined types for discriminator fields and typed constants for enum values",
+	Doc:  "use defined types for discriminator fields and enum-like string choices",
 	Run:  runTypedValues,
 }
 
@@ -24,6 +24,12 @@ func runTypedValues(pass *analysis.Pass) (any, error) {
 			continue
 		}
 		ast.Inspect(file, func(node ast.Node) bool {
+			if checkEnumUsage(pass, node) {
+				if _, binary := node.(*ast.BinaryExpr); binary {
+					return false
+				}
+			}
+
 			// Constant declarations are where enum spellings belong.
 			if decl, ok := node.(*ast.GenDecl); ok && decl.Tok == token.CONST {
 				return false

@@ -10,5 +10,5 @@
 ## Go value modeling
 
 - Use defined string types and typed constants for finite choices such as statuses and check kinds. Keep free-form text as strings.
-- Mark completed value records with `//levenshtein:record`. Compute their fields first and construct them together in a struct literal; reserve field mutation for state-bearing objects.
+- Construct new struct values together in a literal, without opt-in markers. Compute fields first; reserve subsequent field mutation for existing state-bearing objects.
 - Run the shared [Go lint rules](docs/go-lint.md) when changing Go code.

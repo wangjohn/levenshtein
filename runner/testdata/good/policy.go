@@ -4,7 +4,6 @@ type Status string
 
 const Passed Status = "passed"
 
-//levenshtein:record
 type record struct {
 	Status Status
 	Value  int

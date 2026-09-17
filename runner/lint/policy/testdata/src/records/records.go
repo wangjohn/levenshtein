@@ -1,52 +1,109 @@
 package records
 
-//levenshtein:record
-type Result struct { // want Result:"record"
+type Result struct {
 	Count   int
 	Message string
 	Nested  struct{ Value int }
 }
-
 type Alias = Result
-type Mutable struct{ Count int }
-type Embedded struct{ Result }
 
-func build() Result {
+func construction() Result {
+	r := Result{} // want "construct r with a struct literal"
+	r.Count = 1
+	r.Message = "ready"
+	return r
+}
+func zero() {
+	var r Result // want "construct r with a struct literal"
+	r.Nested.Value = 3
+}
+func pointer() {
+	r := new(Result) // want "construct r with a struct literal"
+	r.Count = 2
+}
+func anonymous() {
+	r := &struct{ Count int }{} // want "construct r with a struct literal"
+	r.Count = 2
+}
+func alias() {
+	var r Alias // want "construct r with a struct literal"
+	r.Count = 2
+}
+func updates(existing *Result) {
+	existing.Count = 1
 	r := Result{Count: 1}
-	r.Count = 2                       // want "construct Result with a struct literal"
-	r.Count++                         // want "construct Result with a struct literal"
-	r.Nested.Value = 1                // want "construct Result with a struct literal"
-	r.Count, r.Message = 3, "message" // want "construct Result with a struct literal" "construct Result with a struct literal"
-	_ = &r.Count                      // want "construct Result with a struct literal"
+	consume(&r)
+	r.Count = 2
+	r.Count++
+	r.Count = r.Count + 1
+	copy := r
+	copy.Count = 3
+}
+func escaped() {
+	r := Result{}
 	p := &r
-	p.Count = 4 // want "construct Result with a struct literal"
-	var e Embedded
-	e.Count = 9 // want "construct Result with a struct literal"
-	var a Alias
-	a.Count = 5                    // want "construct Result with a struct literal"
-	for r.Count = range []int{1} { // want "construct Result with a struct literal"
-	}
-	return Result{Count: r.Count, Message: "complete"}
-}
-
-func allowed() {
-	var m Mutable
-	m.Count++
-	_ = &Result{Count: 1}
+	p.Count = 1
 	var decoded Result
-	consume(&decoded) // Decoding/callee effects are outside this syntactic rule.
-	decoded = Result{Count: 2}
+	consume(&decoded)
+	decoded.Count = 2
+}
+func complete() Result { return Result{Count: 1} }
+func compound()        { var r Result; r.Count++ }
+func factory()         { r := complete(); r.Count = 1 }
+func consume(*Result)  {}
+
+func conditional(flag bool) Result {
+	r := Result{} // want "construct r with a struct literal"
+	if flag {
+		r.Count = 1
+	} else {
+		r.Count = 2
+	}
+	return r
+}
+func nested(flag bool) {
+	if flag {
+		r := Result{} // want "construct r with a struct literal"
+		r.Count = 1
+	}
+}
+func readBeforeWrite() {
+	r := Result{}
+	if r.Count == 0 {
+		r.Count = 1
+	}
 }
 
-func consume(*Result) {}
-
-//levenshtein:record
-type Wrong int // want "levenshtein:record requires a struct type"
-
-//levenshtein:record
-type WrongAlias = Result // want "levenshtein:record must mark the original type"
-
-func localMarker() {
-	//levenshtein:record
-	type Local struct{ N int } // want "levenshtein:record requires a package-level struct type"
+func localType() {
+	type Local struct{ N int }
+	v := Local{} // want "construct v with a struct literal"
+	v.N = 3
+}
+func parenthesized() {
+	r := Result{} // want "construct r with a struct literal"
+	(r).Count = 1
+}
+func multiple() {
+	a, b := Result{}, Result{} // want "construct a with a struct literal" "construct b with a struct literal"
+	a.Count = 1
+	b.Count = 2
+}
+func captured() {
+	r := Result{}
+	f := func() { r.Count = 2 }
+	f()
+	r.Count = 3
+}
+func closure() {
+	f := func() {
+		r := Result{} // want "construct r with a struct literal"
+		r.Count = 1
+	}
+	f()
+}
+func loop() {
+	for i := 0; i < 2; i++ {
+		r := Result{} // want "construct r with a struct literal"
+		r.Count = i
+	}
 }

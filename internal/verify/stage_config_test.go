@@ -20,16 +20,25 @@ func TestPreparationAndBuildHaveTheSamePlanningRules(t *testing.T) {
 			t.Run(kind+"/"+tc.name, func(t *testing.T) {
 				stage := Preparation{Command: []string{"true"}, Inputs: []string{"lock"}, Outputs: []string{"ready"}}
 				tc.change(&stage)
-				check := Check{Kind: CheckCommand, Target: "app", Environment: "host", Command: []string{"true"}}
-				cfg := Config{Version: 1, Targets: map[string]Target{"app": {Dir: ".", Inputs: []string{"."}}}, Environments: map[string]Environment{"host": {Executor: ExecutorNative}}, Runs: map[string]Run{"branch": {Checks: []string{"test"}}}}
+				var preparation, build string
+				var preparations, builds map[string]Preparation
 				if kind == "preparation" {
-					check.Preparation = "setup"
-					cfg.Preparations = map[string]Preparation{"setup": stage}
+					preparation = "setup"
+					preparations = map[string]Preparation{"setup": stage}
 				} else {
-					check.Build = "setup"
-					cfg.Builds = map[string]Preparation{"setup": stage}
+					build = "setup"
+					builds = map[string]Preparation{"setup": stage}
 				}
-				cfg.Checks = map[string]Check{"test": check}
+				check := Check{Kind: CheckCommand, Target: "app", Environment: "host", Command: []string{"true"}, Preparation: preparation, Build: build}
+				cfg := Config{
+					Version:      1,
+					Targets:      map[string]Target{"app": {Dir: ".", Inputs: []string{"."}}},
+					Environments: map[string]Environment{"host": {Executor: ExecutorNative}},
+					Runs:         map[string]Run{"branch": {Checks: []string{"test"}}},
+					Checks:       map[string]Check{"test": check},
+					Preparations: preparations,
+					Builds:       builds,
+				}
 				_, err := cfg.Plan(t.TempDir(), "branch")
 				if (err == nil) != (tc.name == "valid") {
 					t.Fatalf("plan error: %v", err)
