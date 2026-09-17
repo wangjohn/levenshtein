@@ -20,6 +20,6 @@ The result cache retains Levenshtein's exact input fingerprints, original verifi
 
 Artifact publication uses `renameio` pending files so restored permissions match the recorded artifact, even when replacing an existing file. Rooted filesystem operations keep reads and writes within the opened checkout. Mutable output paths additionally reject symlinks; source symlinks disable result reuse.
 
-## Patched Dagger wrapper dependencies
+## Dagger wrapper dependency security
 
-The wrapper uses gRPC 1.83.1, OpenTelemetry 1.44.0 / logging 0.20.0, and x/text 0.39.0 to address the reported advisories. Dagger 0.21.9 regenerates wildcard replacements for logging modules at 0.16.0. Version-specific replacements for the selected 0.20.0 modules take precedence and preserve the patched versions across `dagger develop`. Keep these pins until the upstream generator supplies patched compatible dependencies. Validate the effective module graph and run `./verify go-vuln` after regeneration; changing only the `require` lines is insufficient.
+The wrapper pins gRPC 1.83.1, OpenTelemetry 1.44.0, and x/text 0.39.0 to address reported advisories. Dagger 0.21.9 forcibly regenerates logging-module replacements at 0.16.0 during development and module loading, overriding user replacements. This leaves [GO-2026-4985](https://pkg.go.dev/vuln/GO-2026-4985) in the generated wrapper's OTLP HTTP log exporter. The live `go-vuln` check reports it and fails; it is not suppressed. Removing the replacements only in the checkout does not fix the runtime built by Dagger. A compatible upstream generator update is required before the vulnerability gate can pass without maintaining a custom SDK.

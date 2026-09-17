@@ -103,7 +103,7 @@ Stable versions checked on September 15, 2026:
 | Staticcheck | 2026.2.1 (`honnef.co/go/tools` v0.8.1) | `runner/toolchain.json` |
 | Actions checkout / setup-go | 7.0.1 / 7.0.0 | Full commit hashes in the workflow |
 
-The host Go version is needed by the source launcher, runner development, and unit tests. The actual lint runs on Linux with default build tags, using the pinned container toolchain with automatic Go toolchain switching disabled. Dagger 0.21.9 rejects a wrapper `go.mod` above 1.26.7; that compatibility limit does not restrict the Go version of the repositories being checked. The wrapper pins patched gRPC and OpenTelemetry dependencies in addition to the generated SDK requirements; `go.sum` records their checksums. Upgrade pins together and validate the fixtures before adoption.
+The host Go version is needed by the source launcher, runner development, and unit tests. The actual lint runs on Linux with default build tags, using the pinned container toolchain with automatic Go toolchain switching disabled. Dagger 0.21.9 rejects a wrapper `go.mod` above 1.26.7; that compatibility limit does not restrict the Go version of the repositories being checked. The wrapper pins patched dependencies where Dagger permits them; the remaining forced logging override and failing vulnerability gate are documented in [dependency security](dependencies.md#dagger-wrapper-dependency-security). `go.sum` records checksums. Upgrade pins together and validate the fixtures before adoption.
 
 ## Develop the shared checks
 
