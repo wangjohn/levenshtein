@@ -51,7 +51,7 @@ Application tests stay in the application repo. Wrap existing test scripts with 
 
 ## Example: an application using GitHub Actions
 
-Add these steps to the application's existing workflow, or start with this small workflow. Both checkouts are siblings so the shared runner's files stay outside the application source passed to verification. Replace `REVIEWED_LEVENSHTEIN_COMMIT` below with the full SHA of the reviewed readiness revision (including source boundaries). Adopt shared improvements by reviewing and updating that pin; do not use a moving branch.
+Add these steps to the application's existing workflow, or start with this small workflow. Both checkouts are siblings so the shared runner's files stay outside the application source passed to verification. The full SHA below pins the readiness implementation, including source boundaries. Adopt shared improvements by reviewing and updating that pin; do not use a moving branch.
 
 ```yaml
 name: Application verification
@@ -83,7 +83,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: wangjohn/levenshtein
-          ref: REVIEWED_LEVENSHTEIN_COMMIT
+          ref: 314238953567969b8092ff150ed502a709d1a3b5
           path: levenshtein
           persist-credentials: false
       - name: Set up Go for the source launcher
