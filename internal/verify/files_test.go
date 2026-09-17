@@ -13,8 +13,9 @@ func TestContainedPathsAllowOnlyRelativeInternalAliases(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
-		name, destination string
-		allowed           bool
+		name        string
+		destination string
+		allowed     bool
 	}{
 		{"relative", "app", true},
 		{"absolute", target, false},

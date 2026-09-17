@@ -16,13 +16,13 @@ func TestReviewFreshFailureInvalidatesOldSuccess(t *testing.T) {
 		t.Fatal(got)
 	}
 
-	req.Fresh = true
+	req.RerunChecks = true
 	executor.status = StatusFailed
 	if got := runner.Execute(context.Background(), req); got.Status != StatusFailed {
 		t.Fatal(got)
 	}
 
-	req.Fresh = false
+	req.RerunChecks = false
 	if got := runner.Execute(context.Background(), req); got.Status == StatusPassed {
 		t.Fatalf("returned older green after fresh failure: %+v; calls=%d", got, executor.calls)
 	}

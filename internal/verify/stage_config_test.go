@@ -12,7 +12,7 @@ func TestPreparationAndBuildHaveTheSamePlanningRules(t *testing.T) {
 			{"missing inputs", func(s *Preparation) { s.Inputs = nil }},
 			{"missing outputs", func(s *Preparation) { s.Outputs = nil }},
 			{"timeout", func(s *Preparation) { s.Timeout = "-1s" }},
-			{"environment", func(s *Preparation) { s.Env = map[string]string{"LEVENSHTEIN_FRESH": "true"} }},
+			{"environment", func(s *Preparation) { s.Env = map[string]string{"LEVENSHTEIN_RERUN_CHECKS": "true"} }},
 			{"input escape", func(s *Preparation) { s.Inputs = []string{"../outside"} }},
 			{"output escape", func(s *Preparation) { s.Outputs = []string{"../outside"} }},
 			{"valid", func(*Preparation) {}},

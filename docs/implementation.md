@@ -81,7 +81,7 @@ Proposed run policy (not yet supported by the current configuration schema):
 | `main` | Complete applicable suite, scheduled daily by the consumer's CI | Fresh verification with dependency/build reuse |
 | Custom | Consumer-defined check selection | Explicit choice of normal reuse or fresh verification |
 
-Make freshness an explicit run property, such as `fresh: true`, rather than a behavior available only to the name `main`. Fresh execution bypasses the shared result cache, Dagger's cached check execution, and native test/analysis verdict caches. It preserves compatible downloads and compilation. Each adapter implements and verifies that contract. A successful fresh run may populate results for later ordinary runs; reports retain when verification actually occurred.
+Make freshness an explicit run property, such as `rerun_checks: true`, rather than a behavior available only to the name `main`. Fresh execution bypasses the shared result cache, Dagger's cached check execution, and native test/analysis verdict caches. It preserves compatible downloads and compilation. Each adapter implements and verifies that contract. A successful fresh run may populate results for later ordinary runs; reports retain when verification actually occurred.
 
 Start with explicit core check selections and input scopes. Cache fingerprints determine whether selected work can be reused. More advanced change-based selection determines which checks are selected and remains separate. Required core checks, task acceptance, and new/modified tests remain covered; uncertain dependencies broaden verification. Add new checks to the full run explicitly during the pilot.
 

@@ -32,8 +32,9 @@ type Report struct {
 }
 
 type Request struct {
-	Source, Shared string
-	Fresh          bool
+	Source      string
+	Shared      string
+	RerunChecks bool
 	PlannedCheck
 }
 
@@ -46,7 +47,7 @@ func Execute(ctx context.Context, plan Plan, shared string, executors map[Execut
 	results := []Result{}
 	for _, check := range plan.Checks {
 		start := time.Now()
-		outcome := executeCheck(ctx, check, Request{Source: plan.Source, Shared: shared, Fresh: plan.Fresh, PlannedCheck: check}, executors)
+		outcome := executeCheck(ctx, check, Request{Source: plan.Source, Shared: shared, RerunChecks: plan.RerunChecks, PlannedCheck: check}, executors)
 		duration := time.Since(start).Milliseconds()
 		verifiedAt, executionMS := outcome.VerifiedAt, outcome.ExecutionMS
 		if verifiedAt.IsZero() {

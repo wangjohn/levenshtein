@@ -16,11 +16,11 @@ type PlannedCheck struct {
 }
 
 type Plan struct {
-	Version int            `json:"version"`
-	Run     string         `json:"run"`
-	Fresh   bool           `json:"fresh"`
-	Source  string         `json:"source"`
-	Checks  []PlannedCheck `json:"checks"`
+	Version     int            `json:"version"`
+	Run         string         `json:"run"`
+	RerunChecks bool           `json:"rerun_checks"`
+	Source      string         `json:"source"`
+	Checks      []PlannedCheck `json:"checks"`
 }
 
 func (cfg Config) Plan(source, name string) (Plan, error) {
@@ -38,7 +38,7 @@ func (cfg Config) Plan(source, name string) (Plan, error) {
 		return Plan{}, fmt.Errorf("run %q is missing or empty", name)
 	}
 
-	p := Plan{Version: 1, Run: name, Fresh: run.Fresh, Source: source}
+	p := Plan{Version: 1, Run: name, RerunChecks: run.RerunChecks, Source: source}
 	seen := map[string]bool{}
 	for _, id := range run.Checks {
 		if id == "" || seen[id] {
@@ -61,8 +61,8 @@ func (cfg Config) Plan(source, name string) (Plan, error) {
 		if err := validateCheck(check, env); err != nil {
 			return p, fmt.Errorf("check %q: %w", id, err)
 		}
-		if run.Fresh && env.Executor == ExecutorNative && len(check.FreshCommand) == 0 {
-			return p, fmt.Errorf("check %q: fresh native runs require an explicit fresh_command", id)
+		if run.RerunChecks && env.Executor == ExecutorNative && len(check.RerunCommand) == 0 {
+			return p, fmt.Errorf("check %q: fresh native runs require an explicit rerun_command", id)
 		}
 
 		if target.Workspace == "" {

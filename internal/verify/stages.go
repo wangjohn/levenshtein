@@ -29,7 +29,7 @@ type stageEntry struct{ Key, Outputs string }
 
 func (n *Native) stage(ctx context.Context, req Request, kind StageKind, stage *Preparation) (StageResult, *Result) {
 	start := time.Now()
-	req.Fresh = false // Freshness concerns verification, not reusable preparation.
+	req.RerunChecks = false // Freshness concerns verification, not reusable preparation.
 	inputs, err := snapshot(req.Source, stage.Inputs, stage.Outputs, false)
 	if err != nil {
 		r := Result{Status: StatusError, Error: "stage inputs: " + err.Error()}

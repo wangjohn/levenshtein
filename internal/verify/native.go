@@ -43,8 +43,8 @@ func (n *Native) Execute(ctx context.Context, req Request) Result {
 	}
 
 	args := req.Check.Command
-	if req.Fresh && len(req.Check.FreshCommand) > 0 {
-		args = req.Check.FreshCommand
+	if req.RerunChecks && len(req.Check.RerunCommand) > 0 {
+		args = req.Check.RerunCommand
 	}
 
 	result := command(ctx, dir, args, env, req.Check.Timeout).withStages(stages)

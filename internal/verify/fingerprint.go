@@ -150,7 +150,7 @@ func fingerprint(req Request) (string, error) {
 		return "", err
 	}
 
-	req.Fresh = false
+	req.RerunChecks = false
 	var env []string
 	if req.Environment.Executor == ExecutorNative {
 		env = nativeEnv(req, req.Check.Env)
