@@ -32,3 +32,5 @@ To check another Go repo: `./verify go-lint --source /path/to/repo`. [Use it fro
 - [Setup and usage](docs/setup.md): run the Go checks locally and in CI.
 - [Implementation plan](docs/implementation.md): what we are building first and how.
 - [Design notes](docs/design-notes.md): cache contracts and ideas for later.
+
+See [Go lint rules](docs/go-lint.md) for the shared defer/close, typed-choice, and value-record policies.

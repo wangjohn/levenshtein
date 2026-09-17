@@ -37,7 +37,14 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: .go-version
-          cache-dependency-path: runner/go.sum
+          cache-dependency-path: |
+            runner/go.sum
+            runner/lint/go.sum
+      - name: Go policy analyzer tests
+        working-directory: runner/lint
+        env:
+          GOTOOLCHAIN: local
+        run: go test -race ./...
       - name: Install pinned Dagger
         run: |
           ./scripts/install-dagger "$RUNNER_TEMP/levenshtein-bin"
@@ -78,7 +85,7 @@ jobs:
             echo 'Bad cleanup unexpectedly passed'
             exit 1
           fi
-          for code in SA5001 SA5003 SA9001; do
+          for code in SA5001 SA5003 SA9001 LV1001 LV1002; do
             if ! grep -q "\"code\": \"$code\"" "$RUNNER_TEMP/bad-lint.log"; then
               cat "$RUNNER_TEMP/bad-lint.log"
               echo "Missing intended diagnostic: $code"
