@@ -1,10 +1,47 @@
 {
-  "modules": ["runner", "runner/lint"],
+  "modules": [
+    "runner",
+    "runner/lint"
+  ],
   "runs": {
-    "branch": ["go-lint"],
-    "pre-merge": ["go-lint", "self-test"],
-    "main": ["go-lint", "self-test"],
-    "go-lint": ["go-lint"],
-    "self-test": ["self-test"]
+    "branch": [
+      "go-lint",
+      "go-vet",
+      "workflow-lint"
+    ],
+    "pre-merge": [
+      "go-lint",
+      "go-vet",
+      "workflow-lint",
+      "self-test"
+    ],
+    "main": [
+      "go-lint",
+      "go-vet",
+      "workflow-lint",
+      "self-test",
+      "go-vuln"
+    ],
+    "go-lint": [
+      "go-lint"
+    ],
+    "go-vet": [
+      "go-vet"
+    ],
+    "go-http": [
+      "go-http"
+    ],
+    "go-sql": [
+      "go-sql"
+    ],
+    "go-vuln": [
+      "go-vuln"
+    ],
+    "workflow-lint": [
+      "workflow-lint"
+    ],
+    "self-test": [
+      "self-test"
+    ]
   }
 }

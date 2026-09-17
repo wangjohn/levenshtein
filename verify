@@ -49,6 +49,11 @@ esac
 
 args=(--mod "$root" call verify --source "$source_dir" --run "$run")
 if [[ $dry_run == true ]]; then args+=(--dry-run); fi
+# Fresh invocation identity must enter outside Dagger's cached function call.
+# Only go-vuln uses this input; ordinary checks retain their execution caches.
+if [[ $dry_run == false ]]; then
+  args+=(--audit-nonce "$(date -u +%s)-$$-$RANDOM")
+fi
 # Change the execution input for full audits while preserving build caches.
 if [[ $run == main && $dry_run == false ]]; then
   args+=(--nonce "$(date -u +%s)-$$-$RANDOM")

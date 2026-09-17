@@ -2,7 +2,7 @@
 
 **Implemented:** pinned Go lint through Dagger, configurable runs, rule fixtures, and CI for Levenshtein itself. [Setup](setup.md) and [consumer CI](consumer-ci.md) document the current interface.
 
-**Next:** introduce a language-independent runner with aggressive caching and native macOS execution, then wrap Benchplan's existing checks. The architecture and cache policy below are planned; the current runner still accepts only Go module lists and the `go-lint` / `self-test` checks.
+**Next:** introduce a language-independent runner with aggressive caching and native macOS execution, then wrap Benchplan's existing checks. The architecture and cache policy below are planned; the current runner still accepts only Go module lists and the [named shared checks](go-lint.md).
 
 ## Core interface
 

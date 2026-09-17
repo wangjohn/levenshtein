@@ -1,0 +1,35 @@
+name: Dependency vulnerabilities
+
+on:
+  pull_request:
+    paths:
+      - '**/go.mod'
+      - '**/go.sum'
+      - '.go-version'
+      - 'runner/toolchain.json'
+      - '.github/workflows/vulnerabilities.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vulnerabilities-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  vulnerabilities:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned Dagger
+        run: |
+          ./scripts/install-dagger "$RUNNER_TEMP/levenshtein-bin"
+          echo "$RUNNER_TEMP/levenshtein-bin" >> "$GITHUB_PATH"
+      - name: Generate the pinned Go SDK
+        run: dagger develop --compat=skip
+      - name: Scan configured Go modules
+        run: ./verify go-vuln

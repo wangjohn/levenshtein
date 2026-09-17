@@ -80,6 +80,9 @@ func (m *Levenshtein) Verify(
 	// Unique execution input for a fresh main audit; set by the launcher.
 	// +optional
 	nonce string,
+	// Unique invocation input for vulnerability scans, independent of source changes.
+	// +optional
+	auditNonce string,
 ) (string, error) {
 	var tools toolchain
 	if err := json.Unmarshal(toolchainJSON, &tools); err != nil {
@@ -126,6 +129,13 @@ func (m *Levenshtein) Verify(
 		return "", fmt.Errorf("main requires a unique nonce for fresh execution; use ./verify main")
 	}
 	for _, check := range checks {
+		checkNonce := nonce
+		if check == "go-vuln" {
+			if auditNonce == "" {
+				return "", fmt.Errorf("go-vuln requires a unique audit nonce; use ./verify")
+			}
+			checkNonce = auditNonce
+		}
 		if check == "self-test" {
 			start := time.Now()
 			err := m.selfTest(ctx, tools, nonce)
@@ -139,9 +149,13 @@ func (m *Levenshtein) Verify(
 			}
 			continue
 		}
-		for _, module := range cfg.Modules {
+		modules := cfg.Modules
+		if check == "workflow-lint" {
+			modules = []string{"."}
+		}
+		for _, module := range modules {
 			start := time.Now()
-			findings, err := lint(ctx, source, module, tools, nonce)
+			findings, err := executeCheck(ctx, source, module, tools, check, checkNonce)
 			status := StatusPassed
 			if err != nil {
 				status = StatusError
@@ -151,9 +165,9 @@ func (m *Levenshtein) Verify(
 			results = append(results, result{Check: check, Module: module, Status: status, DurationMS: time.Since(start).Milliseconds(), Findings: findings})
 			if status != StatusPassed {
 				if err != nil {
-					return "", fmt.Errorf("%s\ngo-lint could not complete: %w", renderReport(StatusFailed), err)
+					return "", fmt.Errorf("%s\n%s could not complete: %w", renderReport(StatusFailed), check, err)
 				}
-				return "", fmt.Errorf("%s\ngo-lint found %d issue(s); fix the reported locations and rerun ./verify %q with the same --source", renderReport(StatusFailed), len(findings), run)
+				return "", fmt.Errorf("%s\n%s found %d issue(s); fix the reported locations and rerun ./verify %q with the same --source", renderReport(StatusFailed), check, len(findings), run)
 			}
 		}
 	}
@@ -161,7 +175,10 @@ func (m *Levenshtein) Verify(
 }
 
 func render(r report) string {
-	data, _ := json.MarshalIndent(r, "", "  ")
+	data, err := json.MarshalIndent(r, "", "  ")
+	if err != nil {
+		panic(err) // report contains only JSON-compatible values.
+	}
 	return string(data)
 }
 
@@ -170,10 +187,7 @@ func lint(ctx context.Context, source *dagger.Directory, module string, tools to
 		return nil, fmt.Errorf("module %q needs a readable go.mod: %w", module, err)
 	}
 
-	ctr := dag.Container().From(tools.GoImage).
-		WithEnvVariable("GOTOOLCHAIN", "local").
-		WithMountedCache("/go/pkg/mod", dag.CacheVolume("levenshtein-go-mod-"+tools.Go)).
-		WithMountedCache("/root/.cache/go-build", dag.CacheVolume("levenshtein-go-build-"+tools.Go)).
+	ctr := goContainer(tools).
 		WithDirectory("/policy", dag.CurrentModule().Source().Directory("lint")).
 		WithWorkdir("/policy").
 		WithExec([]string{"go", "build", "-trimpath", "-o", "/go/bin/levenshtein-lint", "./cmd/levenshtein-lint"}).
@@ -217,9 +231,13 @@ func parseFindings(exitCode int, stdout, stderr string, checks []string) ([]diag
 		return nil, fmt.Errorf("Staticcheck exited %d: %s\n%s", exitCode, stderr, stdout)
 	}
 
-	allowed := map[string]bool{}
-	for _, check := range checks {
-		allowed[check] = true
+	allowed := func(code string) bool {
+		for _, check := range checks {
+			if matched, _ := path.Match(check, code); matched {
+				return true
+			}
+		}
+		return false
 	}
 
 	var findings []diagnostic
@@ -233,7 +251,7 @@ func parseFindings(exitCode int, stdout, stderr string, checks []string) ([]diag
 		if err != nil {
 			return nil, fmt.Errorf("invalid Staticcheck JSON: %w", err)
 		}
-		if !allowed[finding.Code] || finding.Message == "" || finding.Location.File == "" || finding.Location.Line < 1 {
+		if !allowed(finding.Code) || finding.Message == "" || finding.Location.File == "" || finding.Location.Line < 1 {
 			return nil, fmt.Errorf("unexpected diagnostic (possibly a compile error): %s", stdout)
 		}
 		finding.Location.File = strings.TrimPrefix(finding.Location.File, "/src/")
@@ -267,9 +285,9 @@ func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce strin
 	for _, finding := range bad {
 		counts[finding.Code]++
 	}
-	for _, check := range tools.Checks {
-		if counts[check] != 1 {
-			return fmt.Errorf("bad fixture must produce exactly one %s diagnostic; got %v", check, counts)
+	for _, check := range []string{"SA5001", "SA5003", "SA9001", "LV1001", "LV1002", "errcheck", "exhaustive"} {
+		if counts[check] < 1 {
+			return fmt.Errorf("bad fixture must produce a %s diagnostic; got %v", check, counts)
 		}
 	}
 

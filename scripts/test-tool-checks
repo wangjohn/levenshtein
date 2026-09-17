@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+temporary=$(mktemp -d)
+trap 'rm -rf "$temporary"' EXIT
+(cd "$root/runner/tools" && go build -o "$temporary/actionlint" github.com/rhysd/actionlint/cmd/actionlint && go build -o "$temporary/govulncheck" golang.org/x/vuln/cmd/govulncheck)
+
+# Test discovery in an exported source tree with no .git directory.
+mkdir -p "$temporary/source/.github/workflows"
+cp "$root/.github/workflows/verify.yml" "$temporary/source/.github/workflows/verify.yml"
+(cd "$temporary/source" && "$temporary/actionlint" -shellcheck= -pyflakes= .github/workflows/*.yml)
+printf 'name: bad\non: push\njobs:\n  example:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "${{ nonexistent.value }}"\n' > "$temporary/source/.github/workflows/bad.yml"
+if (cd "$temporary/source" && "$temporary/actionlint" -shellcheck= -pyflakes= .github/workflows/*.yml) > "$temporary/workflow.log" 2>&1; then
+  echo 'Invalid workflow unexpectedly passed' >&2
+  exit 1
+fi
+grep -q nonexistent "$temporary/workflow.log"
+
+# A synthetic local database proves reachable findings return 3. No live
+# advisories or network availability can change this test's expected result.
+mkdir -p "$temporary/db/index" "$temporary/db/ID"
+printf '{"modified":"2026-01-01T00:00:00Z"}\n' > "$temporary/db/index/db.json"
+printf '[{"path":"stdlib","vulns":[{"id":"GO-2099-0001","modified":"2026-01-01T00:00:00Z","fixed":"99.0.0"}]}]\n' > "$temporary/db/index/modules.json"
+cat > "$temporary/db/ID/GO-2099-0001.json" <<'JSON'
+{"schema_version":"1.3.1","id":"GO-2099-0001","modified":"2026-01-01T00:00:00Z","published":"2026-01-01T00:00:00Z","summary":"Synthetic fixture only","database_specific":{"url":"https://example.invalid/synthetic-advisory"},"details":"This is not a real advisory.","affected":[{"package":{"name":"stdlib","ecosystem":"Go"},"ranges":[{"type":"SEMVER","events":[{"introduced":"0"},{"fixed":"99.0.0"}]}],"ecosystem_specific":{"packages":[{"path":"os","symbols":["Open"]}]}}]}
+JSON
+status=0
+(cd "$root/runner/testdata/good" && "$temporary/govulncheck" -db="file://$temporary/db" ./...) > "$temporary/vuln.log" 2>&1 || status=$?
+if [[ $status != 3 ]]; then
+  cat "$temporary/vuln.log" >&2
+  echo "Expected vulnerability exit 3, got $status" >&2
+  exit 1
+fi
+grep -q GO-2099-0001 "$temporary/vuln.log"
+printf '[]\n' > "$temporary/db/index/modules.json"
+(cd "$root/runner/testdata/good" && "$temporary/govulncheck" -db="file://$temporary/db" ./...)
+echo 'Standalone tool regression fixtures passed'

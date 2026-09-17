@@ -4,9 +4,9 @@
   "staticcheck": "v0.8.1",
   "staticcheckRelease": "2026.2.1",
   "checks": [
-    "SA5001",
-    "SA5003",
-    "SA9001",
+    "SA*",
+    "errcheck",
+    "exhaustive",
     "LV1001",
     "LV1002"
   ]

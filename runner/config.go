@@ -16,8 +16,10 @@ type config struct {
 
 func defaultConfig() config {
 	return config{Modules: []string{"."}, Runs: map[string][]string{
-		"branch": {"go-lint"}, "pre-merge": {"go-lint"},
-		"main": {"go-lint"}, "go-lint": {"go-lint"},
+		"branch": {"go-lint", "go-vet"}, "pre-merge": {"go-lint", "go-vet"},
+		"main": {"go-lint", "go-vet", "go-vuln"}, "go-lint": {"go-lint"},
+		"go-vet": {"go-vet"}, "go-http": {"go-http"}, "go-sql": {"go-sql"},
+		"go-vuln": {"go-vuln"}, "workflow-lint": {"workflow-lint"},
 	}}
 }
 
@@ -54,7 +56,7 @@ func (cfg config) selectChecks(run string) ([]string, error) {
 	}
 	seen = map[string]bool{}
 	for _, check := range checks {
-		if check != "go-lint" && check != "self-test" {
+		if !knownCheck(check) {
 			return nil, fmt.Errorf("unknown check %q in run %q", check, run)
 		}
 		if seen[check] {
