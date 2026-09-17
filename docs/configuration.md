@@ -19,14 +19,14 @@
   "runs": {
     "branch": {"checks": ["cleanup"]},
     "pre-merge": {"checks": ["cleanup"]},
-    "daily": {"checks": ["cleanup"], "fresh": true}
+    "daily": {"checks": ["cleanup"], "rerun_checks": true}
   }
 }
 ```
 
 Supported checks are `go-lint` and Levenshtein's own `self-test` using Dagger, plus native `command` checks. Go tool versions remain pinned in the shared checkout. Completed-result caching is the next implementation step.
 
-A run selects check IDs. `fresh: true` forces verification execution while retaining compatible dependency/build caches. Any run name can use it; versioned configuration gives `main` no special behavior. Unknown checks, executors, references, and configuration fields fail explicitly.
+A run selects check IDs. `rerun_checks: true` forces verification execution while retaining compatible dependency/build caches. It replaces the earlier `fresh` setting; use `rerun_checks` in configuration and `LEVENSHTEIN_RERUN_CHECKS` in scripts. Any run name can use it; versioned configuration gives `main` no special behavior. Unknown checks, executors, references, and configuration fields fail explicitly.
 
 Legacy `modules` and array-valued `runs` remain supported. They translate into Go targets/checks, and legacy `main` retains fresh behavior. A source without configuration still receives the original single-module Go defaults.
 
@@ -56,7 +56,7 @@ Native commands execute on the supplied macOS or Linux worker. They are trusted 
 
 Commands are argument arrays; shell syntax requires an explicit shell command. Artifact paths are repository-relative regular files and are required on success. Timeouts default to five minutes and terminate the process group, including child processes. Native output is retained in the result; a nonzero exit fails verification, while missing tools, missing artifacts, and timeouts are errors.
 
-The process inherits only `PATH`, `HOME`, and temporary-directory/system-root variables. `LANG` has a stable default. Add fixed nonsecret values through environment/check `env`, or explicit inherited names through environment `pass_env`. Do not put credentials in configuration. The runner supplies `LEVENSHTEIN_SOURCE`, `LEVENSHTEIN_WORKSPACE`, and `LEVENSHTEIN_FRESH` to scripts. An environment can declare `tools`: each entry has a version-printing `command` array and exact expected stdout in `version`. These validations run before preparation/check execution.
+The process inherits only `PATH`, `HOME`, and temporary-directory/system-root variables. `LANG` has a stable default. Add fixed nonsecret values through environment/check `env`, or explicit inherited names through environment `pass_env`. Do not put credentials in configuration. The runner supplies `LEVENSHTEIN_SOURCE`, `LEVENSHTEIN_WORKSPACE`, and `LEVENSHTEIN_RERUN_CHECKS` to scripts. Native scripts must honor `LEVENSHTEIN_RERUN_CHECKS=true` by bypassing cached verification results while retaining compatible dependency/build caches. An environment can declare `tools`: each entry has a version-printing `command` array and exact expected stdout in `version`. These validations run before preparation/check execution.
 
 A check may reference an entry in top-level `preparations` by ID. Each preparation declares `command`, repository-relative `inputs` and `outputs`, optional `env`, and `timeout`. Preparation runs in the target's workspace directory. Declared output paths and their ancestors must not be symlinks. Checks share compatible successful preparation within a run, with conflicting mutations serialized; missing outputs require preparation again. Cross-process caching is the next implementation step. Build/tool caches managed by the repository's commands remain usable.
 

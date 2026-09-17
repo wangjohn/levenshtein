@@ -34,7 +34,7 @@ func nativeEnv(req Request, extra map[string]string) []string {
 
 	values["LEVENSHTEIN_SOURCE"] = req.Source
 	values["LEVENSHTEIN_WORKSPACE"] = filepath.Join(req.Source, req.Target.Workspace)
-	values["LEVENSHTEIN_FRESH"] = fmt.Sprint(req.Fresh)
+	values["LEVENSHTEIN_RERUN_CHECKS"] = fmt.Sprint(req.RerunChecks)
 
 	keys := make([]string, 0, len(values))
 	for key := range values {

@@ -58,8 +58,8 @@ type Check struct {
 }
 
 type Run struct {
-	Checks []string `json:"checks"`
-	Fresh  bool     `json:"fresh,omitempty"`
+	Checks      []string `json:"checks"`
+	RerunChecks bool     `json:"rerun_checks,omitempty"`
 }
 
 func decode(data []byte, value any) error {
@@ -127,7 +127,7 @@ func Parse(data []byte) (Config, error) {
 	cfg.Checks["self-test"] = Check{Kind: CheckSelfTest, Target: "module-0", Environment: "go"}
 
 	for name, checks := range old.Runs {
-		run := Run{Fresh: name == "main"}
+		run := Run{RerunChecks: name == "main"}
 		seen := map[string]bool{}
 		for _, check := range checks {
 			if seen[check] {

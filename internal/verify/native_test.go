@@ -72,8 +72,8 @@ func TestNativeEnvironmentAndArtifacts(t *testing.T) {
 	req := nativeRequest(t)
 	req.Environment.Env = map[string]string{"VALUE": "configured"}
 	req.Check.Env = map[string]string{"VALUE": "check"}
-	req.Check.Command = []string{"/bin/sh", "-c", `test -z "$UNDECLARED_VARIABLE" && test "$VALUE" = check && test "$LEVENSHTEIN_FRESH" = true && printf report > artifact.txt`}
-	req.Fresh = true
+	req.Check.Command = []string{"/bin/sh", "-c", `test -z "$UNDECLARED_VARIABLE" && test "$VALUE" = check && test "$LEVENSHTEIN_RERUN_CHECKS" = true && printf report > artifact.txt`}
+	req.RerunChecks = true
 	req.Check.Artifacts = []string{"artifact.txt"}
 
 	result := (&Native{}).Execute(context.Background(), req)
