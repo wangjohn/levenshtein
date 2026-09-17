@@ -27,7 +27,7 @@ func cacheRequest(t *testing.T) Request {
 	req := nativeRequest(t)
 	req.Shared = t.TempDir()
 	req.Check.Cache = true
-	req.Check.FreshCommand = req.Check.Command
+	req.Check.RerunCommand = req.Check.Command
 	req.Environment.Identity = "fixture-v1"
 	req.Target.Inputs = []string{"input"}
 	if err := os.WriteFile(filepath.Join(req.Source, "input"), []byte("one"), 0600); err != nil {
@@ -64,12 +64,12 @@ func TestResultCacheInvalidationAndFreshness(t *testing.T) {
 		t.Fatalf("input edit: %+v", result)
 	}
 
-	req.Fresh = true
+	req.RerunChecks = true
 	if result := runner.Execute(context.Background(), req); result.Cache.Status != CacheFresh || executor.calls != 3 {
 		t.Fatalf("fresh: %+v", result)
 	}
 
-	req.Fresh = false
+	req.RerunChecks = false
 	if result := runner.Execute(context.Background(), req); result.Cache.Status != CacheHit {
 		t.Fatalf("fresh should populate ordinary result: %+v", result)
 	}
@@ -126,7 +126,7 @@ func TestPersistentPreparationAcrossExecutors(t *testing.T) {
 	req := cacheRequest(t)
 	req.Preparation = &Preparation{Command: []string{"/bin/sh", "-c", "echo prep >> count; printf environment > ready"}, Inputs: []string{"lock"}, Outputs: []string{"ready"}}
 	req.Check.Command = []string{"/bin/sh", "-c", "test -f ready"}
-	req.Check.FreshCommand = req.Check.Command
+	req.Check.RerunCommand = req.Check.Command
 	cache := &Cache{Dir: t.TempDir()}
 	for i := 0; i < 2; i++ {
 		result := (&Native{Cache: cache}).Execute(context.Background(), req)
@@ -143,7 +143,7 @@ func TestPersistentPreparationAcrossExecutors(t *testing.T) {
 		t.Fatalf("overwritten setup reused: %+v", result)
 	}
 
-	req.Fresh = true
+	req.RerunChecks = true
 
 	result = (&Native{Cache: cache}).Execute(context.Background(), req)
 	if result.Status != StatusPassed || !result.Stages[0].Reused {
@@ -208,7 +208,7 @@ func TestUnpinnedEnvironmentDoesNotPersistPreparation(t *testing.T) {
 type verdictCachingExecutor struct{ failFresh bool }
 
 func (e *verdictCachingExecutor) Execute(ctx context.Context, req Request) Result {
-	if req.Fresh && e.failFresh {
+	if req.RerunChecks && e.failFresh {
 		return Result{Status: StatusFailed}
 	}
 	return Result{Status: StatusPassed}
@@ -224,12 +224,12 @@ func TestFreshFailureBypassesUnderlyingVerdictCache(t *testing.T) {
 	}
 
 	executor.failFresh = true
-	req.Fresh = true
+	req.RerunChecks = true
 	if result := runner.Execute(context.Background(), req); result.Status != StatusFailed {
 		t.Fatal(result)
 	}
 
-	req.Fresh = false
+	req.RerunChecks = false
 
 	result := runner.Execute(context.Background(), req)
 	if result.Status != StatusFailed || result.Cache.Status != CacheFresh {

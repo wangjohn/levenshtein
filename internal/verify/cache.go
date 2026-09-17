@@ -175,11 +175,11 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 	defer unlock()
 	retryPath := filepath.Join(c.Cache.Dir, "results", key+".retry")
 	if _, err := os.Stat(retryPath); err == nil {
-		req.Fresh = true
+		req.RerunChecks = true
 		reason = "previous execution did not publish a successful result; bypassing underlying verdict caches"
 	}
 
-	if !req.Fresh {
+	if !req.RerunChecks {
 		if result, err := c.Cache.load(req, key); err == nil {
 			after, changedErr := fingerprint(req)
 			if changedErr == nil && after == key {

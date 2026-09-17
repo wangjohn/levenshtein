@@ -17,27 +17,27 @@ func TestLegacyTranslation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Checks) != 2 || plan.Fresh {
+	if len(plan.Checks) != 2 || plan.RerunChecks {
 		t.Fatalf("incorrect plan: %+v", plan)
 	}
 	plan, err = cfg.Plan(t.TempDir(), "main")
-	if err != nil || !plan.Fresh {
+	if err != nil || !plan.RerunChecks {
 		t.Fatalf("lost main freshness: %+v %v", plan, err)
 	}
 }
 
 func TestVersionedPlanningNeedsNoTools(t *testing.T) {
 	t.Setenv("PATH", "")
-	cfg, err := Parse([]byte(`{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"lint":{"kind":"go-lint","target":"app","environment":"go"}},"runs":{"audit":{"checks":["lint"],"fresh":true},"main":{"checks":["lint"]}}}`))
+	cfg, err := Parse([]byte(`{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"lint":{"kind":"go-lint","target":"app","environment":"go"}},"runs":{"audit":{"checks":["lint"],"rerun_checks":true},"main":{"checks":["lint"]}}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	plan, err := cfg.Plan(t.TempDir(), "audit")
-	if err != nil || !plan.Fresh {
+	if err != nil || !plan.RerunChecks {
 		t.Fatalf("plan: %+v %v", plan, err)
 	}
 	plan, err = cfg.Plan(t.TempDir(), "main")
-	if err != nil || plan.Fresh {
+	if err != nil || plan.RerunChecks {
 		t.Fatalf("freshness still depends on name: %+v %v", plan, err)
 	}
 }

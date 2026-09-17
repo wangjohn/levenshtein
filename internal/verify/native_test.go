@@ -20,8 +20,9 @@ func nativeRequest(t *testing.T) Request {
 
 func TestNativeCommandOutcomes(t *testing.T) {
 	for _, tc := range []struct {
-		name, script string
-		status       Status
+		name   string
+		script string
+		status Status
 	}{{"pass", "printf hello; printf warning >&2", StatusPassed}, {"assertion", "printf failure; exit 3", StatusFailed}} {
 		t.Run(tc.name, func(t *testing.T) {
 			req := nativeRequest(t)
@@ -71,8 +72,8 @@ func TestNativeEnvironmentAndArtifacts(t *testing.T) {
 	req := nativeRequest(t)
 	req.Environment.Env = map[string]string{"VALUE": "configured"}
 	req.Check.Env = map[string]string{"VALUE": "check"}
-	req.Check.Command = []string{"/bin/sh", "-c", `test -z "$UNDECLARED_VARIABLE" && test "$VALUE" = check && test "$LEVENSHTEIN_FRESH" = true && printf report > artifact.txt`}
-	req.Fresh = true
+	req.Check.Command = []string{"/bin/sh", "-c", `test -z "$UNDECLARED_VARIABLE" && test "$VALUE" = check && test "$LEVENSHTEIN_RERUN_CHECKS" = true && printf report > artifact.txt`}
+	req.RerunChecks = true
 	req.Check.Artifacts = []string{"artifact.txt"}
 
 	result := (&Native{}).Execute(context.Background(), req)
@@ -161,13 +162,13 @@ func TestRejectPreparationOutputAliases(t *testing.T) {
 	}
 }
 
-func TestFreshRunRequiresNativeFreshCommand(t *testing.T) {
-	cfg := Config{Version: 1, Targets: map[string]Target{"app": {Dir: ".", Inputs: []string{"."}}}, Environments: map[string]Environment{"host": {Executor: ExecutorNative}}, Checks: map[string]Check{"test": {Kind: CheckCommand, Target: "app", Environment: "host", Command: []string{"true"}}}, Runs: map[string]Run{"audit": {Checks: []string{"test"}, Fresh: true}}}
+func TestFreshRunRequiresNativeRerunCommand(t *testing.T) {
+	cfg := Config{Version: 1, Targets: map[string]Target{"app": {Dir: ".", Inputs: []string{"."}}}, Environments: map[string]Environment{"host": {Executor: ExecutorNative}}, Checks: map[string]Check{"test": {Kind: CheckCommand, Target: "app", Environment: "host", Command: []string{"true"}}}, Runs: map[string]Run{"audit": {Checks: []string{"test"}, RerunChecks: true}}}
 	if _, err := cfg.Plan(t.TempDir(), "audit"); err == nil {
 		t.Fatal("freshness was silently assumed for a generic command")
 	}
 	check := cfg.Checks["test"]
-	check.FreshCommand = []string{"true"}
+	check.RerunCommand = []string{"true"}
 	cfg.Checks["test"] = check
 	if _, err := cfg.Plan(t.TempDir(), "audit"); err != nil {
 		t.Fatal(err)
