@@ -12,7 +12,7 @@ For example, add a Go rule that catches misplaced `defer` calls, then adopt it a
 
 ## Usage
 
-**Available now:** shared Go cleanup lint through Dagger, native commands, and local caching of results and compatible setup/builds. [Set up Go checks](docs/setup.md) or [configure native checks](docs/configuration.md).
+**Available now:** shared Go lint, vet, resource and vulnerability checks, workflow lint, native commands, and local caching of results and compatible setup/builds. [Set up Go checks](docs/setup.md) or [configure native checks](docs/configuration.md).
 
 ```sh
 ./verify              # fast checks for your branch
@@ -21,11 +21,11 @@ For example, add a Go rule that catches misplaced `defer` calls, then adopt it a
 ./verify go-lint      # shared Go rules, such as misplaced defers
 ```
 
-`./verify` defaults to `branch`. Add your own named runs through configuration. Run the same checks locally and in CI.
+`./verify` defaults to `branch`. In version 1 configuration, fresh audits explicitly set `rerun_checks: true`. Add your own named runs through configuration. Run the same checks locally and in CI.
 
 To check another Go repo: `./verify go-lint --source /path/to/repo`. [Use it from your existing CI](docs/consumer-ci.md).
 
-**Next:** adopt the runner in Benchplan, measure real Swift checks, and persist compatible caches across CI workers. Levenshtein's own workflow and daily schedule check its runner and fixtures.
+**Next:** pilot explicit Go product targets in Family Books, wrap selected Swift checks in Benchplan, and measure cache reuse before adding cross-worker persistence. Levenshtein's own workflow and daily schedule check its runner and fixtures.
 
 ## Documentation
 

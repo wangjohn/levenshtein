@@ -1,6 +1,6 @@
 # Setup and usage
 
-Shared Go checks run pinned correctness, error handling, enum, resource, workflow, and vulnerability tools in Dagger. The runner accepts a source checkout and a named run; your existing CI supplies workers and decides when to invoke it. See [use from an application repo](consumer-ci.md) for local and CI examples. The [implementation plan](implementation.md) adds a common interface for native/container checks and aggressive cache reuse, starting with Benchplan; native commands and local result caching are supported; Benchplan adoption and cross-worker cache transport are subsequent steps.
+Shared Go checks run pinned correctness, error handling, enum, resource, workflow, and vulnerability tools in Dagger. The runner accepts a source checkout and a named run; your existing CI supplies workers and decides when to invoke it. See [use from an application repo](consumer-ci.md) for local and CI examples. Native commands and local result/setup/build caching are supported. Consumer adoption and cross-worker cache transport are the next steps in the [implementation plan](implementation.md).
 
 ## Prerequisites
 
@@ -18,7 +18,7 @@ The installer supports macOS Intel/Apple Silicon and Linux amd64. On macOS, one 
 
 ```sh
 brew install colima docker
-colima start levenshtein --runtime docker --vm-type vz --cpu 2 --memory 4 --disk 20
+colima start levenshtein --runtime docker --vm-type vz --cpu 2 --memory 4 --disk 60
 ```
 
 Docker Desktop or an existing Docker engine also works. CI uses the Docker engine supplied by the GitHub-hosted Ubuntu runner. Dagger downloads its pinned engine and builds the module on the first invocation; allow extra time for the initial run.
@@ -34,9 +34,9 @@ dagger develop --compat=skip
 From the Levenshtein checkout:
 
 ```sh
-./verify                       # branch: shared Go lint
-./verify pre-merge             # lint and the lint-rule fixtures
-./verify main                  # same current suite, freshly executed
+./verify                       # branch: shared Go lint and vet
+./verify pre-merge             # selected lint, resource, workflow, and fixture checks
+./verify main                  # fresh audit, including vulnerability scans
 ./verify go-lint --source /path/to/a/go/repo
 ./verify pre-merge --dry-run    # print selected checks without running them
 ```
@@ -59,23 +59,13 @@ These are selected Staticcheck rules, not a complete resource-leak analysis. The
 
 ## Configure a repo
 
-A single Go module at the source root works without configuration. For multiple modules or custom runs, add `levenshtein.json` to that repo:
+A single Go module at the source root works without configuration. For multiple modules or custom runs, add `levenshtein.json` to that repo.
 
-```json
-{
-  "modules": ["api", "worker"],
-  "runs": {
-    "branch": ["go-lint"],
-    "pre-merge": ["go-lint"],
-    "main": ["go-lint"],
-    "cleanup": ["go-lint"]
-  }
-}
-```
+Use the [version 1 consumer example](consumer-ci.md#the-same-command-locally-and-in-ci) for explicit product targets, checks, and run selections. `inputs` restricts Dagger's imported source as well as its cache scope; include required manifests, local dependencies, and fixtures. Native command inputs only describe cache scope and do not restrict host access. See [source boundaries](configuration.md#source-boundaries).
 
-Then run `./verify cleanup --source /path/to/repo`. A configuration file replaces the defaults. Module paths are relative to the source root. Every selected module is checked; change-based selection is not implemented yet. Available shared check kinds are listed in [Go lint rules](go-lint.md); prefer the [versioned configuration](configuration.md) for new repos. `self-test` validates Levenshtein's lint and consumer fixtures.
+A configuration file replaces defaults. Paths are relative to the source root. Every selected check runs or reuses an eligible result; change-based selection is not implemented. Available shared kinds are listed in [Go lint rules](go-lint.md). Legacy `modules` configuration remains supported, but new consumers should use version 1.
 
-This repo's `pre-merge` and `main` runs include `self-test`. Invoking `main` uses a unique execution input and a fresh Staticcheck analysis cache so a cached passing verdict cannot replace the audit. Download and compiler caches remain reusable. Each repo's CI owns its daily schedule. Add new checks explicitly to the configured full run during this pilot.
+Version 1 runs use explicit `rerun_checks: true` for fresh audits, regardless of their name. Levenshtein's own `main` is configured that way. Audits bypass passing-verdict reuse while retaining compatible downloads and compiler caches. Vulnerability scans always execute against current advisory data. Add new checks explicitly to your configured full run during this pilot.
 
 ## Levenshtein's own CI
 
@@ -88,7 +78,7 @@ For Levenshtein itself, the workflow selects:
 - `main` daily at 07:23 UTC, using the default branch.
 - A configurable run for manual dispatch.
 
-This workflow also runs the runner's Go unit tests, consumer regression fixtures, and verifies that the bad fixture fails with all three intended diagnostics. Require both `verify` and `language-contracts` for Levenshtein once they have run; the second job exercises the Rust and Python contracts. Application repos maintain their own merge gates and schedules.
+This workflow also runs the runner's Go unit tests, consumer regression fixtures, and verifies that the bad fixture fails with all three intended diagnostics. Require `verify`, `release-smoke`, and `language-contracts` for Levenshtein once they have run; `language-contracts` exercises the Rust and Python contracts. Application repos maintain their own merge gates and schedules.
 
 ## Pinned dependencies
 

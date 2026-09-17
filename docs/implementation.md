@@ -2,7 +2,7 @@
 
 **Implemented:** a standalone Go CLI with versioned configuration, tool-free planning, common results, and the preserved pinned Go lint through Dagger. Legacy configuration, rule fixtures, and CI for Levenshtein itself remain supported. [Setup](setup.md) and [consumer CI](consumer-ci.md) document the current interface.
 
-**Next:** wrap Benchplan's existing checks and connect consumer CI cache persistence. Rust/Python compatibility fixtures now validate the shared interface; see [fixture checks](language-fixtures.md). Native commands, pinned-tool validation, timeouts, artifacts, and shared preparation within a run are implemented. Local result caching, separate preparation/build keys, artifact restoration, and fresh execution are implemented. Cross-worker cache transport and consumer adoption below remain planned; the current CLI accepts both legacy Go module lists and version 1 targets/checks/environments/runs, with `go-lint`, `self-test`, and native `command` checks. See [configuration](configuration.md).
+**Next:** pilot Family Books Go product checks, then wrap Benchplan's existing native checks and connect consumer CI cache persistence. Rust/Python compatibility fixtures now validate the shared interface; see [fixture checks](language-fixtures.md). Native commands, pinned-tool validation, timeouts, artifacts, and shared preparation within a run are implemented. Local result caching, separate preparation/build keys, artifact restoration, and fresh execution are implemented. Cross-worker cache transport and consumer adoption below remain planned; the current CLI accepts both legacy Go module lists and version 1 targets/checks/environments/runs, with shared Go lint, vet, HTTP/SQL resource checks, vulnerability scanning, workflow lint, `self-test`, and native `command` checks. See [configuration](configuration.md).
 
 ## Core interface
 
@@ -72,7 +72,7 @@ The existing command names remain familiar:
 ./verify <custom-run> --dry-run
 ```
 
-Proposed run policy (not yet supported by the current configuration schema):
+Recommended run policy (supported by version 1 configuration):
 
 | Run | Recommended scope | Cache policy |
 | --- | --- | --- |
@@ -81,7 +81,7 @@ Proposed run policy (not yet supported by the current configuration schema):
 | `main` | Complete applicable suite, scheduled daily by the consumer's CI | Fresh verification with dependency/build reuse |
 | Custom | Consumer-defined check selection | Explicit choice of normal reuse or fresh verification |
 
-Make freshness an explicit run property, such as `rerun_checks: true`, rather than a behavior available only to the name `main`. Fresh execution bypasses the shared result cache, Dagger's cached check execution, and native test/analysis verdict caches. It preserves compatible downloads and compilation. Each adapter implements and verifies that contract. A successful fresh run may populate results for later ordinary runs; reports retain when verification actually occurred.
+Set freshness as an explicit run property, `rerun_checks: true`, rather than a behavior available only to the name `main`. Fresh execution bypasses the shared result cache, Dagger's cached check execution, and native test/analysis verdict caches. It preserves compatible downloads and compilation. Each adapter implements and verifies that contract. A successful fresh run may populate results for later ordinary runs; reports retain when verification actually occurred.
 
 Start with explicit core check selections and input scopes. Cache fingerprints determine whether selected work can be reused. More advanced change-based selection determines which checks are selected and remains separate. Required core checks, task acceptance, and new/modified tests remain covered; uncertain dependencies broaden verification. Add new checks to the full run explicitly during the pilot.
 
@@ -89,8 +89,9 @@ Each repo's CI maps events to runs. Recommended defaults are `branch` for editin
 
 ## Pilot repositories
 
-- **Benchplan first:** it already has Swift packages, XCTest suites, and native verification scripts. Wrap selected existing scripts on macOS, preserve their assertions, and validate the required toolchain. Its documented headless workaround does not replace SwiftPM, simulator, or native app verification gates. Measure each check before assigning it to a run.
-- **Family Books as product code develops:** the inspected checkout has planned Go and Swift product directories but no runnable product yet. Enroll explicit product targets when they exist, using synthetic fixtures and declared shared inputs. Its private `personal/` tree stays outside product verification inputs.
+- **Family Books first:** runnable Go services and existing CI now make the API a useful first consumer. Start with shared Go lint/vet on explicit product paths, then wrap existing tests with their Postgres setup. Include required contracts and workspace files; its private `personal/` tree stays outside Dagger inputs. Preserve existing CI gates during adoption.
+- **Benchplan next:** wrap selected Swift/native verification scripts on macOS and validate the required toolchain. Preserve existing assertions. Replace disposable build caches only after measuring them and confirming compatibility; the documented headless workaround does not replace SwiftPM, simulator, or native app gates.
+
 
 Keep the working Go lint path as a regression case while adding native execution. The pilot should prove the interface across real setups and show one shared improvement transferring to a second applicable consumer.
 
@@ -115,9 +116,9 @@ Use minimal check definitions or repo-owned commands to exercise the contract; c
 
 **Done when:** an unchanged eligible check reuses its result without starting its executor, input changes invalidate the right result, and an unsupported or incomplete check cannot report success. Both fixtures prove workspace/local-dependency and test-configuration invalidation, distinct result identities for execution variants, retained compatible preparation after source edits, and fresh test execution with dependency/build reuse. A new check implementation requires no language-specific branches in the planner.
 
-### 3. Wrap Benchplan's existing checks
+### 3. Adopt real consumer checks
 
-Record current commands, toolchain requirements, runtime, and source/input relationships. Wrap a small useful selection of repo-owned checks and validate native toolchain requirements. Preserve native output and useful artifacts. Persist compatible Swift build products and completed results. Add ordinary `swift test` and native app gates as their prerequisites are satisfied.
+First adopt shared Go checks in Family Books with explicit product inputs. Then wrap selected Benchplan scripts. Record current commands, toolchain requirements, runtime, and source/input relationships. Wrap a small useful selection of repo-owned checks and validate native toolchain requirements. Preserve native output and useful artifacts. Persist compatible Swift build products and completed results. Add ordinary `swift test` and native app gates as their prerequisites are satisfied.
 
 **Done when:** the same wrapper runs locally and on a macOS CI worker, a real assertion/lint failure fails the job, repeated unchanged checks hit caches, changed inputs rerun affected work, and a fresh audit executes its checks despite cached passing results.
 
@@ -131,7 +132,7 @@ Set per-run latency budgets from the measured consumer baseline and track median
 
 ### 5. Prove that an improvement transfers
 
-Enroll a second applicable consumer as it becomes runnable. Improve one shared rule or execution definition, validate bad and legitimate examples, measure runtime/cache effects, then update each consumer's pin. Both repos keep their native tests and existing CI provider.
+Enroll a second applicable Go target/repo and retain the Swift pilot as evidence for native execution. Improve one shared rule or execution definition, validate bad and legitimate examples, measure runtime/cache effects, then update each consumer's pin. Both repos keep their native tests and existing CI provider.
 
 **Done when:** both consumers benefit from one maintained definition, with a reviewed version/configuration update as the adoption step. Shared changes invalidate only the checks whose effective implementation or inputs changed.
 

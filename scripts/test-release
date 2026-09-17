@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ $# != 1 ]]; then
+  echo 'Usage: scripts/test-release ARCHIVE.tar.gz' >&2
+  exit 2
+fi
+archive=$(cd -- "$(dirname -- "$1")" && pwd)/$(basename -- "$1")
+temporary=$(mktemp -d)
+trap 'rm -rf "$temporary"' EXIT
+mkdir "$temporary/shared" "$temporary/app"
+tar -xzf "$archive" -C "$temporary/shared"
+shared="$temporary/shared"
+for file in runner/checks.go runner/tools/go.mod sdk/patched-go/dagger.json sdk/patched-go/pyproject.toml sdk/patched-go/src/patched_go/__init__.py; do
+  test -f "$shared/$file" || { echo "Archive missing $file" >&2; exit 1; }
+done
+# Run only the extracted binary and sources, outside the repository checkout.
+cd "$temporary"
+cp "$shared/runner/testdata/resources-good/"* app/
+cat > app/levenshtein.json <<'JSON'
+{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"lint":{"kind":"go-lint","target":"app","environment":"go"},"http":{"kind":"go-http","target":"app","environment":"go"}},"runs":{"branch":{"checks":["lint","http"]}}}
+JSON
+"$shared/levenshtein" branch --source "$temporary/app" --shared "$shared" --dry-run
+"$shared/levenshtein" branch --source "$temporary/app" --shared "$shared" --cache-dir "$temporary/cache" > good.json
+mkdir bad
+cp "$shared/runner/testdata/resources-bad/"* bad/
+cp app/levenshtein.json bad/
+status=0
+"$shared/levenshtein" branch --source "$temporary/bad" --shared "$shared" --cache-dir "$temporary/cache" > bad.json || status=$?
+if [[ $status != 1 ]] || ! grep -q '"code": "bodyclose"' bad.json; then
+  cat bad.json
+  echo "Expected packaged HTTP cleanup finding, got exit $status" >&2
+  exit 1
+fi
+echo 'Extracted release archive passed consumer smoke checks'

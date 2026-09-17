@@ -95,6 +95,12 @@ func (cfg Config) Plan(source, name string) (Plan, error) {
 			}
 		}
 
+		if env.Executor == ExecutorDagger {
+			if _, err := daggerIncludes(target.Inputs); err != nil {
+				return p, err
+			}
+		}
+
 		preparation, err := resolveStage(cfg.Preparations, "preparation", check.Preparation)
 		if err != nil {
 			return p, err
