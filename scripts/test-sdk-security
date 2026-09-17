@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+temporary=$(mktemp -d)
+trap 'rm -rf "$temporary"' EXIT
+cd "$root"
+
+# A second generation must preserve the fix, not restore Dagger's old overrides.
+dagger develop --compat=skip
+dagger develop --compat=skip
+
+modules=(
+  go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc
+  go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp
+  go.opentelemetry.io/otel/log
+  go.opentelemetry.io/otel/sdk/log
+)
+for module in "${modules[@]}"; do
+  version=$(cd runner && go list -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' "$module")
+  if [[ "$version" != v0.20.0 ]]; then
+    echo "Unexpected effective version of $module: $version (want v0.20.0)" >&2
+    exit 1
+  fi
+done
+
+# Scan the generated executable as well as the source checks in ./verify go-vuln.
+(cd runner && go build -o "$temporary/runtime" .)
+(cd runner/tools && go build -o "$temporary/govulncheck" golang.org/x/vuln/cmd/govulncheck)
+"$temporary/govulncheck" -mode=binary "$temporary/runtime"

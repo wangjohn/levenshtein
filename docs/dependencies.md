@@ -22,4 +22,8 @@ Artifact publication uses `renameio` pending files so restored permissions match
 
 ## Dagger wrapper dependency security
 
-The wrapper pins gRPC 1.83.1, OpenTelemetry 1.44.0, and x/text 0.39.0 to address reported advisories. Dagger 0.21.9 forcibly regenerates logging-module replacements at 0.16.0 during development and module loading, overriding user replacements. This leaves [GO-2026-4985](https://pkg.go.dev/vuln/GO-2026-4985) in the generated wrapper's OTLP HTTP log exporter. The live `go-vuln` check reports it and fails; it is not suppressed. Removing the replacements only in the checkout does not fix the runtime built by Dagger. A compatible upstream generator update is required before the vulnerability gate can pass without maintaining a custom SDK.
+The wrapper pins gRPC 1.83.1, OpenTelemetry 1.44.0, and x/text 0.39.0 to address reported advisories. Dagger 0.21.9 normally forces logging modules back to 0.16.0 during development and module loading, reintroducing [GO-2026-4985](https://pkg.go.dev/vuln/GO-2026-4985) even when `go.mod` requests a fixed version.
+
+The temporary [patched Go SDK](../sdk/patched-go/README.md) builds Dagger's pinned upstream generator with logging replacements at 0.20.0. Both generated source and the runtime use those dependencies. This changes the module SDK, not the Dagger engine itself. Remove the adapter once a compatible upstream SDK preserves fixed versions.
+
+`./scripts/test-sdk-security` regenerates twice, checks effective dependency versions, and scans the generated executable. The live `./verify go-vuln` source scans remain enabled without suppressions.

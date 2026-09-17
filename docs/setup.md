@@ -97,13 +97,13 @@ Stable versions checked on September 15, 2026:
 | Dependency | Version | Pin |
 | --- | --- | --- |
 | Go for lint and local development | 1.27.1 | `.go-version`, fixture modules, `runner/toolchain.json` |
-| Go language version of the Dagger wrapper | 1.26.7 | `runner/go.mod`, capped by the stable Dagger SDK |
+| Go language version of the Dagger wrapper | 1.26.7 | `runner/go.mod` |
 | Go container | 1.27.1 on Debian Trixie | Tag and immutable image digest in `runner/toolchain.json` |
 | Dagger CLI / engine / SDK | 0.21.9 | `.dagger-version`, `dagger.json`, root `go.mod`, generated module dependencies |
 | Staticcheck | 2026.2.1 (`honnef.co/go/tools` v0.8.1) | `runner/toolchain.json` |
 | Actions checkout / setup-go | 7.0.1 / 7.0.0 | Full commit hashes in the workflow |
 
-The host Go version is needed by the source launcher, runner development, and unit tests. The actual lint runs on Linux with default build tags, using the pinned container toolchain with automatic Go toolchain switching disabled. Dagger 0.21.9 rejects a wrapper `go.mod` above 1.26.7; that compatibility limit does not restrict the Go version of the repositories being checked. The wrapper pins patched dependencies where Dagger permits them; the remaining forced logging override and failing vulnerability gate are documented in [dependency security](dependencies.md#dagger-wrapper-dependency-security). `go.sum` records checksums. Upgrade pins together and validate the fixtures before adoption.
+The host Go version is needed by the source launcher, runner development, and unit tests. The actual lint runs on Linux with default build tags, using the pinned container toolchain with automatic Go toolchain switching disabled. A temporary SDK adapter fixes Dagger 0.21.9’s forced logging dependency overrides for both generation and execution; see [dependency security](dependencies.md#dagger-wrapper-dependency-security). The wrapper’s Go language version does not restrict the Go version of repositories being checked. `go.sum` records checksums. Upgrade pins together and validate the fixtures before adoption.
 
 ## Develop the shared checks
 

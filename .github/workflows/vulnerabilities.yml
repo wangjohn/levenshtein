@@ -7,6 +7,10 @@ on:
       - '**/go.sum'
       - '.go-version'
       - 'runner/toolchain.json'
+      - 'dagger.json'
+      - '.dagger-version'
+      - 'sdk/**'
+      - 'scripts/test-sdk-security'
       - '.github/workflows/vulnerabilities.yml'
   workflow_dispatch:
 
@@ -32,7 +36,7 @@ jobs:
         run: |
           ./scripts/install-dagger "$RUNNER_TEMP/levenshtein-bin"
           echo "$RUNNER_TEMP/levenshtein-bin" >> "$GITHUB_PATH"
-      - name: Generate the pinned Go SDK
-        run: dagger develop --compat=skip
+      - name: Verify SDK regeneration and scan the generated executable
+        run: ./scripts/test-sdk-security
       - name: Scan configured Go modules
         run: ./verify go-vuln
