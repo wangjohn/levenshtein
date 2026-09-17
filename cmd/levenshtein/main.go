@@ -77,7 +77,7 @@ func runCommand(ctx context.Context, args []string, output io.Writer) (int, erro
 	dagger := &verify.Dagger{}
 	defer dagger.Close()
 
-	report := verify.Execute(ctx, plan, shared, map[verify.ExecutorKind]verify.Executor{verify.ExecutorDagger: dagger})
+	report := verify.Execute(ctx, plan, shared, map[verify.ExecutorKind]verify.Executor{verify.ExecutorDagger: dagger, verify.ExecutorNative: &verify.Native{}})
 	if err := encoder.Encode(report); err != nil {
 		return 2, err
 	}

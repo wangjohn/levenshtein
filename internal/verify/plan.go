@@ -7,18 +7,19 @@ import (
 )
 
 type PlannedCheck struct {
-	ID          string      `json:"id"`
-	Check       Check       `json:"check"`
-	Target      Target      `json:"target"`
-	Environment Environment `json:"environment"`
+	ID          string       `json:"id"`
+	Check       Check        `json:"check"`
+	Target      Target       `json:"target"`
+	Environment Environment  `json:"environment"`
+	Preparation *Preparation `json:"preparation,omitempty"`
 }
 
 type Plan struct {
-	Version int            `json:"version"`
-	Run     string         `json:"run"`
-	Fresh   bool           `json:"fresh"`
-	Source  string         `json:"source"`
-	Checks  []PlannedCheck `json:"checks"`
+	Version     int            `json:"version"`
+	Run         string         `json:"run"`
+	RerunChecks bool           `json:"rerun_checks"`
+	Source      string         `json:"source"`
+	Checks      []PlannedCheck `json:"checks"`
 }
 
 func (cfg Config) Plan(source, name string) (Plan, error) {
@@ -36,7 +37,7 @@ func (cfg Config) Plan(source, name string) (Plan, error) {
 		return Plan{}, fmt.Errorf("run %q is missing or empty", name)
 	}
 
-	p := Plan{Version: 1, Run: name, Fresh: run.Fresh, Source: source}
+	p := Plan{Version: 1, Run: name, RerunChecks: run.RerunChecks, Source: source}
 	seen := map[string]bool{}
 	for _, id := range run.Checks {
 		if id == "" || seen[id] {
@@ -85,7 +86,13 @@ func (cfg Config) Plan(source, name string) (Plan, error) {
 				return p, fmt.Errorf("invalid input path %q", path)
 			}
 		}
-		p.Checks = append(p.Checks, PlannedCheck{ID: id, Check: check, Target: target, Environment: env})
+
+		planned := PlannedCheck{ID: id, Check: check, Target: target, Environment: env}
+		planned.Preparation, err = resolveStage(cfg.Preparations, "preparation", check.Preparation)
+		if err != nil {
+			return p, err
+		}
+		p.Checks = append(p.Checks, planned)
 	}
 	return p, nil
 }

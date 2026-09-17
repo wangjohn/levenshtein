@@ -29,9 +29,9 @@ type Report struct {
 }
 
 type Request struct {
-	Source string
-	Shared string
-	Fresh  bool
+	Source      string
+	Shared      string
+	RerunChecks bool
 	PlannedCheck
 }
 
@@ -44,7 +44,7 @@ func Execute(ctx context.Context, plan Plan, shared string, executors map[Execut
 	results := []Result{}
 	for _, check := range plan.Checks {
 		start := time.Now()
-		outcome := executeCheck(ctx, check, Request{Source: plan.Source, Shared: shared, Fresh: plan.Fresh, PlannedCheck: check}, executors)
+		outcome := executeCheck(ctx, check, Request{Source: plan.Source, Shared: shared, RerunChecks: plan.RerunChecks, PlannedCheck: check}, executors)
 		results = append(results, Result{
 			ID:         check.ID,
 			Status:     outcome.Status,
@@ -81,5 +81,19 @@ func executeCheck(ctx context.Context, check PlannedCheck, req Request, executor
 		return result
 	default:
 		return Result{Status: StatusError, Error: "executor returned an invalid status", Stdout: result.Stdout, Stderr: result.Stderr, Details: result.Details}
+	}
+}
+
+// withOutcome replaces an outcome while preserving its diagnostics and metadata.
+func (r Result) withOutcome(status Status, message string) Result {
+	return Result{
+		ID:         r.ID,
+		Status:     status,
+		DurationMS: r.DurationMS,
+		VerifiedAt: r.VerifiedAt,
+		Stdout:     r.Stdout,
+		Stderr:     r.Stderr,
+		Error:      message,
+		Details:    r.Details,
 	}
 }

@@ -16,6 +16,7 @@ type Config struct {
 	Environments map[string]Environment `json:"environments"`
 	Checks       map[string]Check       `json:"checks"`
 	Runs         map[string]Run         `json:"runs"`
+	Preparations map[string]Preparation `json:"preparations,omitempty"`
 }
 
 type Target struct {
@@ -25,18 +26,40 @@ type Target struct {
 }
 
 type Environment struct {
-	Executor ExecutorKind `json:"executor"`
+	Executor ExecutorKind      `json:"executor"`
+	Identity string            `json:"identity,omitempty"`
+	Env      map[string]string `json:"env,omitempty"`
+	PassEnv  []string          `json:"pass_env,omitempty"`
+	Tools    []Tool            `json:"tools,omitempty"`
+}
+
+type Tool struct {
+	Command []string `json:"command"`
+	Version string   `json:"version"`
+}
+
+type Preparation struct {
+	Command []string          `json:"command"`
+	Inputs  []string          `json:"inputs"`
+	Outputs []string          `json:"outputs"`
+	Env     map[string]string `json:"env,omitempty"`
+	Timeout string            `json:"timeout,omitempty"`
 }
 
 type Check struct {
-	Kind        CheckKind `json:"kind"`
-	Target      string    `json:"target"`
-	Environment string    `json:"environment"`
+	Kind        CheckKind         `json:"kind"`
+	Target      string            `json:"target"`
+	Environment string            `json:"environment"`
+	Command     []string          `json:"command,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
+	Timeout     string            `json:"timeout,omitempty"`
+	Preparation string            `json:"preparation,omitempty"`
+	Artifacts   []string          `json:"artifacts,omitempty"`
 }
 
 type Run struct {
-	Checks []string `json:"checks"`
-	Fresh  bool     `json:"fresh,omitempty"`
+	Checks      []string `json:"checks"`
+	RerunChecks bool     `json:"rerun_checks,omitempty"`
 }
 
 func decode(data []byte, value any) error {
@@ -104,7 +127,7 @@ func Parse(data []byte) (Config, error) {
 	cfg.Checks["self-test"] = Check{Kind: CheckSelfTest, Target: "module-0", Environment: "go"}
 
 	for name, checks := range old.Runs {
-		run := Run{Fresh: name == "main"}
+		run := Run{RerunChecks: name == "main"}
 		seen := map[string]bool{}
 		for _, check := range checks {
 			if seen[check] {

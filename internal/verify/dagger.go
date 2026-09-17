@@ -53,7 +53,7 @@ func (d *Dagger) execute(ctx context.Context, req Request) error {
 	}
 
 	nonce := ""
-	if req.Fresh {
+	if req.RerunChecks {
 		nonce = rand.Text()
 	}
 

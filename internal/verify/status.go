@@ -13,11 +13,15 @@ const (
 
 type ExecutorKind string
 
-const ExecutorDagger ExecutorKind = "dagger"
+const (
+	ExecutorDagger ExecutorKind = "dagger"
+	ExecutorNative ExecutorKind = "native"
+)
 
 type CheckKind string
 
 const (
 	CheckGoLint   CheckKind = "go-lint"
 	CheckSelfTest CheckKind = "self-test"
+	CheckCommand  CheckKind = "command"
 )
