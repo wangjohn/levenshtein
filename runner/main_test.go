@@ -14,8 +14,9 @@ func TestLintExitStatusAndDiagnosticsAgree(t *testing.T) {
 		t.Fatalf("lost lint diagnostic: %v, %v", findings, err)
 	}
 	for _, tc := range []struct {
-		code        int
-		out, stderr string
+		code   int
+		out    string
+		stderr string
 	}{
 		{0, valid, ""}, {1, "", ""}, {2, "", "crash"},
 		{1, "not JSON", ""}, {0, "", "warning: no packages"},
