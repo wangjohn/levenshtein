@@ -124,8 +124,9 @@ func commandFindings(check, module string, exitCode int, stdout, stderr string) 
 	if exitCode != failureCode || message == "" {
 		return nil, fmt.Errorf("%s exited %d: %s", check, exitCode, message)
 	}
-	finding := diagnostic{Code: check, Message: message}
-	finding.Location.File = module
-	finding.Location.Line = 1
-	return []diagnostic{finding}, nil
+	return []diagnostic{{
+		Code:     check,
+		Message:  message,
+		Location: location{File: module, Line: 1},
+	}}, nil
 }

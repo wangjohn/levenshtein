@@ -28,13 +28,15 @@ type toolchain struct {
 }
 
 type diagnostic struct {
-	Code     string `json:"code"`
-	Message  string `json:"message"`
-	Location struct {
-		File   string `json:"file"`
-		Line   int    `json:"line"`
-		Column int    `json:"column"`
-	} `json:"location"`
+	Code     string   `json:"code"`
+	Message  string   `json:"message"`
+	Location location `json:"location"`
+}
+
+type location struct {
+	File   string `json:"file"`
+	Line   int    `json:"line"`
+	Column int    `json:"column"`
 }
 
 type Status string
