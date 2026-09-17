@@ -39,8 +39,8 @@ def codegen_binary() -> dagger.File:
             "-require=go.opentelemetry.io/otel@v1.44.0",
             "-require=go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.44.0",
             "-require=go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.44.0",
-            "-require=google.golang.org/grpc@v1.83.1",
-            "-require=golang.org/x/text@v0.39.0",
+            "-require=google.golang.org/grpc@v1.83.2",
+            "-require=golang.org/x/text@v0.41.0",
         ])
 
     return (
@@ -102,6 +102,9 @@ class PatchedGo:
         output_file_path: str,
     ) -> dagger.Container:
         container = await self.prepared(mod_source, introspection_json)
+        container = container.without_directory(
+            posixpath.join("/src", await mod_source.source_subpath(), "internal/dagger")
+        )
         return container.with_entrypoint([
             "codegen", "generate-typedefs", "--output", output_file_path,
             *await self.arguments(mod_source),

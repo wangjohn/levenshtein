@@ -29,25 +29,31 @@ func TestReviewFreshFailureInvalidatesOldSuccess(t *testing.T) {
 }
 
 func TestReviewDaggerImplementationFilesAreInputs(t *testing.T) {
-	req := cacheRequest(t)
-	req.Environment.Executor = ExecutorDagger
-	before, err := fingerprint(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(req.Shared, "runner"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	// Extra files in package main execute in the Dagger module, too.
-	if err := os.WriteFile(filepath.Join(req.Shared, "runner", "extra.go"), []byte("package main\nfunc init() { panic(\"bad adapter\") }\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	after, err := fingerprint(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if before == after {
-		t.Fatal("Dagger runtime change did not invalidate verification")
+	for _, file := range []string{"runner/extra.go", "sdk/patched-go/src/patched_go/__init__.py"} {
+		t.Run(file, func(t *testing.T) {
+			req := cacheRequest(t)
+			req.Environment.Executor = ExecutorDagger
+			before, err := fingerprint(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			path := filepath.Join(req.Shared, file)
+			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("changed implementation"), 0644); err != nil {
+				t.Fatal(err)
+			}
+
+			after, err := fingerprint(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if before == after {
+				t.Fatal("Dagger runtime or SDK change did not invalidate verification")
+			}
+		})
 	}
 }
 

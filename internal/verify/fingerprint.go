@@ -130,7 +130,7 @@ func outputPaths(req Request) []string {
 func implementation(req Request) (string, error) {
 	paths := []string{"go.mod", "go.sum", "cmd", "internal"}
 	if req.Environment.Executor == ExecutorDagger {
-		paths = append(paths, ".dagger-version", "dagger.json", "runner")
+		paths = append(paths, ".dagger-version", "dagger.json", "runner", "sdk")
 	}
 	return snapshot(req.Shared, paths, nil, false)
 }
