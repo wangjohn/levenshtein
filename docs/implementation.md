@@ -2,7 +2,7 @@
 
 **Implemented:** a standalone Go CLI with versioned configuration, tool-free planning, common results, and the preserved pinned Go lint through Dagger. Legacy configuration, rule fixtures, and CI for Levenshtein itself remain supported. [Setup](setup.md) and [consumer CI](consumer-ci.md) document the current interface.
 
-**Next:** validate Rust/Python compatibility, then wrap Benchplan's existing checks. Native commands, pinned-tool validation, timeouts, artifacts, and shared preparation within a run are implemented. Local result caching, separate preparation/build keys, artifact restoration, and fresh execution are implemented. Cross-worker cache transport and consumer adoption below remain planned; the current CLI accepts both legacy Go module lists and version 1 targets/checks/environments/runs, with `go-lint`, `self-test`, and native `command` checks. See [configuration](configuration.md).
+**Next:** wrap Benchplan's existing checks and connect consumer CI cache persistence. Rust/Python compatibility fixtures now validate the shared interface; see [fixture checks](language-fixtures.md). Native commands, pinned-tool validation, timeouts, artifacts, and shared preparation within a run are implemented. Local result caching, separate preparation/build keys, artifact restoration, and fresh execution are implemented. Cross-worker cache transport and consumer adoption below remain planned; the current CLI accepts both legacy Go module lists and version 1 targets/checks/environments/runs, with `go-lint`, `self-test`, and native `command` checks. See [configuration](configuration.md).
 
 ## Core interface
 
@@ -25,7 +25,7 @@ Existing CI owns workers, triggers, schedules, credentials, and merge gates. It 
 
 ## Rust and Python compatibility
 
-The same interface must accommodate both languages. These are design examples, not implemented integrations:
+The same interface must accommodate both languages. The [compatibility fixtures](language-fixtures.md) exercise this interface through native commands. Full shared language integrations remain consumer-driven:
 
 | Concern | Rust | Python |
 | --- | --- | --- |

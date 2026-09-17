@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "targets": {
+    "app": {
+      "dir": "crates/app",
+      "workspace": ".",
+      "inputs": [
+        "Cargo.toml",
+        "Cargo.lock",
+        "rust-toolchain.toml",
+        "crates"
+      ]
+    }
+  },
+  "environments": {
+    "rust": {
+      "executor": "native",
+      "identity": "rust-1.98.1-fixture",
+      "pass_env": [
+        "CARGO_HOME",
+        "RUSTUP_HOME"
+      ],
+      "tools": [
+        {
+          "command": [
+            "rustc",
+            "--version"
+          ],
+          "version": "rustc 1.98.1 (48a229cea 2026-09-01)"
+        }
+      ]
+    }
+  },
+  "builds": {
+    "tests": {
+      "command": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--locked",
+        "--no-run"
+      ],
+      "inputs": [
+        "Cargo.toml",
+        "Cargo.lock",
+        "rust-toolchain.toml",
+        "crates"
+      ],
+      "outputs": [
+        "target"
+      ]
+    }
+  },
+  "checks": {
+    "tests": {
+      "kind": "command",
+      "target": "app",
+      "environment": "rust",
+      "command": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--locked"
+      ],
+      "rerun_command": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--locked"
+      ],
+      "cache": true,
+      "build": "tests",
+      "artifacts": [
+        "test-executions.txt"
+      ]
+    }
+  },
+  "runs": {
+    "branch": {
+      "checks": [
+        "tests"
+      ]
+    },
+    "audit": {
+      "checks": [
+        "tests"
+      ],
+      "rerun_checks": true
+    }
+  }
+}
