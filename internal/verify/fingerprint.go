@@ -156,8 +156,11 @@ func fingerprint(req Request) (string, error) {
 		env = nativeEnv(req, req.Check.Env)
 	}
 	return digest(struct {
-		Check                            PlannedCheck
-		Source, Implementation, OS, Arch string
-		Env                              []string
+		Check          PlannedCheck
+		Source         string
+		Implementation string
+		OS             string
+		Arch           string
+		Env            []string
 	}{req.PlannedCheck, source, impl, runtime.GOOS, runtime.GOARCH, env}), nil
 }
