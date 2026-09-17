@@ -37,17 +37,28 @@ type diagnostic struct {
 	} `json:"location"`
 }
 
+type Status string
+
+const (
+	StatusPlanned Status = "planned"
+	StatusPassed  Status = "passed"
+	StatusFailed  Status = "failed"
+	StatusError   Status = "error"
+)
+
+//levenshtein:record
 type result struct {
 	Check      string       `json:"check"`
 	Module     string       `json:"module,omitempty"`
-	Status     string       `json:"status"`
+	Status     Status       `json:"status"`
 	DurationMS int64        `json:"duration_ms"`
 	Findings   []diagnostic `json:"findings,omitempty"`
 }
 
+//levenshtein:record
 type report struct {
 	Run      string    `json:"run"`
-	Status   string    `json:"status"`
+	Status   Status    `json:"status"`
 	Modules  []string  `json:"modules"`
 	Selected []string  `json:"selected"`
 	Tools    toolchain `json:"tools"`
@@ -95,9 +106,21 @@ func (m *Levenshtein) Verify(
 	if err != nil {
 		return "", err
 	}
-	r := report{Run: run, Status: "planned", Modules: cfg.Modules, Selected: checks, Tools: tools, Results: []result{}}
+
+	results := []result{}
+	renderReport := func(status Status) string {
+		return render(report{
+			Run:      run,
+			Status:   status,
+			Modules:  cfg.Modules,
+			Selected: checks,
+			Tools:    tools,
+			Results:  results,
+		})
+	}
+
 	if dryRun {
-		return render(r), nil
+		return renderReport(StatusPlanned), nil
 	}
 	if run == "main" && nonce == "" {
 		return "", fmt.Errorf("main requires a unique nonce for fresh execution; use ./verify main")
@@ -106,38 +129,35 @@ func (m *Levenshtein) Verify(
 		if check == "self-test" {
 			start := time.Now()
 			err := m.selfTest(ctx, tools, nonce)
-			status := "passed"
+			status := StatusPassed
 			if err != nil {
-				status = "error"
+				status = StatusError
 			}
-			r.Results = append(r.Results, result{Check: check, Status: status, DurationMS: time.Since(start).Milliseconds()})
+			results = append(results, result{Check: check, Status: status, DurationMS: time.Since(start).Milliseconds()})
 			if err != nil {
-				r.Status = "failed"
-				return "", fmt.Errorf("%s\nself-test: %w", render(r), err)
+				return "", fmt.Errorf("%s\nself-test: %w", renderReport(StatusFailed), err)
 			}
 			continue
 		}
 		for _, module := range cfg.Modules {
 			start := time.Now()
 			findings, err := lint(ctx, source, module, tools, nonce)
-			status := "passed"
+			status := StatusPassed
 			if err != nil {
-				status = "error"
+				status = StatusError
 			} else if len(findings) != 0 {
-				status = "failed"
+				status = StatusFailed
 			}
-			r.Results = append(r.Results, result{Check: check, Module: module, Status: status, DurationMS: time.Since(start).Milliseconds(), Findings: findings})
-			if status != "passed" {
-				r.Status = "failed"
+			results = append(results, result{Check: check, Module: module, Status: status, DurationMS: time.Since(start).Milliseconds(), Findings: findings})
+			if status != StatusPassed {
 				if err != nil {
-					return "", fmt.Errorf("%s\ngo-lint could not complete: %w", render(r), err)
+					return "", fmt.Errorf("%s\ngo-lint could not complete: %w", renderReport(StatusFailed), err)
 				}
-				return "", fmt.Errorf("%s\ngo-lint found %d issue(s); fix the reported locations and rerun ./verify %q with the same --source", render(r), len(findings), run)
+				return "", fmt.Errorf("%s\ngo-lint found %d issue(s); fix the reported locations and rerun ./verify %q with the same --source", renderReport(StatusFailed), len(findings), run)
 			}
 		}
 	}
-	r.Status = "passed"
-	return render(r), nil
+	return renderReport(StatusPassed), nil
 }
 
 func render(r report) string {
@@ -149,13 +169,17 @@ func lint(ctx context.Context, source *dagger.Directory, module string, tools to
 	if _, err := source.File(path.Join(module, "go.mod")).Contents(ctx); err != nil {
 		return nil, fmt.Errorf("module %q needs a readable go.mod: %w", module, err)
 	}
+
 	ctr := dag.Container().From(tools.GoImage).
 		WithEnvVariable("GOTOOLCHAIN", "local").
 		WithMountedCache("/go/pkg/mod", dag.CacheVolume("levenshtein-go-mod-"+tools.Go)).
 		WithMountedCache("/root/.cache/go-build", dag.CacheVolume("levenshtein-go-build-"+tools.Go)).
-		WithExec([]string{"go", "install", "honnef.co/go/tools/cmd/staticcheck@" + tools.Staticcheck}).
+		WithDirectory("/policy", dag.CurrentModule().Source().Directory("lint")).
+		WithWorkdir("/policy").
+		WithExec([]string{"go", "build", "-trimpath", "-o", "/go/bin/levenshtein-lint", "./cmd/levenshtein-lint"}).
 		WithDirectory("/src", source).
 		WithWorkdir(path.Join("/src", module))
+
 	// Go selects vendor mode for modules/workspaces that use it, and readonly otherwise.
 	packages, err := ctr.WithExec([]string{"go", "list", "./..."}).Stdout(ctx)
 	if err != nil {
@@ -164,6 +188,7 @@ func lint(ctx context.Context, source *dagger.Directory, module string, tools to
 	if strings.TrimSpace(packages) == "" {
 		return nil, fmt.Errorf("module %q contains no Go packages; refusing an empty pass", module)
 	}
+
 	if nonce == "" {
 		ctr = ctr.WithMountedCache("/root/.cache/staticcheck", dag.CacheVolume("levenshtein-staticcheck-"+tools.Staticcheck+"-"+tools.Go)).
 			WithEnvVariable("STATICCHECK_CACHE", "/root/.cache/staticcheck")
@@ -171,7 +196,7 @@ func lint(ctx context.Context, source *dagger.Directory, module string, tools to
 		ctr = ctr.WithEnvVariable("LEVENSHTEIN_RUN_NONCE", nonce).
 			WithEnvVariable("STATICCHECK_CACHE", "/tmp/staticcheck-fresh")
 	}
-	checked := ctr.WithExec([]string{"/go/bin/staticcheck", "-f=json", "-checks=" + strings.Join(tools.Checks, ","), "./..."}, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
+	checked := ctr.WithExec([]string{"/go/bin/levenshtein-lint", "-f=json", "-checks=" + strings.Join(tools.Checks, ","), "./..."}, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
 	exitCode, err := checked.ExitCode(ctx)
 	if err != nil {
 		return nil, err
@@ -191,10 +216,12 @@ func parseFindings(exitCode int, stdout, stderr string, checks []string) ([]diag
 	if exitCode != 0 && exitCode != 1 {
 		return nil, fmt.Errorf("Staticcheck exited %d: %s\n%s", exitCode, stderr, stdout)
 	}
+
 	allowed := map[string]bool{}
 	for _, check := range checks {
 		allowed[check] = true
 	}
+
 	var findings []diagnostic
 	decoder := json.NewDecoder(strings.NewReader(stdout))
 	for {
@@ -212,6 +239,7 @@ func parseFindings(exitCode int, stdout, stderr string, checks []string) ([]diag
 		finding.Location.File = strings.TrimPrefix(finding.Location.File, "/src/")
 		findings = append(findings, finding)
 	}
+
 	if (exitCode == 0 && len(findings) != 0) || (exitCode == 1 && len(findings) == 0) {
 		return nil, fmt.Errorf("Staticcheck exit %d does not match diagnostics: %s\n%s", exitCode, stdout, stderr)
 	}
@@ -229,10 +257,12 @@ func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce strin
 			return fmt.Errorf("%s fixture must pass: findings=%v error=%v", name, findings, err)
 		}
 	}
+
 	bad, err := lint(ctx, fixtures.Directory("bad"), ".", tools, nonce)
 	if err != nil {
 		return fmt.Errorf("bad fixture must fail for its lint diagnostics, not a tool error: %w", err)
 	}
+
 	counts := map[string]int{}
 	for _, finding := range bad {
 		counts[finding.Code]++
@@ -242,6 +272,7 @@ func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce strin
 			return fmt.Errorf("bad fixture must produce exactly one %s diagnostic; got %v", check, counts)
 		}
 	}
+
 	for _, fixture := range []struct{ name, message string }{
 		{"broken", "undefined: undefinedFunction"},
 		{"empty", "contains no Go packages"},
