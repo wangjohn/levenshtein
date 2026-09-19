@@ -89,7 +89,9 @@ Event → `./verify` mapping:
 
 **Required checks:** require **`lint`** for early PR feedback. Require **`tests`**, **`language-contracts`**, and **`release-smoke`** before merge (ready / merge queue / `main`). Do not make draft progress wait on `release-smoke` or full `tests`. Update branch protection when the former `verify` job name is replaced by `lint` / `tests`.
 
-Shell steps report wall times in the job summary via `scripts/ci-step-time`. Pre-split baseline (monolithic `verify` ~4.6–5 min on `ubuntu-24.04`; `dagger develop` ~93s; `./verify` ~94–114s): see the Phase 0 notes linked from the lint/tests split PR, or Actions run [35283983398](https://github.com/wangjohn/levenshtein/actions/runs/35283983398).
+Shell steps report wall times in the job summary via `scripts/ci-step-time`. The `lint` and `tests` jobs (and `vulnerabilities`) restore a pinned Dagger CLI from the Actions cache when `.dagger-version` / `scripts/dagger-checksums.txt` are unchanged; install falls back to download on miss. `language-contracts` uses the setup-go module cache over root `go.sum`.
+
+Pre-split baseline (monolithic `verify` ~4.6–5 min on `ubuntu-24.04`; `dagger develop` ~93s; `./verify` ~94–114s): see the Phase 0 notes linked from the lint/tests split PR, or Actions run [35283983398](https://github.com/wangjohn/levenshtein/actions/runs/35283983398).
 
 ## Pinned dependencies
 
@@ -102,7 +104,7 @@ Stable versions checked on September 15, 2026:
 | Go container | 1.27.1 on Debian Trixie | Tag and immutable image digest in `runner/toolchain.json` |
 | Dagger CLI / engine / SDK | 0.21.9 | `.dagger-version`, `dagger.json`, root `go.mod`, generated module dependencies |
 | Staticcheck | 2026.2.1 (`honnef.co/go/tools` v0.8.1) | `runner/toolchain.json` |
-| Actions checkout / setup-go | 7.0.1 / 7.0.0 | Full commit hashes in the workflow |
+| Actions checkout / setup-go / cache | 7.0.1 / 7.0.0 / 4.2.3 | Full commit hashes in the workflows |
 
 The host Go version is needed by the source launcher, runner development, and unit tests. The actual lint runs on Linux with default build tags, using the pinned container toolchain with automatic Go toolchain switching disabled. A temporary SDK adapter fixes Dagger 0.21.9’s forced logging dependency overrides for both generation and execution; see [dependency security](dependencies.md#dagger-wrapper-dependency-security). The wrapper’s Go language version does not restrict the Go version of repositories being checked. `go.sum` records checksums. Upgrade pins together and validate the fixtures before adoption.
 
