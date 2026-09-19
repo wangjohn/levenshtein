@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"dagger.io/dagger"
 	"dagger.io/dagger/engineconn"
@@ -19,13 +20,20 @@ import (
 // Consumer sources and fresh-run inputs are function arguments, so they do not
 // change the module's download and compiler cache namespace.
 type Dagger struct {
+	mu     sync.Mutex
 	client *dagger.Client
 	shared string
 }
 
 func (d *Dagger) Close() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	if d.client != nil {
-		return d.client.Close()
+		err := d.client.Close()
+		d.client = nil
+		d.shared = ""
+		return err
 	}
 	return nil
 }
@@ -77,6 +85,9 @@ func (d *Dagger) execute(ctx context.Context, req Request) error {
 }
 
 func (d *Dagger) connect(ctx context.Context, shared string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	version, err := os.ReadFile(filepath.Join(shared, ".dagger-version"))
 	if err != nil {
 		return err

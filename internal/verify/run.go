@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime"
+	"sync"
 	"time"
 )
 
@@ -40,39 +42,105 @@ type Executor interface {
 	Execute(context.Context, Request) Result
 }
 
-func Execute(ctx context.Context, plan Plan, shared string, executors map[ExecutorKind]Executor) Report {
-	status := StatusPassed
-	results := []Result{}
-	for _, check := range plan.Checks {
-		start := time.Now()
-		outcome := executeCheck(ctx, check, Request{Source: plan.Source, Shared: shared, RerunChecks: plan.RerunChecks, PlannedCheck: check}, executors)
-		duration := time.Since(start).Milliseconds()
-		verifiedAt, executionMS := outcome.VerifiedAt, outcome.ExecutionMS
-		if verifiedAt.IsZero() {
-			verifiedAt, executionMS = start.UTC(), duration
-		}
+// Cap concurrent checks so a shared Dagger session and CI runners stay within
+// predictable CPU/memory use. Independent checks still overlap within the cap.
+const maxCheckParallelism = 4
 
-		results = append(results, Result{
-			ID:          check.ID,
-			Status:      outcome.Status,
-			DurationMS:  duration,
-			VerifiedAt:  verifiedAt,
-			Stdout:      outcome.Stdout,
-			Stderr:      outcome.Stderr,
-			Error:       outcome.Error,
-			Cache:       outcome.Cache,
-			ExecutionMS: executionMS,
-			Stages:      outcome.Stages,
-			Details:     outcome.Details,
-		})
-		if outcome.Status != StatusPassed {
-			status = StatusFailed
-		}
+func checkParallelism(n int) int {
+	if n <= 1 {
+		return 1
 	}
 
+	limit := runtime.GOMAXPROCS(0)
+	if limit > maxCheckParallelism {
+		limit = maxCheckParallelism
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	if n < limit {
+		return n
+	}
+	return limit
+}
+
+// sharedPreparation is true when both checks declare the same preparation stage.
+// Those checks must run in plan order so the later one can reuse outputs.
+func sharedPreparation(a, b PlannedCheck) bool {
+	if a.Preparation == nil || b.Preparation == nil {
+		return false
+	}
+	return digest(a.Preparation) == digest(b.Preparation)
+}
+
+func Execute(ctx context.Context, plan Plan, shared string, executors map[ExecutorKind]Executor) Report {
+	results := make([]Result, len(plan.Checks))
+	workers := checkParallelism(len(plan.Checks))
+	slots := make(chan struct{}, workers)
+	done := make([]chan struct{}, len(plan.Checks))
+	for i := range done {
+		done[i] = make(chan struct{})
+	}
+
+	var wg sync.WaitGroup
+	for i, check := range plan.Checks {
+		wg.Add(1)
+		go func(i int, check PlannedCheck) {
+			defer wg.Done()
+			defer close(done[i])
+
+			// Wait outside the worker slot so shared-prep chains cannot deadlock
+			// the bounded pool (later check holds a slot while waiting on earlier).
+			for j := 0; j < i; j++ {
+				if sharedPreparation(plan.Checks[j], check) {
+					<-done[j]
+				}
+			}
+
+			slots <- struct{}{}
+			defer func() { <-slots }()
+
+			start := time.Now()
+			outcome := executeCheck(ctx, check, Request{
+				Source:       plan.Source,
+				Shared:       shared,
+				RerunChecks:  plan.RerunChecks,
+				PlannedCheck: check,
+			}, executors)
+			duration := time.Since(start).Milliseconds()
+			verifiedAt, executionMS := outcome.VerifiedAt, outcome.ExecutionMS
+			if verifiedAt.IsZero() {
+				verifiedAt, executionMS = start.UTC(), duration
+			}
+
+			results[i] = Result{
+				ID:          check.ID,
+				Status:      outcome.Status,
+				DurationMS:  duration,
+				VerifiedAt:  verifiedAt,
+				Stdout:      outcome.Stdout,
+				Stderr:      outcome.Stderr,
+				Error:       outcome.Error,
+				Cache:       outcome.Cache,
+				ExecutionMS: executionMS,
+				Stages:      outcome.Stages,
+				Details:     outcome.Details,
+			}
+		}(i, check)
+	}
+	wg.Wait()
+
+	status := StatusPassed
 	if len(plan.Checks) == 0 {
 		status = StatusIncomplete
 	}
+	for _, outcome := range results {
+		if outcome.Status != StatusPassed {
+			status = StatusFailed
+			break
+		}
+	}
+
 	return Report{Version: 1, Run: plan.Run, Status: status, Plan: plan, Results: results}
 }
 

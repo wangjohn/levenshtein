@@ -12,7 +12,7 @@ Levenshtein owns shared verification policy: named runs, target inputs, environm
 | Atomic cache and artifact publication | `google/renameio/v2` with `os.Root` |
 | Binary builds, release archives, and checksums | GoReleaser |
 
-Native commands still use Go's `os/exec`; process-group cancellation is needed to stop test subprocesses on timeout. Repository-specific policy and result reporting stay in Levenshtein. The current executor dispatches selected checks sequentially; Dagger reuses its dependency graph and caches within that execution. Scheduling more independent checks concurrently is separate work.
+Native commands still use Go's `os/exec`; process-group cancellation is needed to stop test subprocesses on timeout. Repository-specific policy and result reporting stay in Levenshtein. Independent checks in a run execute concurrently with a small worker cap (`maxCheckParallelism` in `internal/verify`); Dagger reuses one session and its dependency graph within that execution. Native preparation still serializes mutable stage ownership inside the native executor.
 
 Dagger checks use a stable shared module, with source and freshness passed as function arguments. Do not embed changing consumer inputs into the module's source: Dagger uses module identity to namespace dependency and compiler caches.
 

@@ -1,9 +1,26 @@
 {
   "version": 1,
   "targets": {
-    "root": {"dir": ".", "workspace": ".", "inputs": ["."]},
-    "runner": {"dir": "runner", "workspace": ".", "inputs": ["."]},
-    "lint": {"dir": "runner/lint", "workspace": ".", "inputs": ["."]}
+    "root": {
+      "dir": ".",
+      "workspace": ".",
+      "inputs": ["go.mod", "go.sum", ".go-version", "cmd", "internal"]
+    },
+    "runner": {
+      "dir": "runner",
+      "workspace": ".",
+      "inputs": ["runner"]
+    },
+    "lint": {
+      "dir": "runner/lint",
+      "workspace": ".",
+      "inputs": ["runner/lint"]
+    },
+    "workflows": {
+      "dir": ".",
+      "workspace": ".",
+      "inputs": [".github/workflows"]
+    }
   },
   "environments": {
     "go": {"executor": "dagger"}
@@ -24,7 +41,7 @@
     "go-vuln/root": {"kind": "go-vuln", "target": "root", "environment": "go"},
     "go-vuln/runner": {"kind": "go-vuln", "target": "runner", "environment": "go"},
     "go-vuln/lint": {"kind": "go-vuln", "target": "lint", "environment": "go"},
-    "workflow-lint": {"kind": "workflow-lint", "target": "root", "environment": "go"},
+    "workflow-lint": {"kind": "workflow-lint", "target": "workflows", "environment": "go"},
     "self-test": {"kind": "self-test", "target": "root", "environment": "go"}
   },
   "runs": {

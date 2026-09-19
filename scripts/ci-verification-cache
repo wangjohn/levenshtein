@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Documentation helper for the self-CI verification result cache (Phase 4).
+#
+# Cached path (outside the checkout):
+#   $RUNNER_TEMP/levenshtein-verification-v1  →  ./verify --cache-dir …
+#
+# Exact Actions cache keys only (never restore-keys), partitioned per job so
+# lint (branch results) and tests (self-test / main / dispatch results) do not
+# race a single exact key:
+#   verification-v1-lint-${{ runner.os }}-${{ hashFiles(…inputs…) }}
+#   verification-v1-tests-${{ runner.os }}-${{ hashFiles(…inputs…) }}
+#
+# Shared hashFiles inputs (keep in sync with .github/workflows/verify.yml):
+#   levenshtein.json
+#   .dagger-version
+#   dagger.json
+#   .go-version
+#   go.mod
+#   go.sum
+#   verify
+#   .github/workflows/verify.yml
+#   cmd/**
+#   internal/**
+#   runner/**
+#   sdk/patched-go/**
+#
+# Trust:
+#   Restore: all events (fork PRs may restore read-only from the base repo).
+#   Save: only trusted refs — push/schedule/dispatch/merge_group, or a
+#   pull_request whose head repo equals github.repository. Fork PRs must not
+#   publish writable verification-v1 entries into the parent cache.
+#
+# Freshness:
+#   Scheduled ./verify main still uses rerun_checks: true; go-vuln always
+#   bypasses completed-result reuse. Restoring the directory does not defeat
+#   those policies.
+#
+# Warm verification: on a second trusted run with unchanged inputs, both
+# Restore verification result cache steps should report a hit, and the Save
+# steps should be skipped (cache-hit != save).
+#
+# Usage: ci-verification-cache  # prints this summary
+set -euo pipefail
+
+sed -n '2,42p' "$0"

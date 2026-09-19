@@ -5,7 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestLegacyTranslation(t *testing.T) {
@@ -102,5 +104,145 @@ func TestAccountForEverySelectedCheck(t *testing.T) {
 	report = Execute(ctx, plan, "", map[ExecutorKind]Executor{executorFake: executor})
 	if executor.calls != 1 || report.Results[0].Status != StatusCancelled {
 		t.Fatalf("executed after cancellation: %+v", report)
+	}
+}
+
+type orderedExecutor struct {
+	mu    sync.Mutex
+	delay map[string]time.Duration
+	seen  []string
+}
+
+func (o *orderedExecutor) Execute(_ context.Context, req Request) Result {
+	if delay := o.delay[req.ID]; delay > 0 {
+		time.Sleep(delay)
+	}
+
+	o.mu.Lock()
+	o.seen = append(o.seen, req.ID)
+	o.mu.Unlock()
+	return Result{Status: StatusPassed, Stdout: req.ID}
+}
+
+func TestParallelExecutePreservesPlanOrder(t *testing.T) {
+	plan := Plan{
+		Run: "branch",
+		Checks: []PlannedCheck{
+			{ID: "slow", Environment: Environment{Executor: executorFake}},
+			{ID: "fast", Environment: Environment{Executor: executorFake}},
+			{ID: "mid", Environment: Environment{Executor: executorFake}},
+		},
+	}
+	executor := &orderedExecutor{delay: map[string]time.Duration{
+		"slow": 80 * time.Millisecond,
+		"fast": 5 * time.Millisecond,
+		"mid":  20 * time.Millisecond,
+	}}
+
+	start := time.Now()
+	report := Execute(context.Background(), plan, "", map[ExecutorKind]Executor{executorFake: executor})
+	elapsed := time.Since(start)
+	if report.Status != StatusPassed {
+		t.Fatalf("status: %+v", report)
+	}
+	if elapsed >= 80*time.Millisecond+20*time.Millisecond {
+		t.Fatalf("checks appear sequential: elapsed %s", elapsed)
+	}
+	for i, id := range []string{"slow", "fast", "mid"} {
+		if report.Results[i].ID != id || report.Results[i].Stdout != id {
+			t.Fatalf("results not in plan order: %+v", report.Results)
+		}
+	}
+	if got := checkParallelism(1); got != 1 {
+		t.Fatalf("checkParallelism(1) = %d", got)
+	}
+	if got := checkParallelism(100); got < 1 || got > maxCheckParallelism {
+		t.Fatalf("checkParallelism(100) = %d", got)
+	}
+}
+
+type recordingNative struct {
+	Native
+	mu    sync.Mutex
+	order []string
+}
+
+func (r *recordingNative) Execute(ctx context.Context, req Request) Result {
+	result := r.Native.Execute(ctx, req)
+	r.mu.Lock()
+	r.order = append(r.order, req.ID)
+	r.mu.Unlock()
+	return result
+}
+
+func TestParallelExecuteSharedPreparationPreservesPlanOrder(t *testing.T) {
+	source, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "lock"), []byte("1"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	prep := &Preparation{
+		Command: []string{"/bin/sh", "-c", "mkdir -p .venv && printf ready > .venv/ok && sleep 0.05"},
+		Inputs:  []string{"lock"},
+		Outputs: []string{".venv"},
+	}
+	env := Environment{Executor: ExecutorNative, Identity: "shared-prep-parallel-fixture"}
+	plan := Plan{
+		Source: source,
+		Checks: []PlannedCheck{
+			{
+				ID:          "lint",
+				Check:       Check{Kind: CheckCommand, Command: []string{"/bin/sh", "-c", "test -f .venv/ok"}},
+				Target:      Target{Dir: ".", Workspace: ".", Inputs: []string{"."}},
+				Environment: env,
+				Preparation: prep,
+			},
+			{
+				ID:          "tests",
+				Check:       Check{Kind: CheckCommand, Command: []string{"/bin/sh", "-c", "test -f .venv/ok"}},
+				Target:      Target{Dir: ".", Workspace: ".", Inputs: []string{"."}},
+				Environment: env,
+				Preparation: prep,
+			},
+			{
+				ID:          "other",
+				Check:       Check{Kind: CheckCommand, Command: []string{"true"}},
+				Target:      Target{Dir: ".", Workspace: ".", Inputs: []string{"."}},
+				Environment: Environment{Executor: ExecutorNative},
+			},
+		},
+	}
+	native := &recordingNative{}
+	report := Execute(context.Background(), plan, t.TempDir(), map[ExecutorKind]Executor{
+		ExecutorNative: native,
+	})
+	if report.Status != StatusPassed {
+		t.Fatalf("status: %+v", report)
+	}
+	if len(report.Results[0].Stages) == 0 || report.Results[0].Stages[0].Reused {
+		t.Fatalf("lint should run preparation first: %+v", report.Results[0])
+	}
+	if len(report.Results[1].Stages) == 0 || !report.Results[1].Stages[0].Reused {
+		t.Fatalf("tests should reuse preparation: %+v", report.Results[1])
+	}
+
+	native.mu.Lock()
+	order := append([]string{}, native.order...)
+	native.mu.Unlock()
+	lintAt, testsAt := -1, -1
+	for i, id := range order {
+		if id == "lint" {
+			lintAt = i
+		}
+	}
+	for i, id := range order {
+		if id == "tests" {
+			testsAt = i
+		}
+	}
+	if lintAt < 0 || testsAt < 0 || lintAt > testsAt {
+		t.Fatalf("shared-prep checks ran out of plan order: %v", order)
 	}
 }
