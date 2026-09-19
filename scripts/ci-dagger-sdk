@@ -38,7 +38,11 @@ if [[ $# -ne 1 ]]; then
   exit 2
 fi
 
+# actions/cache/restore leaves cache-hit empty on miss.
 cache_hit=$1
+if [[ $cache_hit != true ]]; then
+  cache_hit=false
+fi
 
 emit() {
   local name=$1
@@ -48,23 +52,46 @@ emit() {
   fi
 }
 
-# Reject empty dirs / tiny stubs (a stuck ~59KB Actions entry passed path
-# existence alone but still forced a full dagger develop).
+sdk_stats() {
+  local gen=runner/dagger.gen.go
+  local gen_size=0
+  local dagger_go=0
+  local telemetry_go=0
+  local total_kb=0
+
+  if [[ -f $gen ]]; then
+    gen_size=$(wc -c <"$gen" | tr -d ' ')
+  fi
+  if [[ -d runner/internal/dagger ]]; then
+    dagger_go=$(find runner/internal/dagger -type f -name '*.go' 2>/dev/null | wc -l | tr -d ' ')
+  fi
+  if [[ -d runner/internal/telemetry ]]; then
+    telemetry_go=$(find runner/internal/telemetry -type f -name '*.go' 2>/dev/null | wc -l | tr -d ' ')
+  fi
+  if [[ -e $gen || -d runner/internal/dagger || -d runner/internal/telemetry ]]; then
+    total_kb=$(du -sk runner/dagger.gen.go runner/internal/dagger runner/internal/telemetry 2>/dev/null | awk '{s += $1} END {print s+0}')
+  fi
+  printf '%s %s %s %s' "$gen_size" "$dagger_go" "$telemetry_go" "$total_kb"
+}
+
+# Reject empty dirs / the stuck ~59KiB Actions blob without assuming
+# dagger.gen.go alone is huge (real post-develop gen is often well under 100KiB;
+# bulk lives under internal/dagger).
 sdk_ready() {
   local gen=runner/dagger.gen.go
-  [[ -f $gen ]] || return 1
-
-  local size
-  size=$(wc -c <"$gen" | tr -d ' ')
-  # Complete dagger.gen.go for this module is well above 100KiB.
-  [[ $size -ge 102400 ]] || return 1
-
-  local dagger_go telemetry_go
-  dagger_go=$(find runner/internal/dagger -type f -name '*.go' 2>/dev/null | wc -l | tr -d ' ')
-  telemetry_go=$(find runner/internal/telemetry -type f -name '*.go' 2>/dev/null | wc -l | tr -d ' ')
-  [[ $dagger_go -ge 1 && $telemetry_go -ge 1 ]] || return 1
-
+  [[ -f $gen && -d runner/internal/dagger && -d runner/internal/telemetry ]] || return 1
   grep -q '^package ' "$gen" || return 1
+
+  local gen_size dagger_go telemetry_go total_kb
+  read -r gen_size dagger_go telemetry_go total_kb <<<"$(sdk_stats)"
+
+  # Tiny stub gen files from incomplete caches.
+  [[ $gen_size -ge 2048 ]] || return 1
+  # Codegen always emits client sources under internal/dagger.
+  [[ $dagger_go -ge 1 ]] || return 1
+  # Poisoned Actions entry was ~59KiB compressed for all three paths; a usable
+  # tree after dagger develop is hundreds of KiB+.
+  [[ $total_kb -ge 200 ]] || return 1
   return 0
 }
 
@@ -74,14 +101,14 @@ if [[ $cache_hit == true ]] && sdk_ready; then
 fi
 
 if [[ $cache_hit == true ]]; then
-  echo 'ci-dagger-sdk: incomplete SDK cache hit; regenerating (bump dagger-sdk-vN if this persists)' >&2
+  echo "ci-dagger-sdk: incomplete SDK cache hit ($(sdk_stats)); regenerating (bump dagger-sdk-vN if this persists)" >&2
 fi
 
 ./scripts/ci-step-time dagger-develop dagger develop --compat=skip
 
 if ! sdk_ready; then
   emit ready false
-  echo 'ci-dagger-sdk: dagger develop did not produce a usable SDK' >&2
+  echo "ci-dagger-sdk: dagger develop did not produce a usable SDK ($(sdk_stats) = gen_bytes dagger_go telemetry_go total_kb)" >&2
   exit 1
 fi
 
