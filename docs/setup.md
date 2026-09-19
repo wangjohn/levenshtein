@@ -76,7 +76,7 @@ Jobs (parallel):
 | Job | Role |
 | --- | --- |
 | `lint` | Static `./verify branch` only (early signal; no host race tests or consumer regressions) |
-| `tests` | Host race/fixtures, SDK regeneration, non-lint Dagger checks, consumer regressions |
+| `tests` | Host race/fixtures, SDK restore or regen, non-lint Dagger checks, consumer regressions |
 | `language-contracts` | Rust and Python contract fixtures |
 | `release-smoke` | GoReleaser snapshot + archive test (skipped on draft PRs) |
 
@@ -90,6 +90,8 @@ Event → `./verify` mapping:
 **Required checks:** require **`lint`** for early PR feedback. Require **`tests`**, **`language-contracts`**, and **`release-smoke`** before merge (ready / merge queue / `main`). Do not make draft progress wait on `release-smoke` or full `tests`. Update branch protection when the former `verify` job name is replaced by `lint` / `tests`.
 
 Shell steps report wall times in the job summary via `scripts/ci-step-time`. The `lint` and `tests` jobs (and `vulnerabilities`) restore a pinned Dagger CLI from the Actions cache when `.dagger-version` / `scripts/dagger-checksums.txt` are unchanged; install falls back to download on miss. `language-contracts` uses the setup-go module cache over root `go.sum`.
+
+Generated SDK (`runner/dagger.gen.go`, `runner/internal/dagger`, `runner/internal/telemetry`) is restored with an **exact** Actions cache key (no `restore-keys`) so a warm lint job can skip `dagger develop`. Invalidate when any of these change: `dagger.json`, `.dagger-version`, `scripts/dagger-checksums.txt`, `runner/go.mod`, `runner/go.sum`, `runner/toolchain.json`, `runner/*.go`, `sdk/patched-go/**` (see `scripts/ci-dagger-sdk`). Module or pin changes miss the cache and regenerate; `vulnerabilities.yml` still always runs `scripts/test-sdk-security` (double `dagger develop` + scans).
 
 Pre-split baseline (monolithic `verify` ~4.6–5 min on `ubuntu-24.04`; `dagger develop` ~93s; `./verify` ~94–114s): see the Phase 0 notes linked from the lint/tests split PR, or Actions run [35283983398](https://github.com/wangjohn/levenshtein/actions/runs/35283983398).
 

@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Restore or generate the Dagger Go SDK for Levenshtein CI.
+#
+# Cached paths (exact Actions cache key only — never use restore-keys):
+#   runner/dagger.gen.go
+#   runner/internal/dagger/
+#   runner/internal/telemetry/
+#
+# Invalidate the cache when any of these change (keep in sync with
+# hashFiles in .github/workflows/verify.yml):
+#   dagger.json
+#   .dagger-version
+#   scripts/dagger-checksums.txt
+#   runner/go.mod
+#   runner/go.sum
+#   runner/toolchain.json
+#   runner/*.go
+#   sdk/patched-go/**
+#
+# Usage: ci-dagger-sdk <cache-hit true|false>
+# On hit with complete artifacts, skips dagger develop. Otherwise regenerates.
+set -euo pipefail
+
+root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$root"
+
+if [[ $# -ne 1 ]]; then
+  echo "usage: $0 <cache-hit true|false>" >&2
+  exit 2
+fi
+
+cache_hit=$1
+sdk_ready=false
+if [[ -f runner/dagger.gen.go && -d runner/internal/dagger && -d runner/internal/telemetry ]]; then
+  sdk_ready=true
+fi
+
+if [[ $cache_hit == true && $sdk_ready == true ]]; then
+  exec ./scripts/ci-step-time dagger-develop-cache-hit true
+fi
+
+exec ./scripts/ci-step-time dagger-develop dagger develop --compat=skip
