@@ -64,16 +64,38 @@ func checkParallelism(n int) int {
 	return limit
 }
 
+// sharedPreparation is true when both checks declare the same preparation stage.
+// Those checks must run in plan order so the later one can reuse outputs.
+func sharedPreparation(a, b PlannedCheck) bool {
+	if a.Preparation == nil || b.Preparation == nil {
+		return false
+	}
+	return digest(a.Preparation) == digest(b.Preparation)
+}
+
 func Execute(ctx context.Context, plan Plan, shared string, executors map[ExecutorKind]Executor) Report {
 	results := make([]Result, len(plan.Checks))
 	workers := checkParallelism(len(plan.Checks))
 	slots := make(chan struct{}, workers)
+	done := make([]chan struct{}, len(plan.Checks))
+	for i := range done {
+		done[i] = make(chan struct{})
+	}
 
 	var wg sync.WaitGroup
 	for i, check := range plan.Checks {
 		wg.Add(1)
 		go func(i int, check PlannedCheck) {
 			defer wg.Done()
+			defer close(done[i])
+
+			// Wait outside the worker slot so shared-prep chains cannot deadlock
+			// the bounded pool (later check holds a slot while waiting on earlier).
+			for j := 0; j < i; j++ {
+				if sharedPreparation(plan.Checks[j], check) {
+					<-done[j]
+				}
+			}
 
 			slots <- struct{}{}
 			defer func() { <-slots }()
