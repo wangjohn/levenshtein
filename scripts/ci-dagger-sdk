@@ -25,32 +25,13 @@
 # Generate step should log dagger-develop-cache-hit (not dagger-develop),
 # and the Save generated Dagger SDK step should be skipped (cache-hit).
 #
-# Usage: ci-dagger-sdk <cache-hit true|false>
+# Usage:
+#   ci-dagger-sdk <cache-hit true|false>
+#   source ci-dagger-sdk   # defines sdk_ready / sdk_stats for tests
+#
 # On hit with complete artifacts, skips dagger develop. Otherwise regenerates.
 # When GITHUB_OUTPUT is set, writes ready=true|false for the workflow save step.
 set -euo pipefail
-
-root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-cd "$root"
-
-if [[ $# -ne 1 ]]; then
-  echo "usage: $0 <cache-hit true|false>" >&2
-  exit 2
-fi
-
-# actions/cache/restore leaves cache-hit empty on miss.
-cache_hit=$1
-if [[ $cache_hit != true ]]; then
-  cache_hit=false
-fi
-
-emit() {
-  local name=$1
-  local value=$2
-  if [[ -n ${GITHUB_OUTPUT:-} ]]; then
-    echo "$name=$value" >>"$GITHUB_OUTPUT"
-  fi
-}
 
 sdk_stats() {
   local gen=runner/dagger.gen.go
@@ -74,28 +55,59 @@ sdk_stats() {
   printf '%s %s %s %s' "$gen_size" "$dagger_go" "$telemetry_go" "$total_kb"
 }
 
-# Reject empty dirs / the stuck ~59KiB Actions blob without assuming
-# dagger.gen.go alone is huge (real post-develop gen is often well under 100KiB;
-# bulk lives under internal/dagger).
+# Real post-develop layout (CI run 35427803159): gen≈7448 bytes, dagger_go=1,
+# telemetry_go=0, total≈436KiB. Telemetry sources are optional. Still reject the
+# stuck ~59KiB Actions blob via total size.
 sdk_ready() {
   local gen=runner/dagger.gen.go
-  [[ -f $gen && -d runner/internal/dagger && -d runner/internal/telemetry ]] || return 1
+  [[ -f $gen && -d runner/internal/dagger ]] || return 1
   grep -q '^package ' "$gen" || return 1
 
   local gen_size dagger_go telemetry_go total_kb
   read -r gen_size dagger_go telemetry_go total_kb <<<"$(sdk_stats)"
 
-  # Tiny stub gen files from incomplete caches.
   [[ $gen_size -ge 2048 ]] || return 1
-  # Codegen always emits client sources under internal/dagger.
   [[ $dagger_go -ge 1 ]] || return 1
-  # Poisoned Actions entry was ~59KiB compressed for all three paths; a usable
-  # tree after dagger develop is hundreds of KiB+.
+  # Poisoned Actions entry was ~59KiB compressed; usable develop output is ~400KiB+.
   [[ $total_kb -ge 200 ]] || return 1
   return 0
 }
 
+# Keep the cached telemetry path present for actions/cache even when codegen
+# omits sources there (common with the patched Go SDK).
+ensure_cache_paths() {
+  mkdir -p runner/internal/dagger runner/internal/telemetry
+}
+
+# Sourced by scripts/test-ci-dagger-sdk — stop before CLI main.
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+  return 0
+fi
+
+root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$root"
+
+if [[ $# -ne 1 ]]; then
+  echo "usage: $0 <cache-hit true|false>" >&2
+  exit 2
+fi
+
+# actions/cache/restore leaves cache-hit empty on miss.
+cache_hit=$1
+if [[ $cache_hit != true ]]; then
+  cache_hit=false
+fi
+
+emit() {
+  local name=$1
+  local value=$2
+  if [[ -n ${GITHUB_OUTPUT:-} ]]; then
+    echo "$name=$value" >>"$GITHUB_OUTPUT"
+  fi
+}
+
 if [[ $cache_hit == true ]] && sdk_ready; then
+  ensure_cache_paths
   emit ready true
   exec ./scripts/ci-step-time dagger-develop-cache-hit true
 fi
@@ -112,4 +124,5 @@ if ! sdk_ready; then
   exit 1
 fi
 
+ensure_cache_paths
 emit ready true
