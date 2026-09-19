@@ -93,6 +93,8 @@ Shell steps report wall times in the job summary via `scripts/ci-step-time`. The
 
 Generated SDK (`runner/dagger.gen.go`, `runner/internal/dagger`, `runner/internal/telemetry`) is restored with an **exact** Actions cache key (no `restore-keys`) so a warm lint job can skip `dagger develop`. Invalidate when any of these change: `dagger.json`, `.dagger-version`, `scripts/dagger-checksums.txt`, `runner/go.mod`, `runner/go.sum`, `runner/toolchain.json`, `runner/*.go`, `sdk/patched-go/**` (see `scripts/ci-dagger-sdk`). Module or pin changes miss the cache and regenerate; `vulnerabilities.yml` still always runs `scripts/test-sdk-security` (double `dagger develop` + scans).
 
+Completed verification results (`verification-v1`) are restored into `$RUNNER_TEMP/levenshtein-verification-v1` and passed to `./verify --cache-dir` on `lint` / `tests`. The Actions key is **exact** only (see `scripts/ci-verification-cache`). **Restore** is allowed for every event, including fork PRs (read-only). **Save** runs only when the head repo equals `github.repository` (or the event is not a `pull_request`), so fork PRs cannot publish writable result entries. Inner fingerprints still decide hit vs miss; scheduled `main` keeps `rerun_checks: true`, and `go-vuln` always re-executes.
+
 Pre-split baseline (monolithic `verify` ~4.6–5 min on `ubuntu-24.04`; `dagger develop` ~93s; `./verify` ~94–114s): see the Phase 0 notes linked from the lint/tests split PR, or Actions run [35283983398](https://github.com/wangjohn/levenshtein/actions/runs/35283983398).
 
 ## Pinned dependencies

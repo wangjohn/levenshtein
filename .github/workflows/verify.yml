@@ -15,6 +15,10 @@ name: Levenshtein self-checks
 #   runner/go.mod|go.sum|toolchain.json|*.go, sdk/patched-go/**
 # vulnerabilities.yml still always regenerates via scripts/test-sdk-security.
 #
+# Verification result cache (Phase 4): exact key only — see scripts/ci-verification-cache.
+# Path: $RUNNER_TEMP/levenshtein-verification-v1 passed as --cache-dir.
+# Restore on all events; save only for trusted (non-fork) refs.
+#
 # Event → ./verify run mapping:
 #   Draft PR / push main     → lint: branch; tests: no Dagger verify run
 #   Ready PR / merge_group   → lint: branch; tests: self-test
@@ -91,10 +95,31 @@ jobs:
           key: dagger-sdk-v1-${{ runner.os }}-${{ hashFiles('dagger.json', '.dagger-version', 'scripts/dagger-checksums.txt', 'runner/go.mod', 'runner/go.sum', 'runner/toolchain.json', 'runner/*.go', 'sdk/patched-go/**') }}
       - name: Generate the pinned Go SDK
         run: ./scripts/ci-dagger-sdk "${{ steps.dagger-sdk.outputs.cache-hit }}"
+      - name: Restore verification result cache
+        id: verification-results
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ runner.temp }}/levenshtein-verification-v1
+          # Exact key only (no restore-keys). Invalidate inputs: scripts/ci-verification-cache.
+          key: verification-v1-${{ runner.os }}-${{ hashFiles('levenshtein.json', '.dagger-version', 'dagger.json', '.go-version', 'go.mod', 'go.sum', 'verify', '.github/workflows/verify.yml', 'cmd/**', 'internal/**', 'runner/**', 'sdk/patched-go/**') }}
       - name: Lint and static checks
         env:
           NO_COLOR: '1'
-        run: ./scripts/ci-step-time verify-branch ./verify branch
+          VERIFICATION_CACHE: ${{ runner.temp }}/levenshtein-verification-v1
+        run: |
+          mkdir -p "$VERIFICATION_CACHE"
+          ./scripts/ci-step-time verify-branch \
+            ./verify branch --cache-dir "$VERIFICATION_CACHE"
+      - name: Save verification result cache
+        if: >-
+          success() &&
+          steps.verification-results.outputs.cache-hit != 'true' &&
+          (github.event_name != 'pull_request' ||
+           github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ runner.temp }}/levenshtein-verification-v1
+          key: ${{ steps.verification-results.outputs.cache-primary-key }}
 
   tests:
     runs-on: ubuntu-24.04
@@ -160,12 +185,21 @@ jobs:
         env:
           GOTOOLCHAIN: local
         run: dagger run go test -count=1 ./...
+      - name: Restore verification result cache
+        id: verification-results
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ runner.temp }}/levenshtein-verification-v1
+          # Exact key only (no restore-keys). Invalidate inputs: scripts/ci-verification-cache.
+          key: verification-v1-${{ runner.os }}-${{ hashFiles('levenshtein.json', '.dagger-version', 'dagger.json', '.go-version', 'go.mod', 'go.sum', 'verify', '.github/workflows/verify.yml', 'cmd/**', 'internal/**', 'runner/**', 'sdk/patched-go/**') }}
       - name: Verify (non-lint Dagger checks)
+        id: dagger-verify
         env:
           EVENT: ${{ github.event_name }}
           DRAFT: ${{ github.event.pull_request.draft }}
           REQUESTED_RUN: ${{ inputs.run }}
           NO_COLOR: '1'
+          VERIFICATION_CACHE: ${{ runner.temp }}/levenshtein-verification-v1
         run: |
           run=
           if [[ "$EVENT" == schedule ]]; then
@@ -177,10 +211,25 @@ jobs:
           fi
           if [[ -z $run ]]; then
             echo 'Skipping Dagger verify on draft PR / push main (lint job covers branch).'
+            echo 'ran=false' >> "$GITHUB_OUTPUT"
             ./scripts/ci-step-time verify-skipped true
             exit 0
           fi
-          ./scripts/ci-step-time "verify-${run}" ./verify "$run"
+          echo 'ran=true' >> "$GITHUB_OUTPUT"
+          mkdir -p "$VERIFICATION_CACHE"
+          ./scripts/ci-step-time "verify-${run}" \
+            ./verify "$run" --cache-dir "$VERIFICATION_CACHE"
+      - name: Save verification result cache
+        if: >-
+          success() &&
+          steps.dagger-verify.outputs.ran == 'true' &&
+          steps.verification-results.outputs.cache-hit != 'true' &&
+          (github.event_name != 'pull_request' ||
+           github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ runner.temp }}/levenshtein-verification-v1
+          key: ${{ steps.verification-results.outputs.cache-primary-key }}
       - name: Consumer regression checks
         env:
           NO_COLOR: '1'
