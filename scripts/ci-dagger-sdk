@@ -6,6 +6,10 @@
 #   runner/internal/dagger/
 #   runner/internal/telemetry/
 #
+# Actions key version: dagger-sdk-v2-… (bump the version prefix in
+# .github/workflows/verify.yml when a key is poisoned with incomplete
+# artifacts — Actions cannot overwrite an existing exact key).
+#
 # Invalidate the cache when any of these change (keep in sync with
 # hashFiles in .github/workflows/verify.yml):
 #   dagger.json
@@ -17,8 +21,13 @@
 #   runner/*.go
 #   sdk/patched-go/**
 #
+# Warm verification: on a second trusted run with unchanged inputs, the
+# Generate step should log dagger-develop-cache-hit (not dagger-develop),
+# and the Save generated Dagger SDK step should be skipped (cache-hit).
+#
 # Usage: ci-dagger-sdk <cache-hit true|false>
 # On hit with complete artifacts, skips dagger develop. Otherwise regenerates.
+# When GITHUB_OUTPUT is set, writes ready=true|false for the workflow save step.
 set -euo pipefail
 
 root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -30,13 +39,50 @@ if [[ $# -ne 1 ]]; then
 fi
 
 cache_hit=$1
-sdk_ready=false
-if [[ -f runner/dagger.gen.go && -d runner/internal/dagger && -d runner/internal/telemetry ]]; then
-  sdk_ready=true
-fi
 
-if [[ $cache_hit == true && $sdk_ready == true ]]; then
+emit() {
+  local name=$1
+  local value=$2
+  if [[ -n ${GITHUB_OUTPUT:-} ]]; then
+    echo "$name=$value" >>"$GITHUB_OUTPUT"
+  fi
+}
+
+# Reject empty dirs / tiny stubs (a stuck ~59KB Actions entry passed path
+# existence alone but still forced a full dagger develop).
+sdk_ready() {
+  local gen=runner/dagger.gen.go
+  [[ -f $gen ]] || return 1
+
+  local size
+  size=$(wc -c <"$gen" | tr -d ' ')
+  # Complete dagger.gen.go for this module is well above 100KiB.
+  [[ $size -ge 102400 ]] || return 1
+
+  local dagger_go telemetry_go
+  dagger_go=$(find runner/internal/dagger -type f -name '*.go' 2>/dev/null | wc -l | tr -d ' ')
+  telemetry_go=$(find runner/internal/telemetry -type f -name '*.go' 2>/dev/null | wc -l | tr -d ' ')
+  [[ $dagger_go -ge 1 && $telemetry_go -ge 1 ]] || return 1
+
+  grep -q '^package ' "$gen" || return 1
+  return 0
+}
+
+if [[ $cache_hit == true ]] && sdk_ready; then
+  emit ready true
   exec ./scripts/ci-step-time dagger-develop-cache-hit true
 fi
 
-exec ./scripts/ci-step-time dagger-develop dagger develop --compat=skip
+if [[ $cache_hit == true ]]; then
+  echo 'ci-dagger-sdk: incomplete SDK cache hit; regenerating (bump dagger-sdk-vN if this persists)' >&2
+fi
+
+./scripts/ci-step-time dagger-develop dagger develop --compat=skip
+
+if ! sdk_ready; then
+  emit ready false
+  echo 'ci-dagger-sdk: dagger develop did not produce a usable SDK' >&2
+  exit 1
+fi
+
+emit ready true

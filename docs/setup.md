@@ -101,18 +101,18 @@ Treat warm lint wall time creeping toward warm tests as a CI performance regress
 
 ### Result-cache trust
 
-- Restore `verification-v1` on every event (forks may restore read-only).
+- Restore `verification-v1-lint` / `verification-v1-tests` on every event (forks may restore read-only).
 - Save writable result entries only from trusted refs: non-`pull_request` events, or PRs whose `head.repo.full_name` equals `github.repository`.
-- Exact Actions cache keys only (no `restore-keys`) for generated SDK and verification results.
+- Exact Actions cache keys only (no `restore-keys`) for generated SDK and verification results. Lint and tests use **separate** verification keys so they cannot race one entry.
 - Scheduled `main` keeps `rerun_checks: true`; `go-vuln` always re-executes.
 
 ### Caches and self-config notes
 
 Shell steps report wall times via `scripts/ci-step-time`; job walls via `scripts/ci-job-timing`; ratio via `scripts/ci-lint-tests-ratio`. The `lint` and `tests` jobs (and `vulnerabilities`) restore a pinned Dagger CLI from the Actions cache when `.dagger-version` / `scripts/dagger-checksums.txt` are unchanged; install falls back to download on miss. `language-contracts` uses the setup-go module cache over root `go.sum`.
 
-Generated SDK (`runner/dagger.gen.go`, `runner/internal/dagger`, `runner/internal/telemetry`) is restored with an **exact** Actions cache key (no `restore-keys`) so a warm lint job can skip `dagger develop`. Invalidate when any of these change: `dagger.json`, `.dagger-version`, `scripts/dagger-checksums.txt`, `runner/go.mod`, `runner/go.sum`, `runner/toolchain.json`, `runner/*.go`, `sdk/patched-go/**` (see `scripts/ci-dagger-sdk`). Module or pin changes miss the cache and regenerate; `vulnerabilities.yml` still always runs `scripts/test-sdk-security` (double `dagger develop` + scans).
+Generated SDK (`runner/dagger.gen.go`, `runner/internal/dagger`, `runner/internal/telemetry`) uses **exact** key `dagger-sdk-v2-…` (no `restore-keys`). Restore + save are separate steps; save runs only when `scripts/ci-dagger-sdk` reports `ready=true` after a miss (sizeable `dagger.gen.go` plus `.go` files under `internal/dagger` and `internal/telemetry`). Incomplete hits regenerate and log a poison warning — bump the `vN` prefix to abandon a stuck key (Actions cannot overwrite). Warm check: Generate logs `dagger-develop-cache-hit`. Invalidate when any of these change: `dagger.json`, `.dagger-version`, `scripts/dagger-checksums.txt`, `runner/go.mod`, `runner/go.sum`, `runner/toolchain.json`, `runner/*.go`, `sdk/patched-go/**`. `vulnerabilities.yml` still always runs `scripts/test-sdk-security`.
 
-Completed verification results (`verification-v1`) are restored into `$RUNNER_TEMP/levenshtein-verification-v1` and passed to `./verify --cache-dir` on `lint` / `tests` (see `scripts/ci-verification-cache`).
+Completed verification results are restored into `$RUNNER_TEMP/levenshtein-verification-v1` and passed to `./verify --cache-dir` on `lint` / `tests` with per-job keys (`verification-v1-lint-…`, `verification-v1-tests-…`; see `scripts/ci-verification-cache`). Warm check: both Restore steps hit and Save steps skip.
 
 In-engine Go module/build and Staticcheck `CacheVolume`s remain version-keyed in `runner/` but are **session-local** on ephemeral GitHub-hosted runners. Persisting those volumes across VMs is **blocked** for Dagger **0.21.9** (no supported CI export/restore API without experimental hacks).
 
