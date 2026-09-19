@@ -233,10 +233,12 @@ func TestParallelExecuteSharedPreparationPreservesPlanOrder(t *testing.T) {
 	native.mu.Unlock()
 	lintAt, testsAt := -1, -1
 	for i, id := range order {
-		switch id {
-		case "lint":
+		if id == "lint" {
 			lintAt = i
-		case "tests":
+		}
+	}
+	for i, id := range order {
+		if id == "tests" {
 			testsAt = i
 		}
 	}
