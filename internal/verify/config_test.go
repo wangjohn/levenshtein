@@ -5,7 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestLegacyTranslation(t *testing.T) {
@@ -102,5 +104,59 @@ func TestAccountForEverySelectedCheck(t *testing.T) {
 	report = Execute(ctx, plan, "", map[ExecutorKind]Executor{executorFake: executor})
 	if executor.calls != 1 || report.Results[0].Status != StatusCancelled {
 		t.Fatalf("executed after cancellation: %+v", report)
+	}
+}
+
+type orderedExecutor struct {
+	mu    sync.Mutex
+	delay map[string]time.Duration
+	seen  []string
+}
+
+func (o *orderedExecutor) Execute(_ context.Context, req Request) Result {
+	if delay := o.delay[req.ID]; delay > 0 {
+		time.Sleep(delay)
+	}
+
+	o.mu.Lock()
+	o.seen = append(o.seen, req.ID)
+	o.mu.Unlock()
+	return Result{Status: StatusPassed, Stdout: req.ID}
+}
+
+func TestParallelExecutePreservesPlanOrder(t *testing.T) {
+	plan := Plan{
+		Run: "branch",
+		Checks: []PlannedCheck{
+			{ID: "slow", Environment: Environment{Executor: executorFake}},
+			{ID: "fast", Environment: Environment{Executor: executorFake}},
+			{ID: "mid", Environment: Environment{Executor: executorFake}},
+		},
+	}
+	executor := &orderedExecutor{delay: map[string]time.Duration{
+		"slow": 80 * time.Millisecond,
+		"fast": 5 * time.Millisecond,
+		"mid":  20 * time.Millisecond,
+	}}
+
+	start := time.Now()
+	report := Execute(context.Background(), plan, "", map[ExecutorKind]Executor{executorFake: executor})
+	elapsed := time.Since(start)
+	if report.Status != StatusPassed {
+		t.Fatalf("status: %+v", report)
+	}
+	if elapsed >= 80*time.Millisecond+20*time.Millisecond {
+		t.Fatalf("checks appear sequential: elapsed %s", elapsed)
+	}
+	for i, id := range []string{"slow", "fast", "mid"} {
+		if report.Results[i].ID != id || report.Results[i].Stdout != id {
+			t.Fatalf("results not in plan order: %+v", report.Results)
+		}
+	}
+	if got := checkParallelism(1); got != 1 {
+		t.Fatalf("checkParallelism(1) = %d", got)
+	}
+	if got := checkParallelism(100); got < 1 || got > maxCheckParallelism {
+		t.Fatalf("checkParallelism(100) = %d", got)
 	}
 }

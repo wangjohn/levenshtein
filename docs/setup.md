@@ -97,6 +97,8 @@ Completed verification results (`verification-v1`) are restored into `$RUNNER_TE
 
 In-engine Go module/build and Staticcheck `CacheVolume`s remain version-keyed in `runner/` but are **session-local** on ephemeral GitHub-hosted runners. Persisting those volumes across VMs (plan Phase 5) is **blocked** for Dagger **0.21.9**: there is no documented, supported CI export/restore API that preserves volume identity without undocumented `_EXPERIMENTAL_*` knobs or third-party runtime hacks. Revisit when the pinned engine documents a supported cache backend.
 
+Self-config targets use narrow literal `inputs` (not `"."`): root Go module paths, `runner` / `runner/lint`, and `.github/workflows` for workflow-lint. Doc-only edits therefore do not invalidate Go analysis result fingerprints. Independent checks in a run execute concurrently (bounded workers) inside `./verify`.
+
 Pre-split baseline (monolithic `verify` ~4.6–5 min on `ubuntu-24.04`; `dagger develop` ~93s; `./verify` ~94–114s): see the Phase 0 notes linked from the lint/tests split PR, or Actions run [35283983398](https://github.com/wangjohn/levenshtein/actions/runs/35283983398).
 
 ## Pinned dependencies
