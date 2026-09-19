@@ -95,6 +95,8 @@ Generated SDK (`runner/dagger.gen.go`, `runner/internal/dagger`, `runner/interna
 
 Completed verification results (`verification-v1`) are restored into `$RUNNER_TEMP/levenshtein-verification-v1` and passed to `./verify --cache-dir` on `lint` / `tests`. The Actions key is **exact** only (see `scripts/ci-verification-cache`). **Restore** is allowed for every event, including fork PRs (read-only). **Save** runs only when the head repo equals `github.repository` (or the event is not a `pull_request`), so fork PRs cannot publish writable result entries. Inner fingerprints still decide hit vs miss; scheduled `main` keeps `rerun_checks: true`, and `go-vuln` always re-executes.
 
+In-engine Go module/build and Staticcheck `CacheVolume`s remain version-keyed in `runner/` but are **session-local** on ephemeral GitHub-hosted runners. Persisting those volumes across VMs (plan Phase 5) is **blocked** for Dagger **0.21.9**: there is no documented, supported CI export/restore API that preserves volume identity without undocumented `_EXPERIMENTAL_*` knobs or third-party runtime hacks. Revisit when the pinned engine documents a supported cache backend.
+
 Pre-split baseline (monolithic `verify` ~4.6–5 min on `ubuntu-24.04`; `dagger develop` ~93s; `./verify` ~94–114s): see the Phase 0 notes linked from the lint/tests split PR, or Actions run [35283983398](https://github.com/wangjohn/levenshtein/actions/runs/35283983398).
 
 ## Pinned dependencies
