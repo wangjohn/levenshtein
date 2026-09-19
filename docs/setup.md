@@ -71,14 +71,25 @@ Version 1 runs use explicit `rerun_checks: true` for fresh audits, regardless of
 
 The checked-in `Levenshtein self-checks` workflow verifies this repo's runner and fixtures. Its cron schedules that verification only. Application repos call the shared runner from their own CI, as shown in the [consumer guide](consumer-ci.md).
 
-For Levenshtein itself, the workflow selects:
+Jobs (parallel):
 
-- `branch` for draft PR updates and pushes to `main`.
-- `pre-merge` for ready PRs and merge-queue candidates.
-- `main` daily at 07:23 UTC, using the default branch.
-- A configurable run for manual dispatch.
+| Job | Role |
+| --- | --- |
+| `lint` | Static `./verify branch` only (early signal; no host race tests or consumer regressions) |
+| `tests` | Host race/fixtures, SDK regeneration, non-lint Dagger checks, consumer regressions |
+| `language-contracts` | Rust and Python contract fixtures |
+| `release-smoke` | GoReleaser snapshot + archive test (skipped on draft PRs) |
 
-This workflow also runs the runner's Go unit tests, consumer regression fixtures, and verifies that the bad fixture fails with all three intended diagnostics. Require `verify`, `release-smoke`, and `language-contracts` for Levenshtein once they have run; `language-contracts` exercises the Rust and Python contracts. Application repos maintain their own merge gates and schedules.
+Event → `./verify` mapping:
+
+- Draft PR / push to `main`: `lint` runs `branch`; `tests` skips Dagger verify (lint already covered static checks).
+- Ready PR / merge queue: `lint` runs `branch`; `tests` runs `self-test` (together equivalent to former `pre-merge`).
+- Daily schedule (07:23 UTC): `lint` runs `branch`; `tests` runs `main` (fresh audit + `go-vuln`).
+- Manual dispatch: `lint` runs `branch`; `tests` runs the requested run (default `pre-merge`).
+
+**Required checks:** require **`lint`** for early PR feedback. Require **`tests`**, **`language-contracts`**, and **`release-smoke`** before merge (ready / merge queue / `main`). Do not make draft progress wait on `release-smoke` or full `tests`. Update branch protection when the former `verify` job name is replaced by `lint` / `tests`.
+
+Shell steps report wall times in the job summary via `scripts/ci-step-time`. Pre-split baseline (monolithic `verify` ~4.6–5 min on `ubuntu-24.04`; `dagger develop` ~93s; `./verify` ~94–114s): see the Phase 0 notes linked from the lint/tests split PR, or Actions run [35283983398](https://github.com/wangjohn/levenshtein/actions/runs/35283983398).
 
 ## Pinned dependencies
 
