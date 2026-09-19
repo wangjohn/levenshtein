@@ -71,12 +71,13 @@ Version 1 runs use explicit `rerun_checks: true` for fresh audits, regardless of
 
 The checked-in `Levenshtein self-checks` workflow verifies this repo's runner and fixtures. Its cron schedules that verification only. Application repos call the shared runner from their own CI, as shown in the [consumer guide](consumer-ci.md).
 
-Jobs (parallel):
+### Tiered jobs
 
 | Job | Role |
 | --- | --- |
 | `lint` | Static `./verify branch` only (early signal; no host race tests or consumer regressions) |
 | `tests` | Host race/fixtures, SDK restore or regen, non-lint Dagger checks, consumer regressions |
+| `lint vs tests timing` | Publishes this-run lint/tests wall times and ratio in the job summary (not a merge gate) |
 | `language-contracts` | Rust and Python contract fixtures |
 | `release-smoke` | GoReleaser snapshot + archive test (skipped on draft PRs) |
 
@@ -87,19 +88,52 @@ Event → `./verify` mapping:
 - Daily schedule (07:23 UTC): `lint` runs `branch`; `tests` runs `main` (fresh audit + `go-vuln`).
 - Manual dispatch: `lint` runs `branch`; `tests` runs the requested run (default `pre-merge`).
 
-**Required checks:** require **`lint`** for early PR feedback. Require **`tests`**, **`language-contracts`**, and **`release-smoke`** before merge (ready / merge queue / `main`). Do not make draft progress wait on `release-smoke` or full `tests`. Update branch protection when the former `verify` job name is replaced by `lint` / `tests`.
+### Required checks (branch protection)
 
-Shell steps report wall times in the job summary via `scripts/ci-step-time`. The `lint` and `tests` jobs (and `vulnerabilities`) restore a pinned Dagger CLI from the Actions cache when `.dagger-version` / `scripts/dagger-checksums.txt` are unchanged; install falls back to download on miss. `language-contracts` uses the setup-go module cache over root `go.sum`.
+| When | Require |
+| --- | --- |
+| Early PR progress (including drafts) | **`lint`** |
+| Merge / ready-for-review / merge queue / `main` | **`lint`**, **`tests`**, **`language-contracts`**, **`release-smoke`** |
+
+Do **not** make draft progress wait on `release-smoke` or full `tests`. Do **not** require the `lint vs tests timing` job. When adopting this workflow, replace any required check named `verify` with `lint` and `tests` the same day.
+
+Treat warm lint wall time creeping toward warm tests as a CI performance regression. Each run’s Actions summary shows step timings, job wall clocks, and the lint/tests ratio; compare medians across warm `ubuntu-24.04` runs.
+
+### Result-cache trust
+
+- Restore `verification-v1` on every event (forks may restore read-only).
+- Save writable result entries only from trusted refs: non-`pull_request` events, or PRs whose `head.repo.full_name` equals `github.repository`.
+- Exact Actions cache keys only (no `restore-keys`) for generated SDK and verification results.
+- Scheduled `main` keeps `rerun_checks: true`; `go-vuln` always re-executes.
+
+### Caches and self-config notes
+
+Shell steps report wall times via `scripts/ci-step-time`; job walls via `scripts/ci-job-timing`; ratio via `scripts/ci-lint-tests-ratio`. The `lint` and `tests` jobs (and `vulnerabilities`) restore a pinned Dagger CLI from the Actions cache when `.dagger-version` / `scripts/dagger-checksums.txt` are unchanged; install falls back to download on miss. `language-contracts` uses the setup-go module cache over root `go.sum`.
 
 Generated SDK (`runner/dagger.gen.go`, `runner/internal/dagger`, `runner/internal/telemetry`) is restored with an **exact** Actions cache key (no `restore-keys`) so a warm lint job can skip `dagger develop`. Invalidate when any of these change: `dagger.json`, `.dagger-version`, `scripts/dagger-checksums.txt`, `runner/go.mod`, `runner/go.sum`, `runner/toolchain.json`, `runner/*.go`, `sdk/patched-go/**` (see `scripts/ci-dagger-sdk`). Module or pin changes miss the cache and regenerate; `vulnerabilities.yml` still always runs `scripts/test-sdk-security` (double `dagger develop` + scans).
 
-Completed verification results (`verification-v1`) are restored into `$RUNNER_TEMP/levenshtein-verification-v1` and passed to `./verify --cache-dir` on `lint` / `tests`. The Actions key is **exact** only (see `scripts/ci-verification-cache`). **Restore** is allowed for every event, including fork PRs (read-only). **Save** runs only when the head repo equals `github.repository` (or the event is not a `pull_request`), so fork PRs cannot publish writable result entries. Inner fingerprints still decide hit vs miss; scheduled `main` keeps `rerun_checks: true`, and `go-vuln` always re-executes.
+Completed verification results (`verification-v1`) are restored into `$RUNNER_TEMP/levenshtein-verification-v1` and passed to `./verify --cache-dir` on `lint` / `tests` (see `scripts/ci-verification-cache`).
 
-In-engine Go module/build and Staticcheck `CacheVolume`s remain version-keyed in `runner/` but are **session-local** on ephemeral GitHub-hosted runners. Persisting those volumes across VMs (plan Phase 5) is **blocked** for Dagger **0.21.9**: there is no documented, supported CI export/restore API that preserves volume identity without undocumented `_EXPERIMENTAL_*` knobs or third-party runtime hacks. Revisit when the pinned engine documents a supported cache backend.
+In-engine Go module/build and Staticcheck `CacheVolume`s remain version-keyed in `runner/` but are **session-local** on ephemeral GitHub-hosted runners. Persisting those volumes across VMs is **blocked** for Dagger **0.21.9** (no supported CI export/restore API without experimental hacks).
 
 Self-config targets use narrow literal `inputs` (not `"."`): root Go module paths, `runner` / `runner/lint`, and `.github/workflows` for workflow-lint. Doc-only edits therefore do not invalidate Go analysis result fingerprints. Independent checks in a run execute concurrently (bounded workers) inside `./verify`.
 
-Pre-split baseline (monolithic `verify` ~4.6–5 min on `ubuntu-24.04`; `dagger develop` ~93s; `./verify` ~94–114s): see the Phase 0 notes linked from the lint/tests split PR, or Actions run [35283983398](https://github.com/wangjohn/levenshtein/actions/runs/35283983398).
+### Success criteria and gaps
+
+| Criterion | Status |
+| --- | --- |
+| Lint ≪ tests (warm lint well under 1 min) | In progress — needs warm SDK + result-cache hits; Phase 5 engine volumes blocked |
+| Coverage preserved on ready/merge/`main`/schedule | Met by job split + event mapping |
+| Trust partitioning for result caches | Met (trusted save only) |
+| Freshness (`rerun_checks` / `go-vuln`) | Met |
+| Visibility (lint vs tests timings in summaries) | Met (`lint vs tests timing` job + step timings) |
+| Self-CI scope (not consumer packaging) | Met |
+
+### Out of scope here
+
+Consumer CLI `--source` cache UX, install/release packaging, and Swift/Benchplan macOS lint jobs are tracked in other workstreams (consumer CLI performance, setup packaging, Go–Swift lints), not in this self-CI workflow.
+
+Pre-split baseline (monolithic `verify` ~4.6–5 min on `ubuntu-24.04`; `dagger develop` ~93s; `./verify` ~94–114s): Actions run [35283983398](https://github.com/wangjohn/levenshtein/actions/runs/35283983398).
 
 ## Pinned dependencies
 

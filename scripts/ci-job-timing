@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Record a self-CI job wall clock for GitHub Actions summaries and job outputs.
+# Usage: ci-job-timing <job-name> <start-unix-seconds>
+# Writes:
+#   - GITHUB_STEP_SUMMARY job wall section
+#   - GITHUB_OUTPUT seconds=<n> (for needs.*.outputs)
+#   - optional file $RUNNER_TEMP/levenshtein-<job>-seconds.txt
+set -euo pipefail
+
+if [[ $# -ne 2 ]]; then
+  echo "usage: $0 <job-name> <start-unix-seconds>" >&2
+  exit 2
+fi
+
+job=$1
+start=$2
+now=$(date +%s)
+if [[ ! $start =~ ^[0-9]+$ ]] || (( now < start )); then
+  echo "invalid start time: $start" >&2
+  exit 2
+fi
+seconds=$((now - start))
+
+if [[ -n ${GITHUB_OUTPUT:-} ]]; then
+  echo "seconds=$seconds" >>"$GITHUB_OUTPUT"
+fi
+
+if [[ -n ${RUNNER_TEMP:-} ]]; then
+  printf '%s\n' "$seconds" >"$RUNNER_TEMP/levenshtein-${job}-seconds.txt"
+fi
+
+if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
+  {
+    echo "### ${job} job wall clock"
+    echo
+    echo "| Job | Seconds |"
+    echo "| --- | ---: |"
+    printf '| %s | %s |\n' "$job" "$seconds"
+    echo
+  } >>"$GITHUB_STEP_SUMMARY"
+fi
+
+echo "ci-job-timing: ${job}=${seconds}s" >&2

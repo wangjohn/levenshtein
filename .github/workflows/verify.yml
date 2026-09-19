@@ -26,7 +26,9 @@ name: Levenshtein self-checks
 #   workflow_dispatch        → lint: branch; tests: requested run (default pre-merge)
 #
 # Required-check guidance: require lint early; do not make draft progress wait on
-# release-smoke or full tests. See docs/setup.md.
+# release-smoke or full tests. See docs/setup.md (tiered jobs + trust policy).
+#
+# Timing: lint and tests export wall_seconds; lint-vs-tests publishes the ratio.
 
 on:
   pull_request:
@@ -55,7 +57,12 @@ jobs:
   lint:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    outputs:
+      wall_seconds: ${{ steps.job-timing.outputs.seconds }}
     steps:
+      - name: Record job start
+        id: job-start
+        run: echo "start=$(date +%s)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -120,11 +127,20 @@ jobs:
         with:
           path: ${{ runner.temp }}/levenshtein-verification-v1
           key: ${{ steps.verification-results.outputs.cache-primary-key }}
+      - name: Publish job timing
+        id: job-timing
+        if: always()
+        run: ./scripts/ci-job-timing lint "${{ steps.job-start.outputs.start }}"
 
   tests:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    outputs:
+      wall_seconds: ${{ steps.job-timing.outputs.seconds }}
     steps:
+      - name: Record job start
+        id: job-start
+        run: echo "start=$(date +%s)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -236,6 +252,26 @@ jobs:
         run: |
           ./scripts/ci-step-time consumer-regressions \
             bash -c './scripts/test-consumers && ./scripts/test-shared-checks'
+      - name: Publish job timing
+        id: job-timing
+        if: always()
+        run: ./scripts/ci-job-timing tests "${{ steps.job-start.outputs.start }}"
+
+  lint-vs-tests:
+    name: lint vs tests timing
+    needs: [lint, tests]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Publish lint vs tests ratio
+        env:
+          LINT_SECONDS: ${{ needs.lint.outputs.wall_seconds }}
+          TESTS_SECONDS: ${{ needs.tests.outputs.wall_seconds }}
+        run: ./scripts/ci-lint-tests-ratio "${LINT_SECONDS:-}" "${TESTS_SECONDS:-}"
 
   language-contracts:
     runs-on: ubuntu-24.04
