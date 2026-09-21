@@ -66,7 +66,30 @@ func validateSemanticLint(check Check, env Environment) error {
 	if check.Base != "" && (strings.HasPrefix(check.Base, "-") || strings.ContainsAny(check.Base, " \t\n\x00")) {
 		return fmt.Errorf("invalid semantic-lint base %q", check.Base)
 	}
+	if err := validateSemanticCredentials(check, env); err != nil {
+		return err
+	}
 	return validateNativeEnvironment(check, env)
+}
+
+// validateSemanticCredentials keeps the API key and the API origin out of
+// committed configuration. Configuration travels with the pull request, so a
+// declared origin would otherwise decide where the CI secret is sent.
+func validateSemanticCredentials(check Check, env Environment) error {
+	for _, name := range []string{semanticAPIKeyEnv, semanticBaseURLEnv} {
+		if _, declared := env.Env[name]; declared {
+			return fmt.Errorf("semantic-lint reads %s from the host environment; remove it from the environment's env, which is committed configuration", name)
+		}
+		if _, declared := check.Env[name]; declared {
+			return fmt.Errorf("semantic-lint reads %s from the host environment; remove it from the check's env, which is committed configuration", name)
+		}
+	}
+	for _, name := range env.PassEnv {
+		if name == semanticAPIKeyEnv {
+			return fmt.Errorf("semantic-lint reads %s itself; remove it from pass_env so the key is not passed to the check's subprocesses", name)
+		}
+	}
+	return nil
 }
 
 func validateNativeEnvironment(check Check, env Environment) error {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,9 +23,11 @@ const (
 // semanticLint asks a pinned Jev model the shared catalog's questions about the
 // change and reports advisory findings. It always executes; nothing is cached.
 //
-// Unlike command checks, this kind reads its API key, API origin, and CI base
-// branch from the host environment without pass_env: the kind itself defines
-// which variables it consumes, so consumers only add a secret.
+// Unlike command checks, this kind names the variables it consumes, so a
+// consumer adds a secret without a pass_env entry. The API key and the API
+// origin are read from the host process alone: committed configuration can
+// neither supply the key nor redirect it to another origin. Only the CI base
+// branch may also come from the check's environment.
 func semanticLint(ctx context.Context, req Request, dir string, env []string) Result {
 	timeout := 5 * time.Minute
 	if req.Check.Timeout != "" {
@@ -37,7 +40,7 @@ func semanticLint(ctx context.Context, req Request, dir string, env []string) Re
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	apiKey := hostValue(env, semanticAPIKeyEnv)
+	apiKey := os.Getenv(semanticAPIKeyEnv)
 	if apiKey == "" {
 		return Result{Status: StatusError, Error: fmt.Sprintf("%s is not set; export it locally or supply it from a CI secret", semanticAPIKeyEnv)}
 	}
@@ -57,9 +60,13 @@ func semanticLint(ctx context.Context, req Request, dir string, env []string) Re
 	if base == "" {
 		base = semanticDefaultRef
 	}
-	baseURL := hostValue(env, semanticBaseURLEnv)
+	baseURL := os.Getenv(semanticBaseURLEnv)
 	if baseURL == "" {
 		baseURL = semantic.DefaultBaseURL
+	}
+	origin, err := semanticOrigin(baseURL)
+	if err != nil {
+		return Result{Status: StatusError, Error: err.Error()}
 	}
 	report, runErr := semantic.Run(ctx, semantic.Options{
 		Source:  req.Source,
@@ -67,7 +74,7 @@ func semanticLint(ctx context.Context, req Request, dir string, env []string) Re
 		Git:     git,
 		Env:     env,
 		Base:    base,
-		Client:  semantic.Client{BaseURL: strings.TrimRight(baseURL, "/"), APIKey: apiKey, Model: model},
+		Client:  semantic.Client{BaseURL: origin, APIKey: apiKey, Model: model},
 	})
 	details, _ := json.Marshal(report)
 	result := Result{Status: StatusPassed, Stdout: semantic.Summary(report), Details: details}
@@ -94,8 +101,26 @@ func (req Request) deadline(ctx context.Context) error {
 	return nil
 }
 
+// semanticLoopbackHosts may serve the API over plain HTTP, which keeps local
+// httptest servers and recording proxies usable.
+var semanticLoopbackHosts = map[string]bool{"127.0.0.1": true, "::1": true, "localhost": true}
+
+// semanticOrigin rejects an origin that would put the bearer token on the wire
+// in the clear.
+func semanticOrigin(raw string) (string, error) {
+	trimmed := strings.TrimRight(raw, "/")
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Host == "" {
+		return "", fmt.Errorf("%s %q is not a valid URL", semanticBaseURLEnv, raw)
+	}
+	if parsed.Scheme != "https" && !semanticLoopbackHosts[parsed.Hostname()] {
+		return "", fmt.Errorf("%s %q must use https so the API key is not sent in the clear; plain http is accepted only for loopback hosts", semanticBaseURLEnv, raw)
+	}
+	return trimmed, nil
+}
+
 // hostValue prefers a value declared through env or pass_env, then falls back
-// to the runner's own environment.
+// to the runner's own environment. Credentials never read through it.
 func hostValue(env []string, name string) string {
 	for _, entry := range env {
 		if value, ok := strings.CutPrefix(entry, name+"="); ok {

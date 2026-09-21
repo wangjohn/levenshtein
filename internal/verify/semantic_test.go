@@ -59,6 +59,52 @@ func TestSemanticLintConfiguration(t *testing.T) {
 	}
 }
 
+// TestSemanticLintRejectsCommittedCredentials covers the redirect that
+// configuration could otherwise perform: levenshtein.json travels with the pull
+// request, so a declared origin would choose where the CI secret is sent.
+func TestSemanticLintRejectsCommittedCredentials(t *testing.T) {
+	environment := `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"host":{"executor":"native"%s}},"checks":{"semantic":{"kind":"semantic-lint","target":"app","environment":"host"}},"runs":{"branch":{"checks":["semantic"]}}}`
+
+	for name, data := range map[string]string{
+		"check env base url":       strings.Replace(semanticConfig, "%s", `,"env":{"TYPESAFE_BASE_URL":"https://attacker.example"}`, 1),
+		"check env api key":        strings.Replace(semanticConfig, "%s", `,"env":{"TYPESAFE_API_KEY":"leaked"}`, 1),
+		"environment env base url": strings.Replace(environment, "%s", `,"env":{"TYPESAFE_BASE_URL":"https://attacker.example"}`, 1),
+		"environment env api key":  strings.Replace(environment, "%s", `,"env":{"TYPESAFE_API_KEY":"leaked"}`, 1),
+		"pass_env api key":         strings.Replace(environment, "%s", `,"pass_env":["TYPESAFE_API_KEY"]`, 1),
+	} {
+		cfg, err := Parse([]byte(data))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		_, err = cfg.Plan(t.TempDir(), "branch")
+		if err == nil || !strings.Contains(err.Error(), "TYPESAFE_") {
+			t.Fatalf("%s accepted: %v", name, err)
+		}
+	}
+
+	// An unrelated variable and a base-URL pass_env entry stay usable.
+	cfg, err := Parse([]byte(strings.Replace(environment, "%s", `,"env":{"GOFLAGS":"-mod=mod"},"pass_env":["TYPESAFE_BASE_URL"]`, 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cfg.Plan(t.TempDir(), "branch"); err != nil {
+		t.Fatalf("unrelated environment entries rejected: %v", err)
+	}
+}
+
+func TestSemanticOriginRequiresHTTPSOffLoopback(t *testing.T) {
+	for _, raw := range []string{"https://api.typesafe.ai/", "http://127.0.0.1:8080", "http://localhost:9/v1", "http://[::1]:9"} {
+		if _, err := semanticOrigin(raw); err != nil {
+			t.Fatalf("%s rejected: %v", raw, err)
+		}
+	}
+	for _, raw := range []string{"http://api.typesafe.ai", "http://evil.example:443", "ftp://api.typesafe.ai", "api.typesafe.ai"} {
+		if origin, err := semanticOrigin(raw); err == nil {
+			t.Fatalf("%s accepted as %q", raw, origin)
+		}
+	}
+}
+
 func semanticRequest(t *testing.T, source string) Request {
 	t.Helper()
 	return Request{Source: source, Shared: t.TempDir(), PlannedCheck: PlannedCheck{ID: "semantic", Check: Check{Kind: CheckSemanticLint}, Target: Target{Dir: ".", Workspace: ".", Inputs: []string{"."}}, Environment: Environment{Executor: ExecutorNative}}}
@@ -184,10 +230,17 @@ func TestSemanticLintExecutesAdvisoryCheck(t *testing.T) {
 	}
 
 	req.Target = Target{Dir: ".", Workspace: ".", Inputs: []string{"."}}
-	req.Environment.Env = map[string]string{"TYPESAFE_BASE_URL": "http://127.0.0.1:9"} // Declared env wins over the host value.
+	req.Environment.Env = map[string]string{"TYPESAFE_BASE_URL": server.URL} // Configuration cannot redirect the origin.
+	t.Setenv("TYPESAFE_BASE_URL", "http://127.0.0.1:9")
 	req.Check.Timeout = "5s"
 	result = (&Native{}).Execute(context.Background(), req)
 	if result.Status != StatusError {
-		t.Fatalf("unreachable model must be an infrastructure error: %+v", result)
+		t.Fatalf("only the host value selects the origin, so the unreachable one must error: %+v", result)
+	}
+
+	t.Setenv("TYPESAFE_BASE_URL", "http://api.typesafe.invalid")
+	result = (&Native{}).Execute(context.Background(), req)
+	if result.Status != StatusError || !strings.Contains(result.Error, "https") {
+		t.Fatalf("a plain-http origin off loopback must be refused: %+v", result)
 	}
 }
