@@ -7,11 +7,11 @@
 #   runner/internal/telemetry/
 #
 # Actions key version: dagger-sdk-v2-… (bump the version prefix in
-# .github/workflows/verify.yml when a key is poisoned with incomplete
+# .github/actions/dagger-sdk/action.yml when a key is poisoned with incomplete
 # artifacts — Actions cannot overwrite an existing exact key).
 #
 # Invalidate the cache when any of these change (keep in sync with
-# hashFiles in .github/workflows/verify.yml):
+# hashFiles in .github/actions/dagger-sdk/action.yml):
 #   dagger.json
 #   .dagger-version
 #   scripts/dagger-checksums.txt

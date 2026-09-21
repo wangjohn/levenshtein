@@ -123,7 +123,7 @@ Self-config targets use narrow literal `inputs` (not `"."`): root Go module path
 | --- | --- |
 | Lint ≪ tests (warm lint well under 1 min) | In progress — needs warm SDK + result-cache hits; cross-VM engine volumes blocked |
 | Coverage preserved on ready/merge/`main`/schedule | Met by job split + event mapping |
-| Trust partitioning for result caches | Met (trusted save only) |
+| Result-cache isolation between untrusted PRs and `main` | Met (GitHub scopes PR-written caches to the PR and its base branch) |
 | Freshness (`rerun_checks` / `go-vuln`) | Met |
 | Self-CI scope (not consumer packaging) | Met |
 
