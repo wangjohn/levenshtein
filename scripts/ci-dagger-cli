@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Put the pinned Dagger CLI on PATH for a CI job.
+#
+# Usage: ci-dagger-cli <cache-hit true|false>
+#
+# The composite action .github/actions/setup-dagger restores $RUNNER_TEMP/levenshtein-bin
+# from the Actions cache first. On a hit with a working binary this script only
+# prints its version; otherwise it installs the reviewed release through
+# scripts/install-dagger. Either way the directory is appended to GITHUB_PATH.
+set -euo pipefail
+
+root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+cache_hit=${1:-false}
+bin="${RUNNER_TEMP:?RUNNER_TEMP is set by GitHub Actions}/levenshtein-bin"
+
+if [[ $cache_hit == true && -x "$bin/dagger" ]]; then
+  "$bin/dagger" version
+else
+  "$root/scripts/install-dagger" "$bin"
+fi
+echo "$bin" >>"${GITHUB_PATH:?GITHUB_PATH is set by GitHub Actions}"

@@ -21,7 +21,7 @@ read_pin() {
   value=$(tr -d '[:space:]' <"$root/$path")
   if [[ -z $value ]]; then
     echo "Empty version pin in $path" >&2
-    exit 2
+    return 2
   fi
   printf '%s' "$value"
 }
@@ -32,8 +32,8 @@ if [[ -z $rust_version ]]; then
   echo 'No channel found in tests/fixtures/rust/rust-toolchain.toml' >&2
   exit 2
 fi
-python_version=$(read_pin tests/fixtures/python/.python-version)
-uv_version=$(read_pin tests/fixtures/python/.uv-version)
+python_version=$(read_pin tests/fixtures/python/.python-version) || exit 2
+uv_version=$(read_pin tests/fixtures/python/.uv-version) || exit 2
 
 command -v rustup >/dev/null || { echo 'Install rustup first: https://rustup.rs' >&2; exit 2; }
 mkdir -p "$destination"

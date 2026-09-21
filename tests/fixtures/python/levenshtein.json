@@ -8,6 +8,7 @@
         "pyproject.toml",
         "uv.lock",
         ".python-version",
+        ".uv-version",
         "src",
         "tests",
         "scripts"
@@ -50,7 +51,8 @@
       "inputs": [
         "pyproject.toml",
         "uv.lock",
-        ".python-version"
+        ".python-version",
+        ".uv-version"
       ],
       "outputs": [
         ".venv"

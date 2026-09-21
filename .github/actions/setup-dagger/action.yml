@@ -13,15 +13,7 @@ runs:
       with:
         path: ${{ runner.temp }}/levenshtein-bin
         key: dagger-cli-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.dagger-version', 'scripts/dagger-checksums.txt') }}
+    # The shell lives in scripts/ci-dagger-cli so shellcheck covers it.
     - name: Install pinned Dagger
       shell: bash
-      env:
-        CACHE_HIT: ${{ steps.dagger-cli.outputs.cache-hit }}
-      run: |
-        bin="$RUNNER_TEMP/levenshtein-bin"
-        if [[ "$CACHE_HIT" == true && -x "$bin/dagger" ]]; then
-          "$bin/dagger" version
-        else
-          ./scripts/install-dagger "$bin"
-        fi
-        echo "$bin" >> "$GITHUB_PATH"
+      run: ./scripts/ci-dagger-cli "${{ steps.dagger-cli.outputs.cache-hit }}"

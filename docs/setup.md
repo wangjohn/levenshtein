@@ -101,7 +101,7 @@ Treat warm lint wall time creeping toward warm tests as a CI performance regress
 
 ### Result-cache trust
 
-- Restore `verification-v1-lint` / `verification-v1-tests` on every event, and save on every event too. GitHub scopes a cache written from a pull request to that PR and its base branch, so a fork run cannot reach `main`'s entries.
+- Restore `verification-v1-lint` / `verification-v1-tests` on every event, and save on every event too. A pull request run saves into its own merge-ref scope, which only reruns of that PR can restore and `main` never reads, so a fork run cannot seed `main`'s entries.
 - Lint and tests use **separate** verification keys so they cannot race one entry. The generated SDK still uses an exact key with no `restore-keys`.
 - Scheduled `main` keeps `rerun_checks: true`; `go-vuln` always re-executes.
 
@@ -123,7 +123,7 @@ Self-config targets use narrow literal `inputs` (not `"."`): root Go module path
 | --- | --- |
 | Lint ≪ tests (warm lint well under 1 min) | In progress — needs warm SDK + result-cache hits; cross-VM engine volumes blocked |
 | Coverage preserved on ready/merge/`main`/schedule | Met by job split + event mapping |
-| Result-cache isolation between untrusted PRs and `main` | Met (GitHub scopes PR-written caches to the PR and its base branch) |
+| Result-cache isolation between untrusted PRs and `main` | Met (PR-written caches stay in the PR's merge-ref scope, which `main` never reads) |
 | Freshness (`rerun_checks` / `go-vuln`) | Met |
 | Self-CI scope (not consumer packaging) | Met |
 

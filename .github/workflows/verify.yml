@@ -9,12 +9,8 @@ name: Levenshtein self-checks
 #           consumer regressions
 #   language-contracts / release-smoke — parallel siblings
 #
-# Generated SDK cache: exact key only — see scripts/ci-dagger-sdk.
-# Paths: runner/dagger.gen.go, runner/internal/dagger, runner/internal/telemetry.
-# Key: dagger-sdk-v2-… (bump vN to abandon a poisoned incomplete entry).
-# Key inputs: dagger.json, .dagger-version, scripts/dagger-checksums.txt,
-#   runner/go.mod|go.sum|toolchain.json|*.go, sdk/patched-go/**
-# A restored SDK counts as ready when the runner module compiles against it.
+# Generated SDK cache: exact key, defined once in .github/actions/dagger-sdk;
+# readiness is a compile of the runner module (scripts/ci-dagger-sdk).
 # vulnerabilities.yml still always regenerates via scripts/test-sdk-security.
 #
 # Verification result cache: $RUNNER_TEMP/levenshtein-verification-v1, handed to
@@ -22,9 +18,13 @@ name: Levenshtein self-checks
 # prefix restore-key, so any earlier entry seeds the run and the CLI's own
 # per-target fingerprinting decides what is still reusable. Keys are partitioned
 # per job (verification-v1-lint-… vs verification-v1-tests-…) so lint and tests
-# never write the same key. Every run saves, including failed ones: GitHub scopes
-# a cache written from a pull request to that PR and its base branch, so a fork
-# cannot poison main's entries.
+# never write the same key. Every run saves, including failed ones. A cache
+# written by a pull request run lives in that PR's merge-ref scope: only reruns
+# of the same PR can restore it, and main never sees it, so a fork cannot seed
+# main's entries. Entries are small JSON records, and the SDK entry is touched
+# on every run, so result entries do not push it out of the 10 GB budget.
+# merge_group runs save into a scope that is deleted after the merge, so the
+# tests scope on main is seeded by schedule and workflow_dispatch runs.
 #
 # Event → ./verify run mapping:
 #   Draft PR / push main     → lint: branch; tests: no Dagger verify run
@@ -97,9 +97,8 @@ jobs:
         run: |
           mkdir -p "$VERIFICATION_CACHE"
           ./verify branch --cache-dir "$VERIFICATION_CACHE"
-      # Save whatever this run verified, pass or fail, from every event. A cache
-      # written on a pull request is visible only to that PR and its base branch,
-      # so an untrusted fork cannot poison main's entries.
+      # Save whatever this run verified, pass or fail, from every event. A pull
+      # request run saves into its own merge-ref scope, which main never reads.
       - name: Save verification result cache
         if: >-
           ${{ !cancelled() &&
@@ -192,9 +191,8 @@ jobs:
           echo 'ran=true' >> "$GITHUB_OUTPUT"
           mkdir -p "$VERIFICATION_CACHE"
           ./verify "$run" --cache-dir "$VERIFICATION_CACHE"
-      # Save whatever this run verified, pass or fail, from every event. A cache
-      # written on a pull request is visible only to that PR and its base branch,
-      # so an untrusted fork cannot poison main's entries.
+      # Save whatever this run verified, pass or fail, from every event. A pull
+      # request run saves into its own merge-ref scope, which main never reads.
       - name: Save verification result cache
         if: >-
           ${{ !cancelled() &&
