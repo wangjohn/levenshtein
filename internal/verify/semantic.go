@@ -3,6 +3,7 @@ package verify
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -37,7 +38,8 @@ func semanticLint(ctx context.Context, req Request, dir string, env []string) Re
 		}
 		timeout = parsed
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	parent := ctx
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
 	apiKey := os.Getenv(semanticAPIKeyEnv)
@@ -81,24 +83,18 @@ func semanticLint(ctx context.Context, req Request, dir string, env []string) Re
 
 	switch {
 	case ctx.Err() != nil && runErr != nil:
-		if err := req.deadline(ctx); err != nil {
-			return result.withOutcome(StatusError, "semantic-lint timed out")
+		// The parent carries the run's own cancellation or deadline; only the
+		// timeout above belongs to this check.
+		if errors.Is(parent.Err(), context.Canceled) || errors.Is(parent.Err(), context.DeadlineExceeded) {
+			return result.withOutcome(StatusCancelled, parent.Err().Error())
 		}
-		return result.withOutcome(StatusCancelled, ctx.Err().Error())
+		return result.withOutcome(StatusError, "semantic-lint timed out")
 	case runErr != nil:
 		return result.withOutcome(StatusError, runErr.Error())
 	case len(report.Missing) > 0:
 		return result.withOutcome(StatusIncomplete, fmt.Sprintf("%d questions were not answered", len(report.Missing)))
 	}
 	return result
-}
-
-// deadline distinguishes the check's own timeout from an outer cancellation.
-func (req Request) deadline(ctx context.Context) error {
-	if ctx.Err() == context.DeadlineExceeded {
-		return ctx.Err()
-	}
-	return nil
 }
 
 // semanticLoopbackHosts may serve the API over plain HTTP, which keeps local

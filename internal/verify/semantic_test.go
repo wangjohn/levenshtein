@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 const semanticConfig = `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"host":{"executor":"native"}},"checks":{"semantic":{"kind":"semantic-lint","target":"app","environment":"host"%s}},"runs":{"branch":{"checks":["semantic"]},"audit":{"checks":["semantic"],"rerun_checks":true}}}`
@@ -153,6 +154,38 @@ func gitRepo(t *testing.T) string {
 	run("add", ".")
 	run("commit", "--quiet", "-m", "Add greeting")
 	return dir
+}
+
+func TestSemanticLintSeparatesItsTimeoutFromOuterCancellation(t *testing.T) {
+	source := gitRepo(t)
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	defer server.Close()
+	defer close(release)
+
+	t.Setenv("TYPESAFE_API_KEY", "test")
+	t.Setenv("TYPESAFE_BASE_URL", server.URL)
+	t.Setenv("GITHUB_BASE_REF", "")
+	req := semanticRequest(t, source)
+	req.Check.Timeout = "300ms"
+
+	result := (&Native{}).Execute(context.Background(), req)
+	if result.Status != StatusError || result.Error != "semantic-lint timed out" {
+		t.Fatalf("the check's own timeout: %+v", result)
+	}
+
+	// An expired outer deadline belongs to the run, not to this check.
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	req.Check.Timeout = "5m"
+	if result = (&Native{}).Execute(ctx, req); result.Status != StatusCancelled {
+		t.Fatalf("an outer deadline must not be reported as the check's timeout: %+v", result)
+	}
 }
 
 func TestSemanticLintExecutesAdvisoryCheck(t *testing.T) {
