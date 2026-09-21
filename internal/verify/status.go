@@ -29,6 +29,7 @@ const (
 	CheckWorkflowLint CheckKind = "workflow-lint"
 	CheckSelfTest     CheckKind = "self-test"
 	CheckCommand      CheckKind = "command"
+	CheckSemanticLint CheckKind = "semantic-lint"
 )
 
 // CacheStatus describes reuse without conflating it with verification outcomes.

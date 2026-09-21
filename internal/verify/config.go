@@ -59,6 +59,8 @@ type Check struct {
 	Cache        bool              `json:"cache,omitempty"`
 	Build        string            `json:"build,omitempty"`
 	RerunCommand []string          `json:"rerun_command,omitempty"`
+	Base         string            `json:"base,omitempty"`
+	Model        string            `json:"model,omitempty"`
 }
 
 type Run struct {
@@ -144,7 +146,7 @@ func Parse(data []byte) (Config, error) {
 			}
 			seen[check] = true
 			switch CheckKind(check) {
-			case CheckCommand:
+			case CheckCommand, CheckSemanticLint:
 				return Config{}, fmt.Errorf("native commands require versioned configuration")
 			case CheckSelfTest, CheckWorkflowLint:
 				run.Checks = append(run.Checks, check)

@@ -49,6 +49,8 @@ Adjust paths to your repo. For Dagger checks, `inputs` is the source allowlist *
 
 Application tests stay in the application repo. Wrap existing test scripts with a native `command` check using the [native configuration](configuration.md#native-commands); the host must supply Go, Postgres, Xcode, or any other required tools/services. Native commands have host access and are not restricted by the Dagger allowlist. No shared `go-test` check is provided yet.
 
+For an advisory model review of each pull request, add a native environment, a `semantic-lint` check in its own run, and supply `TYPESAFE_API_KEY` from a CI secret with `fetch-depth: 0` on checkout. The check reads the key and the pull request's base branch from the host environment itself. Findings never fail the run. See [semantic lint](semantic-lint.md).
+
 ## Example: an application using GitHub Actions
 
 Add these steps to the application's existing workflow, or start with this small workflow. Both checkouts are siblings so the shared runner's files stay outside the application source passed to verification. The full SHA below pins the readiness implementation, including source boundaries. Adopt shared improvements by reviewing and updating that pin; do not use a moving branch.

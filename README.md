@@ -12,13 +12,14 @@ For example, add a Go rule that catches misplaced `defer` calls, then adopt it a
 
 ## Usage
 
-**Available now:** shared Go lint, vet, resource and vulnerability checks, workflow lint, native commands, and local caching of results and compatible setup/builds. [Set up Go checks](docs/setup.md) or [configure native checks](docs/configuration.md).
+**Available now:** shared Go lint, vet, resource and vulnerability checks, workflow lint, native commands, an advisory model-backed semantic lint, and local caching of results and compatible setup/builds. [Set up Go checks](docs/setup.md) or [configure native checks](docs/configuration.md).
 
 ```sh
 ./verify              # fast checks for your branch
 ./verify pre-merge    # key checks before merging
 ./verify main         # fresh audit; schedule this in your repo's CI
 ./verify go-lint      # shared Go rules, such as misplaced defers
+./verify semantic-lint # advisory Jev review of the branch; needs TYPESAFE_API_KEY
 ```
 
 `./verify` defaults to `branch`. In version 1 configuration, fresh audits explicitly set `rerun_checks: true`. Add your own named runs through configuration. Run the same checks locally and in CI.
@@ -31,6 +32,7 @@ To check another Go repo: `./verify go-lint --source /path/to/repo`. [Use it fro
 
 - [Setup and usage](docs/setup.md): run the Go checks locally and in CI.
 - [Configuration](docs/configuration.md): standalone planning, targets, and runs.
+- [Semantic lint](docs/semantic-lint.md): advisory Jev questions about Go, docs, and pull request shape.
 - [Language fixtures](docs/language-fixtures.md): Rust/Python compatibility checks.
 - [Dependency choices](docs/dependencies.md): which responsibilities use established tools.
 - [Release archives](docs/releases.md): package the CLI and shared checks with GoReleaser.

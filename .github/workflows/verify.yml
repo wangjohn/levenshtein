@@ -135,3 +135,39 @@ jobs:
           archives=(dist/levenshtein_*_linux_amd64.tar.gz)
           test "${#archives[@]}" -eq 1
           ./scripts/test-release "${archives[0]}"
+
+  semantic-lint:
+    # Advisory Jev review of the pull request. Findings never fail the run;
+    # the step is skipped when the API key secret is unavailable, as on forks.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: go.sum
+      - name: Advisory semantic lint
+        if: env.TYPESAFE_API_KEY != ''
+        env:
+          GOTOOLCHAIN: local
+          NO_COLOR: '1'
+        run: |
+          status=0
+          ./verify semantic-lint > semantic-lint.json || status=$?
+          {
+            echo '## Semantic lint (advisory)'
+            echo '```'
+            jq -r '.results[] | .stdout, (select(.error != null) | "error: " + .error)' semantic-lint.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+      - name: Report skipped lint
+        if: env.TYPESAFE_API_KEY == ''
+        run: echo 'TYPESAFE_API_KEY is not available to this run; semantic lint was skipped.' >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,193 @@
+package verify
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+)
+
+const semanticConfig = `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"host":{"executor":"native"}},"checks":{"semantic":{"kind":"semantic-lint","target":"app","environment":"host"%s}},"runs":{"branch":{"checks":["semantic"]},"audit":{"checks":["semantic"],"rerun_checks":true}}}`
+
+func TestSemanticLintConfiguration(t *testing.T) {
+	for _, extra := range []string{``, `,"base":"develop","model":"jev-1.13.0","timeout":"2m"`} {
+		cfg, err := Parse([]byte(strings.Replace(semanticConfig, "%s", extra, 1)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, run := range []string{"branch", "audit"} {
+			plan, err := cfg.Plan(t.TempDir(), run)
+			if err != nil || len(plan.Checks) != 1 || plan.Checks[0].Check.Kind != CheckSemanticLint {
+				t.Fatalf("%s %s: %+v %v", extra, run, plan, err)
+			}
+		}
+	}
+
+	for name, extra := range map[string]string{
+		"command":     `,"command":["true"]`,
+		"cache":       `,"cache":true`,
+		"alias model": `,"model":"jev-latest"`,
+		"flag base":   `,"base":"--output=x"`,
+		"artifacts":   `,"artifacts":["out"]`,
+	} {
+		cfg, err := Parse([]byte(strings.Replace(semanticConfig, "%s", extra, 1)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := cfg.Plan(t.TempDir(), "branch"); err == nil {
+			t.Fatalf("%s accepted", name)
+		}
+	}
+
+	for name, data := range map[string]string{
+		"dagger executor":       `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"semantic":{"kind":"semantic-lint","target":"app","environment":"go"}},"runs":{"branch":{"checks":["semantic"]}}}`,
+		"base on command check": `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"host":{"executor":"native"}},"checks":{"test":{"kind":"command","target":"app","environment":"host","command":["true"],"base":"main"}},"runs":{"branch":{"checks":["test"]}}}`,
+	} {
+		cfg, err := Parse([]byte(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := cfg.Plan(t.TempDir(), "branch"); err == nil {
+			t.Fatalf("%s accepted", name)
+		}
+	}
+}
+
+func semanticRequest(t *testing.T, source string) Request {
+	t.Helper()
+	return Request{Source: source, Shared: t.TempDir(), PlannedCheck: PlannedCheck{ID: "semantic", Check: Check{Kind: CheckSemanticLint}, Target: Target{Dir: ".", Workspace: ".", Inputs: []string{"."}}, Environment: Environment{Executor: ExecutorNative}}}
+}
+
+func TestSemanticLintRequiresAPIKey(t *testing.T) {
+	t.Setenv("TYPESAFE_API_KEY", "")
+	result := (&Native{}).Execute(context.Background(), semanticRequest(t, t.TempDir()))
+	if result.Status != StatusError || !strings.Contains(result.Error, "TYPESAFE_API_KEY") {
+		t.Fatalf("missing key: %+v", result)
+	}
+}
+
+func gitRepo(t *testing.T) string {
+	t.Helper()
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is not installed")
+	}
+	dir := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command(git, args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write := func(path, content string) {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, path)), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, path), []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	run("init", "--quiet", "--initial-branch=main")
+	write("app/main.go", "package main\n\nfunc main() {}\n")
+	write("testdata/bad.go", "package bad\n")
+	run("add", ".")
+	run("commit", "--quiet", "-m", "Initial")
+	run("switch", "--quiet", "-c", "feature")
+	write("app/main.go", "package main\n\nimport \"fmt\"\n\nfunc main() {\n\t// Keep the greeting short for terminals.\n\tfmt.Println(\"hi\")\n}\n\nfunc helper(verbose bool) error {\n\treturn fmt.Errorf(\"failed\")\n}\n")
+	write("testdata/bad.go", "package bad\n\nfunc Ignored() {}\n")
+	run("add", ".")
+	run("commit", "--quiet", "-m", "Add greeting")
+	return dir
+}
+
+func TestSemanticLintExecutesAdvisoryCheck(t *testing.T) {
+	source := gitRepo(t)
+	var mu sync.Mutex
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			State     map[string]any            `json:"state"`
+			Questions map[string]map[string]any `json:"questions"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Error(err)
+		}
+		if file, ok := req.State["file"].(map[string]any); ok {
+			mu.Lock()
+			paths = append(paths, file["path"].(string))
+			mu.Unlock()
+		}
+		answers := map[string]any{}
+		for id, q := range req.Questions {
+			if q["type"] == "score" {
+				answers[id] = map[string]any{"type": "score", "score": 1.0, "confidence": 0.9}
+			} else {
+				answers[id] = map[string]any{"type": "noul", "noul": 0.9}
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"model": "jev-1.13.0", "answers": answers, "usage": map[string]any{"input_tokens": 10}})
+	}))
+	defer server.Close()
+
+	// The kind reads its variables from the host without pass_env; consumers only add a secret.
+	t.Setenv("TYPESAFE_API_KEY", "test")
+	t.Setenv("TYPESAFE_BASE_URL", server.URL)
+	t.Setenv("GITHUB_BASE_REF", "")
+	req := semanticRequest(t, source)
+
+	result := (&Native{}).Execute(context.Background(), req)
+	if result.Status != StatusPassed || !strings.HasPrefix(result.Stdout, "semantic-lint (advisory)") {
+		t.Fatalf("advisory execution: %+v", result)
+	}
+
+	t.Setenv("GITHUB_BASE_REF", "release-9")
+	result = (&Native{}).Execute(context.Background(), req)
+	if result.Status != StatusError || !strings.Contains(result.Error, "release-9") {
+		t.Fatalf("CI base ref must be honored: %+v", result)
+	}
+	req.Check.Base = "main"
+	if result = (&Native{}).Execute(context.Background(), req); result.Status != StatusPassed {
+		t.Fatalf("configured base must override the CI base ref: %+v", result)
+	}
+	req.Check.Base = ""
+	t.Setenv("GITHUB_BASE_REF", "")
+	var details struct {
+		Outcome  string           `json:"mode"`
+		Findings []map[string]any `json:"findings"`
+		Base     string           `json:"base"`
+	}
+	if err := json.Unmarshal(result.Details, &details); err != nil || details.Outcome != "advisory" || details.Base == "" || len(details.Findings) == 0 {
+		t.Fatalf("details: %s %v", result.Details, err)
+	}
+	for _, path := range paths {
+		if strings.HasPrefix(path, "testdata/") {
+			t.Fatalf("fixture judged: %v", paths)
+		}
+	}
+
+	req.Target = Target{Dir: "docs", Workspace: ".", Inputs: []string{"docs"}}
+	if err := os.MkdirAll(filepath.Join(source, "docs"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	result = (&Native{}).Execute(context.Background(), req)
+	if result.Status != StatusPassed || !strings.Contains(result.Stdout, "no reviewable") {
+		t.Fatalf("out-of-scope change must produce no judgments: %+v", result)
+	}
+
+	req.Target = Target{Dir: ".", Workspace: ".", Inputs: []string{"."}}
+	req.Environment.Env = map[string]string{"TYPESAFE_BASE_URL": "http://127.0.0.1:9"} // Declared env wins over the host value.
+	req.Check.Timeout = "5s"
+	result = (&Native{}).Execute(context.Background(), req)
+	if result.Status != StatusError {
+		t.Fatalf("unreachable model must be an infrastructure error: %+v", result)
+	}
+}

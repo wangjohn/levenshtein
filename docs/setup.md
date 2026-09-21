@@ -39,6 +39,7 @@ From the Levenshtein checkout:
 ./verify main                  # fresh audit, including vulnerability scans
 ./verify go-lint --source /path/to/a/go/repo
 ./verify pre-merge --dry-run    # print selected checks without running them
+./verify semantic-lint          # advisory Jev review; set TYPESAFE_API_KEY first
 ```
 
 `--dry-run` plans in the standalone CLI without Dagger or its engine. A run name selects checks; it does not switch Git branches or fetch code. The passed source directory is what gets verified. CI supplies the PR/merge candidate or default-branch checkout.

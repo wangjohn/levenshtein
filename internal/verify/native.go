@@ -29,6 +29,9 @@ func (n *Native) Execute(ctx context.Context, req Request) Result {
 	if result := validateTools(ctx, dir, req.Environment.Tools, env); result != nil {
 		return *result
 	}
+	if req.Check.Kind == CheckSemanticLint {
+		return semanticLint(ctx, req, dir, env)
+	}
 
 	// Hold ownership of mutable preparation through the check that consumes it.
 	n.mu.Lock()
