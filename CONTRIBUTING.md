@@ -14,10 +14,11 @@ Go lint policy analyzers:
 cd runner/lint && go test ./...
 ```
 
-The runner's Dagger module needs its generated SDK before its own tests run:
+The runner's Dagger module needs its generated SDK before its own tests run. Run `dagger develop` from the repository root, where `dagger.json` lives:
 
 ```sh
-cd runner && dagger develop --compat=skip && dagger run go test ./...
+dagger develop --compat=skip
+(cd runner && dagger run go test ./...)
 ```
 
 Repo self-checks, matching what CI runs:
