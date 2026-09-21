@@ -1,0 +1,442 @@
+package semantic
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+)
+
+func TestParseDiffZeroContext(t *testing.T) {
+	raw := strings.Join([]string{
+		"diff --git a/pkg/a.go b/pkg/a.go",
+		"index 1111111..2222222 100644",
+		"--- a/pkg/a.go",
+		"+++ b/pkg/a.go",
+		"@@ -3 +3,2 @@ func old() {",
+		"-\told := 1",
+		"+\tfresh := 1",
+		"+\t_ = fresh",
+		"@@ -10,0 +12 @@ func other() {",
+		"+\t// trailing",
+		"diff --git a/docs/new.md b/docs/new.md",
+		"new file mode 100644",
+		"--- /dev/null",
+		"+++ b/docs/new.md",
+		"@@ -0,0 +1,2 @@",
+		"+# Title",
+		"+Body.",
+		"diff --git a/img.png b/img.png",
+		"Binary files a/img.png and b/img.png differ",
+		"diff --git a/gone.go b/gone.go",
+		"deleted file mode 100644",
+		"--- a/gone.go",
+		"+++ /dev/null",
+		"@@ -1 +0,0 @@",
+		"-package gone",
+	}, "\n")
+
+	files := parseDiff(raw, func(string) bool { return true })
+	if len(files) != 3 {
+		t.Fatalf("files: %+v", files)
+	}
+
+	first := files[0]
+	if first.Path != "pkg/a.go" || first.Kind != FileSource || first.Status != FileModified || len(first.Hunks) != 2 || first.Added != 3 || first.Removed != 1 {
+		t.Fatalf("modified file: %+v", first)
+	}
+	if h := first.Hunks[0]; h.OldStart != 3 || h.OldLines != 1 || h.NewStart != 3 || h.NewLines != 2 || h.Header != "func old() {" || len(h.Added) != 2 {
+		t.Fatalf("first hunk: %+v", h)
+	}
+	if h := first.Hunks[1]; h.OldLines != 0 || h.NewStart != 12 || h.NewLines != 1 {
+		t.Fatalf("second hunk: %+v", h)
+	}
+
+	if docs := files[1]; docs.Path != "docs/new.md" || docs.Kind != FileDocs || docs.Status != FileAdded || docs.Hunks[0].NewLines != 2 {
+		t.Fatalf("added docs: %+v", docs)
+	}
+	if gone := files[2]; gone.Path != "gone.go" || gone.Status != FileDeleted {
+		t.Fatalf("deleted file: %+v", gone)
+	}
+}
+
+const sampleSource = `package sample
+
+import (
+	"errors"
+	"fmt"
+)
+
+// Existing documents an existing helper.
+func Existing(path string) error {
+	if path == "" {
+		return errors.New("empty path")
+	}
+	return nil
+}
+
+// Fresh documents the new function.
+func Fresh(path string, strict bool) error {
+	// Freshness concerns verification, not reusable preparation.
+	if strict && path == "" {
+		return fmt.Errorf("path %q must not be empty", path)
+	}
+	return nil // trailing note
+}
+`
+
+func lineOf(src, needle string) int {
+	for i, line := range strings.Split(src, "\n") {
+		if strings.Contains(line, needle) {
+			return i + 1
+		}
+	}
+	return 0
+}
+
+func TestGoUnitsSelectItemsFromAddedLines(t *testing.T) {
+	start := lineOf(sampleSource, "// Fresh documents")
+	end := lineOf(sampleSource, "return nil // trailing note") + 1
+	hunks := []Hunk{{NewStart: start, NewLines: end - start + 1, Diff: "@@ fresh @@\n"}}
+
+	units := goUnits("sample.go", []byte(sampleSource), hunks)
+	if len(units) != 1 {
+		t.Fatalf("units: %+v", units)
+	}
+
+	unit := units[0]
+	if unit.Symbol != "Fresh" || !unit.New || unit.Line != start || !strings.Contains(unit.After, "func Fresh") {
+		t.Fatalf("unit identity: %+v", unit)
+	}
+	if len(unit.Comments) != 2 || !strings.Contains(unit.Comments[0].Comment, "Freshness concerns") || !strings.Contains(unit.Comments[0].Code, "if strict") || unit.Comments[1].Comment != "trailing note" || !strings.Contains(unit.Comments[1].Code, "return nil") {
+		t.Fatalf("comments (doc comment must be excluded): %+v", unit.Comments)
+	}
+	if len(unit.Errors) != 1 || !strings.Contains(unit.Errors[0].Call, "fmt.Errorf") || unit.Errors[0].Function != "Fresh" {
+		t.Fatalf("errors: %+v", unit.Errors)
+	}
+
+	untouched := goUnits("sample.go", []byte(sampleSource), []Hunk{{NewStart: lineOf(sampleSource, `return errors.New`), NewLines: 1}})
+	if len(untouched) != 1 || untouched[0].Symbol != "Existing" || untouched[0].New || !untouched[0].IsFunc {
+		t.Fatalf("edited existing function must not count as new: %+v", untouched)
+	}
+}
+
+func TestPackageFunctionsExcludeEditedSymbols(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "sample.go"), []byte(sampleSource), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	signatures := packageFunctions(dir, filepath.Join(dir, "sample.go"), false, map[string]bool{"Fresh": true})
+	if len(signatures) != 1 || !strings.HasPrefix(signatures[0], "func Existing(path string) error") || !strings.Contains(signatures[0], "// Existing documents") {
+		t.Fatalf("signatures: %q", signatures)
+	}
+}
+
+func TestDocUnitsFindAbsoluteSentencesOutsideCode(t *testing.T) {
+	doc := "# Guide\n\nIntro text.\n\n## Cache\n\nResults are never reused across hosts. Restarts are cheap.\n\n```sh\nnever run this\n```\n\n| never | table |\n"
+	lines := strings.Split(doc, "\n")
+	hunk := Hunk{NewStart: 7, NewLines: 7, Added: lines[6:13], Diff: "@@ -7,0 +7,7 @@\n"}
+
+	units := docUnits("docs/guide.md", []byte(doc), []Hunk{hunk})
+	if len(units) != 1 || !units[0].Prose || len(units[0].Sentences) != 1 {
+		t.Fatalf("units: %+v", units)
+	}
+	if s := units[0].Sentences[0]; s.Sentence != "Results are never reused across hosts." || s.Line != 7 {
+		t.Fatalf("sentence: %+v", s)
+	}
+	if !strings.HasPrefix(units[0].After, "## Cache") || strings.Contains(units[0].After, "Intro text") {
+		t.Fatalf("section: %q", units[0].After)
+	}
+}
+
+// fakeJev answers every noul with one value and every score with another,
+// optionally dropping one question to simulate an incomplete response.
+type fakeJev struct {
+	noul     float64
+	score    float64
+	drop     string
+	calls    atomic.Int32
+	mu       sync.Mutex
+	statuses []int
+	seen     []string
+}
+
+func (f *fakeJev) handler(t *testing.T) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		call := int(f.calls.Add(1)) - 1
+		if r.Header.Get("Authorization") != "Bearer test-key" || r.URL.Path != "/v1/systemone" {
+			t.Errorf("request shape: %s %s", r.URL.Path, r.Header.Get("Authorization"))
+		}
+		if call < len(f.statuses) && f.statuses[call] != http.StatusOK {
+			w.WriteHeader(f.statuses[call])
+			return
+		}
+
+		var req wireRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode: %v", err)
+		}
+		if req.Model != DefaultModel {
+			t.Errorf("model: %q", req.Model)
+		}
+		answers := map[string]Answer{}
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		for id, q := range req.Questions {
+			f.seen = append(f.seen, id)
+			if id == f.drop {
+				continue
+			}
+			if q.Type == PrimitiveScore {
+				score, confidence := f.score, 0.9
+				answers[id] = Answer{Type: PrimitiveScore, Score: &score, Confidence: &confidence}
+				continue
+			}
+			noul := f.noul
+			answers[id] = Answer{Type: PrimitiveNoul, Noul: &noul}
+		}
+		_ = json.NewEncoder(w).Encode(wireResponse{Model: DefaultModel, Answers: answers, Usage: wireUsage{InputTokens: 100}})
+	}
+}
+
+type repo struct {
+	dir string
+	git string
+	env []string
+}
+
+func newRepo(t *testing.T) repo {
+	t.Helper()
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is not installed")
+	}
+	dir := t.TempDir()
+	// Isolate git configuration without changing HOME; Apple's git shim reads its license state from there.
+	env := append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
+	r := repo{dir: dir, git: git, env: env}
+	r.run(t, "init", "--quiet", "--initial-branch=main")
+	return r
+}
+
+func (r repo) run(t *testing.T, args ...string) {
+	t.Helper()
+	cmd := exec.Command(r.git, args...)
+	cmd.Dir = r.dir
+	cmd.Env = r.env
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+func (r repo) write(t *testing.T, path, content string) {
+	t.Helper()
+	full := filepath.Join(r.dir, path)
+	if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// changedRepo commits a base on main, then a branch that adds a Go function,
+// edits documentation with an absolute claim, and leaves one untracked file.
+func changedRepo(t *testing.T) repo {
+	r := newRepo(t)
+	r.write(t, "pkg/sample.go", strings.Replace(sampleSource, "// Fresh documents the new function.\nfunc Fresh(path string, strict bool) error {\n\t// Freshness concerns verification, not reusable preparation.\n\tif strict && path == \"\" {\n\t\treturn fmt.Errorf(\"path %q must not be empty\", path)\n\t}\n\treturn nil // trailing note\n}\n", "var _ = fmt.Sprint\n", 1))
+	r.write(t, "docs/guide.md", "# Guide\n\nResults are reused when inputs match.\n")
+	r.write(t, "AGENTS.md", "# Agent preferences\n\n- Keep related statements together.\n")
+	r.run(t, "add", ".")
+	r.run(t, "commit", "--quiet", "-m", "Initial layout")
+
+	r.run(t, "switch", "--quiet", "-c", "feature")
+	r.write(t, "pkg/sample.go", sampleSource)
+	r.write(t, "docs/guide.md", "# Guide\n\nResults are reused when inputs match. Cached results never go stale.\n")
+	r.run(t, "add", ".")
+	r.run(t, "commit", "--quiet", "-m", "Add strict path validation")
+	r.write(t, "pkg/untracked.go", "package sample\n\n// Untracked is new and not yet added.\nfunc Untracked() {}\n")
+	return r
+}
+
+func runOptions(r repo, server *httptest.Server) Options {
+	return Options{
+		Source:  r.dir,
+		Include: func(string) bool { return true },
+		Git:     r.git,
+		Env:     r.env,
+		Base:    "main",
+		Client:  Client{BaseURL: server.URL, APIKey: "test-key", Model: DefaultModel},
+	}
+}
+
+func TestRunComposesAdvisoryFindings(t *testing.T) {
+	r := changedRepo(t)
+	jev := &fakeJev{noul: 0.95, score: 2}
+	server := httptest.NewServer(jev.handler(t))
+	defer server.Close()
+
+	report, err := Run(context.Background(), runOptions(r, server))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Mode != ModeAdvisory || report.BaseRef != "main" || report.Base == "" || report.ServedModel != DefaultModel || len(report.Missing) != 0 {
+		t.Fatalf("report header: %+v", report)
+	}
+	if report.Requests < 3 || report.InputTokens != 100*report.Requests {
+		t.Fatalf("requests: %+v", report)
+	}
+
+	fired := map[string][]Finding{}
+	for _, f := range report.Findings {
+		fired[f.Question] = append(fired[f.Question], f)
+	}
+	if len(fired["comment_explains_why"]) != 0 || len(fired["error_message_actionable"]) != 0 || len(fired["commit_subject_matches"]) != 0 {
+		t.Fatalf("positive-phrased questions fired on a high probability: %+v", report.Findings)
+	}
+	if guarantee := fired["unscoped_guarantee"]; len(guarantee) != 1 || guarantee[0].Path != "docs/guide.md" || guarantee[0].Line != 3 {
+		t.Fatalf("absolute doc claim: %+v", report.Findings)
+	}
+	if creep := fired["scope_creep"]; len(creep) != 1 || creep[0].Confidence == nil {
+		t.Fatalf("scored change question must carry confidence: %+v", fired["scope_creep"])
+	}
+	if len(fired["behavior_change_undocumented"]) != 1 || len(fired["describes_unimplemented"]) != 1 {
+		t.Fatalf("change-scope and hunk questions: %+v", report.Findings)
+	}
+	if report.Findings[0].Severity != SeverityImportant {
+		t.Fatalf("findings must be ordered by severity: %+v", report.Findings)
+	}
+
+	judged := map[string]bool{}
+	for _, j := range report.Judgments {
+		judged[j.Question] = true
+	}
+	for _, id := range []string{"comment_explains_why", "error_message_actionable", "commit_subject_matches", "duplicates_package_helper"} {
+		if !judged[id] {
+			t.Errorf("no judgment recorded for %s: %+v", id, report.Judgments)
+		}
+	}
+
+	summary := Summary(report)
+	if !strings.HasPrefix(summary, "semantic-lint (advisory): ") || !strings.Contains(summary, "unscoped_guarantee") {
+		t.Fatalf("summary: %s", summary)
+	}
+}
+
+func TestRunReportsUnansweredQuestions(t *testing.T) {
+	r := changedRepo(t)
+	jev := &fakeJev{noul: 0.1, score: 0, drop: "scope_creep"}
+	server := httptest.NewServer(jev.handler(t))
+	defer server.Close()
+
+	report, err := Run(context.Background(), runOptions(r, server))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Missing) != 1 || report.Missing[0] != "scope_creep" {
+		t.Fatalf("missing: %+v", report.Missing)
+	}
+	highDirection := map[string]bool{"scope_creep": true, "unscoped_guarantee": true, "duplicates_package_helper": true}
+	for _, f := range report.Findings {
+		if highDirection[f.Question] {
+			t.Fatalf("low probability fired a high-direction question: %+v", f)
+		}
+	}
+	if len(report.Findings) == 0 {
+		t.Fatal("low probabilities must fire the positive-phrased questions")
+	}
+}
+
+func TestRunWithoutChangesNeedsNoModel(t *testing.T) {
+	r := newRepo(t)
+	r.write(t, "README.md", "# Empty\n")
+	r.run(t, "add", ".")
+	r.run(t, "commit", "--quiet", "-m", "Initial")
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("model called without changes") }))
+	defer server.Close()
+
+	report, err := Run(context.Background(), runOptions(r, server))
+	if err != nil || report.Requests != 0 || len(report.Notes) != 1 {
+		t.Fatalf("empty change: %+v %v", report, err)
+	}
+
+	_, err = Run(context.Background(), Options{Source: r.dir, Include: func(string) bool { return true }, Git: r.git, Env: r.env, Base: "nonexistent", Client: Client{BaseURL: server.URL, APIKey: "test-key", Model: DefaultModel}})
+	if err == nil || !strings.Contains(err.Error(), "nonexistent") {
+		t.Fatalf("missing base must be explicit: %v", err)
+	}
+}
+
+func TestShallowCloneGetsFetchDepthAdvice(t *testing.T) {
+	r := changedRepo(t)
+	r.run(t, "switch", "--quiet", "main")
+	clone := repo{dir: t.TempDir(), git: r.git, env: r.env}
+	clone.run(t, "clone", "--quiet", "--depth", "1", "--branch", "feature", "file://"+r.dir, clone.dir)
+
+	_, _, err := gitRunner{Git: clone.git, Dir: clone.dir, Env: clone.env}.resolveBase(context.Background(), "main")
+	if err == nil || !strings.Contains(err.Error(), "fetch-depth: 0") {
+		t.Fatalf("shallow clone advice: %v", err)
+	}
+}
+
+func TestClientRetriesRateLimitsButNotRejections(t *testing.T) {
+	jev := &fakeJev{noul: 0.5, statuses: []int{http.StatusTooManyRequests, http.StatusOK}}
+	server := httptest.NewServer(jev.handler(t))
+	defer server.Close()
+	client := Client{BaseURL: server.URL, APIKey: "test-key", Model: DefaultModel}
+	questions := map[string]wireQuestion{"q": {Type: PrimitiveNoul, Instructions: "x"}}
+
+	response, err := client.Ask(context.Background(), "state", questions)
+	if err != nil || jev.calls.Load() != 2 || response.Answers["q"].Noul == nil {
+		t.Fatalf("retry: %+v %v calls=%d", response, err, jev.calls.Load())
+	}
+
+	rejecting := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"bad key"}`))
+	}))
+	defer rejecting.Close()
+	client.BaseURL = rejecting.URL
+
+	var apiErr *APIError
+	if _, err := client.Ask(context.Background(), "state", questions); !errors.As(err, &apiErr) || apiErr.Status != http.StatusUnauthorized {
+		t.Fatalf("rejection must not retry: %v", err)
+	}
+}
+
+func TestCatalogIsWellFormed(t *testing.T) {
+	seen := map[string]bool{}
+	for _, q := range Catalog {
+		if seen[q.ID] {
+			t.Fatalf("duplicate id %s", q.ID)
+		}
+		seen[q.ID] = true
+		if q.Text == "" || q.Inspect == "" || q.Issue == "" || q.Threshold <= 0 {
+			t.Fatalf("incomplete question: %+v", q)
+		}
+		switch q.Primitive {
+		case PrimitiveNoul:
+			if q.True == "" || q.False == "" || len(q.Levels) != 0 || q.Threshold > 1 {
+				t.Fatalf("noul criteria: %+v", q)
+			}
+		case PrimitiveScore:
+			if len(q.Levels) < 2 || q.ConfidenceMin <= 0 || q.Threshold > float64(len(q.Levels)-1) {
+				t.Fatalf("score rubric: %+v", q)
+			}
+		}
+		if q.Items != ItemsNone && !strings.Contains(q.Text, "`item.") {
+			t.Fatalf("item question must reference item fields: %+v", q)
+		}
+	}
+	if len(catalogByID) != len(Catalog) {
+		t.Fatal("index drifted")
+	}
+}
