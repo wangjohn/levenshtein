@@ -65,7 +65,9 @@ func checkParallelism(n int) int {
 }
 
 // sharedPreparation is true when both checks declare the same preparation stage.
-// Those checks must run in plan order so the later one can reuse outputs.
+// Those checks run in plan order so the later one can reuse recorded outputs
+// when the environment declares an identity and a cache is configured; without
+// both, the order only keeps the two stages from interleaving.
 func sharedPreparation(a, b PlannedCheck) bool {
 	if a.Preparation == nil || b.Preparation == nil {
 		return false
