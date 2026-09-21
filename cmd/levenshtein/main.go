@@ -72,7 +72,13 @@ func runCommand(ctx context.Context, args []string, output io.Writer) (int, erro
 	if opts.shared == "" {
 		return 2, fmt.Errorf("set --shared to the pinned Levenshtein checkout, or use its ./verify launcher")
 	}
+	// Resolve the shared checkout the same way Plan resolves the source, so one
+	// checkout has one spelling in fingerprints and memoized snapshots.
 	shared, err := filepath.Abs(opts.shared)
+	if err != nil {
+		return 2, err
+	}
+	shared, err = filepath.EvalSymlinks(shared)
 	if err != nil {
 		return 2, err
 	}
