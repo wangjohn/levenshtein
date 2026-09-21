@@ -73,12 +73,12 @@ def exercise(language, temporary):
     config = json.loads(config_path.read_text())
     variant = copy.deepcopy(config)
     if language == "rust":
-        variant["checks"]["tests"]["command"] += ["--features", "extra"]
-        variant["checks"]["tests"]["rerun_command"] += ["--features", "extra"]
+        variant["checks"]["tests"]["command"]["args"] += ["--features", "extra"]
+        variant["checks"]["tests"]["command"]["rerun_args"] += ["--features", "extra"]
         variant["builds"]["tests"]["command"] += ["--features", "extra"]
     else:
-        variant["checks"]["tests"]["command"] += ["-k", "test_add"]
-        variant["checks"]["tests"]["rerun_command"] += ["-k", "test_add"]
+        variant["checks"]["tests"]["command"]["args"] += ["-k", "test_add"]
+        variant["checks"]["tests"]["command"]["rerun_args"] += ["-k", "test_add"]
     config_path.write_text(json.dumps(variant))
     selected = run("variant")
     require(selected[-1]["cache"]["status"] == "miss", "execution variant reused another scope")

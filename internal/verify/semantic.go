@@ -26,9 +26,10 @@ const (
 // branch from the host environment without pass_env: the kind itself defines
 // which variables it consumes, so consumers only add a secret.
 func semanticLint(ctx context.Context, req Request, dir string, env []string) Result {
+	options := req.Check.semanticOptions()
 	timeout := 5 * time.Minute
-	if req.Check.Timeout != "" {
-		parsed, err := time.ParseDuration(req.Check.Timeout)
+	if options.Timeout != "" {
+		parsed, err := time.ParseDuration(options.Timeout)
 		if err != nil || parsed <= 0 {
 			return Result{Status: StatusError, Error: "invalid timeout"}
 		}
@@ -46,11 +47,11 @@ func semanticLint(ctx context.Context, req Request, dir string, env []string) Re
 		return Result{Status: StatusError, Error: err.Error()}
 	}
 
-	model := req.Check.Model
+	model := options.Model
 	if model == "" {
 		model = semantic.DefaultModel
 	}
-	base := req.Check.Base
+	base := options.Base
 	if base == "" {
 		base = hostValue(env, semanticBaseRefEnv) // GitHub sets this for pull requests.
 	}

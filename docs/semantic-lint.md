@@ -43,13 +43,13 @@ The check passes whenever every question received an answer. It is `incomplete` 
     "host": {"executor": "native"}
   },
   "checks": {
-    "review": {"kind": "semantic-lint", "target": "app", "environment": "host", "base": "main", "model": "jev-1.13.0"}
+    "review": {"kind": "semantic-lint", "target": "app", "environment": "host", "semantic": {"base": "main", "model": "jev-1.13.0"}}
   },
   "runs": {"review": {"checks": ["review"]}}
 }
 ```
 
-`semantic-lint` is a native check without a command. It accepts `base`, `model` (a pinned release; aliases such as `jev-latest` are rejected), `timeout` (default five minutes), and the usual environment `env`, `pass_env`, and `tools`. The base branch is `base` when set, otherwise `GITHUB_BASE_REF` when GitHub Actions provides it for a pull request, otherwise `main`. It rejects `command`, `rerun_command`, `artifacts`, `preparation`, `build`, and `cache`. A run with `rerun_checks: true` needs no `rerun_command` for it, because it always executes.
+`semantic-lint` is a native check without a command. Its optional `semantic` object accepts `base`, `model` (a pinned release; aliases such as `jev-latest` are rejected), and `timeout` (default five minutes); the environment still supplies `env`, `pass_env`, and `tools`. The base branch is `base` when set, otherwise `GITHUB_BASE_REF` when GitHub Actions provides it for a pull request, otherwise `main`. A `semantic-lint` check cannot carry a `command` object, so args, rerun args, artifacts, preparation, build, and caching are not expressible for it. A run with `rerun_checks: true` needs no rerun args, because the check always executes.
 
 The target's `dir` and `inputs` limit which changed files are judged. Paths under a `testdata` directory and private `.env` files are skipped. Keep the check in its own run while piloting, so ordinary runs stay offline and deterministic.
 

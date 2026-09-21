@@ -184,21 +184,21 @@ func TestParallelExecuteSharedPreparationPreservesPlanOrder(t *testing.T) {
 		Checks: []PlannedCheck{
 			{
 				ID:          "lint",
-				Check:       Check{Kind: CheckCommand, Command: []string{"/bin/sh", "-c", "test -f .venv/ok"}},
+				Check:       Check{Kind: CheckCommand, Command: &CommandCheck{Args: []string{"/bin/sh", "-c", "test -f .venv/ok"}}},
 				Target:      Target{Dir: ".", Workspace: ".", Inputs: []string{"."}},
 				Environment: env,
 				Preparation: prep,
 			},
 			{
 				ID:          "tests",
-				Check:       Check{Kind: CheckCommand, Command: []string{"/bin/sh", "-c", "test -f .venv/ok"}},
+				Check:       Check{Kind: CheckCommand, Command: &CommandCheck{Args: []string{"/bin/sh", "-c", "test -f .venv/ok"}}},
 				Target:      Target{Dir: ".", Workspace: ".", Inputs: []string{"."}},
 				Environment: env,
 				Preparation: prep,
 			},
 			{
 				ID:          "other",
-				Check:       Check{Kind: CheckCommand, Command: []string{"true"}},
+				Check:       Check{Kind: CheckCommand, Command: &CommandCheck{Args: []string{"true"}}},
 				Target:      Target{Dir: ".", Workspace: ".", Inputs: []string{"."}},
 				Environment: Environment{Executor: ExecutorNative},
 			},

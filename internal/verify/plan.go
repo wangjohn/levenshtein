@@ -61,8 +61,8 @@ func (cfg Config) Plan(source, name string) (Plan, error) {
 		if err := validateCheck(check, env); err != nil {
 			return p, fmt.Errorf("check %q: %w", id, err)
 		}
-		if run.RerunChecks && env.Executor == ExecutorNative && check.Kind == CheckCommand && len(check.RerunCommand) == 0 {
-			return p, fmt.Errorf("check %q: fresh native runs require an explicit rerun_command", id)
+		if run.RerunChecks && env.Executor == ExecutorNative && check.Kind == CheckCommand && len(check.Command.RerunArgs) == 0 {
+			return p, fmt.Errorf("check %q: fresh native runs require explicit rerun_args", id)
 		}
 
 		if check.Kind == CheckWorkflowLint && target.Dir != "." {
@@ -101,11 +101,16 @@ func (cfg Config) Plan(source, name string) (Plan, error) {
 			}
 		}
 
-		preparation, err := resolveStage(cfg.Preparations, "preparation", check.Preparation)
+		// Only a command check can name stages; other kinds resolve to none.
+		named := CommandCheck{}
+		if check.Command != nil {
+			named = *check.Command
+		}
+		preparation, err := resolveStage(cfg.Preparations, "preparation", named.Preparation)
 		if err != nil {
 			return p, err
 		}
-		build, err := resolveStage(cfg.Builds, "build", check.Build)
+		build, err := resolveStage(cfg.Builds, "build", named.Build)
 		if err != nil {
 			return p, err
 		}

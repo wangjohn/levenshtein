@@ -47,20 +47,63 @@ type Preparation struct {
 	Timeout string            `json:"timeout,omitempty"`
 }
 
+// A Check carries only the options its kind accepts. Dagger kinds take neither
+// object, a command check requires Command, and semantic-lint may carry
+// Semantic. The other combinations cannot be written down.
 type Check struct {
-	Kind         CheckKind         `json:"kind"`
-	Target       string            `json:"target"`
-	Environment  string            `json:"environment"`
-	Command      []string          `json:"command,omitempty"`
-	Env          map[string]string `json:"env,omitempty"`
-	Timeout      string            `json:"timeout,omitempty"`
-	Preparation  string            `json:"preparation,omitempty"`
-	Artifacts    []string          `json:"artifacts,omitempty"`
-	Cache        bool              `json:"cache,omitempty"`
-	Build        string            `json:"build,omitempty"`
-	RerunCommand []string          `json:"rerun_command,omitempty"`
-	Base         string            `json:"base,omitempty"`
-	Model        string            `json:"model,omitempty"`
+	Kind        CheckKind      `json:"kind"`
+	Target      string         `json:"target"`
+	Environment string         `json:"environment"`
+	Command     *CommandCheck  `json:"command,omitempty"`
+	Semantic    *SemanticCheck `json:"semantic,omitempty"`
+}
+
+// CommandCheck runs a repository command on the native executor.
+type CommandCheck struct {
+	Args        []string          `json:"args"`
+	RerunArgs   []string          `json:"rerun_args,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
+	Timeout     string            `json:"timeout,omitempty"`
+	Preparation string            `json:"preparation,omitempty"`
+	Build       string            `json:"build,omitempty"`
+	Artifacts   []string          `json:"artifacts,omitempty"`
+	Cache       bool              `json:"cache,omitempty"`
+}
+
+// SemanticCheck tunes the advisory semantic-lint kind. Every field is optional.
+type SemanticCheck struct {
+	Base    string `json:"base,omitempty"`
+	Model   string `json:"model,omitempty"`
+	Timeout string `json:"timeout,omitempty"`
+}
+
+// artifacts, env and cacheable read options that only a command check has, so
+// every other kind reports the zero value instead of needing a nil test.
+func (check Check) artifacts() []string {
+	if check.Command == nil {
+		return nil
+	}
+	return check.Command.Artifacts
+}
+
+func (check Check) env() map[string]string {
+	if check.Command == nil {
+		return nil
+	}
+	return check.Command.Env
+}
+
+func (check Check) cacheable() bool {
+	return check.Command != nil && check.Command.Cache
+}
+
+// semanticOptions supplies defaults for a semantic-lint check that declares no
+// options of its own.
+func (check Check) semanticOptions() SemanticCheck {
+	if check.Semantic == nil {
+		return SemanticCheck{}
+	}
+	return *check.Semantic
 }
 
 type Run struct {

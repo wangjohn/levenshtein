@@ -29,7 +29,12 @@ func TestPreparationAndBuildHaveTheSamePlanningRules(t *testing.T) {
 					build = "setup"
 					builds = map[string]Preparation{"setup": stage}
 				}
-				check := Check{Kind: CheckCommand, Target: "app", Environment: "host", Command: []string{"true"}, Preparation: preparation, Build: build}
+				check := Check{
+					Kind:        CheckCommand,
+					Target:      "app",
+					Environment: "host",
+					Command:     &CommandCheck{Args: []string{"true"}, Preparation: preparation, Build: build},
+				}
 				cfg := Config{
 					Version:      1,
 					Targets:      map[string]Target{"app": {Dir: ".", Inputs: []string{"."}}},

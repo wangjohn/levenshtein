@@ -16,7 +16,7 @@ import (
 const semanticConfig = `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"host":{"executor":"native"}},"checks":{"semantic":{"kind":"semantic-lint","target":"app","environment":"host"%s}},"runs":{"branch":{"checks":["semantic"]},"audit":{"checks":["semantic"],"rerun_checks":true}}}`
 
 func TestSemanticLintConfiguration(t *testing.T) {
-	for _, extra := range []string{``, `,"base":"develop","model":"jev-1.13.0","timeout":"2m"`} {
+	for _, extra := range []string{``, `,"semantic":{"base":"develop","model":"jev-1.13.0","timeout":"2m"}`} {
 		cfg, err := Parse([]byte(strings.Replace(semanticConfig, "%s", extra, 1)))
 		if err != nil {
 			t.Fatal(err)
@@ -29,12 +29,22 @@ func TestSemanticLintConfiguration(t *testing.T) {
 		}
 	}
 
+	// Caching, artifacts, preparation and build now live inside the command
+	// object, so a semantic-lint check cannot express them at all.
 	for name, extra := range map[string]string{
-		"command":     `,"command":["true"]`,
-		"cache":       `,"cache":true`,
-		"alias model": `,"model":"jev-latest"`,
-		"flag base":   `,"base":"--output=x"`,
-		"artifacts":   `,"artifacts":["out"]`,
+		"cache":      `,"cache":true`,
+		"artifacts":  `,"artifacts":["out"]`,
+		"loose base": `,"base":"develop"`,
+	} {
+		if _, err := Parse([]byte(strings.Replace(semanticConfig, "%s", extra, 1))); err == nil {
+			t.Fatalf("%s accepted", name)
+		}
+	}
+
+	for name, extra := range map[string]string{
+		"command":     `,"command":{"args":["true"]}`,
+		"alias model": `,"semantic":{"model":"jev-latest"}`,
+		"flag base":   `,"semantic":{"base":"--output=x"}`,
 	} {
 		cfg, err := Parse([]byte(strings.Replace(semanticConfig, "%s", extra, 1)))
 		if err != nil {
@@ -46,8 +56,9 @@ func TestSemanticLintConfiguration(t *testing.T) {
 	}
 
 	for name, data := range map[string]string{
-		"dagger executor":       `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"semantic":{"kind":"semantic-lint","target":"app","environment":"go"}},"runs":{"branch":{"checks":["semantic"]}}}`,
-		"base on command check": `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"host":{"executor":"native"}},"checks":{"test":{"kind":"command","target":"app","environment":"host","command":["true"],"base":"main"}},"runs":{"branch":{"checks":["test"]}}}`,
+		"dagger executor":           `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"semantic":{"kind":"semantic-lint","target":"app","environment":"go"}},"runs":{"branch":{"checks":["semantic"]}}}`,
+		"semantic on command check": `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"host":{"executor":"native"}},"checks":{"test":{"kind":"command","target":"app","environment":"host","command":{"args":["true"]},"semantic":{"base":"main"}}},"runs":{"branch":{"checks":["test"]}}}`,
+		"command options on dagger": `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"lint":{"kind":"go-lint","target":"app","environment":"go","command":{"args":["true"]}}},"runs":{"branch":{"checks":["lint"]}}}`,
 	} {
 		cfg, err := Parse([]byte(data))
 		if err != nil {
@@ -61,7 +72,7 @@ func TestSemanticLintConfiguration(t *testing.T) {
 
 func semanticRequest(t *testing.T, source string) Request {
 	t.Helper()
-	return Request{Source: source, Shared: t.TempDir(), PlannedCheck: PlannedCheck{ID: "semantic", Check: Check{Kind: CheckSemanticLint}, Target: Target{Dir: ".", Workspace: ".", Inputs: []string{"."}}, Environment: Environment{Executor: ExecutorNative}}}
+	return Request{Source: source, Shared: t.TempDir(), PlannedCheck: PlannedCheck{ID: "semantic", Check: Check{Kind: CheckSemanticLint, Semantic: &SemanticCheck{}}, Target: Target{Dir: ".", Workspace: ".", Inputs: []string{"."}}, Environment: Environment{Executor: ExecutorNative}}}
 }
 
 func TestSemanticLintRequiresAPIKey(t *testing.T) {
@@ -154,11 +165,11 @@ func TestSemanticLintExecutesAdvisoryCheck(t *testing.T) {
 	if result.Status != StatusError || !strings.Contains(result.Error, "release-9") {
 		t.Fatalf("CI base ref must be honored: %+v", result)
 	}
-	req.Check.Base = "main"
+	req.Check.Semantic.Base = "main"
 	if result = (&Native{}).Execute(context.Background(), req); result.Status != StatusPassed {
 		t.Fatalf("configured base must override the CI base ref: %+v", result)
 	}
-	req.Check.Base = ""
+	req.Check.Semantic.Base = ""
 	t.Setenv("GITHUB_BASE_REF", "")
 	var details struct {
 		Outcome  string           `json:"mode"`
@@ -185,7 +196,7 @@ func TestSemanticLintExecutesAdvisoryCheck(t *testing.T) {
 
 	req.Target = Target{Dir: ".", Workspace: ".", Inputs: []string{"."}}
 	req.Environment.Env = map[string]string{"TYPESAFE_BASE_URL": "http://127.0.0.1:9"} // Declared env wins over the host value.
-	req.Check.Timeout = "5s"
+	req.Check.Semantic.Timeout = "5s"
 	result = (&Native{}).Execute(context.Background(), req)
 	if result.Status != StatusError {
 		t.Fatalf("unreachable model must be an infrastructure error: %+v", result)
