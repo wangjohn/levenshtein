@@ -39,6 +39,7 @@ From the Levenshtein checkout:
 ./verify main                  # fresh audit, including vulnerability scans
 ./verify go-lint --source /path/to/a/go/repo
 ./verify pre-merge --dry-run    # print selected checks without running them
+./verify semantic-lint          # advisory Jev review; set TYPESAFE_API_KEY first
 ```
 
 `--dry-run` plans in the standalone CLI without Dagger or its engine. A run name selects checks; it does not switch Git branches or fetch code. The passed source directory is what gets verified. CI supplies the PR/merge candidate or default-branch checkout.
@@ -116,7 +117,7 @@ Completed verification results are restored into `$RUNNER_TEMP/levenshtein-verif
 
 In-engine Go module/build and Staticcheck `CacheVolume`s remain version-keyed in `runner/` but are **session-local** on ephemeral GitHub-hosted runners. Persisting those volumes across VMs is **blocked** for Dagger **0.21.9** (no supported CI export/restore API without experimental hacks).
 
-Self-config targets use narrow literal `inputs` (not `"."`): root Go module paths, `runner` / `runner/lint`, and `.github/workflows` for workflow-lint. Doc-only edits therefore do not invalidate Go analysis result fingerprints. Independent checks in a run execute concurrently (bounded workers) inside `./verify`.
+Self-config targets use narrow literal `inputs` (not `"."`): root Go module paths, `runner` / `runner/lint`, and `.github/workflows` for workflow-lint. Doc-only edits therefore do not invalidate Go analysis result fingerprints. The one exception is the `repository` target, which keeps `"."` so `semantic-lint` still judges Markdown and workflow changes. Independent checks in a run execute concurrently (bounded workers) inside `./verify`.
 
 ### Success criteria and gaps
 

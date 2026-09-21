@@ -11,6 +11,7 @@ Levenshtein owns shared verification policy: named runs, target inputs, environm
 | Cross-process locking and cancellation | `gofrs/flock` |
 | Atomic cache and artifact publication | `google/renameio/v2` with `os.Root` |
 | Binary builds, release archives, and checksums | GoReleaser |
+| Bounded semantic judgments about a change | TypeSafe Jev System One HTTP API through `net/http`, with Go's `go/ast` selecting what to judge |
 
 Native commands still use Go's `os/exec`; process-group cancellation is needed to stop test subprocesses on timeout. Repository-specific policy and result reporting stay in Levenshtein. Independent checks in a run execute concurrently with a small worker cap (`maxCheckParallelism` in `internal/verify`); Dagger reuses one session and its dependency graph within that execution. Native preparation still serializes mutable stage ownership inside the native executor.
 

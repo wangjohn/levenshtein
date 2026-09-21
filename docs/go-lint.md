@@ -87,6 +87,7 @@ Runs select checks by name; existing CI still owns triggers and schedules.
 | `workflow-lint` | actionlint: GitHub Actions syntax and expressions | Repos with GitHub Actions |
 | `go-vuln` | govulncheck: reachable known vulnerabilities | Dependency updates and daily |
 | `self-test` | Levenshtein's own good/bad fixtures | Shared-check development |
+| `semantic-lint` | Advisory Jev judgments about Go comments, errors, tests, docs, and PR shape ([details](semantic-lint.md)) | Pull requests, in its own run |
 
 For example, an HTTP service can compose checks using the current versioned interface:
 

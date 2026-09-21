@@ -2,6 +2,7 @@ package verify
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -11,7 +12,7 @@ func validateCheck(check Check, env Environment) error {
 		if daggerFunctions[check.Kind] == "" {
 			return fmt.Errorf("unknown Dagger check %q", check.Kind)
 		}
-		if check.Build != "" || len(check.RerunCommand) > 0 || len(check.Command) > 0 || len(check.Env) > 0 || check.Timeout != "" || check.Preparation != "" || len(check.Artifacts) > 0 || env.Identity != "" || len(env.Env) > 0 || len(env.PassEnv) > 0 || len(env.Tools) > 0 {
+		if check.Build != "" || len(check.RerunCommand) > 0 || len(check.Command) > 0 || len(check.Env) > 0 || check.Timeout != "" || check.Preparation != "" || len(check.Artifacts) > 0 || check.Base != "" || check.Model != "" || env.Identity != "" || len(env.Env) > 0 || len(env.PassEnv) > 0 || len(env.Tools) > 0 {
 			return fmt.Errorf("native command options cannot be used for Dagger Go checks")
 		}
 		return nil
@@ -19,6 +20,9 @@ func validateCheck(check Check, env Environment) error {
 
 	if env.Executor != ExecutorNative {
 		return fmt.Errorf("unsupported executor %q", env.Executor)
+	}
+	if check.Kind == CheckSemanticLint {
+		return validateSemanticLint(check, env)
 	}
 	if check.Kind != CheckCommand || len(check.Command) == 0 || check.Command[0] == "" {
 		return fmt.Errorf("native check needs kind command and a nonempty command array")
@@ -29,7 +33,43 @@ func validateCheck(check Check, env Environment) error {
 	if len(check.RerunCommand) > 0 && check.RerunCommand[0] == "" {
 		return fmt.Errorf("rerun_command cannot be empty")
 	}
+	if check.Base != "" || check.Model != "" {
+		return fmt.Errorf("base and model apply only to semantic-lint checks")
+	}
 
+	if err := validateNativeEnvironment(check, env); err != nil {
+		return err
+	}
+	for _, path := range check.Artifacts {
+		if !relative(path) || path == "." {
+			return fmt.Errorf("invalid artifact path %q", path)
+		}
+	}
+	return nil
+}
+
+// Thresholds are tuned per release, so aliases such as jev-latest are rejected.
+var semanticModel = regexp.MustCompile(`^jev-[0-9]+\.[0-9]+\.[0-9]+$`)
+
+// A semantic-lint check has no command of its own, always executes, and reads
+// its API key from the environment rather than configuration.
+func validateSemanticLint(check Check, env Environment) error {
+	if len(check.Command) > 0 || len(check.RerunCommand) > 0 || len(check.Artifacts) > 0 || check.Preparation != "" || check.Build != "" {
+		return fmt.Errorf("semantic-lint does not accept command, rerun_command, artifacts, preparation, or build")
+	}
+	if check.Cache {
+		return fmt.Errorf("semantic-lint results are not cached")
+	}
+	if check.Model != "" && !semanticModel.MatchString(check.Model) {
+		return fmt.Errorf("semantic-lint model %q must be a pinned release such as jev-1.13.0", check.Model)
+	}
+	if check.Base != "" && (strings.HasPrefix(check.Base, "-") || strings.ContainsAny(check.Base, " \t\n\x00")) {
+		return fmt.Errorf("invalid semantic-lint base %q", check.Base)
+	}
+	return validateNativeEnvironment(check, env)
+}
+
+func validateNativeEnvironment(check Check, env Environment) error {
 	if err := validateDuration(check.Timeout); err != nil {
 		return err
 	}
@@ -48,12 +88,6 @@ func validateCheck(check Check, env Environment) error {
 	for _, tool := range env.Tools {
 		if len(tool.Command) == 0 || tool.Command[0] == "" || tool.Version == "" {
 			return fmt.Errorf("tool needs command and exact version output")
-		}
-	}
-
-	for _, path := range check.Artifacts {
-		if !relative(path) || path == "." {
-			return fmt.Errorf("invalid artifact path %q", path)
 		}
 	}
 	return nil
