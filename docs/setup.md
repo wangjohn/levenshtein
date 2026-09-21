@@ -87,7 +87,7 @@ Event → `./verify` mapping:
 - Draft PR / push to `main`: `lint` runs `branch`; `tests` skips Dagger verify (lint already covered static checks).
 - Ready PR / merge queue: `lint` runs `branch`; `tests` runs `self-test` (together equivalent to former `pre-merge`).
 - Daily schedule (07:23 UTC): `lint` runs `branch`; `tests` runs `main` (fresh audit + `go-vuln`).
-- Manual dispatch: `lint` runs `branch`; `tests` runs the requested run (default `pre-merge`).
+- Manual dispatch: `lint` runs `branch`; `tests` runs the requested run (default `self-test`, since `lint` already covers the static checks in `pre-merge`).
 
 ### Required checks (branch protection)
 

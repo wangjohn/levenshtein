@@ -27,7 +27,7 @@ name: Levenshtein self-checks
 #   Draft PR / push main     → lint: branch; tests: no Dagger verify run
 #   Ready PR / merge_group   → lint: branch; tests: self-test
 #   Schedule                 → lint: branch; tests: main (fresh + go-vuln)
-#   workflow_dispatch        → lint: branch; tests: requested run (default pre-merge)
+#   workflow_dispatch        → lint: branch; tests: requested run (default self-test)
 #
 # Required-check guidance: require lint early; do not make draft progress wait on
 # release-smoke or full tests. See docs/setup.md (tiered jobs + trust policy).
@@ -44,7 +44,7 @@ on:
     inputs:
       run:
         description: Configured verification run
-        default: pre-merge
+        default: self-test
         type: string
   schedule:
     # Fresh daily verification of Levenshtein itself.

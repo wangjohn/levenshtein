@@ -68,6 +68,10 @@ func (d *Dagger) execute(ctx context.Context, req Request) error {
 		return err
 	}
 
+	// Checks run concurrently, so several goroutines issue queries on this one
+	// session after connect returns. The Dagger client is safe for concurrent
+	// use; only connect and Close hold mu.
+
 	nonce := executionNonce(req)
 
 	query := d.client.QueryBuilder().Select("levenshtein").Select(function).Arg("nonce", nonce)
