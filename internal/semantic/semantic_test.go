@@ -388,14 +388,14 @@ func TestShallowCloneGetsFetchDepthAdvice(t *testing.T) {
 }
 
 func TestClientRetriesRateLimitsButNotRejections(t *testing.T) {
-	jev := &fakeJev{noul: 0.5, statuses: []int{http.StatusTooManyRequests, http.StatusOK}}
+	jev := &fakeJev{noul: 0.5, statuses: []int{http.StatusServiceUnavailable, http.StatusTooManyRequests, http.StatusOK}}
 	server := httptest.NewServer(jev.handler(t))
 	defer server.Close()
 	client := Client{BaseURL: server.URL, APIKey: "test-key", Model: DefaultModel}
 	questions := map[string]wireQuestion{"q": {Type: PrimitiveNoul, Instructions: "x"}}
 
 	response, err := client.Ask(context.Background(), "state", questions)
-	if err != nil || jev.calls.Load() != 2 || response.Answers["q"].Noul == nil {
+	if err != nil || jev.calls.Load() != 3 || response.Answers["q"].Noul == nil {
 		t.Fatalf("retry: %+v %v calls=%d", response, err, jev.calls.Load())
 	}
 

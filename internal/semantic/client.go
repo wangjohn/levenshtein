@@ -81,7 +81,7 @@ func (e *APIError) Error() string {
 const maxAttempts = 3
 
 // Ask evaluates every question against one state in a single parallel pass.
-// Rate limiting and overload are retried; other failures are returned.
+// Rate limiting, overload, and gateway failures are retried; other failures are returned.
 func (c Client) Ask(ctx context.Context, state any, questions map[string]wireQuestion) (wireResponse, error) {
 	body, err := json.Marshal(wireRequest{State: state, Model: c.Model, Questions: questions})
 	if err != nil {
@@ -142,7 +142,7 @@ func (c Client) post(ctx context.Context, body []byte) (wireResponse, time.Durat
 			return wireResponse{}, -1, fmt.Errorf("TypeSafe API returned malformed JSON: %w", err)
 		}
 		return response, 0, nil
-	case http.StatusTooManyRequests, 529:
+	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout, 529:
 		return wireResponse{}, retryDelay(resp.Header.Get("Retry-After")), &APIError{Status: resp.StatusCode, Body: summary(data)}
 	default:
 		return wireResponse{}, -1, &APIError{Status: resp.StatusCode, Body: summary(data)}
