@@ -22,8 +22,8 @@
 #   sdk/patched-go/**
 #
 # Warm verification: on a second trusted run with unchanged inputs, the
-# Generate step should log dagger-develop-cache-hit (not dagger-develop),
-# and the Save generated Dagger SDK step should be skipped (cache-hit).
+# Generate step should report a reused SDK (no dagger develop), and the Save
+# generated Dagger SDK step should be skipped (cache-hit).
 #
 # Usage:
 #   ci-dagger-sdk <cache-hit true|false>
@@ -109,14 +109,15 @@ emit() {
 if [[ $cache_hit == true ]] && sdk_ready; then
   ensure_cache_paths
   emit ready true
-  exec ./scripts/ci-step-time dagger-develop-cache-hit true
+  echo 'ci-dagger-sdk: reusing the restored SDK; skipping dagger develop' >&2
+  exit 0
 fi
 
 if [[ $cache_hit == true ]]; then
   echo "ci-dagger-sdk: incomplete SDK cache hit ($(sdk_stats)); regenerating (bump dagger-sdk-vN if this persists)" >&2
 fi
 
-./scripts/ci-step-time dagger-develop dagger develop --compat=skip
+dagger develop --compat=skip
 
 if ! sdk_ready; then
   emit ready false

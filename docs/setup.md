@@ -78,7 +78,6 @@ The checked-in `Levenshtein self-checks` workflow verifies this repo's runner an
 | --- | --- |
 | `lint` | Static `./verify branch` only (early signal; no host race tests or consumer regressions) |
 | `tests` | Host race/fixtures, SDK restore or regen, non-lint Dagger checks, consumer regressions |
-| `lint vs tests timing` | Publishes this-run lint/tests wall times and ratio in the job summary (not a merge gate) |
 | `language-contracts` | Rust and Python contract fixtures |
 | `release-smoke` | GoReleaser snapshot + archive test (skipped on draft PRs) |
 
@@ -96,9 +95,9 @@ Event → `./verify` mapping:
 | Early PR progress (including drafts) | **`lint`** |
 | Merge / ready-for-review / merge queue / `main` | **`lint`**, **`tests`**, **`language-contracts`**, **`release-smoke`** |
 
-Do **not** make draft progress wait on `release-smoke` or full `tests`. Do **not** require the `lint vs tests timing` job. When adopting this workflow, replace any required check named `verify` with `lint` and `tests` the same day.
+Do **not** make draft progress wait on `release-smoke` or full `tests`. When adopting this workflow, replace any required check named `verify` with `lint` and `tests` the same day.
 
-Treat warm lint wall time creeping toward warm tests as a CI performance regression. Each run’s Actions summary shows step timings, job wall clocks, and the lint/tests ratio; compare medians across warm `ubuntu-24.04` runs.
+Treat warm lint wall time creeping toward warm tests as a CI performance regression. Read step and job durations from the Actions run view and compare medians across warm `ubuntu-24.04` runs.
 
 ### Result-cache trust
 
@@ -108,7 +107,7 @@ Treat warm lint wall time creeping toward warm tests as a CI performance regress
 
 ### Caches and self-config notes
 
-Shell steps report wall times via `scripts/ci-step-time`; job walls via `scripts/ci-job-timing`; ratio via `scripts/ci-lint-tests-ratio`. The `lint` and `tests` jobs (and `vulnerabilities`) restore a pinned Dagger CLI from the Actions cache when `.dagger-version` / `scripts/dagger-checksums.txt` are unchanged; install falls back to download on miss. `language-contracts` uses the setup-go module cache over root `go.sum`.
+The `lint` and `tests` jobs (and `vulnerabilities`) restore a pinned Dagger CLI from the Actions cache when `.dagger-version` / `scripts/dagger-checksums.txt` are unchanged; install falls back to download on miss. `language-contracts` uses the setup-go module cache over root `go.sum`.
 
 Generated SDK (`runner/dagger.gen.go`, `runner/internal/dagger`, `runner/internal/telemetry`) uses **exact** key `dagger-sdk-v2-…` (no `restore-keys`). Restore + save are separate steps; save runs only when `scripts/ci-dagger-sdk` reports `ready=true` after a miss. Readiness matches real develop output (~7KiB gen, `internal/dagger` sources, ≥200KiB total) and does not require `internal/telemetry` sources (often absent; the script `mkdir`s the path for cache save). That still rejects the stuck ~59KiB Actions blob. Incomplete hits regenerate and log a poison warning — bump the `vN` prefix to abandon a stuck key. Warm check: Generate logs `dagger-develop-cache-hit`. Invalidate when any of these change: `dagger.json`, `.dagger-version`, `scripts/dagger-checksums.txt`, `runner/go.mod`, `runner/go.sum`, `runner/toolchain.json`, `runner/*.go`, `sdk/patched-go/**`. `vulnerabilities.yml` still always runs `scripts/test-sdk-security`.
 
@@ -122,11 +121,10 @@ Self-config targets use narrow literal `inputs` (not `"."`): root Go module path
 
 | Criterion | Status |
 | --- | --- |
-| Lint ≪ tests (warm lint well under 1 min) | In progress — needs warm SDK + result-cache hits; Phase 5 engine volumes blocked |
+| Lint ≪ tests (warm lint well under 1 min) | In progress — needs warm SDK + result-cache hits; cross-VM engine volumes blocked |
 | Coverage preserved on ready/merge/`main`/schedule | Met by job split + event mapping |
 | Trust partitioning for result caches | Met (trusted save only) |
 | Freshness (`rerun_checks` / `go-vuln`) | Met |
-| Visibility (lint vs tests timings in summaries) | Met (`lint vs tests timing` job + step timings) |
 | Self-CI scope (not consumer packaging) | Met |
 
 ### Out of scope here
