@@ -12,34 +12,40 @@ import (
 // listing every field the other kinds would have used.
 func validateCheck(check Check, env Environment) error {
 	if env.Executor == ExecutorDagger {
-		if daggerFunctions[check.Kind] == "" {
-			return fmt.Errorf("unknown Dagger check %q", check.Kind)
-		}
-		if check.Command != nil || check.Semantic != nil {
-			return fmt.Errorf("command and semantic options cannot be used for Dagger Go checks")
-		}
-		if env.Identity != "" || len(env.Env) > 0 || len(env.PassEnv) > 0 || len(env.Tools) > 0 {
-			return fmt.Errorf("native environment options cannot be used for Dagger Go checks")
-		}
-		return nil
+		return validateDaggerCheck(check, env)
 	}
-
 	if env.Executor != ExecutorNative {
 		return fmt.Errorf("unsupported executor %q", env.Executor)
 	}
-	if check.Kind == CheckSemanticLint {
-		return validateSemanticLint(check, env)
+
+	kind, ok := nativeKinds[check.Kind]
+	if !ok {
+		return fmt.Errorf("native environments run %s checks, not %q", nativeKindNames(), check.Kind)
 	}
-	if check.Kind != CheckCommand {
-		return fmt.Errorf("native check needs kind %q or %q", CheckCommand, CheckSemanticLint)
+	if err := validateEnvironment(env); err != nil {
+		return err
 	}
+	return kind.validate(check, env)
+}
+
+func validateDaggerCheck(check Check, env Environment) error {
+	if daggerFunctions[check.Kind] == "" {
+		return fmt.Errorf("unknown Dagger check %q", check.Kind)
+	}
+	if check.Command != nil || check.Semantic != nil {
+		return fmt.Errorf("command and semantic options cannot be used for Dagger Go checks")
+	}
+	if env.Identity != "" || len(env.Env) > 0 || len(env.PassEnv) > 0 || len(env.Tools) > 0 {
+		return fmt.Errorf("native environment options cannot be used for Dagger Go checks")
+	}
+	return nil
+}
+
+func validateCommandCheck(check Check, env Environment) error {
 	if check.Semantic != nil {
 		return fmt.Errorf("semantic options apply only to semantic-lint checks")
 	}
-	return validateCommandCheck(check.Command, env)
-}
-
-func validateCommandCheck(command *CommandCheck, env Environment) error {
+	command := check.Command
 	if command == nil || len(command.Args) == 0 || command.Args[0] == "" {
 		return fmt.Errorf("command check needs a nonempty args array")
 	}
@@ -53,9 +59,6 @@ func validateCommandCheck(command *CommandCheck, env Environment) error {
 		return err
 	}
 	if err := validateEnv(command.Env); err != nil {
-		return err
-	}
-	if err := validateEnvironment(env); err != nil {
 		return err
 	}
 
@@ -75,9 +78,6 @@ var semanticModel = regexp.MustCompile(`^jev-[0-9]+\.[0-9]+\.[0-9]+$`)
 func validateSemanticLint(check Check, env Environment) error {
 	if check.Command != nil {
 		return fmt.Errorf("semantic-lint does not accept command options")
-	}
-	if err := validateEnvironment(env); err != nil {
-		return err
 	}
 	if check.Semantic == nil {
 		return nil
