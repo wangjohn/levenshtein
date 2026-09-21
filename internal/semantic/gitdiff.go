@@ -154,32 +154,86 @@ func loadChange(ctx context.Context, g gitRunner, base string, include func(stri
 	return Change{BaseRef: ref, Base: mergeBase, Files: files, Commits: commits}, nil
 }
 
+// commitRecord opens each record in the single log pass. A NUL and a record
+// separator cannot appear in a subject, and git's text patches never contain
+// them either, so one call carries every subject with its hunks.
+const (
+	commitRecord = "\x00\x1ecommit\x1f"
+	commitFormat = "%x00%x1ecommit%x1f%H%x1f%s"
+)
+
+// commits reads every commit since the merge base in one pass. The patch comes
+// along because commit_subject_matches compares each subject against the files
+// and hunk headers that commit touched.
 func (g gitRunner) commits(ctx context.Context, mergeBase string) ([]Commit, error) {
-	log, err := g.run(ctx, "log", "--format=%H%x1f%s", "--no-merges", mergeBase+"..HEAD", "--")
+	args := diffArgs("log", "-p", "--no-merges", "--max-count="+strconv.Itoa(maxCommits), "--format="+commitFormat, mergeBase+"..HEAD", "--")
+	log, err := g.run(ctx, args...)
 	if err != nil {
 		return nil, err
 	}
+	return parseCommitLog(log), nil
+}
 
+// parseCommitLog keeps only what the change state uses: the record lines, the
+// file headers, and the @@ lines. Patch bodies are skipped, so an added line
+// that itself begins with +++ cannot be read as a file header.
+func parseCommitLog(raw string) []Commit {
 	var commits []Commit
-	for _, line := range strings.Split(strings.TrimSpace(log), "\n") {
-		sha, subject, ok := strings.Cut(line, "\x1f")
-		if !ok || len(commits) >= maxCommits {
+	var current *Commit
+	var path string
+	inHunk := false
+
+	flushPath := func() {
+		if current != nil && path != "" {
+			current.Files = append(current.Files, path)
+		}
+		path = ""
+	}
+	flushCommit := func() {
+		flushPath()
+		if current != nil {
+			commits = append(commits, *current)
+			current = nil
+		}
+	}
+
+	scanner := bufio.NewScanner(strings.NewReader(raw))
+	scanner.Buffer(make([]byte, 1<<20), 16<<20)
+	for scanner.Scan() {
+		line := scanner.Text()
+		switch {
+		case strings.HasPrefix(line, commitRecord):
+			flushCommit()
+			sha, subject, ok := strings.Cut(strings.TrimPrefix(line, commitRecord), "\x1f")
+			if !ok || len(sha) < 12 {
+				continue
+			}
+			commit := Commit{SHA: sha[:12], Subject: subject}
+			current, inHunk = &commit, false
+		case current == nil:
 			continue
-		}
-		shown, err := g.run(ctx, diffArgs("show", "--format=", sha, "--")...)
-		if err != nil {
-			return nil, err
-		}
-		var paths, headers []string
-		for _, file := range parseDiff(shown, func(string) bool { return true }) {
-			paths = append(paths, file.Path)
-			for _, hunk := range file.Hunks {
-				headers = append(headers, fmt.Sprintf("%s @@ -%d,%d +%d,%d @@ %s", file.Path, hunk.OldStart, hunk.OldLines, hunk.NewStart, hunk.NewLines, hunk.Header))
+		case strings.HasPrefix(line, "diff --git "):
+			flushPath()
+			inHunk = false
+		case inHunk && !strings.HasPrefix(line, "@@ "):
+			continue
+		case strings.HasPrefix(line, "@@ "):
+			inHunk = true
+			if hunk, ok := parseHunkHeader(line); ok && path != "" {
+				current.HunkHeaders = append(current.HunkHeaders, fmt.Sprintf("%s @@ -%d,%d +%d,%d @@ %s", path, hunk.OldStart, hunk.OldLines, hunk.NewStart, hunk.NewLines, hunk.Header))
+			}
+		case strings.HasPrefix(line, "--- "):
+			if name := strings.TrimPrefix(line, "--- "); path == "" && name != "/dev/null" {
+				path = strings.TrimPrefix(name, "a/")
+			}
+		case strings.HasPrefix(line, "+++ "):
+			if name := strings.TrimPrefix(line, "+++ "); name != "/dev/null" {
+				path = strings.TrimPrefix(name, "b/")
 			}
 		}
-		commits = append(commits, Commit{SHA: sha[:12], Subject: subject, Files: paths, HunkHeaders: headers})
 	}
-	return commits, nil
+	flushCommit()
+	return commits
 }
 
 const maxUntrackedBytes = 256 << 10

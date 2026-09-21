@@ -401,6 +401,36 @@ func TestLoadChangePinsDiffPrefixes(t *testing.T) {
 	}
 }
 
+func TestCommitsReadEveryCommitInOnePass(t *testing.T) {
+	r := changedRepo(t)
+	r.write(t, "pkg/extra.go", "package sample\n\n// Extra is a second commit.\nfunc Extra() {}\n")
+	r.run(t, "add", "pkg/extra.go")
+	r.run(t, "commit", "--quiet", "-m", "Add an extra helper")
+
+	g := gitRunner{Git: r.git, Dir: r.dir, Env: r.env}
+	_, mergeBase, err := g.resolveBase(context.Background(), "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	commits, err := g.commits(context.Background(), mergeBase)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(commits) != 2 || commits[0].Subject != "Add an extra helper" || commits[1].Subject != "Add strict path validation" {
+		t.Fatalf("subjects, newest first: %+v", commits)
+	}
+	if len(commits[0].SHA) != 12 || len(commits[0].Files) != 1 || commits[0].Files[0] != "pkg/extra.go" {
+		t.Fatalf("files of the newest commit: %+v", commits[0])
+	}
+	if len(commits[0].HunkHeaders) != 1 || !strings.HasPrefix(commits[0].HunkHeaders[0], "pkg/extra.go @@ -0,0 +1,4 @@") {
+		t.Fatalf("hunk headers: %+v", commits[0].HunkHeaders)
+	}
+	if len(commits[1].Files) != 2 || len(commits[1].HunkHeaders) == 0 {
+		t.Fatalf("older commit: %+v", commits[1])
+	}
+}
+
 func TestShallowCloneGetsFetchDepthAdvice(t *testing.T) {
 	r := changedRepo(t)
 	r.run(t, "switch", "--quiet", "main")
