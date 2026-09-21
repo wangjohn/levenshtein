@@ -6,7 +6,8 @@
     "lint": {"dir": "runner/lint", "workspace": ".", "inputs": ["."]}
   },
   "environments": {
-    "go": {"executor": "dagger"}
+    "go": {"executor": "dagger"},
+    "host": {"executor": "native"}
   },
   "checks": {
     "go-lint/root": {"kind": "go-lint", "target": "root", "environment": "go"},
@@ -25,7 +26,8 @@
     "go-vuln/runner": {"kind": "go-vuln", "target": "runner", "environment": "go"},
     "go-vuln/lint": {"kind": "go-vuln", "target": "lint", "environment": "go"},
     "workflow-lint": {"kind": "workflow-lint", "target": "root", "environment": "go"},
-    "self-test": {"kind": "self-test", "target": "root", "environment": "go"}
+    "self-test": {"kind": "self-test", "target": "root", "environment": "go"},
+    "semantic-lint": {"kind": "semantic-lint", "target": "root", "environment": "host"}
   },
   "runs": {
     "go-lint": {"checks": ["go-lint/root", "go-lint/runner", "go-lint/lint"]},
@@ -35,6 +37,7 @@
     "go-vuln": {"checks": ["go-vuln/root", "go-vuln/runner", "go-vuln/lint"]},
     "workflow-lint": {"checks": ["workflow-lint"]},
     "self-test": {"checks": ["self-test"]},
+    "semantic-lint": {"checks": ["semantic-lint"]},
     "branch": {"checks": ["go-lint/root", "go-lint/runner", "go-lint/lint", "go-vet/root", "go-vet/runner", "go-vet/lint", "workflow-lint"]},
     "pre-merge": {"checks": ["go-lint/root", "go-lint/runner", "go-lint/lint", "go-vet/root", "go-vet/runner", "go-vet/lint", "workflow-lint", "self-test"]},
     "main": {"checks": ["go-lint/root", "go-lint/runner", "go-lint/lint", "go-vet/root", "go-vet/runner", "go-vet/lint", "workflow-lint", "self-test", "go-vuln/root", "go-vuln/runner", "go-vuln/lint"], "rerun_checks": true}
