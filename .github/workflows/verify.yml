@@ -55,7 +55,9 @@ permissions:
 
 concurrency:
   group: verify-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Cancel superseded pull_request runs only. Back-to-back pushes to main must
+  # each keep their own run so no merge commit is left without a status.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:
