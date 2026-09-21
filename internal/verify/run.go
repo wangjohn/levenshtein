@@ -162,51 +162,23 @@ func executeCheck(ctx context.Context, check PlannedCheck, req Request, executor
 	}
 }
 
+// The value receiver is the caller's copy, so each helper replaces its own
+// fields and returns that copy with every other diagnostic and metadata field
+// carried over untouched.
+
 // withOutcome preserves diagnostics and metadata while replacing the outcome.
 func (r Result) withOutcome(status Status, message string) Result {
-	return Result{
-		ID:          r.ID,
-		Status:      status,
-		DurationMS:  r.DurationMS,
-		VerifiedAt:  r.VerifiedAt,
-		Stdout:      r.Stdout,
-		Stderr:      r.Stderr,
-		Error:       message,
-		Cache:       r.Cache,
-		ExecutionMS: r.ExecutionMS,
-		Stages:      r.Stages,
-		Details:     r.Details,
-	}
+	r.Status = status
+	r.Error = message
+	return r
 }
 
 func (r Result) withStages(stages []StageResult) Result {
-	return Result{
-		ID:          r.ID,
-		Status:      r.Status,
-		DurationMS:  r.DurationMS,
-		VerifiedAt:  r.VerifiedAt,
-		Stdout:      r.Stdout,
-		Stderr:      r.Stderr,
-		Error:       r.Error,
-		Cache:       r.Cache,
-		ExecutionMS: r.ExecutionMS,
-		Stages:      stages,
-		Details:     r.Details,
-	}
+	r.Stages = stages
+	return r
 }
 
 func (r Result) withCache(cache CacheInfo) Result {
-	return Result{
-		ID:          r.ID,
-		Status:      r.Status,
-		DurationMS:  r.DurationMS,
-		VerifiedAt:  r.VerifiedAt,
-		Stdout:      r.Stdout,
-		Stderr:      r.Stderr,
-		Error:       r.Error,
-		Cache:       cache,
-		ExecutionMS: r.ExecutionMS,
-		Stages:      r.Stages,
-		Details:     r.Details,
-	}
+	r.Cache = cache
+	return r
 }
