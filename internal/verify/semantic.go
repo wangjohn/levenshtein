@@ -3,7 +3,6 @@ package verify
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -85,8 +84,8 @@ func semanticLint(ctx context.Context, req Request, dir string, env []string) Re
 	case ctx.Err() != nil && runErr != nil:
 		// The parent carries the run's own cancellation or deadline; only the
 		// timeout above belongs to this check.
-		if errors.Is(parent.Err(), context.Canceled) || errors.Is(parent.Err(), context.DeadlineExceeded) {
-			return result.withOutcome(StatusCancelled, parent.Err().Error())
+		if err := parent.Err(); err != nil {
+			return result.withOutcome(StatusCancelled, err.Error())
 		}
 		return result.withOutcome(StatusError, "semantic-lint timed out")
 	case runErr != nil:
