@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestParseDiffZeroContext(t *testing.T) {
@@ -156,6 +157,24 @@ func TestDocUnitsFindAbsoluteSentencesOutsideCode(t *testing.T) {
 	}
 	if !strings.HasPrefix(units[0].After, "## Cache") || strings.Contains(units[0].After, "Intro text") {
 		t.Fatalf("section: %q", units[0].After)
+	}
+}
+
+func TestTruncationCutsOnRuneBoundaries(t *testing.T) {
+	text := strings.Repeat("é", 50) // Two bytes per rune, so an odd limit splits one.
+	for _, limit := range []int{1, 7, 31, 99} {
+		short := truncate(text, limit)
+		if !utf8.ValidString(short) || len(short) > limit+len("\n... [truncated]") {
+			t.Fatalf("limit %d: %q", limit, short)
+		}
+	}
+
+	body := []byte(strings.Repeat("ü", 400))
+	if short := summary(body); !utf8.ValidString(short) || !strings.HasSuffix(short, "...") {
+		t.Fatalf("error body: %q", short)
+	}
+	if short := truncate("plain", 99); short != "plain" {
+		t.Fatalf("text within the limit must be untouched: %q", short)
 	}
 }
 

@@ -160,11 +160,13 @@ func retryDelay(header string) time.Duration {
 	return time.Duration(seconds) * time.Second
 }
 
+// summary shortens an error body on a rune boundary, so a reported failure
+// never ends in a broken character.
 func summary(data []byte) string {
 	const limit = 400
 	text := bytes.TrimSpace(data)
-	if len(text) > limit {
-		return string(text[:limit]) + "..."
+	if len(text) <= limit {
+		return string(text)
 	}
-	return string(text)
+	return string(text[:runeBoundary(string(text), limit)]) + "..."
 }

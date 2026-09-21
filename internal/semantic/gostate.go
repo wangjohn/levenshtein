@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // Item lists are what code preselects for the model. Each carries the line it
@@ -416,9 +417,19 @@ func packageFunctions(dir, current string, isTest bool, exclude map[string]bool)
 	return signatures
 }
 
+// truncate cuts on a rune boundary so a shortened state never carries half a
+// multi-byte character.
 func truncate(text string, limit int) string {
 	if len(text) <= limit {
 		return text
 	}
-	return text[:limit] + "\n... [truncated]"
+	return text[:runeBoundary(text, limit)] + "\n... [truncated]"
+}
+
+// runeBoundary trims an index back to the start of the rune it lands inside.
+func runeBoundary(text string, index int) int {
+	for index > 0 && !utf8.RuneStart(text[index]) {
+		index--
+	}
+	return index
 }

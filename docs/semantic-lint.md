@@ -110,3 +110,9 @@ Candidate extensions, in rough priority order. None are scheduled; each becomes 
 - **Per-question gating.** A `gate` flag that lets one question fail the check once its precision is known, while the rest stay advisory.
 - **Defaults for unconfigured repositories.** The no-configuration defaults are Dagger-only, so a repository without `levenshtein.json` cannot run the check today.
 - **A first-party skip when the key is absent.** Today the CI conditional is the consumer's job; a documented skip outcome would let the check sit in a shared run without failing forks.
+
+## Future: separate module
+
+Everything else in the CLI is offline and deterministic; this check is neither. It reaches a third-party API over the network, its answers vary between runs, and it carries a vendor's wire format into a repository that otherwise depends on nothing. Moving `internal/semantic` into its own module would let the vendor coupling version separately and keep the core free of it.
+
+The adapter surface is already small: the `native.go` dispatch on the check kind, `validateSemanticLint`, and the `base`, `model`, and `timeout` options on `Check`. The split is deferred until calibration settles, because the catalog, the thresholds, and the state shape are still moving and a module boundary would make each change a two-repository edit.
