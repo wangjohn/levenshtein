@@ -63,7 +63,7 @@ TYPESAFE_API_KEY=... ./verify semantic-lint
 
 The check reads `TYPESAFE_API_KEY` from the host process environment only. Unlike `command` checks, it needs no `pass_env` entry: the kind itself defines which variables it consumes, so a consumer only exports the variable locally or adds a CI secret.
 
-Keeping the key out of `levenshtein.json` is enforced, not just advised. Configuration is committed, so a pull request that could declare these variables would choose where the branch's CI secret is sent. Validation rejects a check `env` or environment `env` that declares `TYPESAFE_API_KEY` or `TYPESAFE_BASE_URL`, and a `pass_env` entry naming `TYPESAFE_API_KEY`. Neither variable is ever read from configuration at run time.
+Keeping the key out of `levenshtein.json` is enforced, not just advised. Configuration is committed, so a pull request that could declare these variables would choose where the branch's CI secret is sent. Validation rejects a check `env` or environment `env` that declares `TYPESAFE_API_KEY` or `TYPESAFE_BASE_URL`, and a `pass_env` entry naming `TYPESAFE_API_KEY`. Neither variable is ever read from configuration at run time. A `pass_env` entry for `TYPESAFE_BASE_URL` is accepted but only re-exports the host value to subprocesses; the check itself still reads the host. Committed `PATH` and `GIT_*` entries are rejected as well, because they would decide which `git` produces the diff.
 
 In GitHub Actions, supply it from a repository secret and skip the step when the secret is absent, which is the case for pull requests from forks:
 

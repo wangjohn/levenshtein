@@ -277,3 +277,33 @@ func TestSemanticLintExecutesAdvisoryCheck(t *testing.T) {
 		t.Fatalf("a plain-http origin off loopback must be refused: %+v", result)
 	}
 }
+
+// Committed PATH or GIT_* values would pick which git produces the diff.
+func TestSemanticLintRejectsCommittedGitEnvironment(t *testing.T) {
+	environment := `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"host":{"executor":"native"%s}},"checks":{"semantic":{"kind":"semantic-lint","target":"app","environment":"host"}},"runs":{"branch":{"checks":["semantic"]}}}`
+	for name, extra := range map[string]string{
+		"PATH":    `,"env":{"PATH":"tools"}`,
+		"GIT_DIR": `,"env":{"GIT_DIR":"elsewhere/.git"}`,
+	} {
+		cfg, err := Parse([]byte(strings.Replace(environment, "%s", extra, 1)))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if _, err := cfg.Plan(t.TempDir(), "branch"); err == nil || !strings.Contains(err.Error(), name) {
+			t.Fatalf("%s accepted: %v", name, err)
+		}
+	}
+}
+
+// A base ref from the environment gets the same shape check as a configured one.
+func TestSemanticLintValidatesTheEnvironmentBaseRef(t *testing.T) {
+	source := gitRepo(t)
+	t.Setenv("TYPESAFE_API_KEY", "test")
+	t.Setenv("TYPESAFE_BASE_URL", "")
+	t.Setenv("GITHUB_BASE_REF", "--output=x")
+
+	result := (&Native{}).Execute(context.Background(), semanticRequest(t, source))
+	if result.Status != StatusError || !strings.Contains(result.Error, "invalid semantic-lint base") {
+		t.Fatalf("flag-shaped base ref: %+v", result)
+	}
+}

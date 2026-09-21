@@ -109,6 +109,14 @@ func (c Client) Ask(ctx context.Context, state any, questions map[string]wireQue
 	return wireResponse{}, fmt.Errorf("gave up after %d attempts: %w", maxAttempts, last)
 }
 
+// noRedirectClient never follows a redirect, so the bearer token is only ever
+// sent to the configured origin. A 3xx answer surfaces as an API error.
+var noRedirectClient = &http.Client{
+	CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+}
+
 // post returns a negative retry delay when the failure is not retryable.
 func (c Client) post(ctx context.Context, body []byte) (wireResponse, time.Duration, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/v1/systemone", bytes.NewReader(body))
@@ -120,7 +128,7 @@ func (c Client) post(ctx context.Context, body []byte) (wireResponse, time.Durat
 
 	client := c.HTTP
 	if client == nil {
-		client = http.DefaultClient
+		client = noRedirectClient
 	}
 	resp, err := client.Do(req)
 	if err != nil {

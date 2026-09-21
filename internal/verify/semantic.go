@@ -61,6 +61,9 @@ func semanticLint(ctx context.Context, req Request, dir string, env []string) Re
 	if base == "" {
 		base = semanticDefaultRef
 	}
+	if strings.HasPrefix(base, "-") || strings.ContainsAny(base, " \t\n\x00") {
+		return Result{Status: StatusError, Error: fmt.Sprintf("invalid semantic-lint base %q", base)}
+	}
 	baseURL := os.Getenv(semanticBaseURLEnv)
 	if baseURL == "" {
 		baseURL = semantic.DefaultBaseURL

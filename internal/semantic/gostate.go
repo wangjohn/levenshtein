@@ -428,6 +428,9 @@ func truncate(text string, limit int) string {
 
 // runeBoundary trims an index back to the start of the rune it lands inside.
 func runeBoundary(text string, index int) int {
+	if index >= len(text) {
+		return len(text)
+	}
 	for index > 0 && !utf8.RuneStart(text[index]) {
 		index--
 	}

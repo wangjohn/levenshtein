@@ -131,7 +131,10 @@ func loadChange(ctx context.Context, g gitRunner, base string, include func(stri
 	if err != nil {
 		return Change{}, err
 	}
-	files := parseDiff(raw, include)
+	files, err := parseDiff(raw, include)
+	if err != nil {
+		return Change{}, err
+	}
 
 	untracked, err := g.run(ctx, "ls-files", "--others", "--exclude-standard", "-z")
 	if err != nil {
@@ -171,13 +174,13 @@ func (g gitRunner) commits(ctx context.Context, mergeBase string) ([]Commit, err
 	if err != nil {
 		return nil, err
 	}
-	return parseCommitLog(log), nil
+	return parseCommitLog(log)
 }
 
 // parseCommitLog keeps only what the change state uses: the record lines, the
 // file headers, and the @@ lines. Patch bodies are skipped, so an added line
 // that itself begins with +++ cannot be read as a file header.
-func parseCommitLog(raw string) []Commit {
+func parseCommitLog(raw string) ([]Commit, error) {
 	var commits []Commit
 	var current *Commit
 	var path string
@@ -233,7 +236,10 @@ func parseCommitLog(raw string) []Commit {
 		}
 	}
 	flushCommit()
-	return commits
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("reading commit log: %w", err)
+	}
+	return commits, nil
 }
 
 const maxUntrackedBytes = 256 << 10
@@ -287,7 +293,7 @@ func classify(path string) FileKind {
 }
 
 // parseDiff reads zero-context unified output. Binary files carry no hunks and are skipped.
-func parseDiff(raw string, include func(string) bool) []FileChange {
+func parseDiff(raw string, include func(string) bool) ([]FileChange, error) {
 	var files []FileChange
 	var path string
 	var status FileStatus
@@ -320,11 +326,14 @@ func parseDiff(raw string, include func(string) bool) []FileChange {
 			status = FileDeleted
 		case strings.HasPrefix(line, "Binary files "):
 			binary = true
-		case strings.HasPrefix(line, "--- "):
+		// File headers only precede the first hunk. Inside a hunk, a line that
+		// starts with "+++ " or "--- " is content (an added "++ x" or a removed
+		// "-- x") and must not rename the file or vanish from the counts.
+		case current == nil && len(hunks) == 0 && strings.HasPrefix(line, "--- "):
 			if name := strings.TrimPrefix(line, "--- "); path == "" && name != "/dev/null" {
 				path = strings.TrimPrefix(name, "a/")
 			}
-		case strings.HasPrefix(line, "+++ "):
+		case current == nil && len(hunks) == 0 && strings.HasPrefix(line, "+++ "):
 			if name := strings.TrimPrefix(line, "+++ "); name != "/dev/null" {
 				path = strings.TrimPrefix(name, "b/")
 			}
@@ -348,7 +357,10 @@ func parseDiff(raw string, include func(string) bool) []FileChange {
 		}
 	}
 	flush()
-	return files
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("reading diff: %w", err)
+	}
+	return files, nil
 }
 
 func parseHunkHeader(line string) (Hunk, bool) {

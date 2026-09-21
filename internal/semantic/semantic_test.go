@@ -46,8 +46,8 @@ func TestParseDiffZeroContext(t *testing.T) {
 		"-package gone",
 	}, "\n")
 
-	files := parseDiff(raw, func(string) bool { return true })
-	if len(files) != 3 {
+	files, err := parseDiff(raw, func(string) bool { return true })
+	if err != nil || len(files) != 3 {
 		t.Fatalf("files: %+v", files)
 	}
 
@@ -169,7 +169,7 @@ func TestTruncationCutsOnRuneBoundaries(t *testing.T) {
 		}
 	}
 
-	body := []byte(strings.Repeat("ü", 400))
+	body := []byte(strings.Repeat("€", 200)) // Three bytes per rune, so byte 400 lands inside one.
 	if short := summary(body); !utf8.ValidString(short) || !strings.HasSuffix(short, "...") {
 		t.Fatalf("error body: %q", short)
 	}
