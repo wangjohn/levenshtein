@@ -1,8 +1,8 @@
 # Design notes
 
-Status: updated for the language-independent interface and aggressive caching plan.
-
-The [implementation plan](implementation.md) defines the pilot. The interface and cache contracts below support that plan. Sections describing later expansion remain conditional; they are not a checklist for V1.
+Status: describes the current language-independent interface and cache
+contracts. See [architecture](architecture.md) for how the CLI implements
+them, and [the roadmap](roadmap.md) for forward-looking expansion.
 
 ## Keep the pilot mechanics simple
 
@@ -33,7 +33,7 @@ An adapter is an internal check implementation using the common planner, executo
 - **Python cache portability:** reuse compatible downloaded/built packages across workers. Reuse a complete virtual environment only when interpreter, platform, dependency selection, and filesystem layout match; otherwise recreate it from cached dependencies. Virtual environments contain absolute interpreter paths and are generally nonportable. Local package builds and dynamic metadata need their actual inputs reflected in underlying tool caches too. See [Python virtual environments](https://docs.python.org/3/library/venv.html) and [uv cache inputs](https://docs.astral.sh/uv/concepts/cache/).
 - **Python fresh runs:** pytest's cache records state such as previous failures, not reusable passing-suite verdicts. A fresh full-suite audit must execute the configured suite; `--last-failed` alone cannot satisfy it. Dependency caches can remain warm. See [pytest cache behavior](https://docs.pytest.org/en/stable/how-to/cache.html).
 
-Use the small Rust/Python fixtures in [implementation step 2](implementation.md#2-introduce-the-interface-and-cache-contract) to validate these boundaries before expanding shared language recipes.
+Use the small Rust/Python fixtures described in [language fixtures](language-fixtures.md) to validate these boundaries before expanding shared language recipes.
 
 ## Cache contracts and invalidation
 
@@ -74,73 +74,3 @@ A fresh run bypasses completed-result reuse at every verification layer, includi
 Validate both hits and misses: unchanged work hits; relevant source, test, fixture, dependency, script, configuration, toolchain, and shared implementation changes miss; unrelated target changes retain valid hits. Exercise persisted caches from another process/worker, incomplete/corrupt entries, and a fresh audit after a cached success.
 
 Measure cold, warm, small-edit, and fresh-audit runs. Separate hashing/lookup/restore, environment startup, setup, compilation, and check execution; record cache hit rate, work avoided, and median/tail latency. If restoring an artifact costs more than recomputing it, adjust cache granularity or retention. Aggressive caching must reduce end-to-end latency.
-
-## What would justify expansion?
-
-| Area | Starting point | Revisit when |
-| --- | --- | --- |
-| Test impact analysis (TIA) | Explicit core checks and path/package mappings | Broad fallback checks consume a material part of the feedback cycle |
-| Distributed execution | Bounded local parallelism, shared preparation, and aggressive caching | Measurements show execution remains slow after reuse and duplication are addressed |
-| Dedicated cache service | Persist dependencies, build artifacts, and eligible results through existing backends | Measured storage, latency, or sharing limits justify operating another service |
-| Automated rollout | Manual pinned-version updates | Adopting improvements across repos becomes repetitive or inconsistent |
-| Portfolio reporting | CI logs and small result files | Questions about failures, adoption, or cost become difficult to answer |
-| Additional language integrations | Existing Go checks and native commands for Benchplan through one core interface | Repeated setup warrants a shared language check; public plugins need actual external consumers |
-| Formal requirements and evaluations | Issues, acceptance criteria, regression fixtures | Ordinary checks cannot answer a concrete quality question |
-| LLM-graded checks | Human judgment for subjective requirements | A useful rubric can be calibrated against human decisions |
-| Dedicated reproduction tooling | Rerun command, revision, and tool versions | Missing environments or retained inputs regularly prevent diagnosis |
-| Deployment management | Existing delivery workflows and check commands | A pilot exposes a specific release-safety or coordination problem |
-
-A hosted dashboard, custom worker scheduler, marketplace, and autonomous production deployment have no pilot requirement.
-
-## If more precise selection becomes necessary
-
-Start with native language/project information. For Go, package/import relationships must include test dependencies, build tags, and declared non-code inputs. Compare old and new graph information to account for deletions and changed edges. Migrations, schemas, fixtures, configuration, toolchains, and the harness itself can affect tests.
-
-Static checks have different scopes. Formatting can be file-local, typed analysis may need packages and dependents, and architectural rules may need the full graph. Filtering diagnostics to changed lines does not establish complete analysis.
-
-Preserve the declared core and task-specific acceptance checks. Unknown dependencies broaden execution to the relevant suite; repository-wide uncertainty can require a complete run. One resolved selection should own the final set so overlapping selectors cannot accidentally omit checks.
-
-Before trusting a new selector, compare its proposed selection against complete execution at the same source/base pair. Use daily audits, known regression fixtures, and explicitly budgeted historical or PR samples. A later default-branch audit alone cannot establish whether an earlier PR selection was sound. Track misses; observed zero misses does not prove safety.
-
-If sharding is justified, use timing history while respecting fixture affinity and CPU, memory, and database limits. Keep queue, setup, build, check execution, and reporting timings separate to identify the real bottleneck.
-
-Keep selection and caching separate: select required work first, then reuse matching results or execute misses. Full audits, flake investigations, and live release smoke checks need fresh verification while retaining compatible setup/build reuse, as defined in the cache contract above. Verify persisted cache behavior in the actual CI environment.
-
-## If maintenance and adoption need more automation
-
-Start each proposed rule with a recurring defect or agreed convention, known-bad and legitimate fixtures, clear repair guidance, and measured cost. Uncertain rules can begin as advisory. Prefer existing analyzers before custom implementation.
-
-Application-specific tests need explicit repository hooks before they can be generalized. A configuration convention can transfer directly; a behavioral contract transfers only when consumers expose the required operation and observations.
-
-When rollout becomes a bottleneck, add upgrade PRs and adoption tracking around immutable versions. Test changes in one repo before expanding. Keep private repository inventory and application-specific examples separate from reusable code.
-
-Keep every attempt when investigating flaky behavior. Retries are evidence, not repair. If quarantine becomes necessary, give it an owner, expiry, and continued observation. Existing lint baselines, if needed, must be explicitly reviewed rather than automatically regenerated to produce a pass.
-
-A larger maintenance service may need deduplication, bounded concurrency, and proposal tracking. Foreground verification should have priority. Keep untrusted check execution separate from trusted write credentials; maintenance jobs do not need production deployment authority.
-
-## If richer evidence or agent evaluations become useful
-
-Preserve native diagnostics as the authoritative detail and normalize only fields consumers actually use. Add durable storage or an index when retention and query needs justify them.
-
-Useful portfolio questions include: which shared version each repo uses, which failures recur, which daily audits are overdue, and which checks cost more than the value they provide. Do not build a dashboard before those questions become operationally useful.
-
-Formal requirement IDs and linked evaluations can follow demonstrated needs. A future agent evaluation set should include representative mistakes, legitimate changes, and attempted weakening of acceptance checks. Measure defect detection, incorrect findings, accepted-change time, and substantive review corrections. Test counts and coverage alone do not establish quality.
-
-Model-graded checks need a versioned rubric, recorded evaluator inputs, and calibration against human judgments. Keep them advisory until their reliability supports a stronger role.
-
-## If release management becomes part of the product
-
-Reuse the existing delivery workflow first. A later shared protocol could verify a candidate artifact, record its digest, and promote that exact artifact across environments. Keep provider-specific deploy, smoke, and rollback commands in the consuming repo.
-
-Retain existing release approvals and environment-scoped credentials. Serialize changes to the same deployment target. Smoke checks need fresh observations of the artifact actually deployed.
-
-Application rollback and database recovery are different operations. Plan compatibility explicitly; reverting an image does not reverse a destructive migration. Cross-service checks must use deployed or explicitly proposed versions.
-
-## Implementation references
-
-Consult current documentation and validate compatibility when an expansion is actually selected:
-
-- [GitHub reusable workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations)
-- [Dagger services](https://docs.dagger.io/using/services/) and [function caching](https://docs.dagger.io/extending/function-caching/)
-- [Go analysis interfaces](https://pkg.go.dev/golang.org/x/tools/go/analysis) and [actionlint](https://github.com/rhysd/actionlint)
-- [Renovate shared presets](https://docs.renovatebot.com/config-presets/)

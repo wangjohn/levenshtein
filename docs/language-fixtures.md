@@ -4,7 +4,7 @@ These small consumers exercise the common configuration and native executor. The
 
 ## Run
 
-Use the pinned Go version, a C linker/toolchain for Rust, `rustup`, and Python 3 to run the harness. The fixture installer downloads checksum-verified uv and installs the pinned language runtimes:
+Use the pinned Go version, a C linker/toolchain for Rust, `rustup`, and Python 3 to run the harness. The fixture installer downloads checksum-verified uv, then uses your existing `rustup` to install the pinned Rust toolchain and uv to install the pinned Python runtime; it does not install `rustup` itself (CI relies on the runner image for that):
 
 ```sh
 ./scripts/install-fixture-tools "$HOME/.local/bin"

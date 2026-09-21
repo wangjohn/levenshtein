@@ -53,7 +53,7 @@ For an advisory model review of each pull request, add a native environment, a `
 
 ## Example: an application using GitHub Actions
 
-Add these steps to the application's existing workflow, or start with this small workflow. Both checkouts are siblings so the shared runner's files stay outside the application source passed to verification. The full SHA below pins the readiness implementation, including source boundaries. Adopt shared improvements by reviewing and updating that pin; do not use a moving branch.
+Add these steps to the application's existing workflow, or start with this small workflow. Both checkouts are siblings so the shared runner's files stay outside the application source passed to verification. Pin a reviewed revision with the full SHA below, and update it deliberately as part of a reviewed change; do not use a moving branch.
 
 ```yaml
 name: Application verification
@@ -85,7 +85,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: wangjohn/levenshtein
-          ref: 314238953567969b8092ff150ed502a709d1a3b5
+          ref: 4529f54d3e341d37a6d0d1bc0e987b5dec6c6938
           path: levenshtein
           persist-credentials: false
       - name: Set up Go for the source launcher
@@ -113,10 +113,4 @@ The job's normal shell failure handling propagates the launcher's nonzero exit s
 
 Use the same arrangement in an existing job: check out the application and pinned shared revision, provide Go for the source launcher and a Docker-compatible runtime, and invoke `verify` with the application source. Configure PR triggers, daily schedules, and required results through that provider. Provider-specific bootstrap configuration remains in the consuming repo; the shared checks receive a source directory and a run name.
 
-## Pilot acceptance
-
-Start with Family Books' Go API using explicit product inputs, then wrap a small Benchplan check on its existing macOS worker. Keep Postgres tests and simulator checks in their existing jobs until their wrappers are verified.
-
-For each pilot, record cold, unchanged warm, source-edit, unrelated-file-edit, and fresh-audit timings. Introduce one deliberate lint/test failure to prove the existing CI gate receives a nonzero exit. Confirm a fresh run executes checks while keeping compatible build caches. Start native commands without result caching; enable it only with complete inputs, a provisioned environment identity, and an explicit `rerun_command`.
-
-Local caches work today. Cross-worker cache transport and multi-job result aggregation are not implemented; keep required platform jobs individually required. Do not share writable result caches with untrusted PRs.
+Local caches work today. Cross-worker cache transport and multi-job result aggregation are not implemented; keep required platform jobs individually required. Do not share writable result caches with untrusted PRs. See [the roadmap](roadmap.md#consumer-pilot-acceptance) for planned pilot adoption steps.
