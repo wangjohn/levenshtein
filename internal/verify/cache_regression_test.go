@@ -28,6 +28,9 @@ func TestReviewFreshFailureInvalidatesOldSuccess(t *testing.T) {
 	}
 }
 
+// A shared checkout is pinned for the life of a run and its snapshot is
+// memoized per root, so each side of the comparison uses its own checkout
+// rather than editing one in place.
 func TestReviewDaggerImplementationFilesAreInputs(t *testing.T) {
 	for _, file := range []string{"runner/extra.go", "sdk/patched-go/src/patched_go/__init__.py"} {
 		t.Run(file, func(t *testing.T) {
@@ -38,6 +41,7 @@ func TestReviewDaggerImplementationFilesAreInputs(t *testing.T) {
 				t.Fatal(err)
 			}
 
+			req.Shared = t.TempDir()
 			path := filepath.Join(req.Shared, file)
 			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 				t.Fatal(err)
@@ -54,6 +58,43 @@ func TestReviewDaggerImplementationFilesAreInputs(t *testing.T) {
 				t.Fatal("Dagger runtime or SDK change did not invalidate verification")
 			}
 		})
+	}
+}
+
+// The shared checkout is walked once per root and executor kind. Repeated
+// fingerprints of one check must not re-read go.mod, cmd, internal and the
+// Dagger runtime, and the memo must not leak between separate checkouts.
+func TestSharedImplementationIsSnapshotOncePerCheckout(t *testing.T) {
+	req := cacheRequest(t)
+	req.Environment.Executor = ExecutorDagger
+	before, err := fingerprint(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// An edit to the pinned checkout during a run is deliberately invisible.
+	if err := os.WriteFile(filepath.Join(req.Shared, "go.mod"), []byte("module later\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	again, err := fingerprint(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again != before {
+		t.Fatal("shared checkout was walked again within one run")
+	}
+
+	// A different checkout with that same content still gets its own snapshot.
+	req.Shared = t.TempDir()
+	if err := os.WriteFile(filepath.Join(req.Shared, "go.mod"), []byte("module later\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	other, err := fingerprint(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other == before {
+		t.Fatal("memoized snapshot leaked across shared checkouts")
 	}
 }
 
