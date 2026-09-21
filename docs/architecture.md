@@ -17,7 +17,9 @@ builds a `Dagger` executor and a `Native` executor, wraps both in
 
 - `0`: every selected check passed.
 - `1`: planning succeeded but a check failed, errored, or was cancelled/incomplete.
-- `2`: argument parsing, configuration loading, or planning failed.
+- `2`: argument parsing, configuration loading, or planning failed, and
+  also a missing `--shared`, a `--cache-dir` inside the source or shared
+  checkout, or a failure to write the report. `--help` exits `0`.
 
 ## Configuration concepts
 
@@ -47,13 +49,15 @@ defaults (`Load` in `config.go`).
 checks executor-specific option rules, confirms target directories exist
 under the source tree, and (for Dagger checks) validates the declared inputs
 can be imported (`daggerIncludes`). None of this starts Docker, Dagger, or any
-executor, so `--dry-run` needs neither running containers nor Xcode.
+executor, so `--dry-run` needs neither running containers nor any native
+toolchain.
 
 ## Executors
 
 `internal/verify/run.go` defines the `Executor` interface
 (`Execute(context.Context, Request) Result`) and runs a plan's checks
-concurrently, bounded by `maxCheckParallelism`, serializing checks that share
+concurrently, bounded by the smaller of `maxCheckParallelism` and `GOMAXPROCS`,
+serializing checks that share
 a preparation stage.
 
 ### Dagger executor
@@ -62,9 +66,11 @@ a preparation stage.
 per CLI invocation and serves the pinned module in `runner/` once
 (`client.ModuleSource(shared).AsModule().Serve`). Each check calls a
 function on that session (`goLint`, `selfTest`, or `sharedCheck` for
-vet/HTTP/SQL/vuln/workflow-lint) with the consumer source directory, module
-path, and a freshness nonce as arguments, so consumer inputs never become
-part of the module's own identity or cache namespace.
+vet/HTTP/SQL/vuln/workflow-lint) with a freshness nonce, plus the consumer
+source directory and module path for every kind except `selfTest`;
+`sharedCheck` also receives the check kind. Consumer inputs travel as
+arguments, so they never become part of the module's own identity or cache
+namespace.
 
 The Dagger module itself lives in `runner/` (`runner/main.go`,
 `runner/checks.go`) and must be its own Go module (`runner/go.mod`) because
@@ -73,24 +79,26 @@ dependencies independently of the root CLI. Failures surface as GraphQL
 errors; when Staticcheck or another check reports diagnostics, `runner`
 attaches them as a `levenshteinFindings` extension on a `gqlerror.Error`, and
 `daggerResult` in `dagger.go` turns that into a `Result{Status: StatusFailed}`
-with the findings in `Details`. A GraphQL error without that extension
-becomes `StatusError` instead.
+with the findings in `Details`. A GraphQL error without that extension, or
+whose extension does not decode to a non-empty list, becomes `StatusError`
+instead.
 
 ### Native executor
 
 `internal/verify/native.go` runs `command` and `semantic-lint` checks as
-trusted host processes (macOS or Linux only) — there is no sandbox, so native
+trusted host processes (macOS or Linux only). There is no sandbox, so native
 commands have full host access. Before running, `validateTools` executes each
-`Environment.Tool`'s version command and compares its exact stdout against the
-pinned `Tool.Version`. `internal/verify/stages.go` runs any declared
-`preparation` and `build` stages first (in that order), each with its own
-cache key derived from its inputs, environment, and (for build) the
-preparation it depends on; stages are skipped when their declared outputs
-already match a prior run.
+`Environment.Tool`'s version command and compares its trimmed stdout against
+the pinned `Tool.Version`. For `command` checks, `internal/verify/stages.go`
+then runs any declared `preparation` and `build` stages (in that order), each
+with its own cache key derived from its inputs, environment, and (for build)
+the preparation it depends on. A stage is skipped when its declared outputs
+still match a recorded run, which requires the environment to declare an
+`identity`. `semantic-lint` checks accept no stages.
 
 `internal/verify/command.go` builds the actual `os/exec.Cmd` with a minimal
-inherited environment (`PATH`, `HOME`, temp-dir/system-root variables, plus
-explicit `pass_env`/`env` entries) and `LEVENSHTEIN_SOURCE`,
+inherited environment (`PATH`, `HOME`, `TMPDIR`, `TMP`, `TEMP`, `SystemRoot`,
+plus explicit `pass_env`/`env` entries), sets `LANG=C`, and adds `LEVENSHTEIN_SOURCE`,
 `LEVENSHTEIN_WORKSPACE`, and `LEVENSHTEIN_RERUN_CHECKS`. `process_unix.go`
 puts the child in its own process group and kills the whole group
 (`SIGKILL` to `-pid`) on timeout or cancellation, so subprocesses cannot
@@ -108,7 +116,9 @@ eligible check (Dagger checks, or native checks with `cache: true`), it:
    definition itself, `runtime.GOOS`/`GOARCH`, and (for native checks) the
    resolved environment variables.
 2. Takes a per-key file lock (`internal/verify/lock.go`, backed by
-   `gofrs/flock`) so concurrent processes don't race the same cache entry.
+   `gofrs/flock`) so concurrent processes do not race the same cache entry.
+   Native checks first take a per-source workspace lock, so two processes
+   never mutate one checkout at once.
 3. On a hit, restores the recorded result and any declared `Artifacts` from
    `cache.Dir/results/<key>.json` (atomic, rejects symlinked destinations).
 4. On a miss or `rerun_checks`, executes the check, and on success saves the
@@ -139,8 +149,9 @@ process exit code described above.
   dependency graph here, independent of the root CLI's dependencies.
 - **`runner/lint/`** (`runner/lint/go.mod`): an isolated module for the
   Staticcheck-based lint binary (`levenshtein-lint`), so its analyzer
-  dependencies (`errcheck`, `exhaustive`, `sqlclosecheck`, and the house rules
-  `LV1001`/`LV1002` in `runner/lint/policy`) don't leak into the Dagger
+  dependencies (Staticcheck, `errcheck`, `exhaustive`, `bodyclose`,
+  `sqlclosecheck`, and the house rules `LV1001`/`LV1002` in
+  `runner/lint/policy`) do not leak into the Dagger
   module's own dependency resolution.
 - **`runner/tools/`** (`runner/tools/go.mod`): pins `actionlint` and
   `govulncheck` via Go's `tool` directive, so their versions are locked

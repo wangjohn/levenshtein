@@ -80,7 +80,7 @@ The checked-in `Levenshtein self-checks` workflow verifies this repo's runner an
 | `tests` | Host race/fixtures, SDK restore or regen, non-lint Dagger checks, consumer regressions |
 | `language-contracts` | Rust and Python contract fixtures |
 | `release-smoke` | GoReleaser snapshot + archive test (skipped on draft PRs) |
-| `semantic-lint` | Advisory Jev review of the pull request; runs only on `pull_request` events and is skipped when the `TYPESAFE_API_KEY` secret is unavailable |
+| `semantic-lint` | Advisory Jev review of the pull request; runs only on `pull_request` events; without the `TYPESAFE_API_KEY` secret the review step is skipped and the job passes with no findings |
 
 Event → `./verify` mapping:
 
@@ -95,7 +95,7 @@ Event → `./verify` mapping:
 | --- | --- |
 | Early PR progress (including drafts) | **`lint`** |
 | Merge / ready-for-review / merge queue / `main` | **`lint`**, **`tests`**, **`language-contracts`**, **`release-smoke`** |
-| Pull requests | `semantic-lint` (advisory; not required to pass, and skipped without `TYPESAFE_API_KEY`) |
+| Pull requests | `semantic-lint` (advisory; not required to pass; the job passes with no findings when `TYPESAFE_API_KEY` is absent) |
 
 Do **not** make draft progress wait on `release-smoke` or full `tests`. When adopting this workflow, replace any required check named `verify` with `lint` and `tests` the same day.
 
