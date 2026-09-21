@@ -2,6 +2,37 @@ name: Levenshtein self-checks
 
 # Verify Levenshtein's own runner and fixtures. Application repos invoke the
 # shared runner from their existing CI and own their schedules (docs/consumer-ci.md).
+#
+# Job layout (lint ≪ tests):
+#   lint  — static ./verify branch only (early required signal)
+#   tests — host race/fixtures, SDK restore/regen, self-test / main / dispatch runs,
+#           consumer regressions
+#   language-contracts / release-smoke — parallel siblings
+#
+# Generated SDK cache (Phase 3): exact key only — see scripts/ci-dagger-sdk.
+# Paths: runner/dagger.gen.go, runner/internal/dagger, runner/internal/telemetry.
+# Key: dagger-sdk-v2-… (bump vN to abandon a poisoned incomplete entry).
+# Key inputs: dagger.json, .dagger-version, scripts/dagger-checksums.txt,
+#   runner/go.mod|go.sum|toolchain.json|*.go, sdk/patched-go/**
+# Restore + save only when scripts/ci-dagger-sdk reports ready=true.
+# vulnerabilities.yml still always regenerates via scripts/test-sdk-security.
+#
+# Verification result cache (Phase 4): exact key only — see scripts/ci-verification-cache.
+# Path: $RUNNER_TEMP/levenshtein-verification-v1 passed as --cache-dir.
+# Keys are partitioned per job (verification-v1-lint-… vs verification-v1-tests-…)
+# so lint and tests do not race one exact key.
+# Restore on all events; save only for trusted (non-fork) refs.
+#
+# Event → ./verify run mapping:
+#   Draft PR / push main     → lint: branch; tests: no Dagger verify run
+#   Ready PR / merge_group   → lint: branch; tests: self-test
+#   Schedule                 → lint: branch; tests: main (fresh + go-vuln)
+#   workflow_dispatch        → lint: branch; tests: requested run (default self-test)
+#
+# Required-check guidance: require lint early; do not make draft progress wait on
+# release-smoke or full tests. See docs/setup.md (tiered jobs + trust policy).
+#
+# Timing: lint and tests export wall_seconds; lint-vs-tests publishes the ratio.
 
 on:
   pull_request:
@@ -13,7 +44,7 @@ on:
     inputs:
       run:
         description: Configured verification run
-        default: pre-merge
+        default: self-test
         type: string
   schedule:
     # Fresh daily verification of Levenshtein itself.
@@ -27,10 +58,108 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
+  lint:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    outputs:
+      wall_seconds: ${{ steps.job-timing.outputs.seconds }}
     steps:
+      - name: Record job start
+        id: job-start
+        run: echo "start=$(date +%s)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: |
+            go.sum
+            runner/go.sum
+            runner/lint/go.sum
+            runner/tools/go.sum
+      # setup-go duration is visible in the Actions UI; shell steps below use ci-step-time.
+      - name: Cache pinned Dagger CLI
+        id: dagger-cli
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ runner.temp }}/levenshtein-bin
+          key: dagger-cli-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.dagger-version', 'scripts/dagger-checksums.txt') }}
+      - name: Install pinned Dagger
+        run: |
+          bin="$RUNNER_TEMP/levenshtein-bin"
+          if [[ "${{ steps.dagger-cli.outputs.cache-hit }}" == true && -x "$bin/dagger" ]]; then
+            ./scripts/ci-step-time install-dagger-cache-hit "$bin/dagger" version
+          else
+            ./scripts/ci-step-time install-dagger ./scripts/install-dagger "$bin"
+          fi
+          echo "$bin" >> "$GITHUB_PATH"
+      - name: Restore generated Dagger SDK
+        id: dagger-sdk
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            runner/dagger.gen.go
+            runner/internal/dagger
+            runner/internal/telemetry
+          # Exact key only (no restore-keys). Invalidate inputs: scripts/ci-dagger-sdk.
+          key: dagger-sdk-v2-${{ runner.os }}-${{ hashFiles('dagger.json', '.dagger-version', 'scripts/dagger-checksums.txt', 'runner/go.mod', 'runner/go.sum', 'runner/toolchain.json', 'runner/*.go', 'sdk/patched-go/**') }}
+      - name: Generate the pinned Go SDK
+        id: dagger-sdk-generate
+        run: ./scripts/ci-dagger-sdk "${{ steps.dagger-sdk.outputs.cache-hit }}"
+      - name: Save generated Dagger SDK
+        if: >-
+          success() &&
+          steps.dagger-sdk-generate.outputs.ready == 'true' &&
+          steps.dagger-sdk.outputs.cache-hit != 'true' &&
+          (github.event_name != 'pull_request' ||
+           github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            runner/dagger.gen.go
+            runner/internal/dagger
+            runner/internal/telemetry
+          key: ${{ steps.dagger-sdk.outputs.cache-primary-key }}
+      - name: Restore verification result cache
+        id: verification-results
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ runner.temp }}/levenshtein-verification-v1
+          # Exact key only (no restore-keys). Partitioned from tests. See scripts/ci-verification-cache.
+          key: verification-v1-lint-${{ runner.os }}-${{ hashFiles('levenshtein.json', '.dagger-version', 'dagger.json', '.go-version', 'go.mod', 'go.sum', 'verify', '.github/workflows/verify.yml', 'cmd/**', 'internal/**', 'runner/**', 'sdk/patched-go/**') }}
+      - name: Lint and static checks
+        env:
+          NO_COLOR: '1'
+          VERIFICATION_CACHE: ${{ runner.temp }}/levenshtein-verification-v1
+        run: |
+          mkdir -p "$VERIFICATION_CACHE"
+          ./scripts/ci-step-time verify-branch \
+            ./verify branch --cache-dir "$VERIFICATION_CACHE"
+      - name: Save verification result cache
+        if: >-
+          success() &&
+          steps.verification-results.outputs.cache-hit != 'true' &&
+          (github.event_name != 'pull_request' ||
+           github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ runner.temp }}/levenshtein-verification-v1
+          key: ${{ steps.verification-results.outputs.cache-primary-key }}
+      - name: Publish job timing
+        id: job-timing
+        if: always()
+        run: ./scripts/ci-job-timing lint "${{ steps.job-start.outputs.start }}"
+
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      wall_seconds: ${{ steps.job-timing.outputs.seconds }}
+    steps:
+      - name: Record job start
+        id: job-start
+        run: echo "start=$(date +%s)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -46,8 +175,8 @@ jobs:
         env:
           GOTOOLCHAIN: local
         run: |
-          go test -race ./...
-          ./verify branch --dry-run
+          ./scripts/ci-step-time host-race-tests \
+            bash -c 'go test -race ./... && ./verify branch --dry-run'
       - name: Go policy analyzer tests
         working-directory: runner/lint
         env:
@@ -57,41 +186,128 @@ jobs:
         run: |
           ./scripts/test-checks
           ./scripts/test-tool-checks
+          ./scripts/test-ci-dagger-sdk
+      - name: Cache pinned Dagger CLI
+        id: dagger-cli
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ runner.temp }}/levenshtein-bin
+          key: dagger-cli-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.dagger-version', 'scripts/dagger-checksums.txt') }}
       - name: Install pinned Dagger
         run: |
-          ./scripts/install-dagger "$RUNNER_TEMP/levenshtein-bin"
-          echo "$RUNNER_TEMP/levenshtein-bin" >> "$GITHUB_PATH"
+          bin="$RUNNER_TEMP/levenshtein-bin"
+          if [[ "${{ steps.dagger-cli.outputs.cache-hit }}" == true && -x "$bin/dagger" ]]; then
+            ./scripts/ci-step-time install-dagger-cache-hit "$bin/dagger" version
+          else
+            ./scripts/ci-step-time install-dagger ./scripts/install-dagger "$bin"
+          fi
+          echo "$bin" >> "$GITHUB_PATH"
       - name: Consumer source boundary
         run: go test -tags=integration ./internal/verify -run TestDaggerSourceBoundary -count=1
+      - name: Restore generated Dagger SDK
+        id: dagger-sdk
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            runner/dagger.gen.go
+            runner/internal/dagger
+            runner/internal/telemetry
+          # Exact key only (no restore-keys). Invalidate inputs: scripts/ci-dagger-sdk.
+          key: dagger-sdk-v2-${{ runner.os }}-${{ hashFiles('dagger.json', '.dagger-version', 'scripts/dagger-checksums.txt', 'runner/go.mod', 'runner/go.sum', 'runner/toolchain.json', 'runner/*.go', 'sdk/patched-go/**') }}
       - name: Generate the pinned Go SDK
-        run: dagger develop --compat=skip
+        id: dagger-sdk-generate
+        run: ./scripts/ci-dagger-sdk "${{ steps.dagger-sdk.outputs.cache-hit }}"
+      - name: Save generated Dagger SDK
+        if: >-
+          success() &&
+          steps.dagger-sdk-generate.outputs.ready == 'true' &&
+          steps.dagger-sdk.outputs.cache-hit != 'true' &&
+          (github.event_name != 'pull_request' ||
+           github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            runner/dagger.gen.go
+            runner/internal/dagger
+            runner/internal/telemetry
+          key: ${{ steps.dagger-sdk.outputs.cache-primary-key }}
       - name: Unit tests
         working-directory: runner
         env:
           GOTOOLCHAIN: local
         run: dagger run go test -count=1 ./...
-      - name: Verify
+      - name: Restore verification result cache
+        id: verification-results
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ runner.temp }}/levenshtein-verification-v1
+          # Exact key only (no restore-keys). Partitioned from lint. See scripts/ci-verification-cache.
+          key: verification-v1-tests-${{ runner.os }}-${{ hashFiles('levenshtein.json', '.dagger-version', 'dagger.json', '.go-version', 'go.mod', 'go.sum', 'verify', '.github/workflows/verify.yml', 'cmd/**', 'internal/**', 'runner/**', 'sdk/patched-go/**') }}
+      - name: Verify (non-lint Dagger checks)
+        id: dagger-verify
         env:
           EVENT: ${{ github.event_name }}
           DRAFT: ${{ github.event.pull_request.draft }}
           REQUESTED_RUN: ${{ inputs.run }}
           NO_COLOR: '1'
+          VERIFICATION_CACHE: ${{ runner.temp }}/levenshtein-verification-v1
         run: |
-          run=pre-merge
+          run=
           if [[ "$EVENT" == schedule ]]; then
             run=main
           elif [[ "$EVENT" == workflow_dispatch ]]; then
             run="$REQUESTED_RUN"
-          elif [[ "$EVENT" == push || "$DRAFT" == true ]]; then
-            run=branch
+          elif [[ "$EVENT" == merge_group || ("$EVENT" == pull_request && "$DRAFT" != true) ]]; then
+            run=self-test
           fi
-          ./verify "$run"
+          if [[ -z $run ]]; then
+            echo 'Skipping Dagger verify on draft PR / push main (lint job covers branch).'
+            echo 'ran=false' >> "$GITHUB_OUTPUT"
+            ./scripts/ci-step-time verify-skipped true
+            exit 0
+          fi
+          echo 'ran=true' >> "$GITHUB_OUTPUT"
+          mkdir -p "$VERIFICATION_CACHE"
+          ./scripts/ci-step-time "verify-${run}" \
+            ./verify "$run" --cache-dir "$VERIFICATION_CACHE"
+      - name: Save verification result cache
+        if: >-
+          success() &&
+          steps.dagger-verify.outputs.ran == 'true' &&
+          steps.verification-results.outputs.cache-hit != 'true' &&
+          (github.event_name != 'pull_request' ||
+           github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ runner.temp }}/levenshtein-verification-v1
+          key: ${{ steps.verification-results.outputs.cache-primary-key }}
       - name: Consumer regression checks
         env:
           NO_COLOR: '1'
         run: |
-          ./scripts/test-consumers
-          ./scripts/test-shared-checks
+          ./scripts/ci-step-time consumer-regressions \
+            bash -c './scripts/test-consumers && ./scripts/test-shared-checks'
+      - name: Publish job timing
+        id: job-timing
+        if: always()
+        run: ./scripts/ci-job-timing tests "${{ steps.job-start.outputs.start }}"
+
+  lint-vs-tests:
+    name: lint vs tests timing
+    needs: [lint, tests]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Publish lint vs tests ratio
+        env:
+          LINT_SECONDS: ${{ needs.lint.outputs.wall_seconds }}
+          TESTS_SECONDS: ${{ needs.tests.outputs.wall_seconds }}
+        run: ./scripts/ci-lint-tests-ratio "${LINT_SECONDS:-}" "${TESTS_SECONDS:-}"
+
   language-contracts:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -102,7 +318,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: .go-version
-          cache: false
+          cache-dependency-path: go.sum
       - name: Install pinned fixture tools
         run: |
           ./scripts/install-fixture-tools "$RUNNER_TEMP/fixture-bin"
@@ -113,6 +329,14 @@ jobs:
         run: ./scripts/test-language-contracts
 
   release-smoke:
+    # Keep release archives off the draft-PR lint critical path; still required
+    # for ready PRs, merge queue, main, schedule, and manual dispatch.
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'merge_group' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

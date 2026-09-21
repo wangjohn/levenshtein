@@ -32,10 +32,21 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: .go-version
+      - name: Cache pinned Dagger CLI
+        id: dagger-cli
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ runner.temp }}/levenshtein-bin
+          key: dagger-cli-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.dagger-version', 'scripts/dagger-checksums.txt') }}
       - name: Install pinned Dagger
         run: |
-          ./scripts/install-dagger "$RUNNER_TEMP/levenshtein-bin"
-          echo "$RUNNER_TEMP/levenshtein-bin" >> "$GITHUB_PATH"
+          bin="$RUNNER_TEMP/levenshtein-bin"
+          if [[ "${{ steps.dagger-cli.outputs.cache-hit }}" == true && -x "$bin/dagger" ]]; then
+            "$bin/dagger" version
+          else
+            ./scripts/install-dagger "$bin"
+          fi
+          echo "$bin" >> "$GITHUB_PATH"
       - name: Verify SDK regeneration and scan the generated executable
         run: ./scripts/test-sdk-security
       - name: Scan configured Go modules

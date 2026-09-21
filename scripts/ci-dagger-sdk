@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# Restore or generate the Dagger Go SDK for Levenshtein CI.
+#
+# Cached paths (exact Actions cache key only — never use restore-keys):
+#   runner/dagger.gen.go
+#   runner/internal/dagger/
+#   runner/internal/telemetry/
+#
+# Actions key version: dagger-sdk-v2-… (bump the version prefix in
+# .github/workflows/verify.yml when a key is poisoned with incomplete
+# artifacts — Actions cannot overwrite an existing exact key).
+#
+# Invalidate the cache when any of these change (keep in sync with
+# hashFiles in .github/workflows/verify.yml):
+#   dagger.json
+#   .dagger-version
+#   scripts/dagger-checksums.txt
+#   runner/go.mod
+#   runner/go.sum
+#   runner/toolchain.json
+#   runner/*.go
+#   sdk/patched-go/**
+#
+# Warm verification: on a second trusted run with unchanged inputs, the
+# Generate step should log dagger-develop-cache-hit (not dagger-develop),
+# and the Save generated Dagger SDK step should be skipped (cache-hit).
+#
+# Usage:
+#   ci-dagger-sdk <cache-hit true|false>
+#   source ci-dagger-sdk   # defines sdk_ready / sdk_stats for tests
+#
+# On hit with complete artifacts, skips dagger develop. Otherwise regenerates.
+# When GITHUB_OUTPUT is set, writes ready=true|false for the workflow save step.
+set -euo pipefail
+
+sdk_stats() {
+  local gen=runner/dagger.gen.go
+  local gen_size=0
+  local dagger_go=0
+  local telemetry_go=0
+  local total_kb=0
+
+  if [[ -f $gen ]]; then
+    gen_size=$(wc -c <"$gen" | tr -d ' ')
+  fi
+  if [[ -d runner/internal/dagger ]]; then
+    dagger_go=$(find runner/internal/dagger -type f -name '*.go' 2>/dev/null | wc -l | tr -d ' ')
+  fi
+  if [[ -d runner/internal/telemetry ]]; then
+    telemetry_go=$(find runner/internal/telemetry -type f -name '*.go' 2>/dev/null | wc -l | tr -d ' ')
+  fi
+  if [[ -e $gen || -d runner/internal/dagger || -d runner/internal/telemetry ]]; then
+    total_kb=$(du -sk runner/dagger.gen.go runner/internal/dagger runner/internal/telemetry 2>/dev/null | awk '{s += $1} END {print s+0}')
+  fi
+  printf '%s %s %s %s' "$gen_size" "$dagger_go" "$telemetry_go" "$total_kb"
+}
+
+# Real post-develop layout (CI run 35427803159): gen≈7448 bytes, dagger_go=1,
+# telemetry_go=0, total≈436KiB. Telemetry sources are optional. Still reject the
+# stuck ~59KiB Actions blob via total size.
+sdk_ready() {
+  local gen=runner/dagger.gen.go
+  [[ -f $gen && -d runner/internal/dagger ]] || return 1
+  grep -q '^package ' "$gen" || return 1
+
+  local gen_size dagger_go telemetry_go total_kb
+  read -r gen_size dagger_go telemetry_go total_kb <<<"$(sdk_stats)"
+
+  [[ $gen_size -ge 2048 ]] || return 1
+  [[ $dagger_go -ge 1 ]] || return 1
+  # Poisoned Actions entry was ~59KiB compressed; usable develop output is ~400KiB+.
+  [[ $total_kb -ge 200 ]] || return 1
+  return 0
+}
+
+# Keep the cached telemetry path present for actions/cache even when codegen
+# omits sources there (common with the patched Go SDK).
+ensure_cache_paths() {
+  mkdir -p runner/internal/dagger runner/internal/telemetry
+}
+
+# Sourced by scripts/test-ci-dagger-sdk — stop before CLI main.
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+  return 0
+fi
+
+root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$root"
+
+if [[ $# -ne 1 ]]; then
+  echo "usage: $0 <cache-hit true|false>" >&2
+  exit 2
+fi
+
+# actions/cache/restore leaves cache-hit empty on miss.
+cache_hit=$1
+if [[ $cache_hit != true ]]; then
+  cache_hit=false
+fi
+
+emit() {
+  local name=$1
+  local value=$2
+  if [[ -n ${GITHUB_OUTPUT:-} ]]; then
+    echo "$name=$value" >>"$GITHUB_OUTPUT"
+  fi
+}
+
+if [[ $cache_hit == true ]] && sdk_ready; then
+  ensure_cache_paths
+  emit ready true
+  exec ./scripts/ci-step-time dagger-develop-cache-hit true
+fi
+
+if [[ $cache_hit == true ]]; then
+  echo "ci-dagger-sdk: incomplete SDK cache hit ($(sdk_stats)); regenerating (bump dagger-sdk-vN if this persists)" >&2
+fi
+
+./scripts/ci-step-time dagger-develop dagger develop --compat=skip
+
+if ! sdk_ready; then
+  emit ready false
+  echo "ci-dagger-sdk: dagger develop did not produce a usable SDK ($(sdk_stats) = gen_bytes dagger_go telemetry_go total_kb)" >&2
+  exit 1
+fi
+
+ensure_cache_paths
+emit ready true
