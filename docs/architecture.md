@@ -30,17 +30,15 @@ builds a `Dagger` executor and a `Native` executor, wraps both in
   options such as `identity`, `env`, `pass_env`, and pinned `tools`.
 - **Check**: a `kind` (`go-lint`, `go-vet`, `go-http`, `go-sql`, `go-vuln`,
   `workflow-lint`, `self-test`, `command`, `semantic-lint`) bound to a target
-  and environment, with native-only options (`command`, `timeout`,
-  `preparation`, `build`, `artifacts`, `cache`, `rerun_command`) or
-  semantic-lint options (`base`, `model`).
+  and environment, plus kind-specific options for `command` and
+  `semantic-lint` checks (see [configuration](configuration.md)).
   `internal/verify/validation.go` enforces which options apply to which kind.
 - **Run**: a named list of check IDs plus `rerun_checks`, which forces fresh
   verification (bypassing verdict caches) while keeping compatible
   dependency/build caches.
 
 A repository without `levenshtein.json` gets built-in single-module Go
-defaults; legacy `modules`/array-`runs` configuration is translated into the
-same version 1 shape (`Parse` in `config.go`).
+defaults (`Load` in `config.go`).
 
 ## The planner
 
