@@ -471,8 +471,16 @@ func (r *request) add(q Question, index int, p pending) {
 	r.pending[id] = p
 }
 
-// fit keeps the state inside the model's context by dropping the least
-// specific fields first. The judged items are never dropped.
+// shrinkLimits are the successive per-field character budgets fit applies.
+// Each round shortens more aggressively than the last.
+var shrinkLimits = []int{maxStateChars / 4, maxStateChars / 16, maxStateChars / 64, 256}
+
+// fit keeps the state inside the model's context by shortening the least
+// specific fields first: package signatures, then the declaration text, the
+// Markdown diff, the hunk diff, and finally the judged items. Items are only
+// shortened, never dropped, because every question already names the element
+// it judges. Each round rewrites from the original text, so one field never
+// collects two truncation markers.
 func (r *request) fit() {
 	if r.size() <= maxStateChars {
 		return
@@ -483,16 +491,97 @@ func (r *request) fit() {
 	if r.size() <= maxStateChars {
 		return
 	}
-	if hunk, ok := r.state["hunk"].(map[string]any); ok {
-		after, _ := hunk["after"].(string)
-		hunk["after"] = truncate(after, maxStateChars/4)
+
+	hunk, _ := r.state["hunk"].(map[string]any)
+	after, _ := hunk["after"].(string)
+	diff, _ := hunk["diff"].(string)
+	docs, _ := r.state["docs_diff"].(string)
+	items := genericItems(r.state["items"])
+	for _, limit := range shrinkLimits {
+		if hunk != nil {
+			hunk["after"] = truncate(after, limit)
+		}
+		if r.size() <= maxStateChars {
+			return
+		}
+		if docs != "" {
+			r.state["docs_diff"] = truncate(docs, limit)
+		}
+		if r.size() <= maxStateChars {
+			return
+		}
+		if hunk != nil {
+			hunk["diff"] = truncate(diff, limit)
+		}
+		if r.size() <= maxStateChars {
+			return
+		}
+		if items != nil {
+			r.state["items"] = truncateItems(items, limit)
+		}
+		if r.size() <= maxStateChars {
+			return
+		}
 	}
-	if r.size() <= maxStateChars {
-		return
+}
+
+// genericItems converts the preselected lists to a generic JSON shape so one
+// pass shortens comments, errors, sentences, and commits alike. Every field
+// keeps its JSON name, so the wire shape does not change.
+func genericItems(value any) map[string][]map[string]any {
+	lists, ok := value.(map[string]any)
+	if !ok {
+		return nil
 	}
-	if docs, ok := r.state["docs_diff"].(string); ok {
-		r.state["docs_diff"] = truncate(docs, maxStateChars/4)
+
+	generic := map[string][]map[string]any{}
+	for name, list := range lists {
+		data, err := json.Marshal(list)
+		if err != nil {
+			continue
+		}
+		var items []map[string]any
+		if err := json.Unmarshal(data, &items); err != nil {
+			continue
+		}
+		generic[name] = items
 	}
+	return generic
+}
+
+// truncateItems shortens every text field of every item to limit.
+func truncateItems(items map[string][]map[string]any, limit int) map[string]any {
+	shortened := map[string]any{}
+	for name, list := range items {
+		if len(list) == 0 {
+			shortened[name] = list
+			continue
+		}
+		short := make([]map[string]any, 0, len(list))
+		for _, item := range list {
+			fields := map[string]any{}
+			for field, value := range item {
+				fields[field] = truncateValue(value, limit)
+			}
+			short = append(short, fields)
+		}
+		shortened[name] = short
+	}
+	return shortened
+}
+
+func truncateValue(value any, limit int) any {
+	switch typed := value.(type) {
+	case string:
+		return truncate(typed, limit)
+	case []any:
+		short := make([]any, len(typed))
+		for i, element := range typed {
+			short[i] = truncateValue(element, limit)
+		}
+		return short
+	}
+	return value
 }
 
 func (r request) size() int {

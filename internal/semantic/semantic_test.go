@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -155,6 +156,44 @@ func TestDocUnitsFindAbsoluteSentencesOutsideCode(t *testing.T) {
 	}
 	if !strings.HasPrefix(units[0].After, "## Cache") || strings.Contains(units[0].After, "Intro text") {
 		t.Fatalf("section: %q", units[0].After)
+	}
+}
+
+// TestFitShrinksAnOversizedDeclaration covers the state no earlier step could
+// shrink: one new declaration whose diff and comments together dwarf the cap.
+func TestFitShrinksAnOversizedDeclaration(t *testing.T) {
+	var src strings.Builder
+	src.WriteString("package sample\n\n// Huge is one declaration larger than the whole state cap.\nfunc Huge() {\n")
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&src, "\t// %s\n\t_ = %d\n", strings.Repeat("the retry window stays short ", 200), i)
+	}
+	for i := 0; i < 4000; i++ {
+		fmt.Fprintf(&src, "\t_ = %d\n", i)
+	}
+	src.WriteString("}\n")
+
+	text := src.String()
+	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+	diff := fmt.Sprintf("@@ -0,0 +1,%d @@\n+%s\n", len(lines), strings.Join(lines, "\n+"))
+	units := goUnits("pkg/huge.go", []byte(text), []Hunk{{NewStart: 1, NewLines: len(lines), Added: lines, Diff: diff}})
+	if len(units) != 1 || len(units[0].Comments) != 40 {
+		t.Fatalf("units: %+v", units)
+	}
+
+	r, ok := goRequest(units[0], false, nil)
+	if !ok || len(r.questions) != len(r.pending) || len(r.questions) < 40 {
+		t.Fatalf("questions: %d pending %d", len(r.questions), len(r.pending))
+	}
+	if size := r.size(); size > maxStateChars {
+		t.Fatalf("state stayed oversized: %d chars", size)
+	}
+
+	encoded, err := json.Marshal(r.state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), "[truncated]") {
+		t.Fatal("shortened fields must carry a visible marker")
 	}
 }
 

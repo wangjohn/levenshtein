@@ -42,6 +42,7 @@ type goUnit struct {
 
 const (
 	maxAfterChars = 30000
+	maxDiffChars  = 30000
 	maxItemChars  = 6000
 	maxCodeLines  = 12
 	maxNeighbours = 80
@@ -95,7 +96,7 @@ func goUnits(path string, src []byte, hunks []Hunk) []goUnit {
 			Symbol:     symbol(decl),
 			Line:       start,
 			After:      truncate(f.text(start, end), maxAfterChars),
-			Diff:       unitDiff(hunks, start, end),
+			Diff:       truncate(unitDiff(hunks, start, end), maxDiffChars),
 			AddedLines: count,
 			Comments:   f.comments(decl, start, end),
 			Errors:     f.errors(decl),
