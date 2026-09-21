@@ -39,6 +39,10 @@ func (n *Native) Execute(ctx context.Context, req Request) Result {
 // runCommand executes a command check: its preparation and build stages, the
 // command itself or its fresh-run variant, and the required artifacts.
 func (n *Native) runCommand(ctx context.Context, req Request, dir string, env []string) Result {
+	if req.Check.Command == nil {
+		return Result{Status: StatusError, Error: "command check has no command options"}
+	}
+
 	// Hold ownership of mutable preparation through the check that consumes it.
 	n.mu.Lock()
 	defer n.mu.Unlock()
