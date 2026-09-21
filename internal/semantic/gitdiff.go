@@ -111,13 +111,23 @@ func (g gitRunner) resolveBase(ctx context.Context, base string) (string, string
 
 const maxCommits = 50
 
+// diffOptions pin the output the parser expects. The prefixes matter as much
+// as the zero context: diff.mnemonicPrefix in a user's configuration emits c/
+// and w/ instead of a/ and b/, and every path would then keep its prefix.
+var diffOptions = []string{"--unified=0", "--no-color", "--no-renames", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/"}
+
+func diffArgs(command string, rest ...string) []string {
+	args := append([]string{command}, diffOptions...)
+	return append(args, rest...)
+}
+
 func loadChange(ctx context.Context, g gitRunner, base string, include func(string) bool) (Change, error) {
 	ref, mergeBase, err := g.resolveBase(ctx, base)
 	if err != nil {
 		return Change{}, err
 	}
 
-	raw, err := g.run(ctx, "diff", "--unified=0", "--no-color", "--no-renames", "--no-ext-diff", mergeBase, "--")
+	raw, err := g.run(ctx, diffArgs("diff", mergeBase, "--")...)
 	if err != nil {
 		return Change{}, err
 	}
@@ -156,7 +166,7 @@ func (g gitRunner) commits(ctx context.Context, mergeBase string) ([]Commit, err
 		if !ok || len(commits) >= maxCommits {
 			continue
 		}
-		shown, err := g.run(ctx, "show", "--format=", "--unified=0", "--no-color", "--no-renames", "--no-ext-diff", sha, "--")
+		shown, err := g.run(ctx, diffArgs("show", "--format=", sha, "--")...)
 		if err != nil {
 			return nil, err
 		}

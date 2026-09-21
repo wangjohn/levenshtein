@@ -375,6 +375,32 @@ func TestRunWithoutChangesNeedsNoModel(t *testing.T) {
 	}
 }
 
+func TestLoadChangePinsDiffPrefixes(t *testing.T) {
+	r := changedRepo(t)
+	// Mnemonic prefixes would label the sides c/ and w/ instead of a/ and b/.
+	r.run(t, "config", "diff.mnemonicPrefix", "true")
+
+	change, err := loadChange(context.Background(), gitRunner{Git: r.git, Dir: r.dir, Env: r.env}, "main", func(string) bool { return true })
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	paths := map[string]bool{}
+	for _, file := range change.Files {
+		paths[file.Path] = true
+	}
+	for _, commit := range change.Commits {
+		for _, path := range commit.Files {
+			paths[path] = true
+		}
+	}
+	for _, want := range []string{"pkg/sample.go", "docs/guide.md"} {
+		if !paths[want] {
+			t.Fatalf("prefixes leaked into paths: %v", paths)
+		}
+	}
+}
+
 func TestShallowCloneGetsFetchDepthAdvice(t *testing.T) {
 	r := changedRepo(t)
 	r.run(t, "switch", "--quiet", "main")
