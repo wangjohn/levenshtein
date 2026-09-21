@@ -14,7 +14,7 @@ export PATH="$HOME/.local/bin:$PATH"
 dagger version
 ```
 
-The installer supports macOS Intel/Apple Silicon and Linux amd64. On macOS, one option for the container runtime is Colima:
+The installer supports macOS Intel/Apple Silicon and Linux amd64/arm64. On macOS, one option for the container runtime is Colima:
 
 ```sh
 brew install colima docker
@@ -139,14 +139,13 @@ Stable versions checked on September 15, 2026:
 
 | Dependency | Version | Pin |
 | --- | --- | --- |
-| Go for lint and local development | 1.27.1 | `.go-version`, fixture modules, `runner/toolchain.json` |
-| Go language version of the Dagger wrapper | 1.26.7 | `runner/go.mod` |
+| Go for lint and local development | 1.27.1 | `.go-version`, root and `runner` `go.mod`, fixture modules, `runner/toolchain.json` |
 | Go container | 1.27.1 on Debian Trixie | Tag and immutable image digest in `runner/toolchain.json` |
 | Dagger CLI / engine / SDK | 0.21.9 | `.dagger-version`, `dagger.json`, root `go.mod`, generated module dependencies |
 | Staticcheck | 2026.2.1 (`honnef.co/go/tools` v0.8.1) | `runner/toolchain.json` |
 | Actions checkout / setup-go / cache | 7.0.1 / 7.0.0 / 4.2.3 | Full commit hashes in the workflows |
 
-The host Go version is needed by the source launcher, runner development, and unit tests. The actual lint runs on Linux with default build tags, using the pinned container toolchain with automatic Go toolchain switching disabled. A temporary SDK adapter fixes Dagger 0.21.9’s forced logging dependency overrides for both generation and execution; see [dependency security](dependencies.md#dagger-wrapper-dependency-security). The wrapper’s Go language version does not restrict the Go version of repositories being checked. `go.sum` records checksums. Upgrade pins together and validate the fixtures before adoption.
+The host Go version is needed by the source launcher, runner development, and unit tests. The actual lint runs on Linux with default build tags, using the pinned container toolchain with automatic Go toolchain switching disabled. A temporary SDK adapter fixes Dagger 0.21.9’s forced logging dependency overrides for both generation and execution; see [dependency security](dependencies.md#dagger-wrapper-dependency-security). The wrapper’s Go language version must stay at or below the Go version of the codegen container (`goImage`), which Dagger’s module generator refuses to exceed; it does not restrict the Go version of repositories being checked. `go.sum` records checksums. Upgrade pins together and validate the fixtures before adoption.
 
 ## Develop the shared checks
 

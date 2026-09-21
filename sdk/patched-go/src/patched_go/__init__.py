@@ -7,6 +7,9 @@ from dagger import dag, function, object_type
 
 DAGGER_COMMIT = "f2aefc20cf41b5ed7922df7244e0f10ddc6031f7"
 CLIENT_COMMIT = "fdf4c34a9a67d096aaeef79630017c9c7ff8fe8e"
+# Same tag and digest as goImage in runner/toolchain.json; change both together.
+# This module's Dagger source is sdk/patched-go, so runner/toolchain.json is
+# outside its context and cannot be read here.
 GO_IMAGE = "golang:1.27.1-trixie@sha256:9baa6b4187bbb98d240372a8a235ac0bb6b5ddd52bba1431dc2f7c0705862728"
 LOG_MODULES = (
     "go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc",
