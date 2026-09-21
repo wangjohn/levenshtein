@@ -1,0 +1,39 @@
+name: Generated Dagger Go SDK
+description: >-
+  Restore the generated Dagger Go SDK from the Actions cache, run dagger develop
+  on a miss, confirm the runner module compiles against the result, and save it.
+  Requires the pinned Dagger CLI on PATH (see ../setup-dagger).
+
+runs:
+  using: composite
+  steps:
+    # Exact key only (no restore-keys): a partial match would hand the runner a
+    # generated SDK for different inputs. scripts/ci-dagger-sdk lists the same
+    # invalidating inputs; bump dagger-sdk-vN to abandon a poisoned entry.
+    - name: Restore generated Dagger SDK
+      id: restore
+      uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+      with:
+        path: |
+          runner/dagger.gen.go
+          runner/internal/dagger
+          runner/internal/telemetry
+        key: dagger-sdk-v2-${{ runner.os }}-${{ hashFiles('dagger.json', '.dagger-version', 'scripts/dagger-checksums.txt', 'runner/go.mod', 'runner/go.sum', 'runner/toolchain.json', 'runner/*.go', 'sdk/patched-go/**') }}
+    - name: Generate the pinned Go SDK
+      id: generate
+      shell: bash
+      run: ./scripts/ci-dagger-sdk "${{ steps.restore.outputs.cache-hit }}"
+    - name: Save generated Dagger SDK
+      if: >-
+        ${{ success() &&
+        steps.generate.outputs.ready == 'true' &&
+        steps.restore.outputs.cache-hit != 'true' &&
+        (github.event_name != 'pull_request' ||
+         github.event.pull_request.head.repo.full_name == github.repository) }}
+      uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+      with:
+        path: |
+          runner/dagger.gen.go
+          runner/internal/dagger
+          runner/internal/telemetry
+        key: ${{ steps.restore.outputs.cache-primary-key }}

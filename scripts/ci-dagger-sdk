@@ -35,7 +35,7 @@
 # When GITHUB_OUTPUT is set, writes ready=true|false for the workflow save step.
 set -euo pipefail
 
-root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$root"
 
 if [[ $# -ne 1 ]]; then

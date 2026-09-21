@@ -77,7 +77,7 @@ The checked-in `Levenshtein self-checks` workflow verifies this repo's runner an
 | Job | Role |
 | --- | --- |
 | `lint` | Static `./verify branch` only (early signal; no host race tests or consumer regressions) |
-| `tests` | Host race/fixtures, SDK restore or regen, non-lint Dagger checks, consumer regressions |
+| `tests` | Host race/fixtures, `shellcheck`, SDK restore or regen, non-lint Dagger checks, consumer regressions |
 | `language-contracts` | Rust and Python contract fixtures |
 | `release-smoke` | GoReleaser snapshot + archive test (skipped on draft PRs) |
 
@@ -107,7 +107,7 @@ Treat warm lint wall time creeping toward warm tests as a CI performance regress
 
 ### Caches and self-config notes
 
-The `lint` and `tests` jobs (and `vulnerabilities`) restore a pinned Dagger CLI from the Actions cache when `.dagger-version` / `scripts/dagger-checksums.txt` are unchanged; install falls back to download on miss. `language-contracts` uses the setup-go module cache over root `go.sum`.
+The `lint` and `tests` jobs (and `vulnerabilities`) restore a pinned Dagger CLI from the Actions cache when `.dagger-version` / `scripts/dagger-checksums.txt` are unchanged; install falls back to download on miss. That block and the generated-SDK restore/generate/save block each live in one composite action (`.github/actions/setup-dagger`, `.github/actions/dagger-sdk`) rather than being repeated per job. `language-contracts` uses the setup-go module cache over root `go.sum`.
 
 Generated SDK (`runner/dagger.gen.go`, `runner/internal/dagger`, `runner/internal/telemetry`) uses **exact** key `dagger-sdk-v2-…` (no `restore-keys`). Restore + save are separate steps; save runs only when `scripts/ci-dagger-sdk` reports `ready=true` after a miss. Readiness is decided by compiling: a restored SDK is usable exactly when `go build ./...` succeeds in `runner`, which needs no Dagger session. Anything that fails to compile — including a truncated or poisoned entry — is regenerated, and the script `mkdir`s `internal/telemetry` so the cache save still finds every path when codegen emits no sources there. Bump the `vN` prefix to abandon a stuck key. Warm check: Generate reports a reused SDK instead of running `dagger develop`. Invalidate when any of these change: `dagger.json`, `.dagger-version`, `scripts/dagger-checksums.txt`, `runner/go.mod`, `runner/go.sum`, `runner/toolchain.json`, `runner/*.go`, `sdk/patched-go/**`. `vulnerabilities.yml` still always runs `scripts/test-sdk-security`.
 
