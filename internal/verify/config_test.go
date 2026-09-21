@@ -204,7 +204,7 @@ func TestParallelExecuteSharedPreparationPreservesPlanOrder(t *testing.T) {
 			},
 		},
 	}
-	native := &recordingNative{}
+	native := &recordingNative{Native: Native{Cache: &Cache{Dir: t.TempDir()}}}
 	report := Execute(context.Background(), plan, t.TempDir(), map[ExecutorKind]Executor{
 		ExecutorNative: native,
 	})
