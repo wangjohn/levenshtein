@@ -102,9 +102,8 @@ Treat warm lint wall time creeping toward warm tests as a CI performance regress
 
 ### Result-cache trust
 
-- Restore `verification-v1-lint` / `verification-v1-tests` on every event (forks may restore read-only).
-- Save writable result entries only from trusted refs: non-`pull_request` events, or PRs whose `head.repo.full_name` equals `github.repository`.
-- Exact Actions cache keys only (no `restore-keys`) for generated SDK and verification results. Lint and tests use **separate** verification keys so they cannot race one entry.
+- Restore `verification-v1-lint` / `verification-v1-tests` on every event, and save on every event too. GitHub scopes a cache written from a pull request to that PR and its base branch, so a fork run cannot reach `main`'s entries.
+- Lint and tests use **separate** verification keys so they cannot race one entry. The generated SDK still uses an exact key with no `restore-keys`.
 - Scheduled `main` keeps `rerun_checks: true`; `go-vuln` always re-executes.
 
 ### Caches and self-config notes
@@ -113,7 +112,7 @@ Shell steps report wall times via `scripts/ci-step-time`; job walls via `scripts
 
 Generated SDK (`runner/dagger.gen.go`, `runner/internal/dagger`, `runner/internal/telemetry`) uses **exact** key `dagger-sdk-v2-…` (no `restore-keys`). Restore + save are separate steps; save runs only when `scripts/ci-dagger-sdk` reports `ready=true` after a miss. Readiness matches real develop output (~7KiB gen, `internal/dagger` sources, ≥200KiB total) and does not require `internal/telemetry` sources (often absent; the script `mkdir`s the path for cache save). That still rejects the stuck ~59KiB Actions blob. Incomplete hits regenerate and log a poison warning — bump the `vN` prefix to abandon a stuck key. Warm check: Generate logs `dagger-develop-cache-hit`. Invalidate when any of these change: `dagger.json`, `.dagger-version`, `scripts/dagger-checksums.txt`, `runner/go.mod`, `runner/go.sum`, `runner/toolchain.json`, `runner/*.go`, `sdk/patched-go/**`. `vulnerabilities.yml` still always runs `scripts/test-sdk-security`.
 
-Completed verification results are restored into `$RUNNER_TEMP/levenshtein-verification-v1` and passed to `./verify --cache-dir` on `lint` / `tests` with per-job keys (`verification-v1-lint-…`, `verification-v1-tests-…`; see `scripts/ci-verification-cache`). Warm check: both Restore steps hit and Save steps skip.
+Completed verification results are restored into `$RUNNER_TEMP/levenshtein-verification-v1` and passed to `./verify --cache-dir` on `lint` / `tests` with per-job keys (`verification-v1-lint-${{ runner.os }}-<sha>`, `verification-v1-tests-${{ runner.os }}-<sha>`). The key is deliberately per-commit with a prefix `restore-keys` fallback: the CLI already fingerprints each target, so handing it the newest earlier directory lets it reuse the entries that are still valid instead of missing the whole cache on any source edit. Save runs on every event and on failed runs, since results are keyed by content and a pull request's cache is scoped by GitHub to that PR and its base branch. Warm check: a rerun of the same commit hits the exact key and skips Save; a new commit reports a `restore-keys` match.
 
 In-engine Go module/build and Staticcheck `CacheVolume`s remain version-keyed in `runner/` but are **session-local** on ephemeral GitHub-hosted runners. Persisting those volumes across VMs is **blocked** for Dagger **0.21.9** (no supported CI export/restore API without experimental hacks).
 
