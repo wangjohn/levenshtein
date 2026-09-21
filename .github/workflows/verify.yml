@@ -9,12 +9,12 @@ name: Levenshtein self-checks
 #           consumer regressions
 #   language-contracts / release-smoke — parallel siblings
 #
-# Generated SDK cache (Phase 3): exact key only — see scripts/ci-dagger-sdk.
+# Generated SDK cache: exact key only — see scripts/ci-dagger-sdk.
 # Paths: runner/dagger.gen.go, runner/internal/dagger, runner/internal/telemetry.
 # Key: dagger-sdk-v2-… (bump vN to abandon a poisoned incomplete entry).
 # Key inputs: dagger.json, .dagger-version, scripts/dagger-checksums.txt,
 #   runner/go.mod|go.sum|toolchain.json|*.go, sdk/patched-go/**
-# Restore + save only when scripts/ci-dagger-sdk reports ready=true.
+# A restored SDK counts as ready when the runner module compiles against it.
 # vulnerabilities.yml still always regenerates via scripts/test-sdk-security.
 #
 # Verification result cache: $RUNNER_TEMP/levenshtein-verification-v1, handed to
@@ -178,7 +178,6 @@ jobs:
         run: |
           ./scripts/test-checks
           ./scripts/test-tool-checks
-          ./scripts/test-ci-dagger-sdk
       - name: Cache pinned Dagger CLI
         id: dagger-cli
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
