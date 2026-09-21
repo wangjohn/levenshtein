@@ -77,10 +77,20 @@ func TestUnconfiguredRepoGetsSharedCheckDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, count := range map[string]int{"branch": 2, "pre-merge": 2, "main": 3, "go-vuln": 1, "go-http": 1, "go-sql": 1, "workflow-lint": 1} {
+	for name, count := range map[string]int{"branch": 2, "pre-merge": 2, "main": 3, "go-lint": 1, "go-vet": 1, "go-vuln": 1, "go-http": 1, "go-sql": 1, "workflow-lint": 1} {
 		plan, err := cfg.Plan(source, name)
 		if err != nil || len(plan.Checks) != count {
 			t.Fatalf("%s: %+v %v", name, plan, err)
+		}
+		// Only the daily audit is fresh; every check is a Dagger check on the
+		// whole-tree target and is named after its kind.
+		if plan.RerunChecks != (name == "main") {
+			t.Fatalf("%s: rerun_checks=%v", name, plan.RerunChecks)
+		}
+		for _, check := range plan.Checks {
+			if check.ID != string(check.Check.Kind) || check.Environment.Executor != ExecutorDagger || check.Target.Dir != "." || len(check.Target.Inputs) != 1 || check.Target.Inputs[0] != "." {
+				t.Fatalf("%s: unexpected default check %+v", name, check)
+			}
 		}
 	}
 }
