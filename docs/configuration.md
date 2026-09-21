@@ -28,15 +28,13 @@ Dagger checks include `go-lint`, `go-vet`, `go-http`, `go-sql`, `go-vuln`, `work
 
 Without a configuration file, `branch` and `pre-merge` run `go-lint` and `go-vet`; `main` also runs `go-vuln`. Named runs for each shared check are available. An explicit configuration replaces these defaults.
 
-A run selects check IDs. `rerun_checks: true` forces verification execution while retaining compatible dependency/build caches. It replaces the earlier `fresh` setting; use `rerun_checks` in configuration and `LEVENSHTEIN_RERUN_CHECKS` in scripts. Any run name can use it; versioned configuration gives `main` no special behavior. Unknown checks, executors, references, and configuration fields fail explicitly.
-
-Legacy `modules` and array-valued `runs` remain supported. They translate into Go targets/checks, and legacy `main` retains fresh behavior. A source without configuration still receives the original single-module Go defaults.
+A run selects check IDs. `rerun_checks: true` forces verification execution while retaining compatible dependency/build caches. It replaces the earlier `fresh` setting; use `rerun_checks` in configuration and `LEVENSHTEIN_RERUN_CHECKS` in scripts. Any run name can use it; versioned configuration gives `main` no special behavior. Unknown checks, executors, references, and configuration fields fail explicitly. A configuration file must declare `"version": 1`; there is no other accepted shape.
 
 ## Source boundaries
 
 For Dagger checks, target `inputs` controls both the files imported into Dagger and source fingerprinting. Declare real, literal repository-relative files/directories, including local dependencies and workspace files outside the target directory. Optional missing paths are allowed; adding them later invalidates the cache. Glob and negation syntax is rejected.
 
-Only declared paths are imported. Within them, `.git`, `.env`, and `.env.*` are excluded, except public `.env.example` templates. Symlinks inside declared inputs or along their ancestors are rejected, including aliases to other directories inside the repo. Declare the real paths instead. The no-config and legacy interfaces use `inputs: ["."]`, which imports the whole source tree subject to the exclusions above; use version 1 with explicit product paths for mixed product/private repos.
+Only declared paths are imported. Within them, `.git`, `.env`, and `.env.*` are excluded, except public `.env.example` templates. Symlinks inside declared inputs or along their ancestors are rejected, including aliases to other directories inside the repo. Declare the real paths instead. The no-configuration defaults use `inputs: ["."]`, which imports the whole source tree subject to the exclusions above; use version 1 with explicit product paths for mixed product/private repos.
 
 Native inputs only define cache identity. Native commands are trusted host processes with normal filesystem access; they are not sandboxed by the input list. Native relative symlinks may stay inside the repository, but disable completed-result reuse. Dagger's stricter rule prevents importing undeclared source through aliases.
 
