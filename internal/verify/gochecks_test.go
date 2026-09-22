@@ -362,6 +362,34 @@ func TestNativeGoCheckWithoutACacheLeavesNoToolDirectory(t *testing.T) {
 	}
 }
 
+// go-mod checks the target module on its own even when a declared go.work
+// covers it. The workspace here lists a member that does not exist, so a check
+// that honored it, as go-vet does, could not load at all; go-mod still reports
+// the target's own untidy manifests.
+func TestNativeGoModIgnoresAWorkspace(t *testing.T) {
+	req := nativeRequest(t)
+	req.Target.Dir = "app"
+	writeTestFile(t, filepath.Join(req.Source, "go.work"), "go 1.27\n\nuse (\n\t./app\n\t./missing\n)\n")
+	writeTestFile(t, filepath.Join(req.Source, "app", "go.mod"), "module example.com/app\n\ngo 1.27\n")
+	writeTestFile(t, filepath.Join(req.Source, "app", "app.go"), "package app\n")
+
+	req.Check = Check{Kind: CheckGoVet, Target: "app", Environment: "host"}
+	if result := (&Native{}).Execute(t.Context(), req); result.Status != StatusError || !strings.Contains(result.Error, "go.work") {
+		t.Fatalf("go-vet should load the broken workspace and fail: %+v", result)
+	}
+
+	req.Check.Kind = CheckGoMod
+	if result := (&Native{}).Execute(t.Context(), req); result.Status != StatusPassed {
+		t.Fatalf("go-mod on a tidy module in a workspace: %+v", result)
+	}
+
+	writeTestFile(t, filepath.Join(req.Source, "app", "go.sum"), "example.com/stray v1.0.0/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=\n")
+	result := (&Native{}).Execute(t.Context(), req)
+	if result.Status != StatusFailed || !strings.Contains(result.Stdout, "-example.com/stray v1.0.0/go.mod") {
+		t.Fatalf("go-mod must report the stray go.sum line as a finding: %+v", result)
+	}
+}
+
 func writeTestFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
