@@ -58,7 +58,7 @@
     "semantic-lint": {"checks": ["semantic-lint"]},
     "mutation": {"checks": ["go-mutation", "go-mutation-lint"]},
     "branch": {"checks": ["native-go-lint", "native-go-vet", "native-workflow-lint"]},
-    "pre-merge": {"checks": ["native-go-lint", "native-go-vet", "native-workflow-lint", "self-test", "go-mutation", "go-mutation-lint"]},
+    "pre-merge": {"checks": ["native-go-lint", "native-go-vet", "native-workflow-lint", "self-test"]},
     "branch-dagger": {"checks": ["go-lint", "go-vet", "workflow-lint"]},
     "main": {"checks": ["go-lint", "go-vet", "workflow-lint", "self-test", "go-vuln"], "rerun_checks": true}
   }
