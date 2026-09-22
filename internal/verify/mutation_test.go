@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/vektah/gqlparser/v2/gqlerror"
+	"github.com/wangjohn/levenshtein/internal/gitchange"
 )
 
 func mutationConfig(check string) string {
@@ -178,6 +179,14 @@ func TestMutationFilesSelectsTheModulesChangedHandWrittenCode(t *testing.T) {
 	if !strings.Contains(selection.Note, "main") {
 		t.Errorf("note %q should name the base", selection.Note)
 	}
+	// Each edit appended a blank line and a comment to a one-line file.
+	changed := []gitchange.Range{{Start: 2, End: 3}}
+	if !slices.Equal(selection.Lines["edited.go"], changed) || !slices.Equal(selection.Lines["internal/deep.go"], changed) {
+		t.Errorf("Lines = %v, want lines 2-3 of each edited file", selection.Lines)
+	}
+	if _, ok := selection.Lines["untracked.go"]; ok || len(selection.Lines) != 2 {
+		t.Errorf("an untracked file has no ranges, so all of it counts: %v", selection.Lines)
+	}
 }
 
 func TestMutationFilesReadsTheBaseFromGitHubWhenUnset(t *testing.T) {
@@ -206,6 +215,9 @@ func TestMutationFilesModuleScopeTakesEveryEligibleFile(t *testing.T) {
 	want := []string{"edited.go", "internal/deep.go", "keep.go", "untracked.go"}
 	if !slices.Equal(selection.Files, want) {
 		t.Fatalf("Files = %v, want %v", selection.Files, want)
+	}
+	if selection.Lines != nil {
+		t.Errorf("module scope counts every line, so it sends no ranges: %v", selection.Lines)
 	}
 }
 
@@ -268,11 +280,11 @@ func TestDaggerResultMarksTimedOutMutantsIncomplete(t *testing.T) {
 }
 
 func TestMutationStdoutSummarizesAPassingRun(t *testing.T) {
-	summary := `{"killed":3,"lived":0,"accepted":1,"not_covered":2,"timed_out":0,"not_viable":0,"skipped":0,"uncovered":[{"file":"a.go","line":4,"column":2,"mutator":"ARITHMETIC_BASE"}],"files":["a.go","b.go"]}`
+	summary := `{"killed":3,"lived":0,"unchanged_survivors":4,"accepted":1,"not_covered":2,"timed_out":1,"not_viable":0,"skipped":0,"uncovered":[{"file":"a.go","line":4,"column":2,"mutator":"ARITHMETIC_BASE"}],"files":["a.go","b.go"]}`
 
 	stdout, details := mutationStdout(mutationSummaryOf(Result{}, summary), "Go files changed since main", nil)
 
-	if stdout != "Go files changed since main: 2 files mutated; 3 killed, 0 survived, 1 accepted, 2 not covered, 0 timed out" {
+	if stdout != "Go files changed since main: 2 files mutated; 3 killed, 1 timed out, 0 survived on changed lines, 4 survived elsewhere, 1 accepted, 2 not covered" {
 		t.Errorf("stdout = %q", stdout)
 	}
 	if !strings.Contains(string(details), `"uncovered":[{"file":"a.go"`) {
