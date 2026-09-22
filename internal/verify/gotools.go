@@ -29,11 +29,10 @@ type goToolchain struct {
 var toolchains sync.Map
 
 // analysisEnv runs the check against the host's installed Go, never one Go
-// downloads for itself, exactly as the pinned container does. Workspace
-// selection is left alone: a consumer's module may need its go.work, and the
-// Dagger path imports that file and honors it too.
-func analysisEnv(env []string) []string {
-	return goEnv(env, []string{"GOTOOLCHAIN=local"})
+// downloads for itself, exactly as the pinned container does. gowork is the
+// workspace the container would see ("off" or a go.work path); see workspace.
+func analysisEnv(env []string, gowork string) []string {
+	return goEnv(env, []string{"GOTOOLCHAIN=local", "GOWORK=" + gowork})
 }
 
 // buildEnv compiles the shared checkout's own helper modules, which are never
@@ -145,43 +144,34 @@ var (
 	helperVulncheck  = helper{Name: "govulncheck", Module: "runner/tools", Pkg: "golang.org/x/vuln/cmd/govulncheck"}
 )
 
-// processTools is the fallback output directory for a run with no result cache.
-// It lives for the process, so repeat checks in one run still share one build.
-var processTools struct {
-	once sync.Once
-	dir  string
-	err  error
-}
-
 // cacheRoot is where native Go checks keep the state they own: built helpers,
 // the Staticcheck analysis cache, and the locks that serialize them. Without a
-// configured result cache it is a directory for this process alone.
-func (n *Native) cacheRoot() (string, error) {
+// configured result cache it is a directory for this one check execution, which
+// release removes; Go's build cache still makes the repeat helper build cheap.
+func (n *Native) cacheRoot() (string, func(), error) {
 	if n.Cache != nil && n.Cache.Dir != "" {
-		return n.Cache.Dir, nil
+		return n.Cache.Dir, func() {}, nil
 	}
 
-	processTools.once.Do(func() {
-		processTools.dir, processTools.err = os.MkdirTemp("", "levenshtein-tools-")
-	})
-	return processTools.dir, processTools.err
+	dir, err := os.MkdirTemp("", "levenshtein-tools-")
+	if err != nil {
+		return "", func() {}, err
+	}
+	return dir, func() { _ = os.RemoveAll(dir) }, nil
 }
 
-// build compiles one helper from the shared checkout. Go's own build cache
-// makes a repeat build cheap, so there is no staleness logic here; the file
-// lock only keeps two concurrent checks from writing the same output path.
-func (n *Native) build(ctx context.Context, req Request, tool helper, env []string) (string, error) {
-	root, err := n.cacheRoot()
-	if err != nil {
-		return "", err
-	}
+// build compiles one helper from the shared checkout into work.Root. Go's own
+// build cache makes a repeat build cheap, so there is no staleness logic here;
+// the file lock only keeps two concurrent checks from writing the same output
+// path.
+func build(ctx context.Context, req Request, work goRun, tool helper) (string, error) {
 	module, err := contained(req.Shared, filepath.FromSlash(tool.Module))
 	if err != nil {
 		return "", fmt.Errorf("shared checkout has no %s: %w", tool.Module, err)
 	}
 
-	output := filepath.Join(root, "tools", tool.Name)
-	unlock, err := lockFile(ctx, filepath.Join(root, "locks", "tool-"+tool.Name))
+	output := filepath.Join(work.Root, "tools", tool.Name)
+	unlock, err := lockFile(ctx, filepath.Join(work.Root, "locks", "tool-"+tool.Name))
 	if err != nil {
 		return "", err
 	}
@@ -190,7 +180,7 @@ func (n *Native) build(ctx context.Context, req Request, tool helper, env []stri
 		return "", err
 	}
 
-	run, err := runTool(ctx, module, []string{"go", "build", "-trimpath", "-o", output, tool.Pkg}, buildEnv(env), 10*time.Minute)
+	run, err := runTool(ctx, module, []string{"go", "build", "-trimpath", "-o", output, tool.Pkg}, buildEnv(work.Env), 10*time.Minute)
 	if err != nil {
 		return "", err
 	}

@@ -14,17 +14,33 @@ import (
 // check that hangs is still bounded.
 const goCheckTimeout = 30 * time.Minute
 
+// goRun is what one shared Go check execution works in: the target directory,
+// the environment with toolchain and workspace selection pinned, and the
+// directory holding its built tools and analysis cache.
+type goRun struct {
+	Dir  string
+	Env  []string
+	Root string
+}
+
 // goRunner is the work one shared Go kind does. It reports diagnostics, the raw
-// invocation for the report, and a tool error. runGoCheck owns everything the
-// four kinds share.
-type goRunner func(*Native, context.Context, Request, string, []string) ([]finding, toolRun, error)
+// invocation for the report, and a tool error. goCheckExecutor owns everything
+// the four kinds share.
+type goRunner func(*Native, context.Context, Request, goRun) ([]finding, toolRun, error)
 
 // goCheckExecutor adapts one kind's work to the native executor's signature,
-// keeping cancellation and result shape identical across the four kinds and
-// identical to what the Dagger path reports.
+// keeping setup, cancellation and result shape identical across the four kinds
+// and identical to what the Dagger path reports.
 func goCheckExecutor(run goRunner, message string) func(*Native, context.Context, Request, string, []string) Result {
 	return func(n *Native, ctx context.Context, req Request, dir string, env []string) Result {
-		findings, invocation, err := run(n, ctx, req, dir, env)
+		root, release, err := n.cacheRoot()
+		if err != nil {
+			return Result{Status: StatusError, Error: "native tool directory: " + err.Error()}
+		}
+		defer release()
+
+		work := goRun{Dir: dir, Env: analysisEnv(env, workspace(req, dir)), Root: root}
+		findings, invocation, err := run(n, ctx, req, work)
 		result := Result{Stdout: invocation.Stdout, Stderr: invocation.Stderr}
 
 		if ctx.Err() != nil {
@@ -55,15 +71,49 @@ func validateSharedGoCheck(check Check, _ Environment) error {
 	return nil
 }
 
+// workspace is the GOWORK value that makes the host resolve modules the way
+// the container does. The Dagger path imports only declared inputs, so Go
+// inside it finds a go.work only between the target directory and the source
+// root, and only when an input covers it; it can never see one above the
+// source. Natively, Go would otherwise keep searching past the source root.
+func workspace(req Request, dir string) string {
+	for current := dir; ; current = filepath.Dir(current) {
+		rel, err := filepath.Rel(req.Source, current)
+		if err != nil || (rel != "." && !filepath.IsLocal(rel)) {
+			return "off"
+		}
+
+		candidate := filepath.Join(current, "go.work")
+		info, err := os.Stat(candidate)
+		if err == nil && info.Mode().IsRegular() && declared(req.Target.Inputs, filepath.Join(rel, "go.work")) {
+			return candidate
+		}
+		if rel == "." {
+			return "off"
+		}
+	}
+}
+
+// declared reports whether a repository-relative path falls under one of the
+// target's inputs, which is what decides whether the Dagger path imports it.
+func declared(inputs []string, path string) bool {
+	for _, input := range inputs {
+		if input == "." || path == input || strings.HasPrefix(path, input+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
+
 // goModule refuses a module the shared checks cannot analyze, so an empty or
 // unreadable module is an error rather than a silent pass. This mirrors the
 // preflight the Dagger path runs inside the container.
-func goModule(ctx context.Context, module, dir string, env []string) error {
-	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err != nil {
+func goModule(ctx context.Context, module string, work goRun) error {
+	if _, err := os.Stat(filepath.Join(work.Dir, "go.mod")); err != nil {
 		return fmt.Errorf("module %q needs a readable go.mod: %w", module, err)
 	}
 
-	run, err := runTool(ctx, dir, []string{"go", "list", "./..."}, analysisEnv(env), goCheckTimeout)
+	run, err := runTool(ctx, work.Dir, []string{"go", "list", "./..."}, work.Env, goCheckTimeout)
 	if err != nil {
 		return err
 	}
@@ -79,40 +129,37 @@ func goModule(ctx context.Context, module, dir string, env []string) error {
 // staticcheckCache is where Staticcheck keeps its analysis facts. A fresh run
 // points it at a throwaway directory, which is what the Dagger path's nonce
 // achieves by swapping the mounted cache volume for a temporary path.
-func (n *Native) staticcheckCache(req Request) (string, func(), error) {
+func staticcheckCache(req Request, root string) (string, func(), error) {
 	if req.RerunChecks {
 		dir, err := os.MkdirTemp("", "levenshtein-staticcheck-")
 		return dir, func() { _ = os.RemoveAll(dir) }, err
 	}
 
-	root, err := n.cacheRoot()
-	if err != nil {
-		return "", func() {}, err
-	}
 	dir := filepath.Join(root, "staticcheck")
 	return dir, func() {}, os.MkdirAll(dir, 0700)
 }
 
-func (n *Native) goLint(ctx context.Context, req Request, dir string, env []string) ([]finding, toolRun, error) {
+func (n *Native) goLint(ctx context.Context, req Request, work goRun) ([]finding, toolRun, error) {
 	checks, err := sharedChecks(req.Shared)
 	if err != nil {
 		return nil, toolRun{}, err
 	}
-	if err := goModule(ctx, req.Target.Dir, dir, env); err != nil {
+	if err := goModule(ctx, req.Target.Dir, work); err != nil {
 		return nil, toolRun{}, err
 	}
-	binary, err := n.build(ctx, req, helperLint, env)
+	binary, err := build(ctx, req, work, helperLint)
 	if err != nil {
 		return nil, toolRun{}, err
 	}
-	cache, release, err := n.staticcheckCache(req)
+	cache, release, err := staticcheckCache(req, work.Root)
 	if err != nil {
 		return nil, toolRun{}, err
 	}
 	defer release()
 
 	args := []string{binary, "-f=json", "-checks=" + strings.Join(checks, ","), "./..."}
-	run, err := runTool(ctx, dir, args, append(analysisEnv(env), "STATICCHECK_CACHE="+cache), goCheckTimeout)
+	env := append(append([]string{}, work.Env...), "STATICCHECK_CACHE="+cache)
+	run, err := runTool(ctx, work.Dir, args, env, goCheckTimeout)
 	if err != nil {
 		return nil, run, err
 	}
@@ -120,12 +167,12 @@ func (n *Native) goLint(ctx context.Context, req Request, dir string, env []stri
 	return findings, run, err
 }
 
-func (n *Native) goVet(ctx context.Context, req Request, dir string, env []string) ([]finding, toolRun, error) {
-	if err := goModule(ctx, req.Target.Dir, dir, env); err != nil {
+func (n *Native) goVet(ctx context.Context, req Request, work goRun) ([]finding, toolRun, error) {
+	if err := goModule(ctx, req.Target.Dir, work); err != nil {
 		return nil, toolRun{}, err
 	}
 
-	run, err := runTool(ctx, dir, []string{"go", "vet", "./..."}, analysisEnv(env), goCheckTimeout)
+	run, err := runTool(ctx, work.Dir, []string{"go", "vet", "./..."}, work.Env, goCheckTimeout)
 	if err != nil {
 		return nil, run, err
 	}
@@ -133,16 +180,16 @@ func (n *Native) goVet(ctx context.Context, req Request, dir string, env []strin
 	return findings, run, err
 }
 
-func (n *Native) goVuln(ctx context.Context, req Request, dir string, env []string) ([]finding, toolRun, error) {
-	if err := goModule(ctx, req.Target.Dir, dir, env); err != nil {
+func (n *Native) goVuln(ctx context.Context, req Request, work goRun) ([]finding, toolRun, error) {
+	if err := goModule(ctx, req.Target.Dir, work); err != nil {
 		return nil, toolRun{}, err
 	}
-	binary, err := n.build(ctx, req, helperVulncheck, env)
+	binary, err := build(ctx, req, work, helperVulncheck)
 	if err != nil {
 		return nil, toolRun{}, err
 	}
 
-	run, err := runTool(ctx, dir, []string{binary, "./..."}, analysisEnv(env), goCheckTimeout)
+	run, err := runTool(ctx, work.Dir, []string{binary, "./..."}, work.Env, goCheckTimeout)
 	if err != nil {
 		return nil, run, err
 	}
@@ -150,8 +197,8 @@ func (n *Native) goVuln(ctx context.Context, req Request, dir string, env []stri
 	return findings, run, err
 }
 
-func (n *Native) workflowLint(ctx context.Context, req Request, dir string, env []string) ([]finding, toolRun, error) {
-	binary, err := n.build(ctx, req, helperActionlint, env)
+func (n *Native) workflowLint(ctx context.Context, req Request, work goRun) ([]finding, toolRun, error) {
+	binary, err := build(ctx, req, work, helperActionlint)
 	if err != nil {
 		return nil, toolRun{}, err
 	}
@@ -160,7 +207,7 @@ func (n *Native) workflowLint(ctx context.Context, req Request, dir string, env 
 		return nil, toolRun{}, err
 	}
 
-	run, err := runTool(ctx, dir, args, analysisEnv(env), goCheckTimeout)
+	run, err := runTool(ctx, work.Dir, args, work.Env, goCheckTimeout)
 	if err != nil {
 		return nil, run, err
 	}

@@ -219,16 +219,137 @@ func TestWorkflowArgumentsNameEveryFileAndOneConfig(t *testing.T) {
 func TestGoEnvironmentPinsToolchainSelection(t *testing.T) {
 	base := []string{"PATH=/bin", "GOTOOLCHAIN=go1.9", "GOWORK=/elsewhere/go.work"}
 
-	analysis := analysisEnv(base)
+	analysis := analysisEnv(base, "/src/go.work")
 	if slices.Contains(analysis, "GOTOOLCHAIN=go1.9") || !slices.Contains(analysis, "GOTOOLCHAIN=local") {
 		t.Fatalf("analysis environment does not pin the toolchain: %v", analysis)
 	}
-	if !slices.Contains(analysis, "GOWORK=/elsewhere/go.work") {
-		t.Fatalf("analysis environment dropped the consumer's workspace: %v", analysis)
+	if slices.Contains(analysis, "GOWORK=/elsewhere/go.work") || !slices.Contains(analysis, "GOWORK=/src/go.work") {
+		t.Fatalf("analysis environment does not pin the container's workspace: %v", analysis)
 	}
 
-	build := buildEnv(base)
-	if !slices.Contains(build, "GOWORK=off") || slices.Contains(build, "GOWORK=/elsewhere/go.work") {
+	build := buildEnv(analysis)
+	if !slices.Contains(build, "GOWORK=off") || slices.Contains(build, "GOWORK=/src/go.work") {
 		t.Fatalf("helper builds must ignore a workspace: %v", build)
+	}
+}
+
+// Natively, Go would search for a go.work past the source root and use one the
+// target never declared. The container only sees declared inputs under the
+// source, so the host must see exactly those too.
+func TestWorkspaceMatchesWhatTheContainerImports(t *testing.T) {
+	parent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(parent, "repo")
+	module := filepath.Join(source, "services", "api")
+	writeTestFile(t, filepath.Join(parent, "go.work"), "go 1.27\n")
+	writeTestFile(t, filepath.Join(module, "go.mod"), "module example.com/api\n")
+
+	for _, tt := range []struct {
+		name   string
+		inputs []string
+		file   string
+		want   string
+	}{
+		{name: "no workspace under the source ignores one above it", inputs: []string{"."}, want: "off"},
+		{name: "an undeclared workspace is not imported", inputs: []string{"services/api"}, file: "go.work", want: "off"},
+		{name: "a declared root workspace is used", inputs: []string{"services/api", "go.work"}, file: "go.work", want: "go.work"},
+		{name: "a whole-tree input declares the workspace", inputs: []string{"."}, file: "go.work", want: "go.work"},
+		{name: "the nearest declared workspace wins", inputs: []string{"services"}, file: "services/go.work", want: "services/go.work"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_ = os.Remove(filepath.Join(source, "go.work"))
+			_ = os.Remove(filepath.Join(source, "services", "go.work"))
+			if tt.file != "" {
+				writeTestFile(t, filepath.Join(source, filepath.FromSlash(tt.file)), "go 1.27\n")
+			}
+			req := Request{Source: source, PlannedCheck: PlannedCheck{Target: Target{Dir: "services/api", Inputs: tt.inputs}}}
+
+			want := tt.want
+			if want != "off" {
+				want = filepath.Join(source, filepath.FromSlash(want))
+			}
+			if got := workspace(req, module); got != want {
+				t.Fatalf("workspace = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// A shared Go check runs the shared checkout's linter, rule list and pinned
+// tools, so two checkouts that differ only there must not share a result.
+// Other kinds do not run them, and their keys must not move.
+func TestSharedGoCheckKeyCoversTheRunner(t *testing.T) {
+	checkouts := make([]string, 2)
+	for i, checks := range []string{`{"checks":["all"]}`, `{"checks":["all","-SA5001"]}`} {
+		checkouts[i] = t.TempDir()
+		writeTestFile(t, filepath.Join(checkouts[i], "runner", "toolchain.json"), checks)
+	}
+
+	source := nativeRequest(t)
+	keys := func(kind CheckKind, executor ExecutorKind) []string {
+		t.Helper()
+		out := make([]string, 0, len(checkouts))
+		for _, shared := range checkouts {
+			req := source
+			req.Shared = shared
+			req.Check = Check{Kind: kind, Target: "app", Environment: "host"}
+			if kind == CheckCommand {
+				req.Check.Command = &CommandCheck{Args: []string{"true"}}
+			}
+			req.Environment.Executor = executor
+			key, err := fingerprint(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, key)
+		}
+		return out
+	}
+
+	for kind := range sharedGoChecks {
+		for _, executor := range []ExecutorKind{ExecutorNative, ExecutorDagger} {
+			if got := keys(kind, executor); got[0] == got[1] {
+				t.Errorf("%s on %s: a different runner/toolchain.json kept the same key", kind, executor)
+			}
+		}
+	}
+	if got := keys(CheckCommand, ExecutorNative); got[0] != got[1] {
+		t.Error("a command check's key depends on the shared runner it never runs")
+	}
+}
+
+// Without a result cache, a check builds its tools into a directory of its
+// own, and must remove it afterwards.
+func TestNativeGoCheckWithoutACacheLeavesNoToolDirectory(t *testing.T) {
+	temporary := t.TempDir()
+	t.Setenv("TMPDIR", temporary)
+	req := nativeRequest(t)
+	req.Check = Check{Kind: CheckGoVet, Target: "app", Environment: "host"}
+	writeTestFile(t, filepath.Join(req.Source, "go.mod"), "module example.com/tiny\n\ngo 1.27\n")
+	writeTestFile(t, filepath.Join(req.Source, "tiny.go"), "package tiny\n")
+
+	result := (&Native{}).Execute(t.Context(), req)
+	if result.Status != StatusPassed {
+		t.Fatalf("go vet on a clean module: %+v", result)
+	}
+
+	leftovers, err := filepath.Glob(filepath.Join(temporary, "levenshtein-tools-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leftovers) != 0 {
+		t.Fatalf("tool directories were left behind: %v", leftovers)
+	}
+}
+
+func writeTestFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatal(err)
 	}
 }

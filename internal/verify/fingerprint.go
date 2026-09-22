@@ -131,10 +131,12 @@ func outputPaths(req Request) []string {
 
 // implementationKey separates memoized snapshots per shared checkout so
 // independent roots, including each test's own temporary directory, never share
-// an entry. The executor kind selects which paths the snapshot covers.
+// an entry. The executor kind and whether the check runs the shared checkout's
+// own tools select which paths the snapshot covers.
 type implementationKey struct {
 	Shared   string
 	Executor ExecutorKind
+	Runner   bool
 }
 
 // implementations memoizes the shared checkout's snapshot for the life of the
@@ -149,14 +151,23 @@ type implementationKey struct {
 var implementations sync.Map
 
 func implementation(req Request) (string, error) {
-	key := implementationKey{Shared: req.Shared, Executor: req.Environment.Executor}
+	// A shared Go check runs the shared checkout's linter and house rules
+	// (runner/lint), reads its rule list (runner/toolchain.json) and builds its
+	// pinned tools (runner/tools) on either executor, so all of runner/ decides
+	// its verdict. Without it, bumping the pinned checkout to a revision that
+	// adds rules would reuse results the new rules never saw.
+	runner := req.Environment.Executor == ExecutorDagger || sharedGoChecks[req.Check.Kind]
+	key := implementationKey{Shared: req.Shared, Executor: req.Environment.Executor, Runner: runner}
 	if memoized, ok := implementations.Load(key); ok {
 		return memoized.(string), nil
 	}
 
 	paths := []string{"go.mod", "go.sum", "cmd", "internal"}
-	if req.Environment.Executor == ExecutorDagger {
+	switch {
+	case req.Environment.Executor == ExecutorDagger:
 		paths = append(paths, ".dagger-version", "dagger.json", "runner", "sdk")
+	case runner:
+		paths = append(paths, "runner")
 	}
 	impl, err := snapshot(req.Shared, paths, nil, false)
 	if err != nil {

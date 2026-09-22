@@ -7,7 +7,7 @@ trap 'rm -rf "$temporary"' EXIT
 (cd "$root" && go build -o "$temporary/verify" ./cmd/levenshtein)
 for fixture in resources-good resources-bad vet-bad good bad; do
   mkdir -p "$temporary/$fixture"
-  cp "$root/runner/testdata/$fixture/"* "$temporary/$fixture/"
+  cp -R "$root/runner/testdata/$fixture/." "$temporary/$fixture/"
   cat > "$temporary/$fixture/levenshtein.json" <<'JSON'
 {"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"},"host":{"executor":"native"}},"checks":{"http":{"kind":"go-http","target":"app","environment":"go"},"sql":{"kind":"go-sql","target":"app","environment":"go"},"vet":{"kind":"go-vet","target":"app","environment":"go"},"native-vet":{"kind":"go-vet","target":"app","environment":"host"},"native-lint":{"kind":"go-lint","target":"app","environment":"host"}},"runs":{"http":{"checks":["http"]},"sql":{"checks":["sql"]},"vet":{"checks":["vet"]},"native-vet":{"checks":["native-vet"]},"native-lint":{"checks":["native-lint"]}}}
 JSON

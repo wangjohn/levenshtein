@@ -112,16 +112,23 @@ runs each check in the target directory with the same preflight the container
 does (`go list ./...`, refusing a module with no packages), points Staticcheck
 at `cache.Dir/staticcheck` — or a throwaway directory on a fresh run, mirroring
 the runner's nonce — and reads the rule list from the shared checkout's
-`runner/toolchain.json` rather than repeating it.
+`runner/toolchain.json` rather than repeating it. Every Go invocation runs
+with `GOTOOLCHAIN=local` and `GOWORK` set to what the container would see:
+the nearest declared `go.work` between the target directory and the source
+root (`workspace` in `gochecks.go`), or `off`. Without a cache directory, a
+check's tools go into a temporary directory removed when it finishes.
 
 `internal/verify/findings.go` is a deliberate copy of the runner's
-`parseFindings`/`commandFindings`, since `runner` is a separate `package main`
-module that cannot be imported. It produces the same `{"findings": [...]}`
-`Details` envelope as `daggerResult`, with locations relative to the source
-root, so a report does not say which executor produced it. Because the host's
-Go is not covered by any snapshot, `fingerprint` adds its
-`go env GOVERSION GOOS GOARCH` to the cache key for these kinds only; every
-other check's key is unchanged.
+`parseFindings`/`commandFindings` and of its check-selection filter
+(`allowed`/`selects`), since `runner` is a separate `package main` module
+that cannot be imported. Both filters are tested against one table,
+`runner/testdata/selection.json`, so they cannot drift apart unnoticed. It
+produces the same `{"findings": [...]}` `Details` envelope as `daggerResult`,
+with locations relative to the source root, so a report does not say which
+executor produced it. Because the host's Go is not covered by any snapshot,
+`fingerprint` adds its `go env GOVERSION GOOS GOARCH` to the cache key for
+these kinds only, and the shared implementation snapshot covers `runner/` for
+them on either executor.
 
 `internal/verify/command.go` builds the actual `os/exec.Cmd` with a minimal
 inherited environment (`PATH`, `HOME`, `TMPDIR`, `TMP`, `TEMP`, `SystemRoot`,
@@ -140,8 +147,9 @@ native `command` checks with `cache: true`), it:
 
 1. Computes a fingerprint (`internal/verify/fingerprint.go`): a content hash
    over the target's declared inputs plus any stage inputs, the shared
-   implementation (root `go.mod`/`go.sum`/`cmd`/`internal`, and for Dagger
-   checks also `.dagger-version`, `dagger.json`, `runner`, `sdk`), the check
+   implementation (root `go.mod`/`go.sum`/`cmd`/`internal`, for Dagger
+   checks also `.dagger-version`, `dagger.json`, `runner`, `sdk`, and for
+   native shared Go checks also `runner`), the check
    definition itself, `runtime.GOOS`/`GOARCH`, (for native checks) the
    resolved environment variables, and (for native shared Go checks only) the
    host toolchain's `go env GOVERSION GOOS GOARCH`.
