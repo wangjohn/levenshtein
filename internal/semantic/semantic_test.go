@@ -468,11 +468,11 @@ func TestCommitsReadEveryCommitInOnePass(t *testing.T) {
 	r.run(t, "commit", "--quiet", "-m", "Add an extra helper")
 
 	g := gitRunner{Git: r.git, Dir: r.dir, Env: r.env}
-	_, mergeBase, err := g.resolveBase(context.Background(), "main")
+	_, mergeBase, err := g.ResolveBase(context.Background(), "main")
 	if err != nil {
 		t.Fatal(err)
 	}
-	commits, err := g.commits(context.Background(), mergeBase)
+	commits, err := loadCommits(context.Background(), g, mergeBase)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -497,7 +497,7 @@ func TestShallowCloneGetsFetchDepthAdvice(t *testing.T) {
 	clone := repo{dir: t.TempDir(), git: r.git, env: r.env}
 	clone.run(t, "clone", "--quiet", "--depth", "1", "--branch", "feature", "file://"+r.dir, clone.dir)
 
-	_, _, err := gitRunner{Git: clone.git, Dir: clone.dir, Env: clone.env}.resolveBase(context.Background(), "main")
+	_, _, err := gitRunner{Git: clone.git, Dir: clone.dir, Env: clone.env}.ResolveBase(context.Background(), "main")
 	if err == nil || !strings.Contains(err.Error(), "fetch-depth: 0") {
 		t.Fatalf("shallow clone advice: %v", err)
 	}
