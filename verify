@@ -7,9 +7,18 @@ key=$(printf '%s' "$root" | cksum | awk '{print $1}')
 bin_dir="$cache_root/levenshtein/bin/$key"
 mkdir -p "$bin_dir"
 required=$(<"$root/.go-version")
-if [[ $(GOWORK=off GOTOOLCHAIN=local go env GOVERSION) != "go$required" ]]; then
-  echo "Go $required is required. See docs/setup.md." >&2
+if ! command -v go > /dev/null 2>&1; then
+  echo "Go is required to build the Levenshtein CLI; it obtains Go $required itself. See docs/setup.md." >&2
   exit 2
 fi
-(cd "$root" && GOWORK=off GOTOOLCHAIN=local go build -o "$bin_dir/levenshtein" ./cmd/levenshtein)
+# Name the pinned toolchain instead of demanding it on PATH: any host Go
+# downloads and caches it. GOWORK=off keeps a caller's workspace out of the
+# build.
+export GOWORK=off GOTOOLCHAIN="go$required"
+if ! probe=$(go env GOVERSION 2>&1); then
+  echo "Go $required could not be obtained: $probe" >&2
+  echo "Install it, or allow the toolchain download (GOPROXY). See docs/setup.md." >&2
+  exit 2
+fi
+(cd "$root" && go build -o "$bin_dir/levenshtein" ./cmd/levenshtein)
 exec "$bin_dir/levenshtein" --shared "$root" --source "$root" "$@"

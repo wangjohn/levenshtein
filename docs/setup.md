@@ -4,7 +4,7 @@ Shared Go checks run pinned correctness, error handling, enum, resource, workflo
 
 ## Prerequisites
 
-The source launcher requires Go **1.27.1**. Go checks require a running Docker-compatible container runtime. The Go SDK downloads and checksum-verifies Dagger **0.21.9** automatically. Native commands and planning do not start Dagger.
+The source launcher needs a `go` on `PATH`, of any version: it sets `GOTOOLCHAIN` to the version in `.go-version` (**1.27.1**), so Go downloads and caches that toolchain itself when the host differs. That download needs a reachable module proxy; with `GOPROXY=off`, install Go 1.27.1 and the launcher uses it directly. Go checks require a running Docker-compatible container runtime. The Go SDK downloads and checksum-verifies Dagger **0.21.9** automatically. Native commands and planning do not start Dagger.
 
 To develop the shared Dagger module or use `dagger check` directly, install the pinned CLI with the checked-in archive checksums:
 
@@ -64,13 +64,13 @@ A single Go module at the source root works without configuration. For multiple 
 
 Use the [version 1 consumer example](consumer-ci.md#the-same-command-locally-and-in-ci) for explicit product targets, checks, and run selections. `inputs` restricts Dagger's imported source as well as its cache scope; include required manifests, local dependencies, and fixtures. Native command inputs only describe cache scope and do not restrict host access. See [source boundaries](configuration.md#source-boundaries).
 
-A configuration file replaces defaults. Paths are relative to the source root. Every selected check runs or reuses an eligible result; change-based selection is not implemented. Available shared kinds are listed in [Go lint rules](go-lint.md). Every configuration file declares `"version": 1`.
+A configuration file replaces defaults. Paths are relative to the source root. Every selected check runs or reuses an eligible result; change-based selection is not implemented. Available shared kinds are listed in [shared checks](checks.md#named-checks-and-suggested-runs). Every configuration file declares `"version": 1`.
 
 Version 1 runs use explicit `rerun_checks: true` for fresh audits, regardless of their name. Levenshtein's own `main` is configured that way. Audits bypass passing-verdict reuse while retaining compatible downloads and compiler caches. Vulnerability scans always execute against current advisory data. Add new checks explicitly to your configured full run during this pilot.
 
 ## Levenshtein's own CI
 
-The checked-in `Levenshtein self-checks` workflow verifies this repo's runner and fixtures. Its cron schedules that verification only. Application repos call the shared runner from their own CI, as shown in the [consumer guide](consumer-ci.md).
+The checked-in `Levenshtein self-checks` workflow verifies this repo's runner and fixtures. Its cron schedules that verification only. This section is where that CI is explained. Application repos call the shared runner from their own CI, as shown in the [consumer guide](consumer-ci.md).
 
 ### Jobs
 
@@ -145,9 +145,9 @@ Stable versions checked on September 15, 2026:
 | Go container | 1.27.1 on Debian Trixie | Tag and immutable image digest in `runner/toolchain.json` |
 | Dagger CLI / engine / SDK | 0.21.9 | `.dagger-version`, `dagger.json`, root `go.mod`, generated module dependencies |
 | Staticcheck | 2026.2.1 (`honnef.co/go/tools` v0.8.1) | `runner/toolchain.json` |
-| Actions checkout / setup-go / cache | 7.0.1 / 7.0.0 / 4.2.3 | Full commit hashes in the workflows |
+| Actions checkout / setup-go / cache | 7.0.1 / 7.0.0 / 6.1.0 | Full commit hashes in the workflows and composite actions |
 
-The host Go version is needed by the source launcher, runner development, and unit tests. The actual lint runs on Linux with default build tags, using the pinned container toolchain with automatic Go toolchain switching disabled. A temporary SDK adapter fixes Dagger 0.21.9’s forced logging dependency overrides for both generation and execution; see [dependency security](dependencies.md#dagger-wrapper-dependency-security). The wrapper’s Go language version must stay at or below the Go version of the codegen container (`goImage`), which Dagger’s module generator refuses to exceed; it does not restrict the Go version of repositories being checked. `go.sum` records checksums. Upgrade pins together and validate the fixtures before adoption.
+The pinned Go version builds the CLI (the launcher provisions it when the host Go differs) and is what runner development and unit tests expect. The actual lint runs on Linux with default build tags, using the pinned container toolchain with automatic Go toolchain switching disabled. A temporary SDK adapter fixes Dagger 0.21.9’s forced logging dependency overrides for both generation and execution; see [dependency security](dependencies.md#dagger-wrapper-dependency-security). The wrapper’s Go language version must stay at or below the Go version of the codegen container (`goImage`), which Dagger’s module generator refuses to exceed; it does not restrict the Go version of repositories being checked. `go.sum` records checksums. Upgrade pins together and validate the fixtures before adoption.
 
 ## Develop the shared checks
 

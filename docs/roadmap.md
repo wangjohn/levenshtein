@@ -229,7 +229,7 @@ bottleneck.
 Keep selection and caching separate: select required work first, then reuse
 matching results or execute misses. Full audits, flake investigations, and
 live release smoke checks need fresh verification while retaining compatible
-setup/build reuse, as defined in the [cache contracts](design-notes.md#cache-contracts-and-invalidation).
+setup/build reuse, as defined in the [cache contracts](architecture.md#cache-contracts-and-invalidation).
 Verify persisted cache behavior in the actual CI environment.
 
 ## If maintenance and adoption need more automation

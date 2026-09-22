@@ -32,16 +32,16 @@ To check another Go repo: `./verify go-lint --source /path/to/repo`. [Use it fro
 - [Contributing](CONTRIBUTING.md): how to build, test, and send changes.
 - [Security policy](SECURITY.md): how to report a vulnerability privately.
 - [Configuration](docs/configuration.md): standalone planning, targets, and runs.
+- [Shared checks](docs/checks.md): every check kind, the Go lint rules, and suggested runs.
 - [Semantic lint](docs/semantic-lint.md): advisory Jev questions about Go, docs, and pull request shape.
 - [Use from your existing CI](docs/consumer-ci.md): local and CI examples for application repos.
 - [Release archives](docs/releases.md): package the CLI and shared checks with GoReleaser.
 - [Language fixtures](docs/language-fixtures.md): Rust/Python compatibility checks.
 - [Architecture](docs/architecture.md): how the CLI plans, executes, and caches checks.
 - [Dependency choices](docs/dependencies.md): which responsibilities use established tools.
-- [Design notes](docs/design-notes.md): cache and language adapter contracts.
 - [Roadmap](docs/roadmap.md): planned work beyond the current release.
 
-See [Go lint rules](docs/go-lint.md) for the shared defer/close, typed-choice, and value-record policies.
+See [the Go lint rules](docs/checks.md#go-lint-rules) for the shared defer/close, typed-choice, and value-record policies, and [design contracts](docs/architecture.md#design-contracts) for the cache and language adapter contracts.
 
 ## License
 

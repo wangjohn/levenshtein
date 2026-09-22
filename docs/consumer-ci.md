@@ -6,7 +6,7 @@ Your CI checks out the application, chooses a run, and invokes a pinned Levensht
 
 ## The same command locally and in CI
 
-Use the [runtime prerequisites](setup.md#prerequisites): Go for the source launcher and a Docker-compatible runtime for Go checks. The SDK provisions the pinned Dagger CLI. Keep the application and Levenshtein in separate directories:
+Use the [runtime prerequisites](setup.md#prerequisites): any Go on `PATH` for the source launcher, which provisions the pinned toolchain itself, and a Docker-compatible runtime for Go checks. The SDK provisions the pinned Dagger CLI. Keep the application and Levenshtein in separate directories:
 
 ```text
 workspace/
