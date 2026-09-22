@@ -6,6 +6,9 @@ pre-commit:
   jobs:
     - name: gofmt
       glob: '*.go'
+      # Lint fixtures, some deliberately unformatted.
+      exclude:
+        - '**/testdata/**'
       run: |
         unformatted=$(gofmt -l {staged_files})
         if [ -n "$unformatted" ]; then

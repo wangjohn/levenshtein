@@ -83,7 +83,8 @@ The checked-in `Levenshtein self-checks` workflow verifies this repo's runner an
 | `semantic-lint` | Advisory Jev review of the pull request; runs only on `pull_request` events; without the `TYPESAFE_API_KEY` secret the review step is skipped and the job passes with no findings |
 
 The `tests` job also holds the repository hygiene gates, all of them before its
-Go tests: `gofmt` over every tracked Go file, `go mod tidy -diff` and
+Go tests: `gofmt` over every tracked Go file outside `testdata`, whose lint
+fixtures are deliberately unformatted; `go mod tidy -diff` and
 `go mod verify` in `.`, `runner/lint`, and `runner/tools` (not `runner`, whose
 manifest `dagger develop` rewrites), and `ruff check` over `scripts` and
 `sdk/patched-go`. The Go test step writes a coverage profile that is uploaded

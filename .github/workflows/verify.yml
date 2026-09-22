@@ -100,9 +100,10 @@ jobs:
             runner/go.sum
             runner/lint/go.sum
             runner/tools/go.sum
+      # testdata holds lint fixtures, some deliberately unformatted (LV1005).
       - name: Go formatting
         run: |
-          mapfile -t sources < <(git ls-files '*.go')
+          mapfile -t sources < <(git ls-files '*.go' ':(exclude,glob)**/testdata/**')
           unformatted=$(gofmt -l "${sources[@]}")
           if [[ -n $unformatted ]]; then
             echo "gofmt would rewrite:" >&2
