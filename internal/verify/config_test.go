@@ -249,6 +249,8 @@ func TestRetiredCheckFieldsGetAMigrationHint(t *testing.T) {
 		"semantic model":   {`{"kind":"semantic-lint","target":"app","environment":"host","model":"jev-1.13.0"}`, `"semantic"`},
 		"semantic timeout": {`{"kind":"semantic-lint","target":"app","environment":"host","timeout":"2m"}`, `"semantic"`},
 		"command timeout":  {`{"kind":"command","target":"app","environment":"host","command":{"args":["go","test"]},"timeout":"2m"}`, `"command"`},
+		"dagger cache":     {`{"kind":"go-vuln","target":"app","environment":"host","cache":true}`, `always cached`},
+		"semantic env":     {`{"kind":"semantic-lint","target":"app","environment":"host","env":{"FOO":"bar"}}`, `environment's "env"`},
 	} {
 		data := `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"host":{"executor":"native"}},"checks":{"c":` + tc.check + `},"runs":{"branch":{"checks":["c"]}}}`
 		_, err := Parse([]byte(data))
