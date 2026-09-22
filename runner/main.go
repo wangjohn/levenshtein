@@ -173,7 +173,8 @@ func parseFindings(exitCode int, stdout, stderr string, checks []string) ([]diag
 var expectedBadCodes = []string{
 	"SA5001", "SA5003", "SA9001", "S1002", "ST1005", "QF1011", "U1000",
 	"bodyclose", "sqlclosecheck", "rowserrcheck", "noctx",
-	"errcheck", "exhaustive", "nilness", "unusedwrite", "errorlint", "nilerr", "durationcheck", "reassign", "wastedassign",
+	"errcheck", "exhaustive", "nilness", "unusedwrite", "errorlint", "nilerr", "durationcheck", "reassign", "wastedassign", "musttag", "recvcheck",
+	"unparam",
 	"intrange", "usestdlibvars", "perfsprint", "predeclared", "errname",
 	"minmax", "mapsloop", "slicescontains", "stringscutprefix", "stringsseq",
 	"thelper", "tparallel", "testifylint",
@@ -245,17 +246,17 @@ func modSelfTest(ctx context.Context, fixtures *dagger.Directory, tools toolchai
 // outcome of each, so a verdict that fails for the wrong reason still fails
 // the self-test.
 func mutationSelfTest(ctx context.Context, fixtures *dagger.Directory, tools toolchain, nonce string) error {
-	strong, err := mutate(ctx, fixtures.Directory("strong"), ".", tools, []string{"add.go"}, defaultAcceptedPath, "", nonce)
+	strong, err := mutate(ctx, fixtures.Directory("strong"), ".", tools, []string{"add.go"}, nil, defaultAcceptedPath, "", nonce)
 	if err != nil || len(strong.Findings) != 0 || strong.Summary.Killed != 1 {
 		return fmt.Errorf("mutation/strong must pass with one killed mutant: %+v %v", strong, err)
 	}
 
-	accepted, err := mutate(ctx, fixtures.Directory("accepted"), ".", tools, []string{"clamp.go"}, defaultAcceptedPath, "", nonce)
+	accepted, err := mutate(ctx, fixtures.Directory("accepted"), ".", tools, []string{"clamp.go"}, nil, defaultAcceptedPath, "", nonce)
 	if err != nil || len(accepted.Findings) != 0 || accepted.Summary.Accepted != 2 {
 		return fmt.Errorf("mutation/accepted must pass with both boundary survivors accepted: %+v %v", accepted, err)
 	}
 
-	weak, err := mutate(ctx, fixtures.Directory("weak"), ".", tools, []string{"clamp.go"}, defaultAcceptedPath, "", nonce)
+	weak, err := mutate(ctx, fixtures.Directory("weak"), ".", tools, []string{"clamp.go"}, nil, defaultAcceptedPath, "", nonce)
 	if err != nil {
 		return fmt.Errorf("mutation/weak must fail for its survivors, not a tool error: %w", err)
 	}
@@ -266,6 +267,15 @@ func mutationSelfTest(ctx context.Context, fixtures *dagger.Directory, tools too
 	want := []string{"go-mutation clamp.go:5", "go-mutation clamp.go:8"}
 	if !slices.Equal(survivors, want) || weak.Incomplete || weak.Summary.NotCovered != 0 {
 		return fmt.Errorf("mutation/weak must report exactly %v, with limits/ excluded; got %v (summary %+v)", want, survivors, weak.Summary)
+	}
+
+	// With only line 5 changed, the line-8 survivor is reported, not failed.
+	scoped, err := mutate(ctx, fixtures.Directory("weak"), ".", tools, []string{"clamp.go"}, map[string][]lineRange{"clamp.go": {{Start: 5, End: 5}}}, defaultAcceptedPath, "", nonce)
+	if err != nil {
+		return fmt.Errorf("mutation/weak with changed lines must not be a tool error: %w", err)
+	}
+	if len(scoped.Findings) != 1 || scoped.Findings[0].Location.Line != 5 || scoped.Summary.Unchanged != 1 || scoped.Summary.UnchangedList[0].Line != 8 {
+		return fmt.Errorf("mutation/weak limited to line 5 must fail only there and list line 8 as unchanged; got %+v", scoped)
 	}
 	return nil
 }

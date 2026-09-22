@@ -18,6 +18,13 @@ Consumers pin a release tag, or its commit SHA, as described in
   `GOWORK=off`, needs the module proxy even for a vendored module, and its
   result is never cached; like `go-vuln`, a direct Dagger `sharedCheck` call
   must pass a unique `nonce` ([details](docs/checks.md#module-manifests)).
+- `go-lint` runs three more upstream analyzers: `unparam` (unused parameters
+  and results of unexported functions), `musttag` (untagged fields in structs
+  passed to JSON, XML, YAML, and TOML encoders and decoders), and `recvcheck`
+  (types whose hand-written methods mix pointer and value receivers).
+  Consumers see their findings when they bump their Levenshtein pin.
+- [docs/checks.md](docs/checks.md#considered-and-off) lists the analyzers that
+  were measured and left out, with the reason for each.
 
 ### Changed
 

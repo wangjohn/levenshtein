@@ -17,13 +17,17 @@ require (
 	github.com/nishanths/exhaustive v0.13.0
 	github.com/nishanths/predeclared v0.2.2
 	github.com/polyfloyd/go-errorlint v1.8.0
+	github.com/raeperd/recvcheck v0.3.1
 	github.com/ryanrolds/sqlclosecheck v0.6.0
 	github.com/sanposhiho/wastedassign/v2 v2.1.0
 	github.com/sashamelentyev/usestdlibvars v1.29.0
 	github.com/sonatard/noctx v0.5.1
 	github.com/timakin/bodyclose v0.0.0-20260723120731-857993a2939c
+	go-simpler.org/musttag v0.14.0
+	golang.org/x/mod v0.41.0
 	golang.org/x/tools v0.50.0
 	honnef.co/go/tools v0.8.1
+	mvdan.cc/unparam v0.0.0-20260823230713-2fa3d841b0c8
 )
 
 require (
@@ -31,7 +35,6 @@ require (
 	github.com/gostaticanalysis/analysisutil v0.7.1 // indirect
 	github.com/gostaticanalysis/comment v1.5.0 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20231108232855-2478ac86f678 // indirect
-	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/tools/go/packages/packagestest v0.1.1-deprecated // indirect
 )

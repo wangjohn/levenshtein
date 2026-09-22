@@ -1,6 +1,7 @@
 package bad
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -66,4 +67,33 @@ func Ineffassign() int {
 	value := 1
 	value = 2
 	return value
+}
+
+type setting struct {
+	Name  string
+	Value int
+}
+
+// musttag: untagged fields take their JSON keys from the Go identifiers, so
+// renaming a field silently changes which key it reads.
+func Musttag(data []byte) (setting, error) {
+	var value setting
+	err := json.Unmarshal(data, &value)
+	return value, err
+}
+
+// Counter mixes value and pointer receivers.
+type Counter struct {
+	hits int
+}
+
+// recvcheck: Hits copies the whole value while Record changes the original, so
+// a Counter value and a *Counter have different method sets.
+func (c Counter) Hits() int {
+	return c.hits
+}
+
+// Record keeps the pointer receiver that makes the receivers mixed.
+func (c *Counter) Record() {
+	c.hits++
 }
