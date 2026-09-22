@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 )
 
 type Config struct {
@@ -206,29 +208,39 @@ func migrationHint(data []byte) string {
 		return ""
 	}
 
-	for id, check := range loose.Checks {
+	for _, id := range slices.Sorted(maps.Keys(loose.Checks)) {
+		check := loose.Checks[id]
 		var kind CheckKind
 		_ = json.Unmarshal(check["kind"], &kind)
-		if _, ok := check["timeout"]; ok {
-			object := "command"
-			if kind == CheckSemanticLint {
-				object = "semantic"
-			}
-			return fmt.Sprintf(`check %q: "timeout" now lives inside the %q object (see docs/configuration.md)`, id, object)
-		}
 		if raw, ok := check["command"]; ok && bytes.HasPrefix(bytes.TrimSpace(raw), []byte("[")) {
 			return fmt.Sprintf(`check %q: "command" is now an object; write "command": {"args": [...]} (see docs/configuration.md)`, id)
 		}
-		for _, field := range retiredCommandFields {
+		for _, field := range append(append([]string{"timeout"}, retiredCommandFields...), retiredSemanticFields...) {
 			if _, ok := check[field]; ok {
-				return fmt.Sprintf(`check %q: %q now lives inside the "command" object, and rerun_command is called rerun_args (see docs/configuration.md)`, id, field)
-			}
-		}
-		for _, field := range retiredSemanticFields {
-			if _, ok := check[field]; ok {
-				return fmt.Sprintf(`check %q: %q now lives inside the "semantic" object (see docs/configuration.md)`, id, field)
+				return fmt.Sprintf("check %q: %s (see docs/configuration.md)", id, retiredFieldHome(kind, field))
 			}
 		}
 	}
 	return ""
+}
+
+// retiredFieldHome says where a retired top-level check field went for the
+// check's kind, or that it no longer applies.
+func retiredFieldHome(kind CheckKind, field string) string {
+	if daggerFunctions[kind] != "" {
+		if field == "cache" {
+			return `"cache" no longer applies: Dagger results are always cached; remove it`
+		}
+		return fmt.Sprintf("%q does not apply to Dagger checks; remove it", field)
+	}
+	if kind == CheckSemanticLint {
+		if field == "env" {
+			return `"env" is no longer accepted on a semantic-lint check; declare variables in the environment's "env"`
+		}
+		return fmt.Sprintf(`%q now lives inside the "semantic" object`, field)
+	}
+	if field == "rerun_command" {
+		return `"rerun_command" is now "rerun_args" inside the "command" object`
+	}
+	return fmt.Sprintf(`%q now lives inside the "command" object`, field)
 }
