@@ -38,8 +38,21 @@ func TestLauncherNeedsOnlyAGoOnPath(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// A PATH holding the launcher's shell utilities and no go at all. Ordinary
+	// system directories cannot stand in for it: a CI image may install Go there.
+	bin := t.TempDir()
+	for _, tool := range []string{"bash", "dirname", "cksum", "awk", "mkdir"} {
+		installed, err := exec.LookPath(tool)
+		if err != nil {
+			t.Skipf("the launcher's %s is not installed: %v", tool, err)
+		}
+		if err := os.Symlink(installed, filepath.Join(bin, tool)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	cmd := exec.Command(filepath.Join(root, "verify"), "branch", "--dry-run")
-	cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir()}
+	cmd.Env = []string{"PATH=" + bin, "HOME=" + t.TempDir()}
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("launcher built without a Go on PATH:\n%s", out)
