@@ -70,7 +70,7 @@ Version 1 runs use explicit `rerun_checks: true` for fresh audits, regardless of
 
 ## Levenshtein's own CI
 
-The checked-in `Levenshtein self-checks` workflow verifies this repo's runner and fixtures. Its cron schedules that verification only. This section is where that CI is explained; `.github/workflows/verify.yml` points here instead of repeating it. Application repos call the shared runner from their own CI, as shown in the [consumer guide](consumer-ci.md).
+The checked-in `Levenshtein self-checks` workflow verifies this repo's runner and fixtures. Its cron schedules that verification only. This section is where that CI is explained. Application repos call the shared runner from their own CI, as shown in the [consumer guide](consumer-ci.md).
 
 ### Jobs
 
@@ -105,8 +105,6 @@ Treat warm lint wall time creeping toward warm tests as a CI performance regress
 
 - Restore `verification-v1-lint` / `verification-v1-tests` on every event, and save on every event too. A pull request run saves into its own merge-ref scope, which only reruns of that PR can restore and `main` never reads, so a fork run cannot seed `main`'s entries.
 - Lint and tests use **separate** verification keys so they cannot race one entry. The generated SDK still uses an exact key with no `restore-keys`.
-- `merge_group` is not one of the events that writes the default-branch cache scope, so its saves are invisible to `main`; the tests scope on `main` is seeded by schedule and `workflow_dispatch` runs. The other direction is open: a pull request, including one from a fork, can restore `main`'s entries. They hold verification results and generated code, never secrets.
-- Entries are small JSON records, and the SDK entry is touched on every run, so result entries do not push it out of the repository's 10 GB Actions cache budget.
 - Scheduled `main` keeps `rerun_checks: true`; `go-vuln` always re-executes.
 
 ### Caches and self-config notes
