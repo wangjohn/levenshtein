@@ -174,12 +174,13 @@ func parseFindings(exitCode int, stdout, stderr string, checks []string) ([]diag
 var expectedBadCodes = []string{
 	"SA5001", "SA5003", "SA9001", "S1002", "ST1005", "QF1011", "U1000",
 	"bodyclose", "sqlclosecheck", "rowserrcheck", "noctx", "contextcheck",
-	"errcheck", "exhaustive", "nilness", "unusedwrite", "errorlint", "nilerr", "durationcheck", "reassign", "wastedassign", "musttag", "recvcheck",
+	"errcheck", "exhaustive", "nilness", "unusedwrite", "errorlint", "nilerr", "durationcheck", "reassign", "wastedassign", "musttag", "recvcheck", "nilnesserr", "fatcontext",
 	"appendAssign", "argOrder", "badCall", "badCond", "badRegexp", "codegenComment", "deprecatedComment", "dupArg", "dupBranchBody", "dupCase", "exitAfterDefer", "filepathJoin", "flagDeref", "flagName", "mapKey", "offBy1",
+	"bidichk", "gocheckcompilerdirectives",
 	"unparam",
-	"intrange", "usestdlibvars", "perfsprint", "predeclared", "errname",
+	"intrange", "usestdlibvars", "perfsprint", "predeclared", "errname", "exptostd",
 	"minmax", "mapsloop", "slicescontains", "stringscutprefix", "stringsseq",
-	"thelper", "tparallel", "testifylint",
+	"thelper", "tparallel", "testifylint", "usetesting",
 	"LV1001", "LV1002", "LV1003", "LV1004", "LV1005", "LV1006",
 }
 
