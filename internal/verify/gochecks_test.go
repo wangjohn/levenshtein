@@ -106,14 +106,23 @@ func TestNativeGoChecksAreCacheableWithoutCommandOptions(t *testing.T) {
 	}
 }
 
-// legacyFingerprint is the key shape before the host toolchain joined it. Every
-// kind that does not depend on the host's Go must still produce this exact key,
-// so existing cache entries survive.
-func legacyFingerprint(t *testing.T, req Request) string {
+// keyWithToolchain builds the key fingerprint would build for req, with the
+// given Toolchain field in place of the one fingerprint derives itself. Every
+// other part of the key is computed exactly as fingerprint computes it, so the
+// comparison isolates what the host toolchain contributes.
+func keyWithToolchain(t *testing.T, req Request, toolchain string) string {
 	t.Helper()
 	paths := append([]string{}, req.Target.Inputs...)
+	for _, stage := range req.stages() {
+		paths = append(paths, stage.definition.Inputs...)
+	}
 	slices.Sort(paths)
-	source, err := snapshot(req.Source, paths, outputPaths(req), false)
+	source, err := snapshot(snapshotRequest{
+		Root:      req.Source,
+		Paths:     paths,
+		Excludes:  append(outputPaths(req), req.Target.Exclude...),
+		Discovery: req.Target.Discovery,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,37 +143,44 @@ func legacyFingerprint(t *testing.T, req Request) string {
 		OS             string
 		Arch           string
 		Env            []string
-	}{req.PlannedCheck, source, impl, runtime.GOOS, runtime.GOARCH, env})
+		Toolchain      string `json:",omitempty"`
+	}{req.PlannedCheck, source, impl, runtime.GOOS, runtime.GOARCH, env, toolchain})
 }
 
+// Only a shared Go check depends on the host's Go, so only its key carries the
+// host toolchain. Any other kind's key has no toolchain field at all, and for a
+// shared Go check adding the field is what separates its key from one without.
 func TestNativeGoFingerprintIncludesTheHostToolchain(t *testing.T) {
 	command := nativeRequest(t)
 
-	// A command check's key is byte-identical to the one it had before.
+	if toolchain, err := hostToolchain(command, nativeEnv(command, nil)); err != nil || toolchain != "" {
+		t.Fatalf("a command check derived a host toolchain: %q, %v", toolchain, err)
+	}
 	key, err := fingerprint(command)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := legacyFingerprint(t, command); key != want {
-		t.Fatalf("command check key changed: %q want %q", key, want)
+	if want := keyWithToolchain(t, command, ""); key != want {
+		t.Fatalf("a command check's key carries a toolchain field: %q want %q", key, want)
 	}
 
-	// A shared Go check on the same environment must not share that key: the
-	// host's Go decides the verdict and nothing else in the key names it.
 	lint := command
 	lint.Check = Check{Kind: CheckGoLint, Target: "app", Environment: "host"}
+	identity, err := toolchainIdentity(t.Context(), lint.Source, nativeEnv(lint, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
 	lintKey, err := fingerprint(lint)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lintKey == legacyFingerprint(t, lint) {
-		t.Fatal("native go-lint key does not depend on the host toolchain")
+	if want := keyWithToolchain(t, lint, digest(identity)); lintKey != want {
+		t.Fatalf("native go-lint key is not the key with the host toolchain: %q want %q", lintKey, want)
+	}
+	if lintKey == keyWithToolchain(t, lint, "") {
+		t.Fatal("adding the host toolchain did not change the native go-lint key")
 	}
 
-	identity, err := toolchainIdentity(context.Background(), lint.Source, nativeEnv(lint, nil))
-	if err != nil {
-		t.Fatal(err)
-	}
 	if identity.Version == "" || identity.OS == "" || identity.Arch == "" {
 		t.Fatalf("incomplete toolchain identity: %+v", identity)
 	}
@@ -247,16 +263,18 @@ func TestWorkspaceMatchesWhatTheContainerImports(t *testing.T) {
 	writeTestFile(t, filepath.Join(module, "go.mod"), "module example.com/api\n")
 
 	for _, tt := range []struct {
-		name   string
-		inputs []string
-		file   string
-		want   string
+		name    string
+		inputs  []string
+		exclude []string
+		file    string
+		want    string
 	}{
 		{name: "no workspace under the source ignores one above it", inputs: []string{"."}, want: "off"},
 		{name: "an undeclared workspace is not imported", inputs: []string{"services/api"}, file: "go.work", want: "off"},
 		{name: "a declared root workspace is used", inputs: []string{"services/api", "go.work"}, file: "go.work", want: "go.work"},
 		{name: "a whole-tree input declares the workspace", inputs: []string{"."}, file: "go.work", want: "go.work"},
 		{name: "the nearest declared workspace wins", inputs: []string{"services"}, file: "services/go.work", want: "services/go.work"},
+		{name: "an excluded workspace is not imported", inputs: []string{"."}, exclude: []string{"go.work"}, file: "go.work", want: "off"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			_ = os.Remove(filepath.Join(source, "go.work"))
@@ -264,7 +282,7 @@ func TestWorkspaceMatchesWhatTheContainerImports(t *testing.T) {
 			if tt.file != "" {
 				writeTestFile(t, filepath.Join(source, filepath.FromSlash(tt.file)), "go 1.27\n")
 			}
-			req := Request{Source: source, PlannedCheck: PlannedCheck{Target: Target{Dir: "services/api", Inputs: tt.inputs}}}
+			req := Request{Source: source, PlannedCheck: PlannedCheck{Target: Target{Dir: "services/api", Inputs: tt.inputs, Exclude: tt.exclude}}}
 
 			want := tt.want
 			if want != "off" {

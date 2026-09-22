@@ -26,6 +26,7 @@ func TestDaggerSourceBoundary(t *testing.T) {
 	files := []string{
 		"services/api/main.go", "services/api/.env", "services/api/.env.example",
 		"contracts/schema.json", "go.work", "personal/sentinel.txt", "unselected.txt",
+		"services/api/generated/client.go",
 		".env.example", ".git/config", "services/api/.git/config",
 	}
 	for _, file := range files {
@@ -38,7 +39,7 @@ func TestDaggerSourceBoundary(t *testing.T) {
 		}
 	}
 
-	directory, err := daggerSource(client, source, []string{"services/api", "contracts", "go.work", "optional.go"})
+	directory, err := daggerSource(client, source, []string{"services/api", "contracts", "go.work", "optional.go"}, []string{"services/api/generated"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +53,7 @@ func TestDaggerSourceBoundary(t *testing.T) {
 			t.Errorf("declared input %s was not imported: %v", file, err)
 		}
 	}
-	for _, file := range []string{"personal", "unselected.txt", "services/api/.env", ".env.example", ".git", "services/api/.git"} {
+	for _, file := range []string{"personal", "unselected.txt", "services/api/.env", ".env.example", ".git", "services/api/.git", "services/api/generated"} {
 		if _, err := os.Lstat(filepath.Join(exported, file)); !os.IsNotExist(err) {
 			t.Errorf("excluded path %s entered the Dagger source: %v", file, err)
 		}

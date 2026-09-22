@@ -76,7 +76,7 @@ func (d *Dagger) execute(ctx context.Context, req Request) error {
 
 	query := d.client.QueryBuilder().Select("levenshtein").Select(function).Arg("nonce", nonce)
 	if req.Check.Kind != CheckSelfTest {
-		source, err := daggerSource(d.client, req.Source, req.Target.Inputs)
+		source, err := daggerSource(d.client, req.Source, req.Target.Inputs, req.Target.Exclude)
 		if err != nil {
 			return err
 		}

@@ -72,10 +72,10 @@ func validateSharedGoCheck(check Check, _ Environment) error {
 }
 
 // workspace is the GOWORK value that makes the host resolve modules the way
-// the container does. The Dagger path imports only declared inputs, so Go
-// inside it finds a go.work only between the target directory and the source
-// root, and only when an input covers it; it can never see one above the
-// source. Natively, Go would otherwise keep searching past the source root.
+// the container does. The Dagger path imports only declared inputs less the
+// target's excludes, so Go inside it finds a go.work only between the target
+// directory and the source root, and only when an input covers it and no
+// exclude drops it; it can never see one above the source. Natively, Go would otherwise keep searching past the source root.
 func workspace(req Request, dir string) string {
 	for current := dir; ; current = filepath.Dir(current) {
 		rel, err := filepath.Rel(req.Source, current)
@@ -85,7 +85,8 @@ func workspace(req Request, dir string) string {
 
 		candidate := filepath.Join(current, "go.work")
 		info, err := os.Stat(candidate)
-		if err == nil && info.Mode().IsRegular() && declared(req.Target.Inputs, filepath.Join(rel, "go.work")) {
+		work := filepath.Join(rel, "go.work")
+		if err == nil && info.Mode().IsRegular() && declared(req.Target.Inputs, work) && !excluded(work, req.Target.Exclude) {
 			return candidate
 		}
 		if rel == "." {

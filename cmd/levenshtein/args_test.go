@@ -23,6 +23,8 @@ func TestParseArgs(t *testing.T) {
 		{name: "override launcher defaults", args: []string{"--source", "/launcher", "--shared", "/launcher", "custom-run", "--source=/app", "--shared=/tools"}, want: options{source: "/app", shared: "/tools", name: "custom-run"}},
 		{name: "explicit false", args: []string{"--dry-run", "branch", "--dry-run=false"}, want: options{source: defaults.source, shared: defaults.shared, name: "branch"}},
 		{name: "terminator", args: []string{"--", "--custom-run"}, want: options{source: defaults.source, shared: defaults.shared, name: "--custom-run"}},
+		{name: "jobs", args: []string{"branch", "--jobs", "8"}, want: options{source: defaults.source, shared: defaults.shared, name: "branch", jobs: 8}},
+		{name: "negative jobs", args: []string{"--jobs=-1"}, wantErr: "--jobs cannot be negative"},
 		{name: "multiple runs", args: []string{"branch", "main"}, wantErr: "expected at most one run"},
 		{name: "unknown flag", args: []string{"branch", "--unknown"}, wantErr: "unknown flag"},
 		{name: "missing source", args: []string{"branch", "--source"}, wantErr: "needs an argument"},
@@ -54,7 +56,7 @@ func TestHelp(t *testing.T) {
 		if !errors.Is(err, pflag.ErrHelp) {
 			t.Fatalf("help error = %v", err)
 		}
-		for _, text := range []string{"Usage: verify", "--source", "--shared", "--dry-run", "--help", "--cache-dir"} {
+		for _, text := range []string{"Usage: verify", "--source", "--shared", "--dry-run", "--help", "--cache-dir", "--jobs"} {
 			if !strings.Contains(output.String(), text) {
 				t.Errorf("help missing %q: %s", text, &output)
 			}
