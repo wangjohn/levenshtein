@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "targets": {
+    "app": {"dir": ".", "inputs": ["go.mod", "greeting.go", "broken.go"]}
+  },
+  "environments": {"host": {"executor": "native"}},
+  "checks": {
+    "lint": {"kind": "go-lint", "target": "app", "environment": "host"},
+    "vet": {"kind": "go-vet", "target": "app", "environment": "host"}
+  },
+  "runs": {
+    "branch": {"checks": ["lint"]},
+    "pre-merge": {"checks": ["lint", "vet"]},
+    "main": {"checks": ["lint", "vet"], "rerun_checks": true}
+  }
+}

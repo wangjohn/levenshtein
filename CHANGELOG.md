@@ -4,12 +4,15 @@ All notable changes to this project are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project intends to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-Nothing has been released yet: consumers pin a reviewed commit or build an
-archive from one, as described in [docs/releases.md](docs/releases.md).
+Consumers pin a release tag, or its commit SHA, as described in
+[docs/releases.md](docs/releases.md).
 
 ## [Unreleased]
 
-Everything merged into `main` so far, grouped by what it gave a consumer.
+## [0.1.0] - 2026-09-22
+
+The first release: everything merged into `main` so far, grouped by what it
+gave a consumer.
 
 ### Added
 
@@ -37,9 +40,30 @@ Everything merged into `main` so far, grouped by what it gave a consumer.
   bounded questions about a change and records every judgment (#12).
 - Repository baseline: license, contributing guide, security policy, and
   Dependabot (#13).
+- Multi-target checks: one declaration with `targets` expands to a planned
+  check per target (#27).
+- Native execution of `go-lint`, `go-vet`, `workflow-lint`, and `go-vuln` on
+  the host Go, with no container runtime (#31).
+- A GitHub Action at the repository root, `uses: wangjohn/levenshtein@v0.1.0`,
+  that picks a run from the event, sets up the pinned Go, and caches helper
+  builds, analysis, and results across workers.
+- Tagged releases: a `vX.Y.Z` tag publishes platform archives with checksums,
+  SBOMs, and build provenance (#30).
+- House rule LV1006 reports tests that cannot fail, including tests skipped
+  unconditionally (#35).
+- `go-mutation`: diff-scoped mutation testing with pinned gremlins, failing when
+  a covered mutant survives, with an accepted-survivors file for known
+  exceptions (#37).
 
 ### Changed
 
+- `go-lint` enforces the whole pinned Staticcheck release minus six naming and
+  documentation style rules, nineteen curated upstream analyzers, five
+  `modernize` analyzers, and house rules LV1003 through LV1005 (#29, #33).
+- The `./verify` launcher accepts any host Go and provisions the pinned
+  toolchain itself (#27).
+- Fingerprinting hashes each file once per process, persists a stat cache
+  between runs, and discovers inputs from the Git work tree by default (#28).
 - Split `Check` into per-kind option objects and routed native kinds through
   one registry, so a check carries only the options its kind accepts (#17,
   #19, #25).
@@ -49,6 +73,8 @@ Everything merged into `main` so far, grouped by what it gave a consumer.
 - Split CI into `lint` and `tests` jobs with per-job result caches, prefix
   restore keys, composite actions for the Dagger CLI and generated SDK, and
   single-sourced pins (#11, #18, #26).
+- Added formatting, module tidiness and checksum, Python lint, and coverage
+  gates to CI, and an Actions security scan workflow (#30).
 
 ### Security
 
@@ -58,4 +84,5 @@ Everything merged into `main` so far, grouped by what it gave a consumer.
 - Pinned the Dagger wrapper's logging dependencies through a patched SDK
   generator so GO-2026-4985 stays fixed across regeneration (#8).
 
-[Unreleased]: https://github.com/wangjohn/levenshtein/commits/main
+[Unreleased]: https://github.com/wangjohn/levenshtein/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/wangjohn/levenshtein/releases/tag/v0.1.0
