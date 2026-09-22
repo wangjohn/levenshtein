@@ -20,7 +20,9 @@ LV1001 LV1002 LV1003 LV1004 LV1005'
 (cd "$root/runner/testdata/good" && "$temporary/lint" -checks="$checks" ./...)
 (cd "$root/runner/testdata/vendored" && "$temporary/lint" -checks="$checks" ./...)
 (cd "$root/runner/testdata/embedded" && "$temporary/lint" -checks="$checks" ./...)
+# scripts/test-release lints this fixture with the defaults, so it has to pass both.
 (cd "$root/runner/testdata/resources-good" && "$temporary/lint" -checks=bodyclose,sqlclosecheck ./...)
+(cd "$root/runner/testdata/resources-good" && "$temporary/lint" -checks="$checks" ./...)
 
 expect_failure() {
   local fixture=$1 codes=$2
