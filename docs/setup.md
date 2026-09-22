@@ -82,6 +82,7 @@ The checked-in `Levenshtein self-checks` workflow verifies this repo's runner an
 | `action` | The root `action.yml` as a consumer calls it, on a native fixture: one passing run and one that must fail with the planted finding |
 | `release-smoke` | `goreleaser check`, then a GoReleaser snapshot + archive test (skipped on draft PRs) |
 | `semantic-lint` | Advisory Jev review of the pull request; runs only on `pull_request` events; without the `TYPESAFE_API_KEY` secret the review step is skipped and the job passes with no findings |
+| `mutation` | [Mutation testing](mutation.md) of the Go files the pull request changed in the root module and `runner/lint`, as `./verify mutation`; runs only on `pull_request` events, with the full history so the merge base exists. `runner` is left out: its tests need a live Dagger session, which gremlins cannot give each mutant |
 
 The `tests` job also holds the repository hygiene gates, all of them before its
 Go tests: `gofmt` over every tracked Go file outside `testdata`, whose lint
@@ -123,9 +124,10 @@ provenance attestation when a `vX.Y.Z` tag is pushed; see
 Event → `./verify` mapping. `branch` and `pre-merge` run the static Go checks on the native executor; `main` and `self-test` run in Dagger. A push to `main` therefore runs no Dagger lint, and the scheduled `main` audit is the daily hermetic pass over every Go check.
 
 - Draft PR / push to `main`: `lint` runs `branch`; `tests` skips Dagger verify (lint already covered static checks).
-- Ready PR / merge queue: `lint` runs `branch`; `tests` runs `self-test` (together equivalent to former `pre-merge`).
+- Ready PR / merge queue: `lint` runs `branch`; `tests` runs `self-test` (together equivalent to `pre-merge`).
 - Daily schedule (07:23 UTC): `lint` runs `branch`; `tests` runs `main` (fresh audit + `go-vuln`).
 - Manual dispatch: `lint` runs `branch`; `tests` runs the requested run (default `self-test`, since `lint` already covers the static checks in `pre-merge`).
+- Any PR, draft or ready: `semantic-lint` runs `semantic-lint` and `mutation` runs `mutation`, each in its own run outside `pre-merge`.
 
 ### Required checks (branch protection)
 
@@ -135,6 +137,7 @@ Event → `./verify` mapping. `branch` and `pre-merge` run the static Go checks 
 | Merge / ready-for-review / merge queue / `main` | **`lint`**, **`tests`**, **`language-contracts`**, **`action`**, **`release-smoke`** |
 | Pull requests | **`dependency-review`** (fails on a high-severity dependency added by the pull request, or if the dependency graph is off) |
 | Pull requests | `semantic-lint` (advisory; not required to pass; the job passes with no findings when `TYPESAFE_API_KEY` is absent) |
+| Pull requests | `mutation` (not required to pass, like `semantic-lint`; `scripts/test-rulesets` keeps the two required together or not at all; it fails on a surviving mutant on a changed line, and exceptions go in `.levenshtein/mutation-accepted.json` or `runner/lint/.levenshtein/mutation-accepted.json`) |
 
 Do **not** make draft progress wait on `release-smoke` or full `tests`. When adopting this workflow, replace any required check named `verify` with `lint` and `tests` the same day.
 
@@ -217,7 +220,7 @@ GOTOOLCHAIN=local go test -race ./...
 ./scripts/test-consumers
 ```
 
-In this repository `./verify branch` and the per-kind runs (`go-lint`, `go-vet`, `go-mod`, `workflow-lint`, `workflow-security`) run natively and need no container runtime, only Go 1.27.1 and the generated SDK from `dagger develop`, since the `runner` module compiles against it. `pre-merge` adds `self-test`, which runs in Dagger. `./verify branch-dagger` runs the same static checks in Dagger, and `./verify main` is the full hermetic audit.
+In this repository `./verify branch` and the per-kind runs (`go-lint`, `go-vet`, `go-mod`, `workflow-lint`, `workflow-security`) run natively and need no container runtime, only Go 1.27.1 and the generated SDK from `dagger develop`, since the `runner` module compiles against it. `pre-merge` adds `self-test`, which runs in Dagger. `./verify mutation` runs mutation testing of the branch's changed Go files in Dagger, outside `pre-merge`. `./verify branch-dagger` runs the same static checks in Dagger, and `./verify main` is the full hermetic audit.
 
 The generated Go SDK needs a Dagger session, including during unit tests. The deliberately broken Go module lives under `runner/testdata`, outside ordinary test discovery. The self-test requires good code, vendored dependencies, and embedded templates to pass, bad code to emit each intended rule, broken/empty modules to fail verification, and the pinned zizmor to pass `workflow-secure` and report `workflow-insecure`'s template injection. A compiler failure cannot substitute for an expected lint finding.
 

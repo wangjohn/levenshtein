@@ -55,6 +55,13 @@ for file in "${rulesets[@]}"; do
   if [[ $missing -eq 0 ]]; then
     echo "Required checks in \"$name\" name workflow jobs"
   fi
+  # The two pull-request-only jobs that judge just the change are one policy:
+  # requiring one without the other is a drift, not a decision.
+  paired=$(jq -r '[.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context | select(. == "semantic-lint" or . == "mutation")] | length' "$file")
+  if [[ $paired -eq 1 ]]; then
+    echo "${file#"$root"/}: semantic-lint and mutation must both be required or both not" >&2
+    status=1
+  fi
 done
 if [[ $live == false || $status -ne 0 ]]; then
   exit "$status"

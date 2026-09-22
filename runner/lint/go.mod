@@ -30,6 +30,8 @@ require (
 	github.com/sashamelentyev/usestdlibvars v1.29.0
 	github.com/sonatard/noctx v0.5.1
 	github.com/timakin/bodyclose v0.0.0-20260723120731-857993a2939c
+	github.com/timonwong/loggercheck v0.12.0
+	github.com/ykadowak/zerologlint v0.1.5
 	go-simpler.org/musttag v0.14.0
 	go.augendre.info/fatcontext v0.10.1
 	golang.org/x/mod v0.41.0

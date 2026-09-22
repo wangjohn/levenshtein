@@ -189,6 +189,24 @@ func TestMutationFilesSelectsTheModulesChangedHandWrittenCode(t *testing.T) {
 	}
 }
 
+// A whole-tree input covers every path, so the target's directory is what
+// keeps another module's changes out of the selection.
+func TestMutationFilesStayInTheTargetDirectoryUnderAWholeTreeInput(t *testing.T) {
+	r := newMutationRepo(t)
+	req := mutationRequest(r.dir, nil)
+	req.Target.Inputs = []string{"."}
+
+	selection, err := mutationFiles(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"edited.go", "internal/deep.go", "untracked.go"}
+	if !slices.Equal(selection.Files, want) {
+		t.Fatalf("Files = %v, want %v (other/outside.go is outside the target)", selection.Files, want)
+	}
+}
+
 func TestMutationFilesReadsTheBaseFromGitHubWhenUnset(t *testing.T) {
 	r := newMutationRepo(t)
 	r.run(t, "branch", "release", "main")

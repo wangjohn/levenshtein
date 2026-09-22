@@ -176,6 +176,7 @@ var expectedBadCodes = []string{
 	"bodyclose", "sqlclosecheck", "rowserrcheck", "noctx", "contextcheck",
 	"errcheck", "exhaustive", "nilness", "unusedwrite", "errorlint", "nilerr", "durationcheck", "reassign", "wastedassign", "musttag", "recvcheck", "nilnesserr", "fatcontext",
 	"appendAssign", "argOrder", "badCall", "badCond", "badRegexp", "codegenComment", "deprecatedComment", "dupArg", "dupBranchBody", "dupCase", "exitAfterDefer", "filepathJoin", "flagDeref", "flagName", "mapKey", "offBy1",
+	"zerologlint", "loggercheck",
 	"bidichk", "gocheckcompilerdirectives",
 	"unparam",
 	"intrange", "usestdlibvars", "perfsprint", "predeclared", "errname", "exptostd",

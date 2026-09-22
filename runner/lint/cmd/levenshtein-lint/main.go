@@ -36,7 +36,9 @@ import (
 	usestdlibvars "github.com/sashamelentyev/usestdlibvars/pkg/analyzer"
 	"github.com/sonatard/noctx"
 	"github.com/timakin/bodyclose/passes/bodyclose"
+	"github.com/timonwong/loggercheck"
 	"github.com/wangjohn/levenshtein/runner/lint/policy"
+	"github.com/ykadowak/zerologlint"
 	"go-simpler.org/musttag"
 	fatcontext "go.augendre.info/fatcontext/pkg/analyzer"
 	"golang.org/x/mod/modfile"
@@ -203,6 +205,41 @@ func checkedNil() *analysis.Analyzer {
 	return analyzer
 }
 
+// logging analyzers report log calls that lose or garble what they were meant
+// to record.
+func logging() []*analysis.Analyzer {
+	return []*analysis.Analyzer{
+		zerologlint.Analyzer,
+		keyValues(),
+	}
+}
+
+// nilStringer is loggercheck's report of a pointer argument whose element type
+// implements fmt.Stringer.
+const nilStringer = "logging value may panic when nil because its element type implements fmt.Stringer"
+
+// keyValues runs loggercheck over logr, klog, zap's sugared logger, and go-kit
+// log. go-kit log is off upstream and on here, since an odd key-value list is
+// the same bug there. log/slog is left to go vet, whose slog check reports the
+// same mistake, so one mistake is one finding. The nil fmt.Stringer report is
+// dropped: zap, klog, logr's funcr, and fmt all recover from a String method
+// that panics on a nil receiver and print the value as nil.
+func keyValues() *analysis.Analyzer {
+	analyzer := loggercheck.NewAnalyzer(loggercheck.WithDisable([]string{"slog"}))
+	run := analyzer.Run
+	analyzer.Run = func(pass *analysis.Pass) (any, error) {
+		report := pass.Report
+		filtered := *pass
+		filtered.Report = func(diagnostic analysis.Diagnostic) {
+			if diagnostic.Message != nilStringer {
+				report(diagnostic)
+			}
+		}
+		return run(&filtered)
+	}
+	return analyzer
+}
+
 // source analyzers report text that runs differently than it reads: Unicode
 // bidirectional controls that reorder how a line displays, and //go:
 // directives that the toolchain ignores because it does not know them.
@@ -342,6 +379,7 @@ func main() {
 	command.AddBareAnalyzers(policy.Adapt(resources()...)...)
 	command.AddBareAnalyzers(policy.Adapt(correctness()...)...)
 	command.AddBareAnalyzers(policy.Adapt(critics()...)...)
+	command.AddBareAnalyzers(policy.Adapt(logging()...)...)
 	command.AddBareAnalyzers(policy.Adapt(source()...)...)
 	command.AddBareAnalyzers(policy.Adapt(signatures()...)...)
 	command.AddBareAnalyzers(policy.Adapt(hygiene()...)...)
