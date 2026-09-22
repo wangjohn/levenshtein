@@ -20,6 +20,7 @@ Every shared check kind runs the same pinned tools locally and in any CI provide
 | `nilnesserr` | Return an error already known to be nil after checking a different one, so a failure reaches the caller as success ([why](#known-bug-patterns)) |
 | `fatcontext` | Reassign a context to a child of itself in a loop or function literal, so the chain, and every lookup through it, grows with each pass ([why](#known-bug-patterns)) |
 | `appendAssign`, `argOrder`, `badCall`, `badCond`, `badRegexp`, `codegenComment`, `deprecatedComment`, `dupArg`, `dupBranchBody`, `dupCase`, `exitAfterDefer`, `filepathJoin`, `flagDeref`, `flagName`, `mapKey`, `offBy1` | go-critic's likely-bug checks that no rule above already reports ([selection](#the-go-critic-selection)) |
+| `zerologlint`, `loggercheck` | Log calls that lose what they record: a zerolog event never sent, and a key without a value for logr, klog, zap, or go-kit log ([why](#known-bug-patterns), [settings](#upstream-analyzer-settings)) |
 | `bidichk`, `gocheckcompilerdirectives` | Source that runs differently than it reads: Unicode bidirectional controls that reorder how a line displays, and `//go:` directives the toolchain silently ignores ([why](#known-bug-patterns)) |
 | `unparam` | Unexported functions with a parameter no caller needs, a parameter that always receives the same value, or a result no caller uses |
 | `intrange`, `usestdlibvars`, `perfsprint`, `predeclared`, `errname` | Modern, consistent standard-library usage |
@@ -135,7 +136,7 @@ To revisit the selection after a go-critic upgrade, run the linter test in `runn
 
 ## Known bug patterns
 
-The rest of this page holds a rule to one bar: it is on because it was measured to fire on real code, here or in the fixtures that stand in for a consumer. Six analyzers are an explicit exception. None of them found anything in Levenshtein's own modules when they were added; each is on because the pattern it reports is a known bug, not a matter of style, its false alarms are rare, and its fix is local:
+The rest of this page holds a rule to one bar: it is on because it was measured to fire on real code, here or in the fixtures that stand in for a consumer. Eight analyzers are an explicit exception. None of them found anything in Levenshtein's own modules when they were added; each is on because the pattern it reports is a known bug, not a matter of style, its false alarms are rare, and its fix is local:
 
 | Analyzer | Why it earns a failing build |
 | --- | --- |
@@ -144,12 +145,15 @@ The rest of this page holds a rule to one bar: it is on because it was measured 
 | `bidichk` | A Unicode bidirectional control character, anywhere in a file, can make code display in a different order than the compiler reads it, the "Trojan Source" attack (CVE-2021-42574). `ST1018` reports these characters in string literals only; `bidichk` also covers comments. Go source has no legitimate need for one that an escape sequence cannot serve |
 | `gocheckcompilerdirectives` | A misspelled `//go:` directive, or one written as `// go:` with a space, is an ordinary comment to the compiler and to `go generate`, so an intended `noinline`, `linkname`, `embed`, or `generate` silently does nothing |
 | `exptostd` | `golang.org/x/exp` is experimental and has already changed signatures under its callers, such as `slices.SortFunc` moving from a less function to a comparison function. The standard-library `slices`, `maps`, and `cmp` replacements keep the Go 1 compatibility promise. It reports nothing in a module that does not import x/exp |
+| `zerologlint` | A zerolog event writes nothing until `Msg`, `Msgf`, `MsgFunc`, or `Send` dispatches it, so `log.Error().Err(err)` without one compiles, runs, and drops the line, usually on the error path where it was needed. It reports nothing in a module that does not use zerolog |
+| `loggercheck` | Structured loggers take their fields as alternating keys and values in a `...any` parameter, so the compiler accepts a key with no value. The logger then records the field with a placeholder or an error in its place, and a forgotten key moves every later value under the wrong name. It reports nothing in a module that uses none of the loggers it knows |
 | `usetesting` | `os.Setenv` and `os.Chdir` in a test change process state that every later test in the package sees, and `os.MkdirTemp` and `os.CreateTemp("", ...)` leave files behind. `t.Setenv`, `t.Chdir`, and `t.TempDir` undo the change when the test ends |
 
-Two more analyzers were added on the same argument and then left out, because they cannot find their bug under this linter:
+Three more analyzers were added on the same argument and then left out, because they cannot find their bug under this linter:
 
 - `asasalint` reports a `[]any` passed as a single argument to a `...any` parameter. At v0.0.11 it recognizes the call only when both the parameter and the slice are spelled with `interface{}`: since Go 1.23 `any` is an alias type, and the check does not unwrap it, so a call that spells either one `any` is never reported (golangci-lint's build misses it the same way).
 - `makezero` reports an `append` to a slice made with a non-zero length. It tracks the slice through the parser's object resolution, which Staticcheck's loader turns off, so under this linter it never reports anything and prints a warning for every `append`.
+- `spancheck` reports an OpenTelemetry or OpenCensus span that is not ended on every path. At v0.6.5 it matches `span.End()` to the span through the same object resolution, so under this linter it reports every span, including one closed with `defer span.End()`, and it crashes on a function that starts a second span into the same variable.
 
 ## Upstream analyzer settings
 
@@ -163,6 +167,8 @@ These upstream analyzers need a word about scope or settings:
 - `usetesting` reports `os.Chdir`, `os.Setenv`, `os.MkdirTemp`, and `os.CreateTemp` with an empty directory inside a function that takes a `*testing.T`, `*testing.B`, or `testing.TB`, and `os.Chdir` only in packages whose `go` version has `t.Chdir` (1.24). `os.Setenv` is on here although upstream leaves it off, because a variable left set is the likeliest of the four to change another test's result. Its `context.Background`, `context.TODO`, and `os.TempDir` detections stay off: `t.Context()` is a better spelling, but a background context in a test changes nothing another test sees, and `os.TempDir` only names a directory.
 - `bidichk` reports all nine bidirectional control characters, its default.
 - `gocheckcompilerdirectives` checks a directive that has an argument after it, such as `//go:generate stringer` or `//go:linkname local remote`. A directive with nothing after it, such as a misspelled `//go:noinline`, is not checked.
+- `zerologlint` follows an event through branches and into a function it is passed to, one call deep. A function that returns a `*zerolog.Event` for its caller to finish is reported, because nothing dispatches the event inside it; mark such a builder with `//lint:ignore zerologlint reason`.
+- `loggercheck` checks logr, `k8s.io/klog/v2` (`InfoS`, `ErrorS`, and their variants), zap's sugared `With` and `...w` methods, and go-kit log, which is off upstream and on here because an odd key-value list is the same bug there. It skips a call that spreads a slice with `...`. `log/slog` is left to go vet's `slog` check, which reports the same missing value and a key that is not a string, so a slip in a `slog` call is one finding in `go-vet` rather than one in each check. A configuration that runs `go-lint` without `go-vet` gets no report of it. Its `requirestringkey` and `noprintflike` options stay off: a key held in a variable is fine, and a `%` in a message is not always a format verb. Its report that a nil pointer to a `fmt.Stringer` may panic is dropped: zap, klog, logr's `funcr`, and `fmt` all recover from a `String` method that panics on a nil receiver.
 - `exptostd` suggests a replacement only when the module's `go` version has it: Go 1.21 for most of `slices` and `maps`, and Go 1.23 for `maps.Keys` and `maps.Values`, which return iterators in the standard library.
 
 ## Considered and off
@@ -189,6 +195,8 @@ These analyzers were measured against this repository and left out. Counts are f
 | `nolintlint` | Staticcheck already reports a `//lint:ignore` directive that matches nothing |
 | `asasalint` | Misses its bug when the parameter or the slice is spelled with `any` ([details](#known-bug-patterns)) |
 | `makezero` | Never reports under Staticcheck's loader, and prints a warning for every `append` ([details](#known-bug-patterns)) |
+| `sloglint` | Its only bug-adjacent option, `no-mixed-args`, is a consistency rule: `slog` handles key-value pairs and attributes mixed in one call correctly. It also always suggests `slog.DiscardHandler` over a handler writing to `io.Discard`, a modernization that cannot be turned off |
+| `spancheck` | Reports every span as never ended under Staticcheck's loader, and crashes on a reused span variable ([details](#known-bug-patterns)) |
 
 ## Typed choices: LV1001
 
