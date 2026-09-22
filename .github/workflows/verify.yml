@@ -23,8 +23,11 @@ name: Levenshtein self-checks
 # of the same PR can restore it, and main never sees it, so a fork cannot seed
 # main's entries. Entries are small JSON records, and the SDK entry is touched
 # on every run, so result entries do not push it out of the 10 GB budget.
-# merge_group runs save into a scope that is deleted after the merge, so the
-# tests scope on main is seeded by schedule and workflow_dispatch runs.
+# merge_group is not one of the events that writes the default-branch cache
+# scope, so its saves are invisible to main; the tests scope on main is seeded
+# by schedule and workflow_dispatch runs. The other direction is open: a pull
+# request, including one from a fork, can restore main's entries. They hold
+# verification results and generated code, never secrets.
 #
 # Event → ./verify run mapping:
 #   Draft PR / push main     → lint: branch; tests: no Dagger verify run
@@ -141,7 +144,7 @@ jobs:
         run: |
           mapfile -t bash_scripts < <(grep -rl '^#!/usr/bin/env bash' scripts)
           test "${#bash_scripts[@]}" -gt 0
-          shellcheck "${bash_scripts[@]}"
+          shellcheck verify "${bash_scripts[@]}"
       - name: Expanded check fixtures
         run: |
           ./scripts/test-checks

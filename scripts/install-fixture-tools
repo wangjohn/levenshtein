@@ -47,7 +47,10 @@ import sys
 from pathlib import Path
 checksums = dict(line.split()[::-1] for line in Path(sys.argv[1]).read_text().splitlines() if line.strip())
 archive = Path(sys.argv[2])
-if hashlib.sha256(archive.read_bytes()).hexdigest() != checksums[archive.name]:
+expected = checksums.get(archive.name)
+if expected is None:
+    sys.exit(f"No reviewed checksum for {archive.name} in scripts/fixture-checksums.txt")
+if hashlib.sha256(archive.read_bytes()).hexdigest() != expected:
     raise SystemExit("uv archive checksum mismatch")
 PY
 tar -xzf "$temporary/$archive" -C "$temporary"

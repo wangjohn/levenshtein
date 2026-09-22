@@ -49,11 +49,16 @@ if [[ $cache_hit != true ]]; then
   cache_hit=false
 fi
 
-# go vet type-checks the module and its tests without writing a binary, so a
-# restored SDK that breaks runner/main_test.go is caught here rather than in
-# the tests job.
+# Build into a scratch directory so a passing check never leaves an executable
+# in the checkout, then compile the test files without running any test. A
+# plain compile is the whole contract: vet would turn an ordinary diagnostic,
+# including one in generated code, into a false "SDK broken" failure.
 sdk_compiles() {
-  (cd runner && go vet ./...)
+  local output status=0
+  output=$(mktemp -d)
+  (cd runner && go build -o "$output/" ./... && go test -count=1 -run '^$' ./...) || status=$?
+  rm -rf "$output"
+  return "$status"
 }
 
 # Keep the cached telemetry path present for actions/cache even when codegen
