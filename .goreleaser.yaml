@@ -22,6 +22,7 @@ archives:
       - internal/**
       - runner/main.go
       - runner/checks.go
+      - runner/mutation.go
       - runner/go.mod
       - runner/go.sum
       - runner/toolchain.json
