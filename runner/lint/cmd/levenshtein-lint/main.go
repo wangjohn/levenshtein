@@ -312,8 +312,9 @@ func unusedParams() *analysis.Analyzer {
 // header hidden. unparam skips every function in a file whose first comment
 // says it is generated, and cgo's rewrite of a hand-written file opens with
 // one ahead of the //line directive that maps it to the original. The copies
-// keep only the comments of the original, so unparam judges it instead;
-// generated files are left alone.
+// drop that first comment, so unparam judges the original's own comments
+// instead; generated files are left alone. Only the copied file's comment
+// list differs, so the shared syntax stays untouched.
 func withoutCgoHeaders(pass *analysis.Pass) []*ast.File {
 	files := make([]*ast.File, 0, len(pass.Files))
 	for _, file := range pass.Files {
@@ -324,12 +325,7 @@ func withoutCgoHeaders(pass *analysis.Pass) []*ast.File {
 		}
 
 		original := *file
-		original.Comments = nil
-		for _, group := range file.Comments {
-			if pass.Fset.Position(group.Pos()).Filename == source {
-				original.Comments = append(original.Comments, group)
-			}
-		}
+		original.Comments = file.Comments[1:]
 		files = append(files, &original)
 	}
 	return files

@@ -61,3 +61,10 @@ func TestCgoFiles(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), Fields, "cgofields")
 	analysistest.Run(t, analysistest.TestData(), Formatting, "cgoformat")
 }
+
+// A //line directive outside cgo's rewrite does not change which file is
+// generated: a generated copy that maps back to a hand-written Go file stays
+// silent, and a hand-written file that maps to a template still reports.
+func TestLineDirectives(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), Adapt(functions())[0], "linedirective")
+}
