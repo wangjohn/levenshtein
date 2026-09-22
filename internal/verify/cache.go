@@ -252,6 +252,8 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 	}
 
 	if result.Status == StatusPassed {
+		// Execution may have created files the run's memoized listing predates.
+		relist(req.Source)
 		after, err := fingerprint(req)
 		if err != nil || after != key {
 			return result.withCache(CacheInfo{Status: status, Key: key, Reason: notes(reason, "inputs changed during execution; result was not cached"), LookupMS: lookupMS})

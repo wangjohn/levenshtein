@@ -122,10 +122,13 @@ eligible check (Dagger checks, or native checks with `cache: true`), it:
 
    Which files the declared inputs cover is decided by the target's
    `discovery`. `internal/verify/discovery.go` runs
-   `git ls-files -z --cached --others --exclude-standard` once per source per
-   process and `snapshot` walks only the listed paths that fall under each
-   input; a source outside a work tree, or a `git` that fails, falls back to
-   the directory walk. The shared implementation always uses the directory
+   `git -c core.excludesFile= ls-files -z --cached --others
+   --exclude-per-directory=.gitignore` (git found through absolute `PATH`
+   entries only) once per source per process, and again after each check
+   executes, and `snapshot` walks only the listed paths that fall under each
+   input. A listed path that is a directory (a submodule's gitlink or an
+   untracked nested repository) is walked in full. A source outside a work
+   tree, or a `git` that fails, falls back to the directory walk. The shared implementation always uses the directory
    walk, so a release archive with no work tree fingerprints like a checkout.
 
    Content hashes run concurrently (`errgroup`, bounded by `GOMAXPROCS`) and go
@@ -134,8 +137,10 @@ eligible check (Dagger checks, or native checks with `cache: true`), it:
    inode, and permissions. `Cache.Flush` persists one record per root under
    `cache.Dir/stat/<digest(root)>.json` through the same checksummed envelope
    the result records use; `cmd/levenshtein/main.go` calls it as the run ends.
-   Loading drops entries whose modification time is within two seconds of the
-   record's write time, which is git's racy-index guard.
+   Each entry records when its content was read, and loading drops entries
+   whose modification time is within two seconds of that moment, which is
+   git's racy-index guard. A flush keeps entries the run used and unused
+   entries whose file still has the recorded stat, so deleted files drop out.
 2. Takes a per-key file lock (`internal/verify/lock.go`, backed by
    `gofrs/flock`) so concurrent processes do not race the same cache entry.
    Native checks take an advisory per-source workspace lock first, whether or

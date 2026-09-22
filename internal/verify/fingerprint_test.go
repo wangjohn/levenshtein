@@ -1,10 +1,13 @@
 package verify
 
 import (
+	"context"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -194,32 +197,40 @@ func TestUnreadableStatRecordIsNotFatal(t *testing.T) {
 	}
 }
 
-func gitRepository(t *testing.T) string {
+// runGit runs git in root with a throwaway HOME, so the developer's own
+// configuration cannot shape a fixture.
+func runGit(t *testing.T, root string, args ...string) {
+	t.Helper()
+	cmd := exec.CommandContext(t.Context(), "git", args...)
+	cmd.Dir = root
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()}
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
+	}
+}
+
+func requireGit(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is unavailable")
 	}
+}
+
+func gitRepository(t *testing.T) string {
+	t.Helper()
+	requireGit(t)
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	run := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", args...)
-		cmd.Dir = root
-		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()}
-		if output, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
-		}
-	}
-	run("init")
+	runGit(t, root, "init")
 	writeFile(t, filepath.Join(root, ".gitignore"), "generated/\n")
 	writeFile(t, filepath.Join(root, "tracked.go"), sourceOne)
 	writeFile(t, filepath.Join(root, "removed.go"), sourceOne)
 	writeFile(t, filepath.Join(root, "untracked.go"), sourceOne)
 	writeFile(t, filepath.Join(root, "generated", "client.go"), sourceOne)
-	run("add", ".gitignore", "tracked.go", "removed.go")
+	runGit(t, root, "add", ".gitignore", "tracked.go", "removed.go")
 	if err := os.Remove(filepath.Join(root, "removed.go")); err != nil {
 		t.Fatal(err)
 	}
@@ -227,9 +238,12 @@ func gitRepository(t *testing.T) string {
 }
 
 // Git discovery hashes what the work tree knows about: tracked and untracked
-// files, never ignored ones, and never a tracked path that is not on disk.
+// files, never ignored ones, and never a tracked path that is not on disk. A
+// submodule is listed as a single gitlink, so its contents are walked.
 func TestGitDiscoveryFollowsTheWorkTree(t *testing.T) {
 	root := gitRepository(t)
+	runGit(t, root, "update-index", "--add", "--cacheinfo", "160000,0123456789abcdef0123456789abcdef01234567,sub")
+	writeFile(t, filepath.Join(root, "sub", "lib.go"), sourceOne)
 	stats.configure(t.TempDir())
 	git := snapshotRequest{Root: root, Paths: []string{"."}, Discovery: DiscoveryGit}
 	host := snapshotRequest{Root: root, Paths: []string{"."}, Discovery: DiscoveryFilesystem}
@@ -247,8 +261,8 @@ func TestGitDiscoveryFollowsTheWorkTree(t *testing.T) {
 		t.Fatal("filesystem discovery lost the ignored file")
 	}
 
-	for _, name := range []string{"tracked.go", "untracked.go"} {
-		writeFile(t, filepath.Join(root, name), sourceTwo+sourceTwo)
+	for _, name := range []string{"tracked.go", "untracked.go", "sub/lib.go"} {
+		writeFile(t, filepath.Join(root, filepath.FromSlash(name)), sourceTwo+sourceTwo)
 		changed := mustSnapshot(t, git)
 		if changed == before {
 			t.Fatalf("editing %s did not change the fingerprint", name)
@@ -257,8 +271,8 @@ func TestGitDiscoveryFollowsTheWorkTree(t *testing.T) {
 	}
 
 	// A tracked file that is not on disk is absent rather than "missing", and no
-	// directory has an entry of its own, so the same content in a fresh clone
-	// fingerprints the same way.
+	// directory has an entry of its own except the walked submodule, so the same
+	// content in a fresh clone fingerprints the same way.
 	dir, err := os.OpenRoot(root)
 	if err != nil {
 		t.Fatal(err)
@@ -274,14 +288,14 @@ func TestGitDiscoveryFollowsTheWorkTree(t *testing.T) {
 	if err := walkListing(dir, listed, ".", git, entries, &files); err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 0 {
+	if len(entries) != 1 || entries["sub"] != "directory" {
 		t.Fatalf("git discovery recorded directories or missing paths: %v", entries)
 	}
 	hashed := map[string]bool{}
 	for _, file := range files {
 		hashed[filepath.ToSlash(file.Path)] = true
 	}
-	for _, name := range []string{".gitignore", "tracked.go", "untracked.go"} {
+	for _, name := range []string{".gitignore", "tracked.go", "untracked.go", "sub/lib.go"} {
 		if !hashed[name] {
 			t.Fatalf("%s was not enumerated: %v", name, hashed)
 		}
@@ -407,12 +421,160 @@ func TestPlanValidatesDiscoveryAndExclude(t *testing.T) {
 	}
 }
 
+// Only the repository's own .gitignore files decide what is ignored. A personal
+// excludes file, a configured core.excludesFile and .git/info/exclude would each
+// make one developer's fingerprint differ from a colleague's.
+func TestGitDiscoveryIgnoresPersonalExcludes(t *testing.T) {
+	root := gitRepository(t)
+	home := t.TempDir()
+	writeFile(t, filepath.Join(home, ".config", "git", "ignore"), "personal.go\n")
+	writeFile(t, filepath.Join(home, "excludes"), "configured.go\n")
+	writeFile(t, filepath.Join(home, ".gitconfig"), "[core]\n\texcludesFile = "+filepath.Join(home, "excludes")+"\n")
+	writeFile(t, filepath.Join(root, ".git", "info", "exclude"), "local.go\n")
+	for _, name := range []string{"personal.go", "configured.go", "local.go"} {
+		writeFile(t, filepath.Join(root, name), sourceOne)
+	}
+	t.Setenv("HOME", home)
+
+	listed, ok := gitFiles(root)
+	if !ok {
+		t.Fatal("git listing unavailable inside a work tree")
+	}
+	for _, name := range []string{"personal.go", "configured.go", "local.go"} {
+		if !slices.Contains(listed, name) {
+			t.Errorf("a personal ignore rule hid %s: %v", name, listed)
+		}
+	}
+	if slices.Contains(listed, filepath.Join("generated", "client.go")) {
+		t.Fatal("the repository's own .gitignore stopped applying")
+	}
+}
+
+// A relative PATH entry resolves inside the repository being verified, so
+// discovery must never run a git found there.
+func TestGitDiscoveryIgnoresRelativePathEntries(t *testing.T) {
+	root := gitRepository(t)
+	writeFile(t, filepath.Join(root, "evil", "git"), "#!/bin/sh\ntouch \"$PWD/pwned\"\n")
+	if err := os.Chmod(filepath.Join(root, "evil", "git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", "evil"+string(filepath.ListSeparator)+"."+string(filepath.ListSeparator)+os.Getenv("PATH"))
+
+	found, ok := hostGit()
+	if !ok || !filepath.IsAbs(found) {
+		t.Fatalf("host git = %q, %v", found, ok)
+	}
+	if _, ok := gitFiles(root); !ok {
+		t.Fatal("git listing unavailable inside a work tree")
+	}
+	if _, err := os.Stat(filepath.Join(root, "pwned")); !os.IsNotExist(err) {
+		t.Fatalf("discovery ran the repository's own git: %v", err)
+	}
+}
+
+// The listing is memoized per run, but a check can create inputs. The
+// post-execution fingerprint must see them, so the result is not cached under
+// a key that predates them.
+func TestFilesCreatedByACheckAreSeenAfterExecution(t *testing.T) {
+	requireGit(t)
+	req := cacheRequest(t)
+	runGit(t, req.Source, "init")
+	req.Target.Inputs = []string{"."}
+	req.Target.Discovery = DiscoveryGit
+	executor := &countingExecutor{status: StatusPassed, artifact: "created.go"}
+	runner := CachedExecutor{Cache: &Cache{Dir: t.TempDir()}, Executor: executor}
+
+	result := runner.Execute(context.Background(), req)
+	if result.Status != StatusPassed || !strings.Contains(result.Cache.Reason, "inputs changed during execution") {
+		t.Fatalf("a result was cached under a key that predates the file its check created: %+v", result.Cache)
+	}
+}
+
+// The racy window is measured from when the content was read, not from when
+// the record was written: a hash taken in the same tick as a write stays
+// untrusted however long the process ran before flushing it.
+func TestPersistedEntryHashedWhileRacyIsDistrusted(t *testing.T) {
+	cacheDir := t.TempDir()
+	root := t.TempDir()
+	path := filepath.Join(root, "input.go")
+	old := time.Now().Add(-time.Hour)
+	writeFile(t, path, sourceTwo)
+	setModTime(t, path, old)
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := snapshotRequest{Root: root, Paths: []string{"."}, Discovery: DiscoveryFilesystem}
+	stats.configure(t.TempDir())
+	want := mustSnapshot(t, req)
+	stale := fmt.Sprintf("%o:%x", info.Mode().Perm(), sha256.Sum256([]byte(sourceOne)))
+
+	for _, tt := range []struct {
+		name     string
+		hashedAt time.Time
+		trusted  bool
+	}{
+		{name: "hashed in the modification tick", hashedAt: old.Add(time.Second)},
+		{name: "hashed after the file settled", hashedAt: old.Add(time.Minute), trusted: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			entry := statEntry{Stat: statOf(info), Value: stale, HashedAt: tt.hashedAt.UnixNano()}
+			record := statRecord{Root: root, Entries: map[string]statEntry{"input.go": entry}}
+			if err := writeRecord(filepath.Join(cacheDir, "stat", digest(root)+".json"), record); err != nil {
+				t.Fatal(err)
+			}
+
+			restart(t, cacheDir)
+			if got := mustSnapshot(t, req); (got != want) != tt.trusted {
+				t.Fatalf("trusted = %v, want %v", got != want, tt.trusted)
+			}
+		})
+	}
+}
+
+// A flush keeps what the next run can use and nothing else: entries this run
+// saw, and unseen entries whose file still has the recorded stat. An entry for
+// a deleted file is dropped.
+func TestFlushPrunesEntriesForGoneFiles(t *testing.T) {
+	cacheDir := t.TempDir()
+	root := t.TempDir()
+	old := time.Now().Add(-time.Hour)
+	for _, name := range []string{"keep.go", "other.go", "gone.go"} {
+		writeFile(t, filepath.Join(root, name), sourceOne)
+		setModTime(t, filepath.Join(root, name), old)
+	}
+	stats.configure(cacheDir)
+	mustSnapshot(t, snapshotRequest{Root: root, Paths: []string{"."}, Discovery: DiscoveryFilesystem})
+	if err := (&Cache{Dir: cacheDir}).Flush(); err != nil {
+		t.Fatal(err)
+	}
+
+	restart(t, cacheDir)
+	if err := os.Remove(filepath.Join(root, "gone.go")); err != nil {
+		t.Fatal(err)
+	}
+	mustSnapshot(t, snapshotRequest{Root: root, Paths: []string{"keep.go"}, Discovery: DiscoveryFilesystem})
+	if err := (&Cache{Dir: cacheDir}).Flush(); err != nil {
+		t.Fatal(err)
+	}
+
+	var record statRecord
+	if err := readRecord(filepath.Join(cacheDir, "stat", digest(root)+".json"), &record); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]bool{"keep.go": true, "other.go": true, "gone.go": false} {
+		if _, ok := record.Entries[name]; ok != want {
+			t.Errorf("%s persisted = %v, want %v", name, ok, want)
+		}
+	}
+}
+
 // benchmarkTree is a synthetic repository large enough for the per-file cost to
 // dominate: 5,000 small Go files spread over 50 directories.
 func benchmarkTree(b *testing.B) string {
 	b.Helper()
 	root := b.TempDir()
-	for i := 0; i < 5000; i++ {
+	for i := range 5000 {
 		path := filepath.Join(root, fmt.Sprintf("pkg%02d", i%50), fmt.Sprintf("file%04d.go", i))
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 			b.Fatal(err)

@@ -17,9 +17,9 @@ import (
 // work tree already knows which files belong to the repository, so ask it once
 // per run instead.
 //
-// The trade-off this records: a file git ignores is not part of the fingerprint,
-// so a target whose real inputs are generated and gitignored must declare
-// "discovery": "filesystem".
+// The trade-off this records: a file the repository's .gitignore files ignore
+// is not part of the fingerprint, so a target whose real inputs are generated
+// and gitignored must declare "discovery": "filesystem".
 type gitListing struct {
 	// files are source-relative paths, sorted, of everything git tracks or would
 	// add. Nil means the listing is unusable and callers walk the filesystem.
@@ -50,6 +50,13 @@ func gitFiles(source string) ([]string, bool) {
 	return found.files, found.files != nil
 }
 
+// relist drops source's memoized listing so the next snapshot asks git again.
+// A check can create files, and a result must not be cached under a key that
+// could not see them.
+func relist(source string) {
+	gitListings.Delete(source)
+}
+
 // discoveryNote explains why a git-discovery target fell back to a filesystem
 // walk, for the result's cache Reason. It is empty in the ordinary cases.
 func discoveryNote(source string, mode DiscoveryKind) string {
@@ -59,10 +66,32 @@ func discoveryNote(source string, mode DiscoveryKind) string {
 	return listing(source).note
 }
 
+// hostGit finds git on the process PATH, considering absolute entries only. A
+// relative entry such as "." would resolve inside the repository being
+// verified, and discovery must never run a git that repository ships.
+func hostGit() (string, bool) {
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if !filepath.IsAbs(dir) {
+			continue
+		}
+		candidate := filepath.Join(dir, "git")
+		info, err := os.Stat(candidate)
+		if err == nil && info.Mode().IsRegular() && info.Mode()&0111 != 0 {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
 // listGit runs git itself: the index and the ignore rules are git's, and
 // reimplementing them would disagree with the repository in exactly the cases
 // that matter. The child gets PATH and HOME only, so committed configuration
-// cannot choose which git runs or how it resolves ignores.
+// cannot choose which git runs.
+//
+// Only the repository's own .gitignore files apply. The standard exclusions
+// would also honour the developer's core.excludesFile and .git/info/exclude, so
+// an untracked input one person ignores privately would leave their fingerprint
+// and not a colleague's; core.excludesFile is also cleared explicitly.
 func listGit(source string) *gitListing {
 	env := []string{}
 	for _, name := range []string{"PATH", "HOME"} {
@@ -70,14 +99,14 @@ func listGit(source string) *gitListing {
 			env = append(env, name+"="+value)
 		}
 	}
-	path, err := executable(source, env, "git")
-	if err != nil {
+	path, ok := hostGit()
+	if !ok {
 		return &gitListing{}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, path, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+	cmd := exec.CommandContext(ctx, path, "-c", "core.excludesFile=", "ls-files", "-z", "--cached", "--others", "--exclude-per-directory=.gitignore")
 	cmd.Dir = source
 	cmd.Env = env
 	var stdout, stderr bytes.Buffer
@@ -91,7 +120,9 @@ func listGit(source string) *gitListing {
 
 	var files []string
 	for _, name := range strings.Split(stdout.String(), "\x00") {
-		path := filepath.FromSlash(name)
+		// An untracked nested repository is listed as its directory with a
+		// trailing slash; keep it so the snapshot walks into it.
+		path := filepath.FromSlash(strings.TrimSuffix(name, "/"))
 		if name == "" || !relative(path) {
 			continue
 		}

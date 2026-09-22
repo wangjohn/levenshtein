@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -176,7 +177,16 @@ func walkListing(dir *os.Root, listed []string, path string, req snapshotRequest
 		if err != nil {
 			return err
 		}
-		if err := record(dir, req, rel, info, entries, files); err != nil {
+
+		// The listing names files, so a directory here is a submodule's gitlink or
+		// an untracked nested repository, whose contents git does not list. Walk
+		// it, or edits inside it would never change the fingerprint.
+		if info.IsDir() {
+			err = walkTree(dir, rel, req, entries, files)
+		} else {
+			err = record(dir, req, rel, info, entries, files)
+		}
+		if err != nil {
 			return err
 		}
 	}
@@ -229,6 +239,9 @@ func fileEntry(root string, dir *os.Root, file hashTarget) (string, error) {
 		return value, nil
 	}
 
+	// The read starts now. A write in the same timestamp tick as this moment is
+	// what the persisted cache's racy window guards against.
+	hashedAt := time.Now()
 	f, err := dir.Open(file.Path)
 	if err != nil {
 		return "", err
@@ -244,7 +257,7 @@ func fileEntry(root string, dir *os.Root, file hashTarget) (string, error) {
 	}
 
 	value := fmt.Sprintf("%o:%x", file.Info.Mode().Perm(), h.Sum(nil))
-	stats.store(key, current, value)
+	stats.store(key, current, value, hashedAt)
 	return value, nil
 }
 
