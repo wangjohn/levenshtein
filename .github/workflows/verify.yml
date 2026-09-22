@@ -100,10 +100,11 @@ jobs:
             runner/go.sum
             runner/lint/go.sum
             runner/tools/go.sum
-      # testdata holds lint fixtures, some deliberately unformatted (LV1005).
+      # testdata holds lint fixtures, some deliberately unformatted; LV1005
+      # already enforces formatting on the checked modules through go-lint.
       - name: Go formatting
         run: |
-          mapfile -t sources < <(git ls-files '*.go' ':(exclude,glob)**/testdata/**')
+          mapfile -t sources < <(git ls-files '*.go' ':!*/testdata/*')
           unformatted=$(gofmt -l "${sources[@]}")
           if [[ -n $unformatted ]]; then
             echo "gofmt would rewrite:" >&2
@@ -148,6 +149,8 @@ jobs:
           name: coverage-root-${{ github.run_id }}
           path: coverage.out
           retention-days: 7
+          # A re-run of the same run replaces its profile instead of failing.
+          overwrite: true
       - name: Go policy analyzer tests
         working-directory: runner/lint
         env:

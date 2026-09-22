@@ -6,7 +6,8 @@ pre-commit:
   jobs:
     - name: gofmt
       glob: '*.go'
-      # Lint fixtures, some deliberately unformatted.
+      # testdata holds lint fixtures, some deliberately unformatted; LV1005
+      # already enforces formatting on the checked modules through go-lint.
       exclude:
         - '**/testdata/**'
       run: |

@@ -46,13 +46,13 @@ jobs:
   scorecard:
     # Scorecard reads branch protection and the published history of the
     # default branch, so it runs on main and on the weekly schedule rather
-    # than on a pull request's merge ref.
+    # than on a pull request's merge ref. Results go to code scanning only;
+    # publishing to the public Scorecard API would also need id-token: write.
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
-      id-token: write
       security-events: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

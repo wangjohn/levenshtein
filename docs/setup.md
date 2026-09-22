@@ -99,7 +99,8 @@ requests, failing on high severity. `dependency-review` needs the repository's
 **Dependency graph**, which is a repository setting (Settings → Code security)
 and not something a workflow can enable. The job checks for it first: without
 it the review is skipped with a note in the job summary, and with it the review
-is a real gate. This repository has it turned off today.
+is a real gate. This repository has it turned off today, so dependency review
+is a no-op until an admin enables the dependency graph.
 
 `release.yml` publishes the archives, their SBOMs, `checksums.txt`, and a build
 provenance attestation when a `vX.Y.Z` tag is pushed; see
