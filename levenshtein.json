@@ -9,8 +9,7 @@
     "runner": {
       "dir": "runner",
       "workspace": ".",
-      "inputs": ["runner"],
-      "discovery": "filesystem"
+      "inputs": ["runner"]
     },
     "lint": {
       "dir": "runner/lint",
