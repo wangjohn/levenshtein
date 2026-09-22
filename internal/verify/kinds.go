@@ -45,6 +45,11 @@ var nativeKinds = map[CheckKind]nativeKind{
 		rerunReady: alwaysReady,
 		execute:    goCheckExecutor((*Native).goVet, "shared check failed"),
 	},
+	CheckGoMod: {
+		validate:   validateSharedGoCheck,
+		rerunReady: alwaysReady,
+		execute:    goCheckExecutor((*Native).goMod, "shared check failed"),
+	},
 	CheckGoVuln: {
 		validate:   validateSharedGoCheck,
 		rerunReady: alwaysReady,
@@ -59,13 +64,22 @@ var nativeKinds = map[CheckKind]nativeKind{
 
 // sharedGoChecks are the kinds either executor can run. Their results are
 // cacheable by kind, the way a Dagger check's are, because they carry no
-// command object to opt in with; go-vuln is still never cached, whichever
-// executor runs it.
+// command object to opt in with; the alwaysFresh kinds are still never cached,
+// whichever executor runs them.
 var sharedGoChecks = map[CheckKind]bool{
 	CheckGoLint:       true,
 	CheckGoVet:        true,
+	CheckGoMod:        true,
 	CheckGoVuln:       true,
 	CheckWorkflowLint: true,
+}
+
+// alwaysFresh names the kinds whose verdict depends on state no input
+// fingerprint covers, with the reason the report gives for not reusing it.
+// Their results are never cached and every Dagger execution gets a nonce.
+var alwaysFresh = map[CheckKind]string{
+	CheckGoVuln: "vulnerability scans always query current advisory data",
+	CheckGoMod:  "go mod verify always checks the current module cache",
 }
 
 // A kind that always executes verification needs nothing declared for a fresh

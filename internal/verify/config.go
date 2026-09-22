@@ -193,14 +193,14 @@ const defaultEnvironment = "go"
 // receives: every shared Dagger check over the whole source tree, the branch
 // and pre-merge gates, a fresh main run, and one named run per check.
 func defaultConfig() Config {
-	lint, vet, vuln := string(CheckGoLint), string(CheckGoVet), string(CheckGoVuln)
+	lint, vet, mod, vuln := string(CheckGoLint), string(CheckGoVet), string(CheckGoMod), string(CheckGoVuln)
 	checks := map[string]Check{}
 	runs := map[string]Run{
-		"branch":    {Checks: []string{lint, vet}},
-		"pre-merge": {Checks: []string{lint, vet}},
-		"main":      {Checks: []string{lint, vet, vuln}, RerunChecks: true},
+		"branch":    {Checks: []string{lint, vet, mod}},
+		"pre-merge": {Checks: []string{lint, vet, mod}},
+		"main":      {Checks: []string{lint, vet, mod, vuln}, RerunChecks: true},
 	}
-	for _, kind := range []CheckKind{CheckGoLint, CheckGoVet, CheckGoHTTP, CheckGoSQL, CheckGoVuln, CheckWorkflowLint} {
+	for _, kind := range []CheckKind{CheckGoLint, CheckGoVet, CheckGoMod, CheckGoHTTP, CheckGoSQL, CheckGoVuln, CheckWorkflowLint} {
 		checks[string(kind)] = Check{Kind: kind, Target: defaultTarget, Environment: defaultEnvironment}
 		runs[string(kind)] = Run{Checks: []string{string(kind)}}
 	}

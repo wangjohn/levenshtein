@@ -152,7 +152,7 @@ func TestDecideMutationFlagsStaleEntriesOnlyForMutatedFiles(t *testing.T) {
 	}
 }
 
-func TestDecideMutationTimeoutMakesTheRunIncomplete(t *testing.T) {
+func TestDecideMutationCountsATimeoutAsCaught(t *testing.T) {
 	in := mutationInput{Module: ".", Files: []string{"clamp.go"}, Sources: sources(t, "weak", "clamp.go")}
 
 	verdict, err := decideMutation(reported(report(t, "timedout")), in)
@@ -160,11 +160,137 @@ func TestDecideMutationTimeoutMakesTheRunIncomplete(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !verdict.Incomplete || verdict.Summary.TimedOut != 1 {
-		t.Fatalf("a timed-out mutant must make the run incomplete: %+v", verdict)
+	// A mutation that makes the code hang is one the tests noticed.
+	if verdict.Incomplete || verdict.Summary.TimedOut != 1 || len(verdict.Summary.TimedOutMutants) != 1 {
+		t.Fatalf("a timeout next to killed mutants is caught, not incomplete: %+v", verdict)
 	}
-	if got := codes(verdict.Findings); !slices.Equal(got, []string{"go-mutation", "go-mutation", "go-mutation-timeout"}) {
-		t.Errorf("findings = %v, want both survivors and the timeout", got)
+	if got := codes(verdict.Findings); !slices.Equal(got, []string{"go-mutation", "go-mutation"}) {
+		t.Errorf("findings = %v, want only the two survivors", got)
+	}
+}
+
+func TestDecideMutationIsIncompleteOnlyWhenEveryCoveredMutantTimedOut(t *testing.T) {
+	weak := report(t, "weak")
+	in := mutationInput{Module: ".", Files: []string{"clamp.go"}, Sources: sources(t, "weak", "clamp.go")}
+	// weak.json: KILLED and LIVED CONDITIONALS_NEGATION/BOUNDARY on lines 5 and 8.
+	for _, tc := range []struct {
+		name       string
+		body       string
+		incomplete bool
+		codes      []string
+	}{
+		{
+			name:       "all four covered mutants timed out",
+			body:       strings.NewReplacer(`"KILLED"`, `"TIMED OUT"`, `"LIVED"`, `"TIMED OUT"`).Replace(weak),
+			incomplete: true,
+			codes:      []string{"go-mutation-timeout", "go-mutation-timeout", "go-mutation-timeout", "go-mutation-timeout"},
+		},
+		{
+			// The review's case: a deliberate hang next to a survivor, nothing
+			// killed. The survivor is a normal finding, fixable with a test.
+			name:  "hangs next to survivors",
+			body:  strings.ReplaceAll(weak, `"KILLED"`, `"TIMED OUT"`),
+			codes: []string{"go-mutation", "go-mutation"},
+		},
+		{
+			// Two deterministic hangs are the change's result, not a broken
+			// machine, so the run passes rather than staying incomplete forever.
+			name: "too few timeouts to blame the machine",
+			body: strings.NewReplacer(`"KILLED"`, `"TIMED OUT"`, `"LIVED"`, `"NOT COVERED"`).Replace(weak),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			verdict, err := decideMutation(reported(tc.body), in)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if verdict.Incomplete != tc.incomplete {
+				t.Errorf("incomplete = %v, want %v (%+v)", verdict.Incomplete, tc.incomplete, verdict.Summary)
+			}
+			if got := codes(verdict.Findings); !slices.Equal(got, tc.codes) {
+				t.Errorf("findings = %v, want %v", got, tc.codes)
+			}
+		})
+	}
+}
+
+func TestDecideMutationFailsOnlyOnChangedLines(t *testing.T) {
+	in := mutationInput{
+		Module:  ".",
+		Files:   []string{"clamp.go"},
+		Lines:   map[string][]lineRange{"clamp.go": {{Start: 4, End: 6}}},
+		Sources: sources(t, "weak", "clamp.go"),
+	}
+
+	verdict, err := decideMutation(reported(report(t, "weak")), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(verdict.Findings) != 1 || verdict.Findings[0].Location.Line != 5 {
+		t.Fatalf("only the survivor on changed line 5 fails: %+v", verdict.Findings)
+	}
+	if verdict.Summary.Lived != 1 || verdict.Summary.Unchanged != 1 || verdict.Summary.UnchangedList[0].Line != 8 {
+		t.Errorf("the line-8 survivor must be listed as unchanged: %+v", verdict.Summary)
+	}
+}
+
+func TestDecideMutationCountsEveryLineWithoutARange(t *testing.T) {
+	for name, lines := range map[string]map[string][]lineRange{
+		"module scope":   nil,
+		"untracked file": {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			in := mutationInput{Module: ".", Files: []string{"clamp.go"}, Lines: lines, Sources: sources(t, "weak", "clamp.go")}
+
+			verdict, err := decideMutation(reported(report(t, "weak")), in)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if len(verdict.Findings) != 2 || verdict.Summary.Unchanged != 0 {
+				t.Fatalf("both survivors fail when the file has no ranges: %+v", verdict)
+			}
+		})
+	}
+}
+
+func TestDecideMutationPassesADeletionOnlyChange(t *testing.T) {
+	// A file whose change only removed lines has an entry with no ranges, so
+	// every survivor in it is inherited.
+	in := mutationInput{Module: ".", Files: []string{"clamp.go"}, Lines: map[string][]lineRange{"clamp.go": {}}, Sources: sources(t, "weak", "clamp.go")}
+
+	verdict, err := decideMutation(reported(report(t, "weak")), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(verdict.Findings) != 0 || verdict.Summary.Unchanged != 2 {
+		t.Fatalf("a deletion-only change fails on nothing it did not write: %+v", verdict)
+	}
+}
+
+func TestParseLinesMatchesTheSelection(t *testing.T) {
+	lines, err := parseLines("", []string{"a.go"})
+	if err != nil || lines != nil {
+		t.Fatalf("an empty argument counts every line: %v %v", lines, err)
+	}
+	lines, err = parseLines(`{"a.go":[{"start":3,"end":4}]}`, []string{"a.go", "b.go"})
+	if err != nil || len(lines["a.go"]) != 1 || lines["a.go"][0].End != 4 {
+		t.Fatalf("valid ranges: %v %v", lines, err)
+	}
+
+	for _, raw := range []string{
+		`not json`,
+		`null`,
+		`{"c.go":[{"start":1,"end":1}]}`,
+		`{"a.go":[{"start":0,"end":1}]}`,
+		`{"a.go":[{"start":5,"end":4}]}`,
+	} {
+		if _, err := parseLines(raw, []string{"a.go"}); err == nil {
+			t.Errorf("accepted invalid lines %s", raw)
+		}
 	}
 }
 

@@ -5,21 +5,23 @@ temporary=$(mktemp -d)
 trap 'rm -rf "$temporary"' EXIT
 
 (cd "$root" && go build -o "$temporary/verify" ./cmd/levenshtein)
-for fixture in resources-good resources-bad vet-bad good bad; do
+for fixture in resources-good resources-bad vet-bad mod-tidy mod-untidy good bad; do
   mkdir -p "$temporary/$fixture"
   cp -R "$root/runner/testdata/$fixture/." "$temporary/$fixture/"
   cat > "$temporary/$fixture/levenshtein.json" <<'JSON'
-{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"},"host":{"executor":"native"}},"checks":{"http":{"kind":"go-http","target":"app","environment":"go"},"sql":{"kind":"go-sql","target":"app","environment":"go"},"vet":{"kind":"go-vet","target":"app","environment":"go"},"native-vet":{"kind":"go-vet","target":"app","environment":"host"},"native-lint":{"kind":"go-lint","target":"app","environment":"host"}},"runs":{"http":{"checks":["http"]},"sql":{"checks":["sql"]},"vet":{"checks":["vet"]},"native-vet":{"checks":["native-vet"]},"native-lint":{"checks":["native-lint"]}}}
+{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"},"host":{"executor":"native"}},"checks":{"http":{"kind":"go-http","target":"app","environment":"go"},"sql":{"kind":"go-sql","target":"app","environment":"go"},"vet":{"kind":"go-vet","target":"app","environment":"go"},"mod":{"kind":"go-mod","target":"app","environment":"go"},"native-vet":{"kind":"go-vet","target":"app","environment":"host"},"native-mod":{"kind":"go-mod","target":"app","environment":"host"},"native-lint":{"kind":"go-lint","target":"app","environment":"host"}},"runs":{"http":{"checks":["http"]},"sql":{"checks":["sql"]},"vet":{"checks":["vet"]},"mod":{"checks":["mod"]},"native-vet":{"checks":["native-vet"]},"native-mod":{"checks":["native-mod"]},"native-lint":{"checks":["native-lint"]}}}
 JSON
 done
-for check in http sql vet; do
-  "$temporary/verify" "$check" --source "$temporary/resources-good" --shared "$root" --cache-dir "$temporary/cache" > "$temporary/good.json"
+for check in http sql vet mod; do
+  clean=resources-good
   fixture=resources-bad
   case "$check" in
     http) code=bodyclose ;;
     sql) code=sqlclosecheck ;;
     vet) fixture=vet-bad; code=go-vet ;;
+    mod) clean=mod-tidy; fixture=mod-untidy; code=go-mod ;;
   esac
+  "$temporary/verify" "$check" --source "$temporary/$clean" --shared "$root" --cache-dir "$temporary/cache" > "$temporary/good.json"
   status=0
   "$temporary/verify" "$check" --source "$temporary/$fixture" --shared "$root" --cache-dir "$temporary/cache" > "$temporary/bad.json" || status=$?
   if [[ $status != 1 ]] || ! grep -q "\"code\": \"$code\"" "$temporary/bad.json"; then
@@ -30,10 +32,11 @@ for check in http sql vet; do
 done
 # The same fixtures through the native executor, which needs no container. Only
 # the kinds a native environment runs appear here.
-for check in native-lint native-vet; do
+for check in native-lint native-vet native-mod; do
   case "$check" in
     native-lint) clean=good; broken=bad; code=SA5001 ;;
     native-vet) clean=resources-good; broken=vet-bad; code=go-vet ;;
+    native-mod) clean=mod-tidy; broken=mod-untidy; code=go-mod ;;
   esac
   "$temporary/verify" "$check" --source "$temporary/$clean" --shared "$root" --cache-dir "$temporary/native-cache" > "$temporary/good.json"
   status=0
