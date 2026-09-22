@@ -2,12 +2,16 @@ version: 2
 updates:
   # Workflows and the composite actions under .github/actions. Every action is
   # SHA-pinned; Dependabot updates pinned SHAs and their version comments.
+  # Every ecosystem waits a week after a release before proposing it, so a
+  # compromised or withdrawn version is usually gone before a PR opens.
   - package-ecosystem: github-actions
     directories:
       - /
       - /.github/actions/*
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       github-actions:
         patterns:
@@ -20,6 +24,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       go-dependencies:
         patterns:
@@ -38,6 +44,8 @@ updates:
     directory: /runner/lint
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       go-dependencies:
         patterns:
@@ -50,8 +58,26 @@ updates:
     directory: /runner/tools
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       go-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  # The temporary Dagger Go SDK generator. Its Dagger pin belongs to
+  # .dagger-version, so only the generator's own dependencies update here.
+  - package-ecosystem: pip
+    directory: /sdk/patched-go
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      python-dependencies:
         patterns:
           - "*"
         update-types:

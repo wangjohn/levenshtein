@@ -6,7 +6,7 @@ Your CI checks out the application, chooses a run, and invokes a pinned Levensht
 
 ## The same command locally and in CI
 
-Use the [runtime prerequisites](setup.md#prerequisites): Go for the source launcher and a Docker-compatible runtime for Go checks. The SDK provisions the pinned Dagger CLI. Keep the application and Levenshtein in separate directories:
+Use the [runtime prerequisites](setup.md#prerequisites): any Go on `PATH` for the source launcher, which provisions the pinned toolchain itself, and a Docker-compatible runtime for Go checks. The SDK provisions the pinned Dagger CLI. Keep the application and Levenshtein in separate directories:
 
 ```text
 workspace/
@@ -53,7 +53,7 @@ For an advisory model review of each pull request, add a native environment, a `
 
 ## Example: an application using GitHub Actions
 
-Add these steps to the application's existing workflow, or start with this small workflow. Both checkouts are siblings so the shared runner's files stay outside the application source passed to verification. Pin a reviewed revision with the full SHA below, and update it deliberately as part of a reviewed change; do not use a moving branch.
+Add these steps to the application's existing workflow, or start with this small workflow. Both checkouts are siblings so the shared runner's files stay outside the application source passed to verification. Pin a reviewed revision: either the full commit SHA below or a published `vX.Y.Z` [release](releases.md) tag. Update it deliberately as part of a reviewed change; do not use a moving branch.
 
 ```yaml
 name: Application verification

@@ -32,5 +32,7 @@ archives:
       - sdk/patched-go/README.md
       - runner/lint/**
       - runner/testdata/**
+sboms:
+  - artifacts: archive
 checksum:
   name_template: checksums.txt

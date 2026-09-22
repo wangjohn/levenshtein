@@ -26,8 +26,10 @@ def exercise(language, temporary):
 
     def run(label, name="branch", success=True):
         started = time.monotonic()
+        # check=False: a failing run is one of the expectations below.
         process = subprocess.run([str(BINARY), name, "--source", str(source), "--shared", str(ROOT),
-                                  "--cache-dir", str(cache)], capture_output=True, text=True, timeout=180)
+                                  "--cache-dir", str(cache)], capture_output=True, text=True, timeout=180,
+                                 check=False)
         measurements[label] = round((time.monotonic() - started) * 1000, 1)
         require(bool(process.stdout), f"{language}/{label}: no report: {process.stderr}")
         report = json.loads(process.stdout)

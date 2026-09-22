@@ -22,7 +22,7 @@ Code preselects each item from the diff. The model answers one question per item
 
 Severity orders the report: `important`, then `minor`, then `nit`. The exact wording, criteria, and thresholds live in `internal/semantic/catalog.go` under a catalog version. Change the version when editing them so recorded judgments stay comparable. Version 0.1 also asked about test block structure, function responsibilities, and boolean parameters; a first live run showed those were style opinions with a fuzzy middle, so 0.2 dropped them.
 
-Mechanical conventions belong in analyzers, not here. Spacing, struct field layout, typed choices, and struct construction are enforced by [the shared Go lint rules](go-lint.md).
+Mechanical conventions belong in analyzers, not here. Spacing, struct field layout, typed choices, and struct construction are enforced by [the shared Go lint rules](checks.md#go-lint-rules).
 
 ## How it works
 

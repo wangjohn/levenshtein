@@ -4,7 +4,7 @@ Shared Go checks run pinned correctness, error handling, enum, resource, workflo
 
 ## Prerequisites
 
-The source launcher requires Go **1.27.1**. Go checks require a running Docker-compatible container runtime. The Go SDK downloads and checksum-verifies Dagger **0.21.9** automatically. Native commands and planning do not start Dagger.
+The source launcher needs a `go` on `PATH`, of any version: it sets `GOTOOLCHAIN` to the version in `.go-version` (**1.27.1**), so Go downloads and caches that toolchain itself when the host differs. That download needs a reachable module proxy; with `GOPROXY=off`, install Go 1.27.1 and the launcher uses it directly. Go checks require a running Docker-compatible container runtime. The Go SDK downloads and checksum-verifies Dagger **0.21.9** automatically. Native commands and planning do not start Dagger.
 
 To develop the shared Dagger module or use `dagger check` directly, install the pinned CLI with the checked-in archive checksums:
 
@@ -64,13 +64,13 @@ A single Go module at the source root works without configuration. For multiple 
 
 Use the [version 1 consumer example](consumer-ci.md#the-same-command-locally-and-in-ci) for explicit product targets, checks, and run selections. `inputs` restricts Dagger's imported source as well as its cache scope; include required manifests, local dependencies, and fixtures. Native command inputs only describe cache scope and do not restrict host access. See [source boundaries](configuration.md#source-boundaries).
 
-A configuration file replaces defaults. Paths are relative to the source root. Every selected check runs or reuses an eligible result; change-based selection is not implemented. Available shared kinds are listed in [Go lint rules](go-lint.md). Every configuration file declares `"version": 1`.
+A configuration file replaces defaults. Paths are relative to the source root. Every selected check runs or reuses an eligible result; change-based selection is not implemented. Available shared kinds are listed in [shared checks](checks.md#named-checks-and-suggested-runs). Every configuration file declares `"version": 1`.
 
 Version 1 runs use explicit `rerun_checks: true` for fresh audits, regardless of their name. Levenshtein's own `main` is configured that way. Audits bypass passing-verdict reuse while retaining compatible downloads and compiler caches. Vulnerability scans always execute against current advisory data. Add new checks explicitly to your configured full run during this pilot.
 
 ## Levenshtein's own CI
 
-The checked-in `Levenshtein self-checks` workflow verifies this repo's runner and fixtures. Its cron schedules that verification only. Application repos call the shared runner from their own CI, as shown in the [consumer guide](consumer-ci.md).
+The checked-in `Levenshtein self-checks` workflow verifies this repo's runner and fixtures. Its cron schedules that verification only. This section is where that CI is explained. Application repos call the shared runner from their own CI, as shown in the [consumer guide](consumer-ci.md).
 
 ### Jobs
 
@@ -79,8 +79,32 @@ The checked-in `Levenshtein self-checks` workflow verifies this repo's runner an
 | `lint` | Static `./verify branch` only (early signal; no host race tests or consumer regressions) |
 | `tests` | Host race/fixtures, `shellcheck`, SDK restore or regen, non-lint Dagger checks, consumer regressions |
 | `language-contracts` | Rust and Python contract fixtures |
-| `release-smoke` | GoReleaser snapshot + archive test (skipped on draft PRs) |
+| `release-smoke` | `goreleaser check`, then a GoReleaser snapshot + archive test (skipped on draft PRs) |
 | `semantic-lint` | Advisory Jev review of the pull request; runs only on `pull_request` events; without the `TYPESAFE_API_KEY` secret the review step is skipped and the job passes with no findings |
+
+The `tests` job also holds the repository hygiene gates, all of them before its
+Go tests: `gofmt` over every tracked Go file outside `testdata`, whose lint
+fixtures are deliberately unformatted; `go mod tidy -diff` and
+`go mod verify` in `.`, `runner/lint`, and `runner/tools` (not `runner`, whose
+manifest `dagger develop` rewrites), and `ruff check` over `scripts` and
+`sdk/patched-go`. The Go test step writes a coverage profile that is uploaded
+as an artifact for seven days; no threshold gates the run.
+
+`security.yml` runs beside it: `zizmor` over the workflows and composite
+actions on every pull request, push to `main`, and weekly, failing on findings
+of medium severity and above; OpenSSF Scorecard with a SARIF upload to code
+scanning on `main` and the weekly schedule, since Scorecard reads the default
+branch rather than a pull request's merge ref; and `dependency-review` on pull
+requests, failing on high severity. `dependency-review` needs the repository's
+**Dependency graph**, which is a repository setting (Settings → Code security)
+and not something a workflow can enable. The job checks for it first: without
+it the review is skipped with a note in the job summary, and with it the review
+is a real gate. This repository has it turned off today, so dependency review
+is a no-op until an admin enables the dependency graph.
+
+`release.yml` publishes the archives, their SBOMs, `checksums.txt`, and a build
+provenance attestation when a `vX.Y.Z` tag is pushed; see
+[release archives](releases.md).
 
 Event → `./verify` mapping:
 
@@ -105,6 +129,8 @@ Treat warm lint wall time creeping toward warm tests as a CI performance regress
 
 - Restore `verification-v1-lint` / `verification-v1-tests` on every event, and save on every event too. A pull request run saves into its own merge-ref scope, which only reruns of that PR can restore and `main` never reads, so a fork run cannot seed `main`'s entries.
 - Lint and tests use **separate** verification keys so they cannot race one entry. The generated SDK still uses an exact key with no `restore-keys`.
+- `merge_group` is not one of the events that writes the default-branch cache scope, so its saves are invisible to `main`; the tests scope on `main` is seeded by schedule and `workflow_dispatch` runs. The other direction is open: a pull request, including one from a fork, can restore `main`'s entries. They hold verification results and generated code, never secrets.
+- Entries are small JSON records, and the SDK entry is touched on every run, so result entries do not push it out of the repository's 10 GB Actions cache budget.
 - Scheduled `main` keeps `rerun_checks: true`; `go-vuln` always re-executes.
 
 ### Caches and self-config notes
@@ -145,9 +171,9 @@ Stable versions checked on September 15, 2026:
 | Go container | 1.27.1 on Debian Trixie | Tag and immutable image digest in `runner/toolchain.json` |
 | Dagger CLI / engine / SDK | 0.21.9 | `.dagger-version`, `dagger.json`, root `go.mod`, generated module dependencies |
 | Staticcheck | 2026.2.1 (`honnef.co/go/tools` v0.8.1) | `runner/toolchain.json` |
-| Actions checkout / setup-go / cache | 7.0.1 / 7.0.0 / 4.2.3 | Full commit hashes in the workflows |
+| Actions checkout / setup-go / cache | 7.0.1 / 7.0.0 / 6.1.0 | Full commit hashes in the workflows and composite actions |
 
-The host Go version is needed by the source launcher, runner development, and unit tests. The actual lint runs on Linux with default build tags, using the pinned container toolchain with automatic Go toolchain switching disabled. A temporary SDK adapter fixes Dagger 0.21.9’s forced logging dependency overrides for both generation and execution; see [dependency security](dependencies.md#dagger-wrapper-dependency-security). The wrapper’s Go language version must stay at or below the Go version of the codegen container (`goImage`), which Dagger’s module generator refuses to exceed; it does not restrict the Go version of repositories being checked. `go.sum` records checksums. Upgrade pins together and validate the fixtures before adoption.
+The pinned Go version builds the CLI (the launcher provisions it when the host Go differs) and is what runner development and unit tests expect. The actual lint runs on Linux with default build tags, using the pinned container toolchain with automatic Go toolchain switching disabled. A temporary SDK adapter fixes Dagger 0.21.9’s forced logging dependency overrides for both generation and execution; see [dependency security](dependencies.md#dagger-wrapper-dependency-security). The wrapper’s Go language version must stay at or below the Go version of the codegen container (`goImage`), which Dagger’s module generator refuses to exceed; it does not restrict the Go version of repositories being checked. `go.sum` records checksums. Upgrade pins together and validate the fixtures before adoption.
 
 ## Develop the shared checks
 
