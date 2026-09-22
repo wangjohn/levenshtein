@@ -145,3 +145,61 @@ func TestSourcePrefixRejectsASourceOutsideTheWorktree(t *testing.T) {
 		t.Fatalf("outside source: %v", err)
 	}
 }
+
+func TestChangedReportsTheLinesEachFileChanged(t *testing.T) {
+	r := newRepo(t)
+	r.write(t, "app/edit.go", "one\ntwo\nthree\nfour\nfive\n")
+	r.write(t, "app/trim.go", "keep\ndrop\n")
+	r.run(t, "add", ".")
+	r.run(t, "commit", "--quiet", "-m", "base")
+	r.run(t, "switch", "--quiet", "-c", "feature")
+	r.write(t, "app/edit.go", "one\nTWO\nthree\nfour\nfive\nsix\nseven\n")
+	r.write(t, "app/trim.go", "keep\n")
+	r.write(t, "app/new.go", "fresh\n")
+
+	got, err := r.runner().Changed(t.Context(), r.dir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := []Range{{Start: 2, End: 2}, {Start: 6, End: 7}}; !slices.Equal(got.Lines["app/edit.go"], want) {
+		t.Errorf("edit.go lines = %v, want %v", got.Lines["app/edit.go"], want)
+	}
+	if ranges, ok := got.Lines["app/trim.go"]; !ok || len(ranges) != 0 {
+		t.Errorf("a deletion-only change must have an entry with no lines: %v, %v", ranges, ok)
+	}
+	if _, ok := got.Lines["app/new.go"]; ok {
+		t.Errorf("an untracked file has no entry, because all of it is new: %v", got.Lines)
+	}
+}
+
+func TestChangedLinesReadsOnlyRealFileHeaders(t *testing.T) {
+	diff := strings.Join([]string{
+		"diff --git a/with space.go b/with space.go",
+		"--- a/with space.go\t",
+		"+++ b/with space.go\t",
+		"@@ -1 +1 @@",
+		"-old",
+		"+new",
+		"diff --git a/tricky.go b/tricky.go",
+		"--- a/tricky.go",
+		"+++ b/tricky.go",
+		"@@ -3,0 +4,2 @@",
+		"+++ b/not-a-header.go",
+		"+second",
+		"@@ -9 +10,0 @@",
+		"-gone",
+	}, "\n")
+
+	got := changedLines(diff)
+
+	if want := []Range{{Start: 1, End: 1}}; !slices.Equal(got["with space.go"], want) {
+		t.Errorf("tab-terminated name: %v", got)
+	}
+	if want := []Range{{Start: 4, End: 5}}; !slices.Equal(got["tricky.go"], want) {
+		t.Errorf("tricky.go = %v, want %v (a pure deletion adds no range)", got["tricky.go"], want)
+	}
+	if _, ok := got["not-a-header.go"]; ok {
+		t.Errorf("an added line beginning with ++ was read as a header: %v", got)
+	}
+}

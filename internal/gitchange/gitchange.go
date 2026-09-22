@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -74,12 +75,21 @@ func SourcePrefix(top, source string) (string, error) {
 	return filepath.ToSlash(rel) + "/", nil
 }
 
-// Paths is what a branch changed: the base it was compared with and the
-// source-relative, slash-separated paths that exist in the working tree.
+// Paths is what a branch changed: the base it was compared with, the
+// source-relative, slash-separated paths that exist in the working tree, and
+// the lines the change adds or rewrites in each diffed file. An untracked file
+// has no Lines entry, because every line of it is new.
 type Paths struct {
 	BaseRef string
 	Base    string
 	Paths   []string
+	Lines   map[string][]Range
+}
+
+// Range is an inclusive run of line numbers in the working-tree file.
+type Range struct {
+	Start int `json:"start"`
+	End   int `json:"end"`
 }
 
 // Changed lists files the working tree adds or modifies relative to the merge
@@ -110,6 +120,13 @@ func (g Runner) Changed(ctx context.Context, source, base string) (Paths, error)
 		return Paths{}, err
 	}
 
+	// Zero context makes every hunk's new side exactly the lines the change
+	// wrote. The prefixes are pinned because diff.mnemonicPrefix would change them.
+	hunks, err := g.Run(ctx, "diff", "--unified=0", "--no-color", "--no-renames", "--no-ext-diff", "--diff-filter=d", "--src-prefix=a/", "--dst-prefix=b/", mergeBase, "--")
+	if err != nil {
+		return Paths{}, err
+	}
+
 	var paths []string
 	for _, path := range slices.Concat(strings.Split(diffed, "\x00"), strings.Split(untracked, "\x00")) {
 		if rel, ok := strings.CutPrefix(path, prefix); ok && rel != "" {
@@ -117,5 +134,73 @@ func (g Runner) Changed(ctx context.Context, source, base string) (Paths, error)
 		}
 	}
 	slices.Sort(paths)
-	return Paths{BaseRef: ref, Base: mergeBase, Paths: slices.Compact(paths)}, nil
+	lines := map[string][]Range{}
+	for path, ranges := range changedLines(hunks) {
+		if rel, ok := strings.CutPrefix(path, prefix); ok && rel != "" {
+			lines[rel] = ranges
+		}
+	}
+	return Paths{BaseRef: ref, Base: mergeBase, Paths: slices.Compact(paths), Lines: lines}, nil
+}
+
+// changedLines reads the new-side range of every hunk in a zero-context diff.
+// A file whose change only deletes lines still gets an entry, with no ranges,
+// so it is not mistaken for an untracked file whose every line is new.
+func changedLines(diff string) map[string][]Range {
+	lines := map[string][]Range{}
+	path := ""
+	// File headers only follow a "diff --git" line; inside a hunk, an added line
+	// that itself begins with "++ " would otherwise read as one.
+	header := false
+	for line := range strings.SplitSeq(diff, "\n") {
+		if strings.HasPrefix(line, "diff --git ") {
+			header = true
+			path = ""
+			continue
+		}
+		if name, ok := strings.CutPrefix(line, "+++ "); ok && header {
+			header = false
+			path = ""
+			// Git ends the name with a tab when it contains a space.
+			if name, ok := strings.CutPrefix(strings.TrimSuffix(name, "\t"), "b/"); ok {
+				path = name
+				lines[path] = []Range{}
+			}
+			continue
+		}
+		hunk, ok := strings.CutPrefix(line, "@@ ")
+		if !ok || header || path == "" {
+			continue
+		}
+		fields := strings.Fields(hunk)
+		if len(fields) < 2 {
+			continue
+		}
+		start, count, ok := hunkRange(fields[1])
+		if ok && count > 0 {
+			lines[path] = append(lines[path], Range{Start: start, End: start + count - 1})
+		}
+	}
+	return lines
+}
+
+// hunkRange parses a hunk header's "+start,count" side; a missing count is one.
+func hunkRange(field string) (int, int, bool) {
+	field, ok := strings.CutPrefix(field, "+")
+	if !ok {
+		return 0, 0, false
+	}
+	startText, countText, hasCount := strings.Cut(field, ",")
+	start, err := strconv.Atoi(startText)
+	if err != nil {
+		return 0, 0, false
+	}
+	if !hasCount {
+		return start, 1, true
+	}
+	count, err := strconv.Atoi(countText)
+	if err != nil {
+		return 0, 0, false
+	}
+	return start, count, true
 }
