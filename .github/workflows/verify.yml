@@ -8,6 +8,7 @@ name: Levenshtein self-checks
 # Event → ./verify run mapping (branch runs its checks natively; main in Dagger):
 #   Draft PR / push main     → lint: branch; tests: no Dagger verify run
 #   Ready PR / merge_group   → lint: branch; tests: self-test
+#                              (ready PR also: mutation: mutation)
 #   Schedule                 → lint: branch; tests: main (fresh + go-vuln)
 #   workflow_dispatch        → lint: branch; tests: requested run (default self-test)
 
@@ -315,6 +316,49 @@ jobs:
         run: |
           ./scripts/test-consumers
           ./scripts/test-shared-checks
+
+  mutation:
+    # go-mutation over the Go files the pull request changed (docs/mutation.md).
+    # Its own job so the mutants' test time stays off the tests critical path.
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      # The full history, so the CLI can find the merge base with the base branch.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: |
+            go.sum
+            runner/go.sum
+            runner/lint/go.sum
+            runner/tools/go.sum
+      - name: Set up the pinned Dagger CLI
+        uses: ./.github/actions/setup-dagger
+      - name: Restore or generate the Dagger Go SDK
+        uses: ./.github/actions/dagger-sdk
+      - name: Mutation testing
+        env:
+          NO_COLOR: '1'
+        run: ./verify mutation > "$RUNNER_TEMP/mutation-report.json"
+      - name: Summarize mutation testing
+        if: ${{ !cancelled() }}
+        env:
+          REPORT: ${{ runner.temp }}/mutation-report.json
+        run: |
+          if [[ -s $REPORT ]]; then
+            cat "$REPORT"
+            {
+              echo '## Mutation testing'
+              echo '```'
+              jq -r '.results[] | .stdout, (select(.error != null) | "error: " + .error)' "$REPORT"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   language-contracts:
     runs-on: ubuntu-24.04

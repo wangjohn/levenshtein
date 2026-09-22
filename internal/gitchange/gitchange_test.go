@@ -136,6 +136,18 @@ func TestChangedNamesAMissingBase(t *testing.T) {
 	}
 }
 
+func TestChangedAdvisesFetchDepthInAShallowClone(t *testing.T) {
+	origin := branchedRepo(t)
+	clone := repo{dir: t.TempDir(), git: origin.git, env: origin.env}
+	clone.run(t, "clone", "--quiet", "--depth", "1", "--branch", "feature", "file://"+origin.dir, clone.dir)
+
+	_, err := clone.runner().Changed(t.Context(), clone.dir, "main")
+
+	if err == nil || !strings.Contains(err.Error(), "fetch-depth: 0") {
+		t.Fatalf("a shallow clone without the base must get fetch-depth advice: %v", err)
+	}
+}
+
 func TestSourcePrefixRejectsASourceOutsideTheWorktree(t *testing.T) {
 	top := t.TempDir()
 

@@ -19,7 +19,8 @@ func TestRepositoryRunsPlanTheSameCheckIDs(t *testing.T) {
 	dagger := []string{"go-lint/root", "go-lint/runner", "go-lint/lint", "go-vet/root", "go-vet/runner", "go-vet/lint", "workflow-lint"}
 	for name, want := range map[string][]string{
 		"branch":        native,
-		"pre-merge":     append(slices.Clone(native), "self-test"),
+		"pre-merge":     append(slices.Clone(native), "self-test", "go-mutation", "go-mutation-lint"),
+		"mutation":      {"go-mutation", "go-mutation-lint"},
 		"branch-dagger": dagger,
 		"main":          append(slices.Clone(dagger), "self-test", "go-vuln/root", "go-vuln/runner", "go-vuln/lint"),
 	} {
@@ -42,8 +43,8 @@ func TestRepositoryRunsPlanTheSameCheckIDs(t *testing.T) {
 }
 
 // Fast gates run their static checks on the host and the daily audit keeps
-// the hermetic container path. Only self-test, which exists only in Dagger,
-// may cross that line.
+// the hermetic container path. Only self-test and go-mutation, which exist only
+// in Dagger, may cross that line.
 func TestRepositoryRunsSplitExecutors(t *testing.T) {
 	cfg, err := Load("../..")
 	if err != nil {
@@ -62,7 +63,7 @@ func TestRepositoryRunsSplitExecutors(t *testing.T) {
 		}
 
 		for _, check := range plan.Checks {
-			if check.Check.Kind == CheckSelfTest {
+			if check.Check.Kind == CheckSelfTest || check.Check.Kind == CheckGoMutation {
 				continue
 			}
 			if check.Environment.Executor != want {

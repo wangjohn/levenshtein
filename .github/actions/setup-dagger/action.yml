@@ -1,8 +1,8 @@
 name: Set up the pinned Dagger CLI
 description: >-
   Restore the reviewed Dagger CLI from the Actions cache, install it from the
-  checked-in checksums on a miss, and add it to PATH. Used by the lint and tests
-  jobs in verify.yml and by vulnerabilities.yml.
+  checked-in checksums on a miss, and add it to PATH. Used by the lint, tests and
+  mutation jobs in verify.yml and by vulnerabilities.yml.
 
 runs:
   using: composite

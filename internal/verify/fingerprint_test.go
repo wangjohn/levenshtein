@@ -637,3 +637,38 @@ func BenchmarkFingerprint(b *testing.B) {
 		}
 	})
 }
+
+// Only a git-discovery target explains a fallback; a filesystem target asked
+// for the walk and has nothing to explain.
+func TestDiscoveryNoteExplainsAnIgnoredSourceForGitDiscoveryOnly(t *testing.T) {
+	requireGit(t)
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "init")
+	writeFile(t, filepath.Join(root, ".gitignore"), "*\n")
+	writeFile(t, filepath.Join(root, "input.go"), sourceOne)
+
+	if note := discoveryNote(root, DiscoveryGit); !strings.Contains(note, "lists no files") {
+		t.Fatalf("an ignored source must explain its filesystem fallback: %q", note)
+	}
+	if note := discoveryNote(root, DiscoveryFilesystem); note != "" {
+		t.Fatalf("a filesystem target has no fallback to explain: %q", note)
+	}
+}
+
+// The stat record is only a hint, but a write that fails must still be
+// reported rather than lost.
+func TestStatFlushReportsAWriteFailure(t *testing.T) {
+	dir := t.TempDir()
+	// A file where the stat directory belongs makes every record write fail.
+	writeFile(t, filepath.Join(dir, "stat"), "not a directory")
+	store := &statStore{entries: map[statKey]statEntry{}, seen: map[statKey]bool{}, roots: map[string]bool{}}
+	store.configure(dir)
+	store.prepare(t.TempDir())
+
+	if err := store.flush(); err == nil {
+		t.Fatal("a stat record that could not be written was not reported")
+	}
+}
