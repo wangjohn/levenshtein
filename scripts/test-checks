@@ -12,7 +12,8 @@ checks='all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022'
 # runner/main.go, so a rule that stops running fails here without Dagger too.
 expected='SA5001 SA5003 SA9001 S1002 ST1005 QF1011 U1000
 bodyclose sqlclosecheck rowserrcheck noctx
-errcheck exhaustive nilness unusedwrite errorlint nilerr durationcheck reassign wastedassign
+errcheck exhaustive nilness unusedwrite errorlint nilerr durationcheck reassign wastedassign musttag recvcheck
+unparam
 intrange usestdlibvars perfsprint predeclared errname
 minmax mapsloop slicescontains stringscutprefix stringsseq
 thelper tparallel testifylint

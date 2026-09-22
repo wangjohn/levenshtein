@@ -9,6 +9,16 @@ Consumers pin a release tag, or its commit SHA, as described in
 
 ## [Unreleased]
 
+### Added
+
+- `go-lint` runs three more upstream analyzers: `unparam` (unused parameters
+  and results of unexported functions), `musttag` (untagged fields in structs
+  passed to JSON, XML, YAML, and TOML encoders and decoders), and `recvcheck`
+  (types that mix pointer and value receivers). Consumers see their findings
+  when they bump their Levenshtein pin.
+- [docs/checks.md](docs/checks.md#considered-and-off) lists the analyzers that
+  were measured and left out, with the reason for each.
+
 ## [0.1.0] - 2026-09-22
 
 The first release: everything merged into `main` so far, grouped by what it

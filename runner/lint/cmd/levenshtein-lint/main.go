@@ -18,16 +18,20 @@ import (
 	"github.com/nishanths/exhaustive"
 	"github.com/nishanths/predeclared/passes/predeclared"
 	"github.com/polyfloyd/go-errorlint/errorlint"
+	"github.com/raeperd/recvcheck"
 	sqlclose "github.com/ryanrolds/sqlclosecheck/pkg/analyzer"
 	wastedassign "github.com/sanposhiho/wastedassign/v2"
 	usestdlibvars "github.com/sashamelentyev/usestdlibvars/pkg/analyzer"
 	"github.com/sonatard/noctx"
 	"github.com/timakin/bodyclose/passes/bodyclose"
 	"github.com/wangjohn/levenshtein/runner/lint/policy"
+	"go-simpler.org/musttag"
 	"golang.org/x/tools/go/analysis"
+	"golang.org/x/tools/go/analysis/passes/buildssa"
 	"golang.org/x/tools/go/analysis/passes/modernize"
 	"golang.org/x/tools/go/analysis/passes/nilness"
 	"golang.org/x/tools/go/analysis/passes/unusedwrite"
+	"golang.org/x/tools/go/packages"
 	"honnef.co/go/tools/analysis/lint"
 	"honnef.co/go/tools/lintcmd"
 	"honnef.co/go/tools/quickfix"
@@ -35,6 +39,7 @@ import (
 	"honnef.co/go/tools/staticcheck"
 	"honnef.co/go/tools/stylecheck"
 	"honnef.co/go/tools/unused"
+	"mvdan.cc/unparam/check"
 )
 
 // sqlPackages are the database wrappers rowserrcheck follows for an unchecked Rows.Err.
@@ -80,6 +85,57 @@ func correctness() []*analysis.Analyzer {
 		durationcheck.Analyzer,
 		reassign.NewAnalyzer(),
 		wastedassign.Analyzer,
+		// musttag's built-in list covers encoding/json, encoding/xml, yaml.v3,
+		// BurntSushi/toml, mapstructure, and sqlx; a consumer's own wrappers are
+		// unknown to a shared linter, so no custom functions are added.
+		musttag.New(),
+		// The built-in exclusions keep Unmarshal* and GobDecode, which need a
+		// pointer receiver on an otherwise value-receiver type.
+		recvcheck.NewAnalyzer(recvcheck.Settings{}),
+	}
+}
+
+// signatures analyzers report parameters and results that no caller needs.
+func signatures() []*analysis.Analyzer {
+	return []*analysis.Analyzer{
+		unusedParams(),
+	}
+}
+
+// unusedParams runs unparam over one package at a time. unparam ships a
+// checker rather than an analyzer, so this wraps it the way golangci-lint does.
+// Exported functions stay out of scope, as in unparam's own default: a
+// per-package pass cannot see their callers in other packages, and changing an
+// exported signature breaks those callers.
+func unusedParams() *analysis.Analyzer {
+	return &analysis.Analyzer{
+		Name:     "unparam",
+		Doc:      "report unused function parameters and results",
+		Requires: []*analysis.Analyzer{buildssa.Analyzer},
+		Run: func(pass *analysis.Pass) (any, error) {
+			program := pass.ResultOf[buildssa.Analyzer].(*buildssa.SSA).Pkg.Prog
+			checker := &check.Checker{}
+			checker.CheckExportedFuncs(false)
+			checker.Packages([]*packages.Package{{
+				Fset:      pass.Fset,
+				Syntax:    pass.Files,
+				Types:     pass.Pkg,
+				TypesInfo: pass.TypesInfo,
+			}})
+			checker.ProgramSSA(program)
+
+			issues, err := checker.Check()
+			if err != nil {
+				return nil, err
+			}
+			for _, issue := range issues {
+				pass.Report(analysis.Diagnostic{
+					Pos:     issue.Pos(),
+					Message: issue.Message(),
+				})
+			}
+			return nil, nil
+		},
 	}
 }
 
@@ -151,6 +207,7 @@ func main() {
 
 	command.AddBareAnalyzers(policy.Adapt(resources()...)...)
 	command.AddBareAnalyzers(policy.Adapt(correctness()...)...)
+	command.AddBareAnalyzers(policy.Adapt(signatures()...)...)
 	command.AddBareAnalyzers(policy.Adapt(hygiene()...)...)
 	command.AddBareAnalyzers(policy.Adapt(modernizers()...)...)
 	command.AddBareAnalyzers(policy.Adapt(tests()...)...)
