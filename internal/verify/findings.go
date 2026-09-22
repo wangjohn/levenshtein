@@ -2,11 +2,12 @@ package verify
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"path"
 	"path/filepath"
 	"strings"
+	"unicode"
 )
 
 // finding and location mirror the diagnostic shape the Dagger module attaches
@@ -25,37 +26,66 @@ type location struct {
 	Column int    `json:"column"`
 }
 
-// allowedCode reports whether a diagnostic code is one the configured check
-// list selects. A code is accepted when it matches at least one positive
-// pattern and no negated one; "all" matches every code and a leading "-"
-// negates. Anything else, including a compile error reported as a diagnostic,
-// is not a lint finding and makes the run an error rather than a failure.
-func allowedCode(code string, checks []string) bool {
-	accepted := false
+// allowed and selects are copies of the runner's (runner/main.go), which
+// reproduce Staticcheck's filterAnalyzerNames (lintcmd/lint.go in
+// honnef.co/go/tools v0.8.1) for one code. Both copies load the same table,
+// runner/testdata/selection.json, in their tests, so a change to one that is
+// not made to the other fails a test instead of relying on memory.
+//
+// Patterns apply in order and the last one that matches wins, so
+// "all,-SA5001" turns SA5001 off while "-SA5001,all" turns it back on. A "-"
+// prefix turns a code off rather than on. Anything not selected, including a
+// compile error reported as a diagnostic, is not a lint finding and makes the
+// run an error rather than a failure.
+func allowed(checks []string, code string) bool {
+	selected := false
 	for _, check := range checks {
-		pattern, negated := strings.CutPrefix(check, "-")
-		matched := pattern == "all"
-		if !matched {
-			matched, _ = path.Match(pattern, code)
+		pattern := check
+		enable := true
+		if len(pattern) > 1 && pattern[0] == '-' {
+			pattern = pattern[1:]
+			enable = false
 		}
-		if !matched {
-			continue
+		if selects(pattern, code) {
+			selected = enable
 		}
-		if negated {
-			return false
-		}
-		accepted = true
 	}
-	return accepted
+	return selected
 }
 
-// parseFindings turns one Staticcheck run into diagnostics, refusing any result
+// selects matches one pattern the way Staticcheck does, ignoring case: "all"
+// or "*" matches every code, a trailing "*" after letters matches that exact
+// category (S* matches S1002 but not SA5001), a trailing "*" after a digit is a
+// plain prefix (SA5* matches SA5001), and anything else is a literal name.
+func selects(pattern, code string) bool {
+	pattern = strings.ToLower(pattern)
+	code = strings.ToLower(code)
+
+	//lint:ignore LV1001 patterns are free-form user input; these are two spellings of one wildcard, not an enum.
+	if pattern == "*" || pattern == "all" {
+		return true
+	}
+	prefix, glob := strings.CutSuffix(pattern, "*")
+	if !glob {
+		return pattern == code
+	}
+	if strings.IndexFunc(prefix, unicode.IsNumber) != -1 {
+		return strings.HasPrefix(code, prefix)
+	}
+	category := code
+	if digit := strings.IndexFunc(code, unicode.IsNumber); digit != -1 {
+		category = code[:digit]
+	}
+	return category == prefix
+}
+
+// parseFindings turns one linter run into diagnostics, refusing any result
 // that does not agree with itself: an unexpected exit code, output that is not
 // the configured checks, an exit status that contradicts the diagnostics, or
 // anything at all on stderr.
 func parseFindings(exitCode int, stdout, stderr string, checks []string, root string) ([]finding, error) {
 	if exitCode != 0 && exitCode != 1 {
-		return nil, fmt.Errorf("Staticcheck exited %d: %s\n%s", exitCode, stderr, stdout)
+		return nil, fmt.Errorf("the linter exited %d: %s\n%s", exitCode, stderr, stdout)
 	}
 
 	var findings []finding
@@ -63,13 +93,13 @@ func parseFindings(exitCode int, stdout, stderr string, checks []string, root st
 	for {
 		var diagnostic finding
 		err := decoder.Decode(&diagnostic)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("invalid Staticcheck JSON: %w", err)
+			return nil, fmt.Errorf("invalid linter JSON: %w", err)
 		}
-		if !allowedCode(diagnostic.Code, checks) || diagnostic.Message == "" || diagnostic.Location.File == "" || diagnostic.Location.Line < 1 {
+		if !allowed(checks, diagnostic.Code) || diagnostic.Message == "" || diagnostic.Location.File == "" || diagnostic.Location.Line < 1 {
 			return nil, fmt.Errorf("unexpected diagnostic (possibly a compile error): %s", stdout)
 		}
 		diagnostic.Location.File = repositoryPath(root, diagnostic.Location.File)
@@ -77,10 +107,10 @@ func parseFindings(exitCode int, stdout, stderr string, checks []string, root st
 	}
 
 	if (exitCode == 0 && len(findings) != 0) || (exitCode == 1 && len(findings) == 0) {
-		return nil, fmt.Errorf("Staticcheck exit %d does not match diagnostics: %s\n%s", exitCode, stdout, stderr)
+		return nil, fmt.Errorf("linter exit %d does not match diagnostics: %s\n%s", exitCode, stdout, stderr)
 	}
 	if strings.TrimSpace(stderr) != "" {
-		return nil, fmt.Errorf("Staticcheck could not produce a clean result: %s", stderr)
+		return nil, fmt.Errorf("the linter could not produce a clean result: %s", stderr)
 	}
 	return findings, nil
 }

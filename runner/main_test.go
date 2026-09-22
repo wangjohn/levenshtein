@@ -32,41 +32,44 @@ func TestLintExitStatusAndDiagnosticsAgree(t *testing.T) {
 	}
 }
 
+// selectionCase is one row of testdata/selection.json.
+type selectionCase struct {
+	Name   string   `json:"name"`
+	Checks []string `json:"checks"`
+	Code   string   `json:"code"`
+	Want   bool     `json:"want"`
+}
+
 func TestCheckSelectionMatchesTheLinter(t *testing.T) {
 	var tools toolchain
 	if err := json.Unmarshal(toolchainJSON, &tools); err != nil {
 		t.Fatal(err)
 	}
 
-	for _, tc := range []struct {
-		name   string
-		checks []string
-		code   string
-		want   bool
-	}{
-		{"all selects an upstream analyzer", []string{"all"}, "nilness", true},
-		{"all selects a house rule", []string{"all"}, "LV1003", true},
-		{"a negation wins over all", []string{"all", "-ST1003"}, "ST1003", false},
-		{"a later negation turns a glob's code off", []string{"SA*", "-SA1019"}, "SA1019", false},
-		{"a later glob turns a negated code back on", []string{"-SA1019", "SA*"}, "SA1019", true},
-		{"a later all turns a negated code back on", []string{"-SA5001", "all"}, "SA5001", true},
-		{"a later negation turns all's code off", []string{"all", "-SA5001"}, "SA5001", false},
-		{"a glob selects its family", []string{"SA*"}, "SA5001", true},
-		{"a glob leaves other families alone", []string{"SA*"}, "S1002", false},
-		{"a letter glob matches its category only", []string{"S*"}, "SA5001", false},
-		{"a letter glob matches its own category", []string{"S*"}, "S1002", true},
-		{"a letter glob does not prefix-match a bare analyzer", []string{"e*"}, "errcheck", false},
-		{"a glob after a digit is a prefix", []string{"SA5*"}, "SA5001", true},
-		{"names ignore case", []string{"sa5001"}, "SA5001", true},
-		{"an exact name selects only itself", []string{"bodyclose"}, "bodyclose", true},
-		{"an exact name excludes the rest", []string{"bodyclose"}, "sqlclosecheck", false},
-		{"an empty selection reports nothing", nil, "SA5001", false},
-		{"the shipped default keeps the deselected style rules off", tools.Checks, "ST1000", false},
-		{"the shipped default keeps everything else on", tools.Checks, "errcheck", true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := allowed(tc.checks, tc.code); got != tc.want {
-				t.Fatalf("allowed(%v, %q) = %v, want %v", tc.checks, tc.code, got, tc.want)
+	// The general cases live in a table the standalone CLI's copy of this
+	// filter (internal/verify/findings.go) also loads, so the two cannot drift.
+	data, err := os.ReadFile("testdata/selection.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var shared struct {
+		Cases []selectionCase `json:"cases"`
+	}
+	if err := json.Unmarshal(data, &shared); err != nil {
+		t.Fatal(err)
+	}
+	if len(shared.Cases) == 0 {
+		t.Fatal("testdata/selection.json has no cases")
+	}
+
+	cases := append(shared.Cases,
+		selectionCase{Name: "the shipped default keeps the deselected style rules off", Checks: tools.Checks, Code: "ST1000", Want: false},
+		selectionCase{Name: "the shipped default keeps everything else on", Checks: tools.Checks, Code: "errcheck", Want: true},
+	)
+	for _, tc := range cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			if got := allowed(tc.Checks, tc.Code); got != tc.Want {
+				t.Fatalf("allowed(%v, %q) = %v, want %v", tc.Checks, tc.Code, got, tc.Want)
 			}
 		})
 	}

@@ -1,6 +1,9 @@
 package verify
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -43,27 +46,37 @@ func TestStaticcheckWildcardDoesNotAcceptCompilerErrors(t *testing.T) {
 	}
 }
 
-// "all" selects every code and a leading "-" removes one, so a configured list
-// such as ["all", "-ST1000"] means what it says.
-func TestAllowedCodeUnderstandsAllAndNegation(t *testing.T) {
-	for _, tt := range []struct {
-		checks []string
-		code   string
-		want   bool
-	}{
-		{checks: []string{"all"}, code: "ST1000", want: true},
-		{checks: []string{"all", "-ST1000"}, code: "ST1000"},
-		{checks: []string{"all", "-ST1000"}, code: "SA5001", want: true},
-		{checks: []string{"SA*", "-SA5001"}, code: "SA5001"},
-		{checks: []string{"SA*", "-SA5001"}, code: "SA5003", want: true},
-		{checks: []string{"-all"}, code: "SA5001"},
-		{checks: []string{"SA*"}, code: "errcheck"},
-		{checks: []string{"SA*", "errcheck"}, code: "errcheck", want: true},
-		{checks: nil, code: "SA5001"},
-	} {
-		if got := allowedCode(tt.code, tt.checks); got != tt.want {
-			t.Errorf("allowedCode(%q, %v) = %v", tt.code, tt.checks, got)
-		}
+// selectionCase is one row of runner/testdata/selection.json.
+type selectionCase struct {
+	Name   string   `json:"name"`
+	Checks []string `json:"checks"`
+	Code   string   `json:"code"`
+	Want   bool     `json:"want"`
+}
+
+// This copy of the check filter must select exactly what the runner's does, so
+// both load one table rather than each keeping its own list of cases.
+func TestCheckSelectionMatchesTheRunner(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "runner", "testdata", "selection.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var shared struct {
+		Cases []selectionCase `json:"cases"`
+	}
+	if err := json.Unmarshal(data, &shared); err != nil {
+		t.Fatal(err)
+	}
+	if len(shared.Cases) == 0 {
+		t.Fatal("runner/testdata/selection.json has no cases")
+	}
+
+	for _, tc := range shared.Cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			if got := allowed(tc.Checks, tc.Code); got != tc.Want {
+				t.Fatalf("allowed(%v, %q) = %v, want %v", tc.Checks, tc.Code, got, tc.Want)
+			}
+		})
 	}
 }
 
@@ -99,7 +112,11 @@ func TestCommandFailuresDoNotBecomePassingResults(t *testing.T) {
 // A location outside the source root, or one a tool already reported
 // relatively, is left exactly as the tool wrote it.
 func TestRepositoryPathOnlyRelativizesInsideTheSource(t *testing.T) {
-	for _, tt := range []struct{ root, file, want string }{
+	for _, tt := range []struct {
+		root string
+		file string
+		want string
+	}{
 		{root: "/src", file: "/src/pkg/a.go", want: "pkg/a.go"},
 		{root: "/src", file: "pkg/a.go", want: "pkg/a.go"},
 		{root: "/src", file: "/elsewhere/a.go", want: "/elsewhere/a.go"},

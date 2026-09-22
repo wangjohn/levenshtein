@@ -1,0 +1,27 @@
+{
+  "comment": "Check-selection cases shared by runner/main_test.go and internal/verify/findings_test.go. Both copies of allowed/selects must agree with every row; change the table, not one test.",
+  "cases": [
+    {"name": "all selects an upstream analyzer", "checks": ["all"], "code": "nilness", "want": true},
+    {"name": "all selects a house rule", "checks": ["all"], "code": "LV1003", "want": true},
+    {"name": "a star selects everything", "checks": ["*"], "code": "SA5001", "want": true},
+    {"name": "a negation wins over all", "checks": ["all", "-ST1003"], "code": "ST1003", "want": false},
+    {"name": "a later negation turns a glob's code off", "checks": ["SA*", "-SA1019"], "code": "SA1019", "want": false},
+    {"name": "a later glob turns a negated code back on", "checks": ["-SA1019", "SA*"], "code": "SA1019", "want": true},
+    {"name": "a later all turns a negated code back on", "checks": ["-SA5001", "all"], "code": "SA5001", "want": true},
+    {"name": "a later negation turns all's code off", "checks": ["all", "-SA5001"], "code": "SA5001", "want": false},
+    {"name": "a negated all turns everything off", "checks": ["SA5001", "-all"], "code": "SA5001", "want": false},
+    {"name": "a glob selects its family", "checks": ["SA*"], "code": "SA5001", "want": true},
+    {"name": "a glob leaves other families alone", "checks": ["SA*"], "code": "S1002", "want": false},
+    {"name": "a letter glob matches its category only", "checks": ["S*"], "code": "SA5001", "want": false},
+    {"name": "a letter glob matches its own category", "checks": ["S*"], "code": "S1002", "want": true},
+    {"name": "a letter glob does not prefix-match a bare analyzer", "checks": ["e*"], "code": "errcheck", "want": false},
+    {"name": "a glob after a digit is a prefix", "checks": ["SA5*"], "code": "SA5001", "want": true},
+    {"name": "a glob after a digit does not cross families", "checks": ["SA5*"], "code": "SA4006", "want": false},
+    {"name": "names ignore case", "checks": ["sa5001"], "code": "SA5001", "want": true},
+    {"name": "globs ignore case", "checks": ["sa*"], "code": "SA5001", "want": true},
+    {"name": "an exact name selects only itself", "checks": ["bodyclose"], "code": "bodyclose", "want": true},
+    {"name": "an exact name excludes the rest", "checks": ["bodyclose"], "code": "sqlclosecheck", "want": false},
+    {"name": "a wildcard does not accept a compile error", "checks": ["SA*"], "code": "compile", "want": false},
+    {"name": "an empty selection reports nothing", "checks": [], "code": "SA5001", "want": false}
+  ]
+}
