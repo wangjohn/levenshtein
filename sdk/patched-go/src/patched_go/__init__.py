@@ -112,9 +112,11 @@ class PatchedGo:
         # custom SDK contract supplies an absolute output path.
         return container.with_entrypoint([
             "sh", "-ec",
-            'output="$1"; shift; '
-            'codegen generate-typedefs --output typedefs.json "$@"; '
-            'cp typedefs.json "$output"',
+            (
+                'output="$1"; shift; '
+                'codegen generate-typedefs --output typedefs.json "$@"; '
+                'cp typedefs.json "$output"'
+            ),
             "generate-typedefs", output_file_path,
             *await self.arguments(mod_source),
         ])

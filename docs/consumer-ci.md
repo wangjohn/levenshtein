@@ -53,7 +53,7 @@ For an advisory model review of each pull request, add a native environment, a `
 
 ## Example: an application using GitHub Actions
 
-Add these steps to the application's existing workflow, or start with this small workflow. Both checkouts are siblings so the shared runner's files stay outside the application source passed to verification. Pin a reviewed revision with the full SHA below, and update it deliberately as part of a reviewed change; do not use a moving branch.
+Add these steps to the application's existing workflow, or start with this small workflow. Both checkouts are siblings so the shared runner's files stay outside the application source passed to verification. Pin a reviewed revision: either the full commit SHA below or a published `vX.Y.Z` [release](releases.md) tag. Update it deliberately as part of a reviewed change; do not use a moving branch.
 
 ```yaml
 name: Application verification

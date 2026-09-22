@@ -1,0 +1,33 @@
+name: Feature request
+description: A shared check, configuration option, or workflow Levenshtein should support.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: The mistake, slow feedback loop, or manual step you want removed.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like it to do
+      description: The check, option, or command, and how you would use it.
+    validations:
+      required: true
+  - type: textarea
+    id: examples
+    attributes:
+      label: Good and bad examples
+      description: For a proposed rule, code it should flag and similar code it must not.
+      render: go
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Existing tools you considered
+      description: Levenshtein prefers an established analyzer over a custom rule. See docs/dependencies.md.
+    validations:
+      required: false

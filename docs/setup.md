@@ -79,8 +79,32 @@ The checked-in `Levenshtein self-checks` workflow verifies this repo's runner an
 | `lint` | Static `./verify branch` only (early signal; no host race tests or consumer regressions) |
 | `tests` | Host race/fixtures, `shellcheck`, SDK restore or regen, non-lint Dagger checks, consumer regressions |
 | `language-contracts` | Rust and Python contract fixtures |
-| `release-smoke` | GoReleaser snapshot + archive test (skipped on draft PRs) |
+| `release-smoke` | `goreleaser check`, then a GoReleaser snapshot + archive test (skipped on draft PRs) |
 | `semantic-lint` | Advisory Jev review of the pull request; runs only on `pull_request` events; without the `TYPESAFE_API_KEY` secret the review step is skipped and the job passes with no findings |
+
+The `tests` job also holds the repository hygiene gates, all of them before its
+Go tests: `gofmt` over every tracked Go file outside `testdata`, whose lint
+fixtures are deliberately unformatted; `go mod tidy -diff` and
+`go mod verify` in `.`, `runner/lint`, and `runner/tools` (not `runner`, whose
+manifest `dagger develop` rewrites), and `ruff check` over `scripts` and
+`sdk/patched-go`. The Go test step writes a coverage profile that is uploaded
+as an artifact for seven days; no threshold gates the run.
+
+`security.yml` runs beside it: `zizmor` over the workflows and composite
+actions on every pull request, push to `main`, and weekly, failing on findings
+of medium severity and above; OpenSSF Scorecard with a SARIF upload to code
+scanning on `main` and the weekly schedule, since Scorecard reads the default
+branch rather than a pull request's merge ref; and `dependency-review` on pull
+requests, failing on high severity. `dependency-review` needs the repository's
+**Dependency graph**, which is a repository setting (Settings → Code security)
+and not something a workflow can enable. The job checks for it first: without
+it the review is skipped with a note in the job summary, and with it the review
+is a real gate. This repository has it turned off today, so dependency review
+is a no-op until an admin enables the dependency graph.
+
+`release.yml` publishes the archives, their SBOMs, `checksums.txt`, and a build
+provenance attestation when a `vX.Y.Z` tag is pushed; see
+[release archives](releases.md).
 
 Event → `./verify` mapping:
 
@@ -105,6 +129,8 @@ Treat warm lint wall time creeping toward warm tests as a CI performance regress
 
 - Restore `verification-v1-lint` / `verification-v1-tests` on every event, and save on every event too. A pull request run saves into its own merge-ref scope, which only reruns of that PR can restore and `main` never reads, so a fork run cannot seed `main`'s entries.
 - Lint and tests use **separate** verification keys so they cannot race one entry. The generated SDK still uses an exact key with no `restore-keys`.
+- `merge_group` is not one of the events that writes the default-branch cache scope, so its saves are invisible to `main`; the tests scope on `main` is seeded by schedule and `workflow_dispatch` runs. The other direction is open: a pull request, including one from a fork, can restore `main`'s entries. They hold verification results and generated code, never secrets.
+- Entries are small JSON records, and the SDK entry is touched on every run, so result entries do not push it out of the repository's 10 GB Actions cache budget.
 - Scheduled `main` keeps `rerun_checks: true`; `go-vuln` always re-executes.
 
 ### Caches and self-config notes
