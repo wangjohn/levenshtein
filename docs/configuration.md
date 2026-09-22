@@ -28,7 +28,16 @@ Dagger checks include `go-lint`, `go-vet`, `go-http`, `go-sql`, `go-vuln`, `work
 
 Without a configuration file, `branch` and `pre-merge` run `go-lint` and `go-vet`; `main` also runs `go-vuln`. Named runs for each shared check are available. An explicit configuration replaces these defaults.
 
-A run selects check IDs. `rerun_checks: true` forces verification execution while retaining compatible dependency/build caches. It replaces the earlier `fresh` setting; use `rerun_checks` in configuration and `LEVENSHTEIN_RERUN_CHECKS` in scripts. Any run name can use it; versioned configuration gives `main` no special behavior. Unknown checks, executors, references, and configuration fields fail explicitly. A configuration file must declare `"version": 1`; there is no other accepted shape.
+A run selects check IDs. `rerun_checks: true` forces verification execution while retaining compatible dependency/build caches. It replaces the earlier `fresh` setting; use `rerun_checks` in configuration and `LEVENSHTEIN_RERUN_CHECKS` in scripts. Any run name can use it; versioned configuration gives `main` no special behavior. Unknown checks, executors, references, and configuration fields fail explicitly.
+
+Recommended run policy:
+
+| Run | Recommended scope | Cache policy |
+| --- | --- | --- |
+| `branch` | Fast lint and core/focused tests | Aggressive reuse of setup, artifacts, and eligible results |
+| `pre-merge` | Critical regression and policy checks for the final candidate | The same aggressive reuse, keyed to the actual selected inputs and scope |
+| `main` | Complete applicable suite, scheduled daily by the consumer's CI | Fresh verification (configure `rerun_checks: true`) with dependency/build reuse |
+| Custom | Consumer-defined check selection | Explicit choice of normal reuse or fresh verification |
 
 ## Source boundaries
 

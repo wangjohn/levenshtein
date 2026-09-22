@@ -1,6 +1,6 @@
 # Setup and usage
 
-Shared Go checks run pinned correctness, error handling, enum, resource, workflow, and vulnerability tools in Dagger. The runner accepts a source checkout and a named run; your existing CI supplies workers and decides when to invoke it. See [use from an application repo](consumer-ci.md) for local and CI examples. Native commands and local result/setup/build caching are supported. Consumer adoption and cross-worker cache transport are the next steps in the [implementation plan](implementation.md).
+Shared Go checks run pinned correctness, error handling, enum, resource, workflow, and vulnerability tools in Dagger. The runner accepts a source checkout and a named run; your existing CI supplies workers and decides when to invoke it. See [use from an application repo](consumer-ci.md) for local and CI examples. Native commands and local result/setup/build caching are supported. See [architecture](architecture.md) for how the runner works, and [the roadmap](roadmap.md) for planned work.
 
 ## Prerequisites
 
@@ -72,7 +72,7 @@ Version 1 runs use explicit `rerun_checks: true` for fresh audits, regardless of
 
 The checked-in `Levenshtein self-checks` workflow verifies this repo's runner and fixtures. Its cron schedules that verification only. Application repos call the shared runner from their own CI, as shown in the [consumer guide](consumer-ci.md).
 
-### Tiered jobs
+### Jobs
 
 | Job | Role |
 | --- | --- |
@@ -80,6 +80,7 @@ The checked-in `Levenshtein self-checks` workflow verifies this repo's runner an
 | `tests` | Host race/fixtures, `shellcheck`, SDK restore or regen, non-lint Dagger checks, consumer regressions |
 | `language-contracts` | Rust and Python contract fixtures |
 | `release-smoke` | GoReleaser snapshot + archive test (skipped on draft PRs) |
+| `semantic-lint` | Advisory Jev review of the pull request; runs only on `pull_request` events; without the `TYPESAFE_API_KEY` secret the review step is skipped and the job passes with no findings |
 
 Event → `./verify` mapping:
 
@@ -94,6 +95,7 @@ Event → `./verify` mapping:
 | --- | --- |
 | Early PR progress (including drafts) | **`lint`** |
 | Merge / ready-for-review / merge queue / `main` | **`lint`**, **`tests`**, **`language-contracts`**, **`release-smoke`** |
+| Pull requests | `semantic-lint` (advisory; not required to pass; the job passes with no findings when `TYPESAFE_API_KEY` is absent) |
 
 Do **not** make draft progress wait on `release-smoke` or full `tests`. When adopting this workflow, replace any required check named `verify` with `lint` and `tests` the same day.
 
@@ -121,7 +123,7 @@ Self-config targets use narrow literal `inputs` (not `"."`): root Go module path
 
 | Criterion | Status |
 | --- | --- |
-| Lint ≪ tests (warm lint well under 1 min) | In progress — needs warm SDK + result-cache hits; cross-VM engine volumes blocked |
+| Lint ≪ tests (warm lint well under 1 min) | In progress — needs warm SDK and result-cache hits; in-engine build/cache volumes cannot yet persist across ephemeral runners |
 | Coverage preserved on ready/merge/`main`/schedule | Met by job split + event mapping |
 | Result-cache isolation between untrusted PRs and `main` | Met (PR-written caches stay in the PR's merge-ref scope, which `main` never reads) |
 | Freshness (`rerun_checks` / `go-vuln`) | Met |
@@ -129,7 +131,7 @@ Self-config targets use narrow literal `inputs` (not `"."`): root Go module path
 
 ### Out of scope here
 
-Consumer CLI `--source` cache UX, install/release packaging, and Swift/Benchplan macOS lint jobs are tracked in other workstreams (consumer CLI performance, setup packaging, Go–Swift lints), not in this self-CI workflow.
+Consumer CLI `--source` cache UX, install/release packaging, and Swift macOS lint jobs for native application repos are tracked in other workstreams (consumer CLI performance, setup packaging, Go–Swift lints), not in this self-CI workflow.
 
 Pre-split baseline (monolithic `verify` ~4.6–5 min on `ubuntu-24.04`; `dagger develop` ~93s; `./verify` ~94–114s): Actions run [35283983398](https://github.com/wangjohn/levenshtein/actions/runs/35283983398).
 

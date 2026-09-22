@@ -26,8 +26,6 @@ For example, add a Go rule that catches misplaced `defer` calls, then adopt it a
 
 To check another Go repo: `./verify go-lint --source /path/to/repo`. [Use it from your existing CI](docs/consumer-ci.md).
 
-**Next:** pilot explicit Go product targets in Family Books, wrap selected Swift checks in Benchplan, and measure cache reuse before adding cross-worker persistence. Levenshtein's own workflow and daily schedule check its runner and fixtures.
-
 ## Documentation
 
 - [Setup and usage](docs/setup.md): run the Go checks locally and in CI.
@@ -35,11 +33,13 @@ To check another Go repo: `./verify go-lint --source /path/to/repo`. [Use it fro
 - [Security policy](SECURITY.md): how to report a vulnerability privately.
 - [Configuration](docs/configuration.md): standalone planning, targets, and runs.
 - [Semantic lint](docs/semantic-lint.md): advisory Jev questions about Go, docs, and pull request shape.
-- [Language fixtures](docs/language-fixtures.md): Rust/Python compatibility checks.
-- [Dependency choices](docs/dependencies.md): which responsibilities use established tools.
+- [Use from your existing CI](docs/consumer-ci.md): local and CI examples for application repos.
 - [Release archives](docs/releases.md): package the CLI and shared checks with GoReleaser.
-- [Implementation plan](docs/implementation.md): what we are building first and how.
-- [Design notes](docs/design-notes.md): cache contracts and ideas for later.
+- [Language fixtures](docs/language-fixtures.md): Rust/Python compatibility checks.
+- [Architecture](docs/architecture.md): how the CLI plans, executes, and caches checks.
+- [Dependency choices](docs/dependencies.md): which responsibilities use established tools.
+- [Design notes](docs/design-notes.md): cache and language adapter contracts.
+- [Roadmap](docs/roadmap.md): planned work beyond the current release.
 
 See [Go lint rules](docs/go-lint.md) for the shared defer/close, typed-choice, and value-record policies.
 

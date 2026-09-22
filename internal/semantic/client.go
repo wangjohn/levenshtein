@@ -109,6 +109,14 @@ func (c Client) Ask(ctx context.Context, state any, questions map[string]wireQue
 	return wireResponse{}, fmt.Errorf("gave up after %d attempts: %w", maxAttempts, last)
 }
 
+// noRedirectClient never follows a redirect, so the bearer token is only ever
+// sent to the configured origin. A 3xx answer surfaces as an API error.
+var noRedirectClient = &http.Client{
+	CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+}
+
 // post returns a negative retry delay when the failure is not retryable.
 func (c Client) post(ctx context.Context, body []byte) (wireResponse, time.Duration, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/v1/systemone", bytes.NewReader(body))
@@ -120,7 +128,7 @@ func (c Client) post(ctx context.Context, body []byte) (wireResponse, time.Durat
 
 	client := c.HTTP
 	if client == nil {
-		client = http.DefaultClient
+		client = noRedirectClient
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -136,6 +144,8 @@ func (c Client) post(ctx context.Context, body []byte) (wireResponse, time.Durat
 		return wireResponse{}, time.Second, err
 	}
 	switch resp.StatusCode {
+	case http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther, http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
+		return wireResponse{}, -1, fmt.Errorf("TypeSafe API redirected to %q; redirects are not followed so the key only reaches the configured origin", resp.Header.Get("Location"))
 	case http.StatusOK:
 		var response wireResponse
 		if err := json.Unmarshal(data, &response); err != nil {
@@ -160,11 +170,13 @@ func retryDelay(header string) time.Duration {
 	return time.Duration(seconds) * time.Second
 }
 
+// summary shortens an error body on a rune boundary, so a reported failure
+// never ends in a broken character.
 func summary(data []byte) string {
 	const limit = 400
 	text := bytes.TrimSpace(data)
-	if len(text) > limit {
-		return string(text[:limit]) + "..."
+	if len(text) <= limit {
+		return string(text)
 	}
-	return string(text)
+	return string(text[:runeBoundary(string(text), limit)]) + "..."
 }

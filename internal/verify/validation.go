@@ -79,6 +79,9 @@ func validateSemanticLint(check Check, env Environment) error {
 	if check.Command != nil {
 		return fmt.Errorf("semantic-lint does not accept command options")
 	}
+	if err := validateSemanticCredentials(env); err != nil {
+		return err
+	}
 	if check.Semantic == nil {
 		return nil
 	}
@@ -91,6 +94,33 @@ func validateSemanticLint(check Check, env Environment) error {
 	}
 	if check.Semantic.Base != "" && (strings.HasPrefix(check.Semantic.Base, "-") || strings.ContainsAny(check.Semantic.Base, " \t\n\x00")) {
 		return fmt.Errorf("invalid semantic-lint base %q", check.Semantic.Base)
+	}
+	return nil
+}
+
+// validateSemanticCredentials keeps the API key and the API origin out of
+// committed configuration. Configuration travels with the pull request, so a
+// declared origin would otherwise decide where the CI secret is sent.
+// Committed PATH or GIT_* values would choose which git runs and how it
+// behaves, and so what the check sends; the host owns those too.
+func validateSemanticCredentials(env Environment) error {
+	for name := range env.Env {
+		if name == "PATH" || strings.HasPrefix(name, "GIT_") {
+			return fmt.Errorf("semantic-lint runs git from the host environment; remove %s from the environment's env", name)
+		}
+	}
+	for _, name := range []string{semanticAPIKeyEnv, semanticBaseURLEnv} {
+		if _, declared := env.Env[name]; declared {
+			return fmt.Errorf("semantic-lint reads %s from the host environment; remove it from the environment's env, which is committed configuration", name)
+		}
+	}
+	for _, name := range env.PassEnv {
+		if name == semanticAPIKeyEnv {
+			return fmt.Errorf("semantic-lint reads %s itself; remove it from pass_env so the key is not passed to the check's subprocesses", name)
+		}
+		if name == "PATH" || strings.HasPrefix(name, "GIT_") {
+			return fmt.Errorf("semantic-lint runs git from the host environment; remove %s from pass_env", name)
+		}
 	}
 	return nil
 }

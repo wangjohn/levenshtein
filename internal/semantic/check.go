@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -82,6 +83,9 @@ type request struct {
 	state     map[string]any
 	questions map[string]wireQuestion
 	pending   map[string]pending
+	// oversize explains why the state could not be shrunk under the limit.
+	// Such a request is reported as a note instead of being sent.
+	oversize string
 }
 
 const (
@@ -118,7 +122,7 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 
 	requests, notes := buildRequests(opts, change, prefix)
 	report.Notes = notes
-	if len(requests) == 0 {
+	if len(requests) == 0 && len(notes) == 0 {
 		report.Notes = append(report.Notes, "no reviewable Go or Markdown changes against "+change.BaseRef)
 		return report, nil
 	}
@@ -249,7 +253,7 @@ func buildRequests(opts Options, change Change, prefix string) ([]request, []str
 					neighbours = packageFunctions(filepath.Dir(full), full, file.Kind == FileTest, exclude)
 				}
 				if r, ok := goRequest(unit, file.Kind == FileTest, neighbours); ok {
-					requests = append(requests, r)
+					requests, notes = keep(requests, notes, r)
 				}
 			}
 		case FileDocs:
@@ -263,7 +267,7 @@ func buildRequests(opts Options, change Change, prefix string) ([]request, []str
 			}
 			for _, unit := range docUnits(rel, src, file.Hunks) {
 				if r, ok := docRequest(unit); ok {
-					requests = append(requests, r)
+					requests, notes = keep(requests, notes, r)
 				}
 			}
 		case FileConfig, FileWorkflow, FileOther:
@@ -272,7 +276,7 @@ func buildRequests(opts Options, change Change, prefix string) ([]request, []str
 	}
 
 	if r, ok := changeRequest(change, prefix, truncate(docsDiff.String(), maxDocsDiffChars), addedSymbols, addedKeys); ok {
-		requests = append(requests, r)
+		requests, notes = keep(requests, notes, r)
 	}
 	return requests, notes
 }
@@ -336,7 +340,9 @@ func goRequest(unit goUnit, isTest bool, neighbours []string) (request, bool) {
 			r.add(q, i, pending{question: q, path: unit.Path, line: lines[q.Items][i], symbol: unit.Symbol})
 		}
 	}
-	r.fit()
+	if err := r.fit(); err != nil {
+		r.oversize = err.Error()
+	}
 	return r, len(r.questions) > 0
 }
 
@@ -369,7 +375,9 @@ func docRequest(unit docUnit) (request, bool) {
 			r.add(q, i, pending{question: q, path: unit.Path, line: sentence.Line})
 		}
 	}
-	r.fit()
+	if err := r.fit(); err != nil {
+		r.oversize = err.Error()
+	}
 	return r, len(r.questions) > 0
 }
 
@@ -440,7 +448,9 @@ func changeRequest(change Change, prefix, docsDiff string, addedSymbols, addedKe
 			}
 		}
 	}
-	r.fit()
+	if err := r.fit(); err != nil {
+		r.oversize = err.Error()
+	}
 	return r, len(r.questions) > 0
 }
 
@@ -471,28 +481,207 @@ func (r *request) add(q Question, index int, p pending) {
 	r.pending[id] = p
 }
 
-// fit keeps the state inside the model's context by dropping the least
-// specific fields first. The judged items are never dropped.
-func (r *request) fit() {
+// shrinkLimits are the successive per-field character budgets fit applies.
+// Each round shortens more aggressively than the last.
+var shrinkLimits = []int{maxStateChars / 4, maxStateChars / 16, maxStateChars / 64, 256}
+
+// fit keeps the state inside the model's context by shortening the least
+// specific fields first: package signatures, then the declaration text, the
+// Markdown diff, the hunk diff, and finally the judged items. Items are only
+// shortened, never dropped, because every question already names the element
+// it judges. Each round rewrites from the original text, so one field never
+// collects two truncation markers.
+// summaryLists are top-level lists that describe the change but are not judged
+// items, so they can lose entries once every text field has been shortened.
+var summaryLists = []string{"files", "commits"}
+
+// summaryTextLists are the change.summary lists: free text that has no other
+// cap, so they shorten and then shrink with the summaries.
+var summaryTextLists = []string{"commit_subjects", "added_symbols", "added_config_keys"}
+
+func truncateStrings(values []string, limit int) []string {
+	short := make([]string, len(values))
+	for i, value := range values {
+		short[i] = truncate(value, limit)
+	}
+	return short
+}
+
+// fit returns an error when the state is still over the limit after every
+// shrink; the caller reports that instead of sending a request the API would
+// reject.
+func (r *request) fit() error {
 	if r.size() <= maxStateChars {
-		return
+		return nil
 	}
 	if neighbours, ok := r.state["neighbours"].(map[string]any); ok {
 		neighbours["package_functions"] = []string{}
 	}
 	if r.size() <= maxStateChars {
-		return
+		return nil
 	}
-	if hunk, ok := r.state["hunk"].(map[string]any); ok {
-		after, _ := hunk["after"].(string)
-		hunk["after"] = truncate(after, maxStateChars/4)
+
+	hunk, _ := r.state["hunk"].(map[string]any)
+	after, _ := hunk["after"].(string)
+	diff, _ := hunk["diff"].(string)
+	docs, _ := r.state["docs_diff"].(string)
+	lists, _ := r.state["items"].(map[string]any)
+	items := genericItems(lists)
+	summaries := map[string]any{}
+	for _, key := range summaryLists {
+		if value, ok := r.state[key]; ok {
+			summaries[key] = value
+		}
 	}
-	if r.size() <= maxStateChars {
-		return
+	change, _ := r.state["change"].(map[string]any)
+	summary, _ := change["summary"].(map[string]any)
+	summaryTexts := map[string][]string{}
+	for _, key := range summaryTextLists {
+		if values, ok := summary[key].([]string); ok {
+			summaryTexts[key] = values
+		}
 	}
-	if docs, ok := r.state["docs_diff"].(string); ok {
-		r.state["docs_diff"] = truncate(docs, maxStateChars/4)
+	for _, limit := range shrinkLimits {
+		if hunk != nil {
+			hunk["after"] = truncate(after, limit)
+		}
+		if r.size() <= maxStateChars {
+			return nil
+		}
+		if docs != "" {
+			r.state["docs_diff"] = truncate(docs, limit)
+		}
+		if r.size() <= maxStateChars {
+			return nil
+		}
+		if hunk != nil {
+			hunk["diff"] = truncate(diff, limit)
+		}
+		if r.size() <= maxStateChars {
+			return nil
+		}
+		if items != nil {
+			r.state["items"] = truncateItems(lists, items, limit)
+		}
+		if r.size() <= maxStateChars {
+			return nil
+		}
+		for key, value := range summaries {
+			r.state[key] = capList(truncateValue(genericJSON(value), limit), limit/listDivisor)
+		}
+		for key, values := range summaryTexts {
+			summary[key] = capList(truncateStrings(values, limit), limit/listDivisor)
+		}
+		if r.size() <= maxStateChars {
+			return nil
+		}
 	}
+	return fmt.Errorf("state is %d characters after shrinking; the limit is %d", r.size(), maxStateChars)
+}
+
+// listDivisor turns a character budget into a list-length budget: a 256-char
+// round keeps four entries.
+const listDivisor = 64
+
+// genericJSON converts a typed value to its generic JSON shape so truncateValue
+// can shorten the strings inside it. Values that do not round-trip are
+// returned unchanged.
+func genericJSON(value any) any {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return value
+	}
+	var generic any
+	if err := json.Unmarshal(data, &generic); err != nil {
+		return value
+	}
+	return generic
+}
+
+// capList keeps the first n entries of a JSON list and a count of the rest.
+// Values that are not lists are returned unchanged.
+func capList(value any, n int) any {
+	if n < 1 {
+		n = 1
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return value
+	}
+	var list []any
+	// The marker replaces at least two entries, so a cap never grows the list.
+	if err := json.Unmarshal(data, &list); err != nil || len(list) <= n+1 {
+		return value
+	}
+	return append(list[:n], fmt.Sprintf("... %d more", len(list)-n))
+}
+
+// genericItems converts the preselected lists to a generic JSON shape so one
+// pass shortens comments, errors, sentences, and commits alike. Every field
+// keeps its JSON name, so the wire shape does not change.
+func genericItems(lists map[string]any) map[string][]map[string]any {
+	if lists == nil {
+		return nil
+	}
+
+	generic := map[string][]map[string]any{}
+	for name, list := range lists {
+		data, err := json.Marshal(list)
+		if err != nil {
+			continue
+		}
+		var items []map[string]any
+		if err := json.Unmarshal(data, &items); err != nil {
+			continue
+		}
+		generic[name] = items
+	}
+	return generic
+}
+
+// truncateItems shortens every text field of every item to limit. Lists that
+// genericItems could not convert are kept as they were rather than dropped, so
+// a question can never point at a list that vanished.
+func truncateItems(original map[string]any, items map[string][]map[string]any, limit int) map[string]any {
+	shortened := maps.Clone(original)
+	for name, list := range items {
+		if len(list) == 0 {
+			shortened[name] = list
+			continue
+		}
+		short := make([]map[string]any, 0, len(list))
+		for _, item := range list {
+			fields := map[string]any{}
+			for field, value := range item {
+				fields[field] = truncateValue(value, limit)
+			}
+			short = append(short, fields)
+		}
+		shortened[name] = short
+	}
+	return shortened
+}
+
+// truncateValue shortens strings and caps nested lists (a commit's files or
+// hunk headers) without changing the number of items themselves.
+func truncateValue(value any, limit int) any {
+	switch typed := value.(type) {
+	case string:
+		return truncate(typed, limit)
+	case map[string]any:
+		short := make(map[string]any, len(typed))
+		for field, element := range typed {
+			short[field] = truncateValue(element, limit)
+		}
+		return short
+	case []any:
+		short := make([]any, len(typed))
+		for i, element := range typed {
+			short[i] = truncateValue(element, limit)
+		}
+		return capList(short, max(1, limit/listDivisor))
+	}
+	return value
 }
 
 func (r request) size() int {
@@ -607,4 +796,23 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// keep queues a request, or records why an oversize one is not sent so the
+// report names the skipped element instead of failing on an API rejection.
+func keep(requests []request, notes []string, r request) ([]request, []string) {
+	if r.oversize == "" {
+		return append(requests, r), notes
+	}
+	label := "change"
+	for _, p := range r.pending {
+		if p.path != "" {
+			label = p.path
+			if p.symbol != "" {
+				label += " " + p.symbol
+			}
+			break
+		}
+	}
+	return requests, append(notes, fmt.Sprintf("%s was not judged: %s", label, r.oversize))
 }

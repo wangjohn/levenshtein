@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 const semanticConfig = `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"host":{"executor":"native"}},"checks":{"semantic":{"kind":"semantic-lint","target":"app","environment":"host"%s}},"runs":{"branch":{"checks":["semantic"]},"audit":{"checks":["semantic"],"rerun_checks":true}}}`
@@ -70,6 +71,50 @@ func TestSemanticLintConfiguration(t *testing.T) {
 	}
 }
 
+// TestSemanticLintRejectsCommittedCredentials covers the redirect that
+// configuration could otherwise perform: levenshtein.json travels with the pull
+// request, so a declared origin would choose where the CI secret is sent.
+func TestSemanticLintRejectsCommittedCredentials(t *testing.T) {
+	environment := `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"host":{"executor":"native"%s}},"checks":{"semantic":{"kind":"semantic-lint","target":"app","environment":"host"}},"runs":{"branch":{"checks":["semantic"]}}}`
+
+	for name, data := range map[string]string{
+		"environment env base url": strings.Replace(environment, "%s", `,"env":{"TYPESAFE_BASE_URL":"https://attacker.example"}`, 1),
+		"environment env api key":  strings.Replace(environment, "%s", `,"env":{"TYPESAFE_API_KEY":"leaked"}`, 1),
+		"pass_env api key":         strings.Replace(environment, "%s", `,"pass_env":["TYPESAFE_API_KEY"]`, 1),
+	} {
+		cfg, err := Parse([]byte(data))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		_, err = cfg.Plan(t.TempDir(), "branch")
+		if err == nil || !strings.Contains(err.Error(), "TYPESAFE_") {
+			t.Fatalf("%s accepted: %v", name, err)
+		}
+	}
+
+	// An unrelated variable and a base-URL pass_env entry stay usable.
+	cfg, err := Parse([]byte(strings.Replace(environment, "%s", `,"env":{"GOFLAGS":"-mod=mod"},"pass_env":["TYPESAFE_BASE_URL"]`, 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cfg.Plan(t.TempDir(), "branch"); err != nil {
+		t.Fatalf("unrelated environment entries rejected: %v", err)
+	}
+}
+
+func TestSemanticOriginRequiresHTTPSOffLoopback(t *testing.T) {
+	for _, raw := range []string{"https://api.typesafe.ai/", "http://127.0.0.1:8080", "http://localhost:9/v1", "http://[::1]:9"} {
+		if _, err := semanticOrigin(raw); err != nil {
+			t.Fatalf("%s rejected: %v", raw, err)
+		}
+	}
+	for _, raw := range []string{"http://api.typesafe.ai", "http://evil.example:443", "ftp://api.typesafe.ai", "api.typesafe.ai"} {
+		if origin, err := semanticOrigin(raw); err == nil {
+			t.Fatalf("%s accepted as %q", raw, origin)
+		}
+	}
+}
+
 func semanticRequest(t *testing.T, source string) Request {
 	t.Helper()
 	return Request{Source: source, Shared: t.TempDir(), PlannedCheck: PlannedCheck{ID: "semantic", Check: Check{Kind: CheckSemanticLint, Semantic: &SemanticCheck{}}, Target: Target{Dir: ".", Workspace: ".", Inputs: []string{"."}}, Environment: Environment{Executor: ExecutorNative}}}
@@ -118,6 +163,38 @@ func gitRepo(t *testing.T) string {
 	run("add", ".")
 	run("commit", "--quiet", "-m", "Add greeting")
 	return dir
+}
+
+func TestSemanticLintSeparatesItsTimeoutFromOuterCancellation(t *testing.T) {
+	source := gitRepo(t)
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	defer server.Close()
+	defer close(release)
+
+	t.Setenv("TYPESAFE_API_KEY", "test")
+	t.Setenv("TYPESAFE_BASE_URL", server.URL)
+	t.Setenv("GITHUB_BASE_REF", "")
+	req := semanticRequest(t, source)
+	req.Check.Semantic.Timeout = "300ms"
+
+	result := (&Native{}).Execute(context.Background(), req)
+	if result.Status != StatusError || result.Error != "semantic-lint timed out" {
+		t.Fatalf("the check's own timeout: %+v", result)
+	}
+
+	// An expired outer deadline belongs to the run, not to this check.
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	req.Check.Semantic.Timeout = "5m"
+	if result = (&Native{}).Execute(ctx, req); result.Status != StatusCancelled {
+		t.Fatalf("an outer deadline must not be reported as the check's timeout: %+v", result)
+	}
 }
 
 func TestSemanticLintExecutesAdvisoryCheck(t *testing.T) {
@@ -195,10 +272,47 @@ func TestSemanticLintExecutesAdvisoryCheck(t *testing.T) {
 	}
 
 	req.Target = Target{Dir: ".", Workspace: ".", Inputs: []string{"."}}
-	req.Environment.Env = map[string]string{"TYPESAFE_BASE_URL": "http://127.0.0.1:9"} // Declared env wins over the host value.
+	req.Environment.Env = map[string]string{"TYPESAFE_BASE_URL": server.URL} // Configuration cannot redirect the origin.
+	t.Setenv("TYPESAFE_BASE_URL", "http://127.0.0.1:9")
 	req.Check.Semantic.Timeout = "5s"
 	result = (&Native{}).Execute(context.Background(), req)
 	if result.Status != StatusError {
-		t.Fatalf("unreachable model must be an infrastructure error: %+v", result)
+		t.Fatalf("only the host value selects the origin, so the unreachable one must error: %+v", result)
+	}
+
+	t.Setenv("TYPESAFE_BASE_URL", "http://api.typesafe.invalid")
+	result = (&Native{}).Execute(context.Background(), req)
+	if result.Status != StatusError || !strings.Contains(result.Error, "https") {
+		t.Fatalf("a plain-http origin off loopback must be refused: %+v", result)
+	}
+}
+
+// Committed PATH or GIT_* values would pick which git produces the diff.
+func TestSemanticLintRejectsCommittedGitEnvironment(t *testing.T) {
+	environment := `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"host":{"executor":"native"%s}},"checks":{"semantic":{"kind":"semantic-lint","target":"app","environment":"host"}},"runs":{"branch":{"checks":["semantic"]}}}`
+	for name, extra := range map[string]string{
+		"PATH":    `,"env":{"PATH":"tools"}`,
+		"GIT_DIR": `,"env":{"GIT_DIR":"elsewhere/.git"}`,
+	} {
+		cfg, err := Parse([]byte(strings.Replace(environment, "%s", extra, 1)))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if _, err := cfg.Plan(t.TempDir(), "branch"); err == nil || !strings.Contains(err.Error(), name) {
+			t.Fatalf("%s accepted: %v", name, err)
+		}
+	}
+}
+
+// A base ref from the environment gets the same shape check as a configured one.
+func TestSemanticLintValidatesTheEnvironmentBaseRef(t *testing.T) {
+	source := gitRepo(t)
+	t.Setenv("TYPESAFE_API_KEY", "test")
+	t.Setenv("TYPESAFE_BASE_URL", "")
+	t.Setenv("GITHUB_BASE_REF", "--output=x")
+
+	result := (&Native{}).Execute(context.Background(), semanticRequest(t, source))
+	if result.Status != StatusError || !strings.Contains(result.Error, "invalid semantic-lint base") {
+		t.Fatalf("flag-shaped base ref: %+v", result)
 	}
 }
