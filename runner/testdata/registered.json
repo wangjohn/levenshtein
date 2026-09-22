@@ -1,6 +1,6 @@
 {
-  "comment": "Cases for registered, which checks the patterns a go-lint check adds against the linter's -list-checks output. runner/main_test.go and internal/verify/findings_test.go both load this table, so the two copies cannot drift.",
-  "listing": "LV1001 \nSA5001 Deferring Close before checking for a possible error\nS1002 Omit comparison with boolean constant\nST1000 Incorrect or missing package comment\ngocognit Find complex function using cognitive complexity calculation.\nunparam \n",
+  "comment": "Cases for registered, which checks the patterns a go-lint check adds against the linter's -list-checks output. runner/main_test.go and internal/verify/findings_test.go both load this table, so the two copies cannot drift. The listing includes a blank and a whitespace-only line, which name no rule.",
+  "listing": "LV1001 \nSA5001 Deferring Close before checking for a possible error\nS1002 Omit comparison with boolean constant\nST1000 Incorrect or missing package comment\n\n  \ngocognit Find complex function using cognitive complexity calculation.\nunparam \n",
   "cases": [
     {"name": "an opt-in rule by name", "checks": ["gocognit"], "matches": true},
     {"name": "names ignore case", "checks": ["GoCognit"], "matches": true},
