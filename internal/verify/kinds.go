@@ -60,6 +60,11 @@ var nativeKinds = map[CheckKind]nativeKind{
 		rerunReady: alwaysReady,
 		execute:    goCheckExecutor((*Native).workflowLint, "shared check failed"),
 	},
+	CheckWorkflowSecurity: {
+		validate:   validateSharedGoCheck,
+		rerunReady: alwaysReady,
+		execute:    goCheckExecutor((*Native).workflowSecurity, "shared check failed"),
+	},
 }
 
 // sharedGoChecks are the kinds either executor can run. Their results are
@@ -67,11 +72,12 @@ var nativeKinds = map[CheckKind]nativeKind{
 // command object to opt in with; the alwaysFresh kinds are still never cached,
 // whichever executor runs them.
 var sharedGoChecks = map[CheckKind]bool{
-	CheckGoLint:       true,
-	CheckGoVet:        true,
-	CheckGoMod:        true,
-	CheckGoVuln:       true,
-	CheckWorkflowLint: true,
+	CheckGoLint:           true,
+	CheckGoVet:            true,
+	CheckGoMod:            true,
+	CheckGoVuln:           true,
+	CheckWorkflowLint:     true,
+	CheckWorkflowSecurity: true,
 }
 
 // alwaysFresh names the kinds whose verdict depends on state no input

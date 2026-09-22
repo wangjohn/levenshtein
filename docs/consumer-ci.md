@@ -100,7 +100,7 @@ The action's outputs are `run`, the run it executed, and `report`, the path to t
 
 ## A native lint job without Docker
 
-`go-lint`, `go-vet`, `go-mod`, `workflow-lint`, and `go-vuln` also run on a [native environment](configuration.md#native-go-checks), using the host's Go instead of a container. Declare it in the application's `levenshtein.json`:
+`go-lint`, `go-vet`, `go-mod`, `workflow-lint`, `workflow-security`, and `go-vuln` also run on a [native environment](configuration.md#native-go-checks), using the host's Go instead of a container. Declare it in the application's `levenshtein.json`:
 
 ```json
 {
@@ -121,6 +121,8 @@ The action's outputs are `run`, the run it executed, and `report`, the path to t
 ```
 
 The workflow is unchanged. The job needs no container runtime, and the action's caches restore the Staticcheck analysis cache and completed results across workers, which Dagger's in-engine cache volumes cannot do on ephemeral runners; setup-go's cache keeps the helper builds fast. A native check's result key includes the host's Go version, operating system, and architecture, so a job that changes runner image or Go version re-verifies rather than reusing another host's verdict.
+
+To audit the workflows too, add a [`workflow-security`](checks.md#workflow-security) check on a repository-root target whose `inputs` include `.github` (and `action.yml` for an action repository), in its own run or beside `lint`. It runs zizmor's offline audits only, so keep [zizmor's GitHub Action](https://github.com/zizmorcore/zizmor-action) with the workflow token, ideally on a weekly schedule, if you also want the audits that query GitHub, such as `impostor-commit` and `known-vulnerable-actions`. The native check downloads the pinned zizmor archive into `--cache-dir`'s `tools/` directory, so restoring that directory saves the download.
 
 ## CircleCI and other providers
 

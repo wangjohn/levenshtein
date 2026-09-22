@@ -193,4 +193,32 @@ func TestNativeGoChecksAgreeWithTheFixtures(t *testing.T) {
 			t.Fatalf("a missing go.mod must error rather than pass: %+v", result)
 		}
 	})
+
+	// workflow-security downloads the pinned zizmor release, so these need
+	// github.com, as the Dagger self-test does.
+	t.Run("workflow-security passes workflow-secure", func(t *testing.T) {
+		result := native.Execute(ctx, fixtureRequest(t, shared, "workflow-secure", CheckWorkflowSecurity))
+		if result.Status != StatusPassed {
+			t.Fatalf("workflow-secure fixture must pass workflow-security: %+v", result)
+		}
+	})
+
+	t.Run("workflow-security fails workflow-insecure with zizmor's report", func(t *testing.T) {
+		result := native.Execute(ctx, fixtureRequest(t, shared, "workflow-insecure", CheckWorkflowSecurity))
+		if result.Status != StatusFailed {
+			t.Fatalf("workflow-insecure fixture must fail for its finding, not a tool error: %+v", result)
+		}
+
+		findings := fixtureFindings(t, result)
+		if len(findings) != 1 || findings[0].Code != string(CheckWorkflowSecurity) || !strings.Contains(findings[0].Message, "template-injection") || !strings.Contains(findings[0].Message, ".github/workflows/triage.yml:17") {
+			t.Fatalf("lost zizmor's template-injection finding: %+v", findings)
+		}
+	})
+
+	t.Run("workflow-security refuses a repository with nothing to audit", func(t *testing.T) {
+		result := native.Execute(ctx, fixtureRequest(t, shared, "good", CheckWorkflowSecurity))
+		if result.Status != StatusError || !strings.Contains(result.Error, "found no workflows") {
+			t.Fatalf("nothing to audit must error rather than pass: %+v", result)
+		}
+	})
 }
