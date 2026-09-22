@@ -182,7 +182,53 @@ func Parse(data []byte) (Config, error) {
 
 	var cfg Config
 	if err := decode(data, &cfg); err != nil {
+		if hint := migrationHint(data); hint != "" {
+			return Config{}, fmt.Errorf("%s: %w", hint, err)
+		}
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// Check options that used to sit directly on a check now live in its command
+// or semantic object. A file written for the earlier layout fails to decode;
+// migrationHint turns that raw decoder error into a pointer at the move.
+var (
+	retiredCommandFields  = []string{"rerun_command", "artifacts", "cache", "preparation", "build", "env"}
+	retiredSemanticFields = []string{"base", "model"}
+)
+
+func migrationHint(data []byte) string {
+	var loose struct {
+		Checks map[string]map[string]json.RawMessage `json:"checks"`
+	}
+	if json.Unmarshal(data, &loose) != nil {
+		return ""
+	}
+
+	for id, check := range loose.Checks {
+		var kind CheckKind
+		_ = json.Unmarshal(check["kind"], &kind)
+		if _, ok := check["timeout"]; ok {
+			object := "command"
+			if kind == CheckSemanticLint {
+				object = "semantic"
+			}
+			return fmt.Sprintf(`check %q: "timeout" now lives inside the %q object (see docs/configuration.md)`, id, object)
+		}
+		if raw, ok := check["command"]; ok && bytes.HasPrefix(bytes.TrimSpace(raw), []byte("[")) {
+			return fmt.Sprintf(`check %q: "command" is now an object; write "command": {"args": [...]} (see docs/configuration.md)`, id)
+		}
+		for _, field := range retiredCommandFields {
+			if _, ok := check[field]; ok {
+				return fmt.Sprintf(`check %q: %q now lives inside the "command" object, and rerun_command is called rerun_args (see docs/configuration.md)`, id, field)
+			}
+		}
+		for _, field := range retiredSemanticFields {
+			if _, ok := check[field]; ok {
+				return fmt.Sprintf(`check %q: %q now lives inside the "semantic" object (see docs/configuration.md)`, id, field)
+			}
+		}
+	}
+	return ""
 }
