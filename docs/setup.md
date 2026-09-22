@@ -4,7 +4,7 @@ Shared Go checks run pinned correctness, error handling, enum, resource, workflo
 
 ## Prerequisites
 
-The source launcher needs a `go` on `PATH`, of any version: it sets `GOTOOLCHAIN` to the version in `.go-version` (**1.27.1**), so Go downloads and caches that toolchain itself when the host differs. That download needs a reachable module proxy; with `GOPROXY=off`, install Go 1.27.1 and the launcher uses it directly. Go checks require a running Docker-compatible container runtime. The Go SDK downloads and checksum-verifies Dagger **0.21.9** automatically. Native commands and planning do not start Dagger.
+The source launcher needs a `go` on `PATH`, of any version: it sets `GOTOOLCHAIN` to the version in `.go-version` (**1.27.1**), so Go downloads and caches that toolchain itself when the host differs. That download needs a reachable module proxy; with `GOPROXY=off`, install Go 1.27.1 and the launcher uses it directly. A Docker-compatible container runtime is needed only for checks bound to a **Dagger** environment; the Go SDK then downloads and checksum-verifies Dagger **0.21.9** automatically. Planning, native commands, and the [shared Go checks on a native environment](configuration.md#native-go-checks) do not start Dagger and need no container runtime; the native Go checks use the host's own `go` on `PATH`.
 
 To develop the shared Dagger module or use `dagger check` directly, install the pinned CLI with the checked-in archive checksums:
 

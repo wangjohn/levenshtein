@@ -44,7 +44,7 @@ check twice in one run.
 Each expanded check keeps its own cache identity, inputs, and result; the
 expansion is a way to write one declaration instead of one per module.
 
-Dagger checks include `go-lint`, `go-vet`, `go-http`, `go-sql`, `go-vuln`, `workflow-lint`, and Levenshtein's own `self-test`; native checks use `command` or the advisory [`semantic-lint`](semantic-lint.md). See the [shared checks](checks.md) for scope and examples. Workflow lint requires a repository-root target. Go tool versions remain pinned in the shared checkout. Local caching is described below.
+Dagger checks include `go-lint`, `go-vet`, `go-http`, `go-sql`, `go-vuln`, `workflow-lint`, and Levenshtein's own `self-test`; native checks use `command`, the advisory [`semantic-lint`](semantic-lint.md), or one of the [shared Go kinds a native environment can run](#native-go-checks). See the [shared checks](checks.md) for scope and examples. Workflow lint requires a repository-root target. Go tool versions remain pinned in the shared checkout. Local caching is described below.
 
 Without a configuration file, `branch` and `pre-merge` run `go-lint` and `go-vet`; `main` also runs `go-vuln`. Named runs for each shared check are available. An explicit configuration replaces these defaults.
 
@@ -126,13 +126,44 @@ The process inherits only `PATH`, `HOME`, and temporary-directory/system-root va
 
 A command check may reference an entry in top-level `preparations` by its `command.preparation` ID. Each preparation declares `command`, repository-relative `inputs` and `outputs`, optional `env`, and `timeout`. Preparation runs in the target's workspace directory. Declared output paths and their ancestors must not be symlinks. When the environment declares an `identity` and a result cache is configured, checks share compatible successful preparation, within a run and across processes, with conflicting mutations serialized; missing outputs require preparation again. Without both, every check runs its own stages. Build/tool caches managed by the repository's commands remain usable.
 
+## Native Go checks
+
+`go-lint`, `go-vet`, `workflow-lint`, and `go-vuln` also run on a `native` environment, on the host rather than in a container. Bind the check to a native environment; nothing else about the check changes:
+
+```json
+{
+  "version": 1,
+  "targets": {"api": {"dir": "services/api", "inputs": ["services/api", "go.work"]}},
+  "environments": {
+    "host": {"executor": "native"},
+    "go": {"executor": "dagger"}
+  },
+  "checks": {
+    "lint": {"kind": "go-lint", "target": "api", "environment": "host"},
+    "vet": {"kind": "go-vet", "target": "api", "environment": "host"},
+    "vulnerabilities": {"kind": "go-vuln", "target": "api", "environment": "go"}
+  },
+  "runs": {"branch": {"checks": ["lint", "vet"]}}
+}
+```
+
+These kinds take no options of their own on either executor; a `command` or `semantic` object is rejected. The environment may still declare `identity`, `env`, `pass_env`, and pinned `tools`. `go-http`, `go-sql`, and Levenshtein's own `self-test` remain Dagger-only, and Dagger stays the default for a repository with no configuration file.
+
+The host must supply the Go in the shared checkout's `.go-version`; toolchain switching is disabled, so a different host Go is used as-is rather than silently replaced. Levenshtein builds the helper tools (`levenshtein-lint`, `actionlint`, `govulncheck`) from the pinned shared checkout into `<cache-dir>/tools/` on first use, serialized by a file lock, and relies on Go's own build cache for repeat builds. Staticcheck's analysis cache lives in `<cache-dir>/staticcheck`; a fresh run points it at a throwaway directory instead. Without a cache directory, each check builds into a temporary directory it removes afterwards.
+
+Workspace selection matches what the container would see. The container imports only declared inputs less the target's `exclude`, so the host runs with `GOWORK` set to the nearest `go.work` between the target directory and the source root that an input covers and no exclude drops, and `GOWORK=off` when there is none; a `go.work` above the source, or one the target does not declare, is never used. Declare `go.work` (and `go.work.sum`) in the target's `inputs` to analyze the module in workspace mode.
+
+The trade-off is the point of the choice. The container pins the Go version, the operating system, the C toolchain, and the default build tags, so its verdict is reproducible anywhere. The native executor uses the host's, which is faster and needs no Docker, but means analysis reflects the worker's platform and build tags. It is also not isolated: the host's `go list` and `go vet` may download modules and invoke cgo toolchains against the consumer's code outside any container, as trusted native commands do. Results are fingerprinted accordingly: a native shared Go check's cache key includes the host's `go env GOVERSION GOOS GOARCH` and the shared checkout's `runner/` directory (the linter, its rule list, and the pinned tools), so a worker on a different Go, or a pin that changes the rules, never reuses another's result. Reports have the same shape either way, with the same rule codes, messages, and repository-relative locations.
+
+Result caching follows the kind rather than a `command.cache` flag these checks do not have: a native `go-lint`, `go-vet`, or `workflow-lint` result is reused exactly as a Dagger one is. `go-vuln` is never cached on either executor.
+
 ## Semantic lint
 
 `semantic-lint` is a native check with no command. It diffs the working tree against a base branch, asks a pinned Jev model the shared question catalog, and records advisory findings. Its optional `semantic` object accepts `base`, `model`, and `timeout`; it reads `TYPESAFE_API_KEY` from the host environment without `pass_env`, and it is never cached. See [semantic lint](semantic-lint.md) for the questions, key handling, and limits.
 
 ## Local caching
 
-Successful Dagger checks reuse completed results by default, except `go-vuln`: vulnerability scans always execute against current advisory data, even with `cache: true` or in custom runs. A native command opts in with `command.cache: true`, an environment `identity` identifying a provisioned toolchain/system setup, and an explicit `command.rerun_args` argument array. The fresh command must actually execute verification, bypassing any test runner verdict cache (for example `go test -count=1`). Every native `command` check selected by a fresh run must declare `rerun_args`, including checks with result caching disabled; `semantic-lint` always executes and needs none. It may equal `args` for tools that already execute their tests on each invocation. `LEVENSHTEIN_RERUN_CHECKS` also tells scripts the run policy.
+Successful Dagger checks, and native shared Go checks, reuse completed results by default, except `go-vuln`: vulnerability scans always execute against current advisory data, even with `cache: true` or in custom runs. A native command opts in with `command.cache: true`, an environment `identity` identifying a provisioned toolchain/system setup, and an explicit `command.rerun_args` argument array. The fresh command must actually execute verification, bypassing any test runner verdict cache (for example `go test -count=1`). Every native `command` check selected by a fresh run must declare `rerun_args`, including checks with result caching disabled; `semantic-lint` always executes and needs none. It may equal `args` for tools that already execute their tests on each invocation. `LEVENSHTEIN_RERUN_CHECKS` also tells scripts the run policy.
 
 Declare every relevant source, test, script, configuration, local dependency, and lockfile in target inputs. Command options, declared environment values, platform, selected preparation/build definitions, target `discovery`/`exclude`, and effective shared implementation also identify results. The pinned shared checkout is snapshotted once per CLI process; edit it between runs, not during one. Declared outputs are excluded from source fingerprints. Undeclared external state cannot be cached safely: leave `cache` off for live-service checks. A native worker's `identity` is a provisioning contract; an eligible cached result can satisfy it without starting tools on the current host. Use fresh audits to obtain new observations.
 

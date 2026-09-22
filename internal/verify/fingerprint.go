@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -271,10 +272,12 @@ func outputPaths(req Request) []string {
 
 // implementationKey separates memoized snapshots per shared checkout so
 // independent roots, including each test's own temporary directory, never share
-// an entry. The executor kind selects which paths the snapshot covers.
+// an entry. The executor kind and whether the check runs the shared checkout's
+// own tools select which paths the snapshot covers.
 type implementationKey struct {
 	Shared   string
 	Executor ExecutorKind
+	Runner   bool
 }
 
 // implementations memoizes the shared checkout's snapshot for the life of the
@@ -289,14 +292,23 @@ type implementationKey struct {
 var implementations sync.Map
 
 func implementation(req Request) (string, error) {
-	key := implementationKey{Shared: req.Shared, Executor: req.Environment.Executor}
+	// A shared Go check runs the shared checkout's linter and house rules
+	// (runner/lint), reads its rule list (runner/toolchain.json) and builds its
+	// pinned tools (runner/tools) on either executor, so all of runner/ decides
+	// its verdict. Without it, bumping the pinned checkout to a revision that
+	// adds rules would reuse results the new rules never saw.
+	runner := req.Environment.Executor == ExecutorDagger || sharedGoChecks[req.Check.Kind]
+	key := implementationKey{Shared: req.Shared, Executor: req.Environment.Executor, Runner: runner}
 	if memoized, ok := implementations.Load(key); ok {
 		return memoized.(string), nil
 	}
 
 	paths := []string{"go.mod", "go.sum", "cmd", "internal"}
-	if req.Environment.Executor == ExecutorDagger {
+	switch {
+	case req.Environment.Executor == ExecutorDagger:
 		paths = append(paths, ".dagger-version", "dagger.json", "runner", "sdk")
+	case runner:
+		paths = append(paths, "runner")
 	}
 	// The shared checkout is also shipped as a release archive with no work
 	// tree, so it is always enumerated the same way wherever it came from.
@@ -331,8 +343,13 @@ func fingerprint(req Request) (string, error) {
 
 	req.RerunChecks = false
 	var env []string
+	toolchain := ""
 	if req.Environment.Executor == ExecutorNative {
 		env = nativeEnv(req, req.Check.env())
+		toolchain, err = hostToolchain(req, env)
+		if err != nil {
+			return "", err
+		}
 	}
 	return digest(struct {
 		Check          PlannedCheck
@@ -341,5 +358,27 @@ func fingerprint(req Request) (string, error) {
 		OS             string
 		Arch           string
 		Env            []string
-	}{req.PlannedCheck, source, impl, runtime.GOOS, runtime.GOARCH, env}), nil
+		Toolchain      string `json:",omitempty"`
+	}{req.PlannedCheck, source, impl, runtime.GOOS, runtime.GOARCH, env, toolchain}), nil
+}
+
+// hostToolchain identifies the Go a native shared check will actually use. The
+// Dagger path pins its toolchain through the image digest in the implementation
+// snapshot; the native path has nothing equivalent, so the host's own version,
+// OS and architecture join the key. Other native kinds contribute nothing, so
+// their existing cache entries keep their identity.
+func hostToolchain(req Request, env []string) (string, error) {
+	if !sharedGoChecks[req.Check.Kind] {
+		return "", nil
+	}
+
+	dir, err := contained(req.Source, req.Target.Dir)
+	if err != nil {
+		return "", err
+	}
+	identity, err := toolchainIdentity(context.Background(), dir, env)
+	if err != nil {
+		return "", err
+	}
+	return digest(identity), nil
 }

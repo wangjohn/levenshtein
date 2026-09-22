@@ -6,7 +6,7 @@ Your CI checks out the application, chooses a run, and invokes a pinned Levensht
 
 ## The same command locally and in CI
 
-Use the [runtime prerequisites](setup.md#prerequisites): any Go on `PATH` for the source launcher, which provisions the pinned toolchain itself, and a Docker-compatible runtime for Go checks. The SDK provisions the pinned Dagger CLI. Keep the application and Levenshtein in separate directories:
+Use the [runtime prerequisites](setup.md#prerequisites): any Go on `PATH` for the source launcher, which provisions the pinned toolchain itself, and a Docker-compatible runtime for checks bound to a Dagger environment. The SDK provisions the pinned Dagger CLI. Keep the application and Levenshtein in separate directories:
 
 ```text
 workspace/
@@ -108,6 +108,63 @@ jobs:
 ```
 
 The job's normal shell failure handling propagates the launcher's nonzero exit status. Configure the application's required check in its existing repository settings. The schedule above belongs to this application; Levenshtein's own daily workflow checks its shared runner and fixtures.
+
+## A native lint job without Docker
+
+`go-lint`, `go-vet`, `workflow-lint`, and `go-vuln` also run on a [native environment](configuration.md#native-go-checks), using the host's Go instead of a container. That job needs no container runtime, and the caches that make it fast are ordinary Go caches plus Levenshtein's own, all restorable with `actions/cache`:
+
+```yaml
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out application
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: app
+          persist-credentials: false
+      - name: Check out shared checks
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: wangjohn/levenshtein
+          ref: 4529f54d3e341d37a6d0d1bc0e987b5dec6c6938
+          path: levenshtein
+          persist-credentials: false
+      - name: Set up the pinned Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: levenshtein/.go-version
+          # Restores GOCACHE and GOMODCACHE, which the helper builds and the
+          # analysis itself both reuse.
+          cache-dependency-path: |
+            app/go.sum
+            levenshtein/go.sum
+            levenshtein/runner/lint/go.sum
+            levenshtein/runner/tools/go.sum
+      - name: Restore Levenshtein cache
+        id: levenshtein-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # Built helper binaries, the Staticcheck analysis cache, and completed
+          # verification results.
+          path: ${{ runner.temp }}/levenshtein-cache
+          key: levenshtein-native-${{ runner.os }}-${{ github.sha }}
+          restore-keys: levenshtein-native-${{ runner.os }}-
+      - name: Lint
+        env:
+          NO_COLOR: '1'
+        run: |
+          mkdir -p "$RUNNER_TEMP/levenshtein-cache"
+          ./levenshtein/verify branch --source ./app --cache-dir "$RUNNER_TEMP/levenshtein-cache"
+      - name: Save Levenshtein cache
+        if: ${{ !cancelled() && steps.levenshtein-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/levenshtein-cache
+          key: ${{ steps.levenshtein-cache.outputs.cache-primary-key }}
+```
+
+Unlike Dagger's in-engine cache volumes, which do not survive an ephemeral runner, all three of these caches restore across workers. Do not share a writable cache directory between trusted jobs and untrusted pull requests. A native check's result key includes the host's Go version, operating system, and architecture, so a job that changes runner image or Go version re-verifies rather than reusing another host's verdict.
 
 ## CircleCI and other providers
 
