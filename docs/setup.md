@@ -89,6 +89,13 @@ manifest `dagger develop` rewrites), and `ruff check` over `scripts` and
 `sdk/patched-go`. The Go test step writes a coverage profile that is uploaded
 as an artifact for seven days; no threshold gates the run.
 
+`security.yml` runs beside it: `zizmor` over the workflows and composite
+actions on every pull request, push to `main`, and weekly, failing on findings
+of medium severity and above; OpenSSF Scorecard with a SARIF upload to code
+scanning on `main` and the weekly schedule, since Scorecard reads the default
+branch rather than a pull request's merge ref; and `dependency-review` on pull
+requests, failing on high severity.
+
 Event → `./verify` mapping:
 
 - Draft PR / push to `main`: `lint` runs `branch`; `tests` skips Dagger verify (lint already covered static checks).
