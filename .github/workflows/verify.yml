@@ -178,7 +178,7 @@ jobs:
       - name: Set up the pinned Dagger CLI
         uses: ./.github/actions/setup-dagger
       - name: Consumer source boundary
-        run: go test -tags=integration ./internal/verify -run TestDaggerSourceBoundary -count=1
+        run: go test -tags=integration ./internal/verify -run 'TestDaggerSourceBoundary|TestMutationKeepsTheSharedDaggerSession' -count=1
       - name: Restore or generate the Dagger Go SDK
         uses: ./.github/actions/dagger-sdk
       - name: Unit tests
