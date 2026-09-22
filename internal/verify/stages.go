@@ -60,13 +60,14 @@ func (n *Native) stage(ctx context.Context, req Request, kind StageKind, stage *
 	key := digest([]any{kind, req.Source, req.Target.Workspace, stage, inputs, env, req.Environment, runtime.GOOS, runtime.GOARCH, impl, dependency})
 	info := StageResult{Kind: kind, Key: key}
 
+	// Only a pinned environment with a cache remembers a stage. Without both,
+	// the stage runs for every check and keeps whatever incremental reuse its
+	// own native tooling provides.
 	path := ""
 	var prior stageEntry
 	if n.Cache != nil && req.Environment.Identity != "" {
 		path = filepath.Join(n.Cache.Dir, "stages", key+".json")
 		_ = readRecord(path, &prior)
-	} else if req.Environment.Identity != "" && n.stages != nil {
-		prior = n.stages[key]
 	}
 	if prior.Key == key && outputsExist(req.Source, stage.Outputs) {
 		output, err := snapshot(req.Source, stage.Outputs, nil, true)
@@ -101,16 +102,8 @@ func (n *Native) stage(ctx context.Context, req Request, kind StageKind, stage *
 	}
 
 	after, err := snapshot(req.Source, stage.Inputs, stage.Outputs, false)
-	if err == nil && after == inputs && req.Environment.Identity != "" {
-		record := stageEntry{Key: key, Outputs: output}
-		if path != "" {
-			_ = writeRecord(path, record)
-		} else {
-			if n.stages == nil {
-				n.stages = map[string]stageEntry{}
-			}
-			n.stages[key] = record
-		}
+	if err == nil && after == inputs && path != "" {
+		_ = writeRecord(path, stageEntry{Key: key, Outputs: output})
 	}
 	return StageResult{Kind: kind, Key: key, DurationMS: time.Since(start).Milliseconds()}, nil
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -72,14 +73,21 @@ func runCommand(ctx context.Context, args []string, output io.Writer) (int, erro
 	if opts.shared == "" {
 		return 2, fmt.Errorf("set --shared to the pinned Levenshtein checkout, or use its ./verify launcher")
 	}
-	shared, err := filepath.Abs(opts.shared)
+	// Resolve the shared checkout the same way Plan resolves the source, so one
+	// checkout has one spelling in fingerprints and memoized snapshots.
+	shared, err := resolveExisting(opts.shared)
 	if err != nil {
-		return 2, err
+		return 2, fmt.Errorf("--shared %q: %w", opts.shared, err)
+	}
+	if _, err := os.Stat(shared); err != nil {
+		return 2, fmt.Errorf("--shared %q: %w", opts.shared, err)
 	}
 
-	cacheDir, err := filepath.Abs(opts.cacheDir)
+	// The cache directory may not exist yet; resolve what does exist so the
+	// containment check below compares like with like.
+	cacheDir, err := resolveExisting(opts.cacheDir)
 	if err != nil {
-		return 2, err
+		return 2, fmt.Errorf("--cache-dir %q: %w", opts.cacheDir, err)
 	}
 	for _, root := range []string{plan.Source, shared} {
 		relative, relErr := filepath.Rel(root, cacheDir)
@@ -104,4 +112,28 @@ func runCommand(ctx context.Context, args []string, output io.Writer) (int, erro
 		return 1, nil
 	}
 	return 0, nil
+}
+
+// resolveExisting makes path absolute and resolves symlinks in its longest
+// existing prefix, keeping any trailing components that do not exist yet.
+func resolveExisting(path string) (string, error) {
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+
+	var missing []string
+	for current := path; ; current = filepath.Dir(current) {
+		resolved, err := filepath.EvalSymlinks(current)
+		if err == nil {
+			return filepath.Join(append([]string{resolved}, missing...)...), nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return "", err
+		}
+		if filepath.Dir(current) == current {
+			return "", err
+		}
+		missing = append([]string{filepath.Base(current)}, missing...)
+	}
 }

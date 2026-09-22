@@ -8,12 +8,12 @@ import (
 	"sync"
 )
 
-// Native serializes mutable preparation within this runner. Cross-process reuse
-// is handled by the cache layer; repo commands remain trusted, unsandboxed code.
+// Native serializes mutable preparation within this runner. Reuse of stage
+// outputs, in-process and across processes alike, is handled by the cache
+// layer; repo commands remain trusted, unsandboxed code.
 type Native struct {
-	mu     sync.Mutex
-	stages map[string]stageEntry
-	Cache  *Cache
+	mu    sync.Mutex
+	Cache *Cache
 }
 
 func (n *Native) Execute(ctx context.Context, req Request) Result {
