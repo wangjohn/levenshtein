@@ -68,9 +68,11 @@ type entry struct {
 	Artifacts []artifact
 }
 
+// envelope is the on-disk record layout. The tags spell the field names that
+// untagged records already used, so existing cache files still decode.
 type envelope struct {
-	Checksum string
-	Data     json.RawMessage
+	Checksum string          `json:"Checksum"`
+	Data     json.RawMessage `json:"Data"`
 }
 
 func writeRecord(path string, value any) error {
@@ -121,7 +123,7 @@ func (c *Cache) load(req Request, key string) (Result, error) {
 		if a.Path != req.Check.artifacts()[i] {
 			return Result{}, fmt.Errorf("artifact scope mismatch")
 		}
-		if _, err := outputPath(req.Source, a.Path); err != nil {
+		if err := checkOutputPath(req.Source, a.Path); err != nil {
 			return Result{}, err
 		}
 	}
@@ -149,8 +151,7 @@ func (c *Cache) save(req Request, key string, result Result) error {
 	}
 	defer func() { _ = root.Close() }() // Directory handle cleanup; writes are closed separately.
 	for _, path := range req.Check.artifacts() {
-		_, err := outputPath(req.Source, path)
-		if err != nil {
+		if err := checkOutputPath(req.Source, path); err != nil {
 			return err
 		}
 		info, err := root.Stat(path)

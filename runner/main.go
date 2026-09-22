@@ -173,7 +173,8 @@ func parseFindings(exitCode int, stdout, stderr string, checks []string) ([]diag
 var expectedBadCodes = []string{
 	"SA5001", "SA5003", "SA9001", "S1002", "ST1005", "QF1011", "U1000",
 	"bodyclose", "sqlclosecheck", "rowserrcheck", "noctx",
-	"errcheck", "exhaustive", "nilness", "unusedwrite", "errorlint", "nilerr", "durationcheck", "reassign", "wastedassign",
+	"errcheck", "exhaustive", "nilness", "unusedwrite", "errorlint", "nilerr", "durationcheck", "reassign", "wastedassign", "musttag", "recvcheck",
+	"unparam",
 	"intrange", "usestdlibvars", "perfsprint", "predeclared", "errname",
 	"minmax", "mapsloop", "slicescontains", "stringscutprefix", "stringsseq",
 	"thelper", "tparallel", "testifylint",
