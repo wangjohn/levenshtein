@@ -1,42 +1,15 @@
 name: Levenshtein self-checks
 
-# Verify Levenshtein's own runner and fixtures. Application repos invoke the
-# shared runner from their existing CI and own their schedules (docs/consumer-ci.md).
-#
-# Job layout (lint ≪ tests):
-#   lint  — static ./verify branch only (early required signal)
-#   tests — host race/fixtures, SDK restore/regen, self-test / main / dispatch runs,
-#           consumer regressions
-#   language-contracts / release-smoke — parallel siblings
-#
-# Generated SDK cache: exact key, defined once in .github/actions/dagger-sdk;
-# readiness is a compile of the runner module (scripts/ci-dagger-sdk).
-# vulnerabilities.yml still always regenerates via scripts/test-sdk-security.
-#
-# Verification result cache: $RUNNER_TEMP/levenshtein-verification-v1, handed to
-# ./verify as --cache-dir. The key ends in github.sha and falls back through a
-# prefix restore-key, so any earlier entry seeds the run and the CLI's own
-# per-target fingerprinting decides what is still reusable. Keys are partitioned
-# per job (verification-v1-lint-… vs verification-v1-tests-…) so lint and tests
-# never write the same key. Every run saves, including failed ones. A cache
-# written by a pull request run lives in that PR's merge-ref scope: only reruns
-# of the same PR can restore it, and main never sees it, so a fork cannot seed
-# main's entries. Entries are small JSON records, and the SDK entry is touched
-# on every run, so result entries do not push it out of the 10 GB budget.
-# merge_group is not one of the events that writes the default-branch cache
-# scope, so its saves are invisible to main; the tests scope on main is seeded
-# by schedule and workflow_dispatch runs. The other direction is open: a pull
-# request, including one from a fork, can restore main's entries. They hold
-# verification results and generated code, never secrets.
+# Verify Levenshtein's own runner and fixtures. The job layout, both caches and
+# their trust policy, and what to require in branch protection are explained in
+# docs/setup.md#levenshteins-own-ci. Application repos invoke the shared runner
+# from their existing CI and own their schedules (docs/consumer-ci.md).
 #
 # Event → ./verify run mapping:
 #   Draft PR / push main     → lint: branch; tests: no Dagger verify run
 #   Ready PR / merge_group   → lint: branch; tests: self-test
 #   Schedule                 → lint: branch; tests: main (fresh + go-vuln)
 #   workflow_dispatch        → lint: branch; tests: requested run (default self-test)
-#
-# Required-check guidance: require lint early; do not make draft progress wait on
-# release-smoke or full tests. See docs/setup.md (tiered jobs + trust policy).
 
 on:
   pull_request:
@@ -127,12 +100,57 @@ jobs:
             runner/go.sum
             runner/lint/go.sum
             runner/tools/go.sum
+      # testdata holds lint fixtures, some deliberately unformatted; LV1005
+      # already enforces formatting on the checked modules through go-lint.
+      - name: Go formatting
+        run: |
+          mapfile -t sources < <(git ls-files '*.go' ':!*/testdata/*')
+          unformatted=$(gofmt -l "${sources[@]}")
+          if [[ -n $unformatted ]]; then
+            echo "gofmt would rewrite:" >&2
+            echo "$unformatted" >&2
+            exit 1
+          fi
+      # runner/ is deliberately absent: dagger develop rewrites its go.mod on
+      # every regeneration (see .github/dependabot.yml).
+      - name: Module manifests are tidy
+        env:
+          GOTOOLCHAIN: local
+        run: |
+          for module in . runner/lint runner/tools; do
+            (cd "$module" && go mod tidy -diff)
+          done
+      - name: Module downloads match go.sum
+        env:
+          GOTOOLCHAIN: local
+        run: |
+          for module in . runner/lint runner/tools; do
+            (cd "$module" && go mod verify)
+          done
+      - name: Python lint
+        uses: astral-sh/ruff-action@278981a28ce3188b1e39527901f38254bf3aac89 # v4.1.0
+        with:
+          version: 0.16.8
+          args: check
+          src: |
+            scripts
+            sdk/patched-go
       - name: Standalone runner tests and planning
         env:
           GOTOOLCHAIN: local
         run: |
-          go test -race ./...
+          go test -race -covermode=atomic -coverprofile=coverage.out ./...
           ./verify branch --dry-run
+      # No threshold gate: the profile is for reading, not for failing a run.
+      - name: Upload the root module coverage profile
+        if: ${{ !cancelled() && hashFiles('coverage.out') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-root-${{ github.run_id }}
+          path: coverage.out
+          retention-days: 7
+          # A re-run of the same run replaces its profile instead of failing.
+          overwrite: true
       - name: Go policy analyzer tests
         working-directory: runner/lint
         env:
@@ -253,10 +271,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # No module cache: this job builds the same artifacts the release
+      # workflow publishes, and a restored cache entry is writable by any
+      # earlier run of this workflow.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: .go-version
-          cache-dependency-path: go.sum
+          cache: false
+      # The release workflow runs the same configuration for real; catch a
+      # broken .goreleaser.yaml here rather than on a tag.
+      - name: Validate the release configuration
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
+        with:
+          version: v2.18.1
+          args: check
+      - name: Install syft for SBOM generation
+        uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          syft-version: v1.52.0
       - name: Build complete snapshot archives
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
         with:

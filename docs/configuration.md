@@ -1,6 +1,6 @@
 # Standalone runner configuration
 
-`./verify [RUN] --source /path/to/repo` builds the small Go CLI through Go's incremental build cache and runs it. The launcher requires the version in `.go-version`; Dagger is needed only when a selected Dagger check executes. A prebuilt CLI can be used directly with `--shared /path/to/pinned/levenshtein`.
+`./verify [RUN] --source /path/to/repo` builds the small Go CLI through Go's incremental build cache and runs it. The launcher builds with the Go version pinned in `.go-version`, which Go provisions itself when the host version differs; Dagger is needed only when a selected Dagger check executes. A prebuilt CLI can be used directly with `--shared /path/to/pinned/levenshtein`.
 
 `./verify branch --dry-run` reads configuration and returns the selected plan without starting execution tools. Relative target and input paths are resolved from the source repository. Inputs are literal files/directories, not glob patterns. Workspace context can differ from the check's working directory. Target/workspace directories must exist inside the source repository.
 
@@ -10,25 +10,43 @@
 {
   "version": 1,
   "targets": {
-    "api": {"dir": "services/api", "workspace": ".", "inputs": ["services/api", "go.work", "contracts"]}
+    "api": {"dir": "services/api", "workspace": ".", "inputs": ["services/api", "go.work", "contracts"]},
+    "worker": {"dir": "services/worker", "workspace": ".", "inputs": ["services/worker", "go.work"]}
   },
   "environments": {"go": {"executor": "dagger"}},
   "checks": {
-    "cleanup": {"kind": "go-lint", "target": "api", "environment": "go"}
+    "cleanup": {"kind": "go-lint", "targets": ["api", "worker"], "environment": "go"},
+    "workflows": {"kind": "workflow-lint", "target": "api", "environment": "go"}
   },
   "runs": {
-    "branch": {"checks": ["cleanup"]},
+    "branch": {"checks": ["cleanup/api"]},
     "pre-merge": {"checks": ["cleanup"]},
     "daily": {"checks": ["cleanup"], "rerun_checks": true}
   }
 }
 ```
 
-Dagger checks include `go-lint`, `go-vet`, `go-http`, `go-sql`, `go-vuln`, `workflow-lint`, and Levenshtein's own `self-test`; native checks use `command`, the advisory [`semantic-lint`](semantic-lint.md), or one of the [shared Go kinds a native environment can run](#native-go-checks). See the [shared checks](go-lint.md) for scope and examples. Workflow lint requires a repository-root target. Go tool versions remain pinned in the shared checkout. Local caching is described below.
+### One check, several targets
+
+A check declares either one `target` or a `targets` list, never both and never
+neither. `targets` must be nonempty and must not repeat a name.
+
+A check with `targets` plans one check per entry, in the order they are
+declared, with the ID `<check>/<target>`: `cleanup` above plans `cleanup/api`
+and then `cleanup/worker`. A run selects either the check ID, which takes every
+target, or a single `<check>/<target>`, as `branch` does. Referencing
+`<check>/<target>` for a check declared with the singular `target` is an error,
+as is naming a target the check does not declare, or selecting the same planned
+check twice in one run.
+
+Each expanded check keeps its own cache identity, inputs, and result; the
+expansion is a way to write one declaration instead of one per module.
+
+Dagger checks include `go-lint`, `go-vet`, `go-http`, `go-sql`, `go-vuln`, `workflow-lint`, and Levenshtein's own `self-test`; native checks use `command`, the advisory [`semantic-lint`](semantic-lint.md), or one of the [shared Go kinds a native environment can run](#native-go-checks). See the [shared checks](checks.md) for scope and examples. Workflow lint requires a repository-root target. Go tool versions remain pinned in the shared checkout. Local caching is described below.
 
 Without a configuration file, `branch` and `pre-merge` run `go-lint` and `go-vet`; `main` also runs `go-vuln`. Named runs for each shared check are available. An explicit configuration replaces these defaults.
 
-A run selects check IDs. `rerun_checks: true` forces verification execution while retaining compatible dependency/build caches. It replaces the earlier `fresh` setting; use `rerun_checks` in configuration and `LEVENSHTEIN_RERUN_CHECKS` in scripts. Any run name can use it; versioned configuration gives `main` no special behavior. Unknown checks, executors, references, and configuration fields fail explicitly.
+A run selects check IDs, optionally per target as described in [one check, several targets](#one-check-several-targets). `rerun_checks: true` forces verification execution while retaining compatible dependency/build caches. It replaces the earlier `fresh` setting; use `rerun_checks` in configuration and `LEVENSHTEIN_RERUN_CHECKS` in scripts. Any run name can use it; versioned configuration gives `main` no special behavior. Unknown checks, executors, references, and configuration fields fail explicitly.
 
 Recommended run policy:
 
