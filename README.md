@@ -1,47 +1,135 @@
 # Levenshtein
 
-**An opinionated way to make your repos testable and lintable.**
+A comprehensive, carefully chosen set of Go lint rules for all your repos.
 
-Tests and lint rules give coding agents clear requirements and fast feedback. Levenshtein makes them easy to set up and improve, so teams can verify AI-generated changes before shipping to production.
+Coding agents write a lot of code quickly, and they fix whatever their tools point out. That makes lint rules more important than ever. Good rules will catch unchecked errors, leaked resources, and sloppy code before anyone reviews the change, and the agent fixes those problems on its own. When much of your code isn't written by hand, lint rules are the most reliable way to keep a repo clean and well written.
 
-Levenshtein keeps shared verification rules and execution setup in one repo. Your application repos use a pinned version. Improve it once, then adopt the change wherever it applies. Application tests stay beside the application code.
+Levenshtein turns on nearly all of Staticcheck, more than twenty other analyzers, and a handful of its own rules. Each rule is there because it catches bugs or makes code clearer, and [docs/checks.md](docs/checks.md) gives the reason for every one. Rules that only enforce someone's taste in naming or comments are off, so a finding is usually worth fixing.
 
-Your existing CI—GitHub Actions, CircleCI, or another provider—owns triggers, schedules, and workers. Levenshtein wraps the checks: select what to run, prepare the environment, and return results. The same wrapper runs locally.
+Every repo uses the same rules. Each one pins a revision of Levenshtein and runs `./verify`, which runs the checks in a container with pinned versions of Go and every tool. A result doesn't depend on whose laptop or which CI provider ran it. When you improve a rule, you do it once, and each repo picks it up when it bumps its pin.
 
-For example, add a Go rule that catches misplaced `defer` calls, then adopt it across your Go repos. Fixes to shared tests and CI checks follow the same path.
+## Example
 
-## Usage
+Given this file:
 
-**Available now:** shared Go lint, vet, resource and vulnerability checks, workflow lint, native commands, an advisory model-backed semantic lint, and local caching of results and compatible setup/builds. [Set up Go checks](docs/setup.md) or [configure native checks](docs/configuration.md).
+```go
+func ReadConfig(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	defer f.Close()
+	if err != nil {
+		return nil, err
+	}
+	return io.ReadAll(f)
+}
 
-```sh
-./verify              # fast checks for your branch
-./verify pre-merge    # key checks before merging
-./verify main         # fresh audit; schedule this in your repo's CI
-./verify go-lint      # shared Go rules, such as misplaced defers
-./verify semantic-lint # advisory Jev review of the branch; needs TYPESAFE_API_KEY
+func IsFinished(status string) bool {
+	return status == "done" || status == "failed"
+}
 ```
 
-`./verify` defaults to `branch`. In version 1 configuration, fresh audits explicitly set `rerun_checks: true`. Add your own named runs through configuration. Run the same checks locally and in CI.
+Levenshtein reports:
 
-To check another Go repo: `./verify go-lint --source /path/to/repo`. [Use it from your existing CI](docs/consumer-ci.md).
+```text
+config.go:10:2: SA5001 should check error returned from os.Open() before deferring f.Close()
+config.go:10:15: errcheck unchecked error
+config.go:18:9: LV1001 string choice with multiple alternatives needs a defined string type and typed constants
+```
+
+## What it checks
+
+- **Staticcheck**: everything except six style rules about naming and doc comments.
+- **Bug-finding analyzers**: `errcheck`, `exhaustive`, `bodyclose`, `nilness`, `errorlint`, and others.
+- **Modernize rules**: five rules for newer Go features, each fixable with `go fix`.
+- **Levenshtein's own rules**: typed constants for enum-like strings, building structs in one literal, and three formatting rules.
+- **Other tools**: `go vet`, `govulncheck`, and `actionlint` for GitHub Actions.
+
+To silence a finding, use Staticcheck's usual comment: `//lint:ignore CODE reason`.
+
+## Quick start
+
+You need `go` (any version) and Docker or another Docker-compatible runtime, such as Colima. Levenshtein runs on Linux and macOS.
+
+```sh
+git clone https://github.com/wangjohn/levenshtein
+./levenshtein/verify --source ./myapp
+```
+
+The first run takes a few minutes while it downloads and builds the tools. After that, runs are fast, and checks that passed are skipped until their files change.
+
+`verify` prints a JSON report. It exits with `0` if everything passes, `1` if a check fails, and `2` if the command or config is wrong. To see just the findings:
+
+```sh
+./levenshtein/verify --source ./myapp | jq -r '.results[].details.findings[]? | "\(.location.file):\(.location.line): \(.code) \(.message)"'
+```
+
+## Runs
+
+A run is a named group of checks. If your repo has one Go module at its root, you don't need any config:
+
+```sh
+./levenshtein/verify --source ./myapp            # branch (default): lint and vet
+./levenshtein/verify pre-merge --source ./myapp  # lint and vet
+./levenshtein/verify main --source ./myapp       # lint, vet, and govulncheck
+./levenshtein/verify go-lint --source ./myapp    # one check
+```
+
+For several modules or your own runs, add a `levenshtein.json` to your repo:
+
+```json
+{
+  "version": 1,
+  "targets": {
+    "api": {"dir": "services/api", "inputs": ["services/api", "go.work", "go.work.sum"]}
+  },
+  "environments": {"go": {"executor": "dagger"}},
+  "checks": {
+    "lint": {"kind": "go-lint", "target": "api", "environment": "go"},
+    "vuln": {"kind": "go-vuln", "target": "api", "environment": "go"}
+  },
+  "runs": {
+    "branch": {"checks": ["lint"]},
+    "main": {"checks": ["lint", "vuln"], "rerun_checks": true}
+  }
+}
+```
+
+- `inputs` lists the files a check can see. A change to any of them makes the check run again.
+- `rerun_checks` makes a run skip the cache. Use it for nightly runs.
+- A `command` check runs your own script, like your test suite, next to the lint checks.
+
+See [docs/configuration.md](docs/configuration.md) for everything else.
+
+## In CI
+
+Levenshtein runs inside your existing CI. Your CI job checks out your repo and Levenshtein side by side, then runs `verify`. A common setup is `branch` on pushes, `pre-merge` on pull requests, and `main` every night. [docs/consumer-ci.md](docs/consumer-ci.md) has a full GitHub Actions example.
+
+Pin Levenshtein to a commit SHA or a release tag, not a branch. That way rule changes reach your repo only when you choose to update.
+
+## Why a separate repo?
+
+Lint config usually gets copied from repo to repo, and then the copies drift apart. One repo is on an old Staticcheck. Another turned off a rule years ago. A third never got the rule that would have caught last week's bug.
+
+With Levenshtein, the rules and tool versions live in one place. Improve a rule once and every repo can pick it up. Developers, CI, and coding agents all get the same results.
+
+If you have a single Go repo and you're happy with your `golangci-lint` setup, you probably don't need this.
+
+## Status
+
+Levenshtein is new and is being tried out on a few Go repos. The config format is versioned, and changes to it will be listed in the [changelog](CHANGELOG.md). Only Go has built-in checks. Other languages can use `command` checks.
 
 ## Documentation
 
-- [Setup and usage](docs/setup.md): run the Go checks locally and in CI.
-- [Contributing](CONTRIBUTING.md): how to build, test, and send changes.
-- [Security policy](SECURITY.md): how to report a vulnerability privately.
-- [Configuration](docs/configuration.md): standalone planning, targets, and runs.
-- [Shared checks](docs/checks.md): every check kind, the Go lint rules, and suggested runs.
-- [Semantic lint](docs/semantic-lint.md): advisory Jev questions about Go, docs, and pull request shape.
-- [Use from your existing CI](docs/consumer-ci.md): local and CI examples for application repos.
-- [Release archives](docs/releases.md): package the CLI and shared checks with GoReleaser.
-- [Language fixtures](docs/language-fixtures.md): Rust/Python compatibility checks.
-- [Architecture](docs/architecture.md): how the CLI plans, executes, and caches checks.
-- [Dependency choices](docs/dependencies.md): which responsibilities use established tools.
-- [Roadmap](docs/roadmap.md): planned work beyond the current release.
+- [Setup](docs/setup.md): install and run locally
+- [Checks](docs/checks.md): every rule and why it's on or off
+- [Configuration](docs/configuration.md): targets, runs, commands, and caching
+- [Using it in CI](docs/consumer-ci.md): GitHub Actions and other providers
+- [Releases](docs/releases.md): prebuilt binaries
+- [Semantic lint](docs/semantic-lint.md): an optional review by a language model
+- [Architecture](docs/architecture.md): how `verify` works
 
-See [the Go lint rules](docs/checks.md#go-lint-rules) for the shared defer/close, typed-choice, and value-record policies, and [design contracts](docs/architecture.md#design-contracts) for the cache and language adapter contracts.
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). To report a security issue, see [SECURITY.md](SECURITY.md).
 
 ## License
 
