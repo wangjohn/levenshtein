@@ -1,6 +1,8 @@
-# Shared Go lint rules
+# Shared checks
 
-`./verify go-lint` runs the same pinned checks locally and in any CI provider. Consumer repos inherit the checks by updating their pinned Levenshtein revision. No linter installation is needed outside Dagger.
+Every shared check kind runs the same pinned tools locally and in any CI provider. Consumer repos inherit them by updating their pinned Levenshtein revision. No tool installation is needed outside Dagger. [Named checks](#named-checks-and-suggested-runs) lists every kind and where it belongs; the rules below are what `./verify go-lint` enforces.
+
+## Go lint rules
 
 | Rule | Policy |
 | --- | --- |
@@ -94,22 +96,25 @@ For example, an HTTP service can compose checks using the current versioned inte
 ```json
 {
   "version": 1,
-  "targets": {"app": {"dir": ".", "workspace": ".", "inputs": ["."]}},
+  "targets": {
+    "api": {"dir": "services/api", "workspace": ".", "inputs": ["services/api", "go.work"]},
+    "worker": {"dir": "services/worker", "workspace": ".", "inputs": ["services/worker", "go.work"]}
+  },
   "environments": {"go": {"executor": "dagger"}},
   "checks": {
-    "lint": {"kind": "go-lint", "target": "app", "environment": "go"},
-    "http": {"kind": "go-http", "target": "app", "environment": "go"},
-    "audit": {"kind": "go-vuln", "target": "app", "environment": "go"}
+    "lint": {"kind": "go-lint", "targets": ["api", "worker"], "environment": "go"},
+    "http": {"kind": "go-http", "targets": ["api", "worker"], "environment": "go"},
+    "audit": {"kind": "go-vuln", "target": "api", "environment": "go"}
   },
   "runs": {
-    "branch": {"checks": ["lint", "http"]},
+    "branch": {"checks": ["lint", "http/api"]},
     "dependency-audit": {"checks": ["audit"]},
     "main": {"checks": ["lint", "http", "audit"], "rerun_checks": true}
   }
 }
 ```
 
-Each Go check runs for its selected target. Use a repository-root target (`dir: "."`) for `workflow-lint`; a workflow-less repo should omit it. A repository without `levenshtein.json` gets these checks over a single whole-tree target. HTTP and SQL checks do not replace application tests. ShellCheck and Pyflakes integration is explicitly disabled so results do not depend on optional host tools.
+A check with [`targets`](configuration.md#one-check-several-targets) plans one check per target: `lint` becomes `lint/api` and `lint/worker`, while `http/api` selects a single target. Each Go check runs for its selected target. Use a repository-root target (`dir: "."`) for `workflow-lint`; a workflow-less repo should omit it. A repository without `levenshtein.json` gets these checks over a single whole-tree target. HTTP and SQL checks do not replace application tests. ShellCheck and Pyflakes integration is explicitly disabled so results do not depend on optional host tools.
 
 Go vet and standalone tool failures retain native output, including file/line details, inside the report's diagnostic message. Their outer location identifies the module/root rather than pretending the message was parsed into individual source diagnostics. Tool errors never pass; govulncheck's vulnerability exit code is distinguished from network or tool failures.
 

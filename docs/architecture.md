@@ -7,9 +7,11 @@ instructions.
 ## The `./verify` launcher
 
 `./verify` builds and runs the standalone Go CLI in `cmd/levenshtein`
-(`main.go`, `args.go`). It parses flags and an optional run name (default
-`branch`), loads `levenshtein.json` from the source repository, and builds a
-plan for that run.
+(`main.go`, `args.go`). The shell launcher exports `GOWORK=off` and
+`GOTOOLCHAIN=go<version>` from `.go-version`, so any host `go` builds the CLI
+with the pinned toolchain, downloading it once if it is not installed. It
+parses flags and an optional run name (default `branch`), loads
+`levenshtein.json` from the source repository, and builds a plan for that run.
 
 With `--dry-run`, it prints the plan and exits; no executor runs. Otherwise it
 builds a `Dagger` executor and a `Native` executor, wraps both in
@@ -32,10 +34,11 @@ builds a `Dagger` executor and a `Native` executor, wraps both in
 - **Environment**: an `executor` (`dagger` or `native`), plus native-only
   options such as `identity`, `env`, `pass_env`, and pinned `tools`.
 - **Check**: a `kind` (`go-lint`, `go-vet`, `go-http`, `go-sql`, `go-vuln`,
-  `workflow-lint`, `self-test`, `command`, `semantic-lint`) bound to a target
-  and environment, plus kind-specific options for `command` and
-  `semantic-lint` checks (see [configuration](configuration.md)).
-  `internal/verify/validation.go` enforces which options apply to which kind.
+  `workflow-lint`, `self-test`, `command`, `semantic-lint`) bound to an
+  environment and to either one `target` or a list of `targets`, plus
+  kind-specific options for `command` and `semantic-lint` checks (see
+  [configuration](configuration.md)). `internal/verify/validation.go` enforces
+  which options apply to which kind.
 - **Run**: a named list of check IDs plus `rerun_checks`, which forces fresh
   verification (bypassing verdict caches) while keeping compatible
   dependency/build caches.
@@ -45,13 +48,17 @@ defaults (`Load` in `config.go`).
 
 ## The planner
 
-`internal/verify/plan.go` resolves a run's check IDs against `Config` into a
-`Plan`: it validates that every target/environment/check reference exists,
+`internal/verify/plan.go` resolves a run's check references against `Config`
+into a `Plan`. `selections` turns each reference into the checks it selects: a
+check declared with `targets` expands to one planned check per target, with the
+ID `<id>/<target>`, and a run may instead name a single `<id>/<target>`.
+`planCheck` then validates that every target/environment reference exists,
 checks executor-specific option rules, confirms target directories exist
 under the source tree, and (for Dagger checks) validates the declared inputs
 can be imported (`daggerIncludes`). None of this starts Docker, Dagger, or any
 executor, so `--dry-run` needs no container runtime and none of the tools
-the checks themselves use. The launcher still needs the pinned Go.
+the checks themselves use. The launcher still builds the CLI with the pinned
+Go, which it provisions through `GOTOOLCHAIN` when the host version differs.
 
 ## Executors
 
@@ -168,3 +175,151 @@ to a version without [GO-2026-4985](https://pkg.go.dev/vuln/GO-2026-4985),
 since editing `runner/go.mod` directly cannot survive Dagger's own module
 regeneration. See [dependency security](dependencies.md#dagger-wrapper-dependency-security)
 and `sdk/patched-go/README.md` for how to validate and eventually remove it.
+
+## Design contracts
+
+The sections above describe what the CLI does today. These are the contracts a
+new check implementation or cache layer has to satisfy, whatever language it
+serves. [The roadmap](roadmap.md) covers forward-looking expansion.
+
+### Language adapter contract
+
+An adapter is an internal check implementation using the common planner,
+executors, and results. Keep the target/check/environment/run model; do not
+assign a single language to an entire repo. Each adapter defines:
+
+- **Workspace inputs:** distinguish the execution directory from the workspace
+  root; include relevant root configuration, local dependencies, shared
+  fixtures, generated inputs, and test configuration.
+- **Execution variants:** include selected packages/tests, toolchains,
+  dependency selection, and language-specific options in the check identity and
+  reported scope. Record resolved versions, not just a requested version range.
+- **Shared preparation:** declare preparation inputs, reusable outputs,
+  compatibility, and read/write access. Lint, type checking, and tests can share
+  compatible setup. Isolate environments with different dependency selections
+  and serialize conflicting mutations; a generic command may keep setup embedded
+  until it can declare a safe reusable boundary.
+- **Results and freshness:** preserve native output, collect required artifacts,
+  and define how fresh verification bypasses verdict reuse while retaining
+  compatible setup/build artifacts.
+
+#### Rust and Python constraints
+
+- **Rust workspaces:** Cargo shares a root lockfile and build directory. Include
+  workspace configuration and relevant path dependencies even when checking one
+  member. Features, profiles, selected packages, and target platforms identify
+  different verification scopes. See [Cargo workspaces](https://doc.rust-lang.org/cargo/reference/workspaces.html)
+  and [test options](https://doc.rust-lang.org/cargo/commands/cargo-test.html).
+- **Rust build inputs:** account for `build.rs`, generated sources, environment
+  inputs, native libraries, and required system tools. Declaring only Rust
+  source files is insufficient; see [Cargo build scripts](https://doc.rust-lang.org/cargo/reference/build-scripts.html).
+- **Python environments:** pin the interpreter and resolved dependencies;
+  include groups/extras, test plugins, configuration, and `conftest.py`/shared
+  fixtures. A uv recipe is one option, not a requirement for every consumer.
+  Reuse compatible preparation across checks; see [uv synchronization](https://docs.astral.sh/uv/concepts/projects/sync/).
+- **Python cache portability:** reuse compatible downloaded/built packages
+  across workers. Reuse a complete virtual environment only when interpreter,
+  platform, dependency selection, and filesystem layout match; otherwise
+  recreate it from cached dependencies. Virtual environments contain absolute
+  interpreter paths and are generally nonportable. Local package builds and
+  dynamic metadata need their actual inputs reflected in underlying tool caches
+  too. See [Python virtual environments](https://docs.python.org/3/library/venv.html)
+  and [uv cache inputs](https://docs.astral.sh/uv/concepts/cache/).
+- **Python fresh runs:** pytest's cache records state such as previous failures,
+  not reusable passing-suite verdicts. A fresh full-suite audit must execute the
+  configured suite; `--last-failed` alone cannot satisfy it. Dependency caches
+  can remain warm. See [pytest cache behavior](https://docs.pytest.org/en/stable/how-to/cache.html).
+
+The small Rust/Python fixtures in [language fixtures](language-fixtures.md)
+validate these boundaries before shared language recipes expand.
+
+### Cache contracts and invalidation
+
+Default ordinary runs to aggressive reuse, including successful check results. A
+reusable check implementation must define its input fingerprint, reusable
+outputs, environment requirements, and fresh-execution behavior. Native command
+checks participate in the same contract as container checks.
+
+#### Separate cache layers
+
+Each layer has its own key and compatibility rules. Do not key all preparation
+on the complete check fingerprint.
+
+| Layer | Inputs that determine reuse |
+| --- | --- |
+| Tool/dependency preparation | Resolved toolchain, platform, manifests/lockfiles, dependency groups/extras, installer configuration, preparation implementation, and any local package/build inputs it consumes |
+| Compilation/build artifacts | Relevant source and dependencies, compiler/system tools, platform, build flags/profile/features, build scripts, and generated inputs |
+| Completed verification | Complete relevant source/test/configuration inputs, resolved environment, check implementation/options, and selected scope |
+
+For example, editing a Python test should invalidate its verification result
+while retaining an unchanged dependency environment. Rust source edits
+invalidate dependent results while Cargo reuses compatible build artifacts.
+Include source in preparation keys when preparation consumes it; local package
+builds are not determined by lockfiles alone. A check may omit layers it does
+not need.
+
+#### What identifies reusable work
+
+An exact result key includes the check/target identity and input scope,
+effective command and options, source and test content, fixtures and
+configuration, dependency manifests/lockfiles and relevant local dependencies,
+invoked scripts and helpers, effective shared check/executor implementation, and
+environment/toolchain identity. Include platform/architecture, container image
+digest or native SDK/compiler identity, build flags, relevant declared
+environment values, and any base revision/diff that the check actually consumes.
+Never put raw credentials in cache metadata; credential-dependent results
+require an appropriate version/state identity or fresh execution.
+
+Use content fingerprints so unchanged work can be reused across commits.
+Preserve the source and pinned shared revisions as provenance. Hash relevant
+shared implementations and their dependencies rather than invalidating every
+check for an unrelated documentation or recipe change. Input discovery must
+account for untracked inputs, deletions, generated sources, workspace
+replacements, and shared contracts.
+
+For generic repo-owned commands, start with the full declared source scope,
+scripts, arguments, and environment. Broaden uncertain dependency scopes, then
+narrow them with evidence. A tool that reads live services or other unbounded
+state declares fresh execution unless that state has a dependable identity. It
+still benefits from aggressive tool, dependency, and compilation reuse.
+
+#### Reuse across processes and workers
+
+- Restore only exact completed-result keys. Prefix/fallback restoration is for
+  dependency/build caches whose tools validate compatibility before reuse.
+- Preserve result output and required artifacts together. A missing or invalid
+  artifact turns the lookup into a miss; use atomic publication after successful
+  completion. Record original execution time and cache provenance rather than
+  presenting a reused result as freshly executed.
+- Persist caches across agents and CI jobs using supported existing storage or
+  persistent workers. Scope mutable outputs by environment/check/worktree and
+  serialize conflicting writers; share immutable artifacts where compatible.
+  Reuse preparation and coalesce identical work where supported.
+- Keep trusted result publication separate from untrusted pull-request writes.
+  Shared dependency/artifact reuse must respect repository and access
+  boundaries. Cache backend failure should fall back to recomputation when
+  execution is available.
+- Start executors lazily. A complete result hit should avoid container startup,
+  tool installation, and check execution. Missing required work without a
+  suitable environment leaves the run incomplete.
+
+#### Freshness and evidence
+
+A fresh run bypasses completed-result reuse at every verification layer,
+including Dagger execution and native test/analysis caches. Compatible tool
+installations, downloads, compiled libraries, and test binaries remain reusable.
+Each check adapter must prove that its fresh mode actually executes
+verification; a new outer cache key alone is insufficient. Freshly executed
+successes may populate later ordinary-run caches.
+
+Validate both hits and misses: unchanged work hits; relevant source, test,
+fixture, dependency, script, configuration, toolchain, and shared implementation
+changes miss; unrelated target changes retain valid hits. Exercise persisted
+caches from another process/worker, incomplete/corrupt entries, and a fresh
+audit after a cached success.
+
+Measure cold, warm, small-edit, and fresh-audit runs. Separate
+hashing/lookup/restore, environment startup, setup, compilation, and check
+execution; record cache hit rate, work avoided, and median/tail latency. If
+restoring an artifact costs more than recomputing it, adjust cache granularity
+or retention. Aggressive caching must reduce end-to-end latency.

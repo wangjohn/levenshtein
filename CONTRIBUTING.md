@@ -21,7 +21,7 @@ dagger develop --compat=skip
 (cd runner && GOTOOLCHAIN=local dagger run go test ./...)
 ```
 
-`GOTOOLCHAIN=local` keeps Go from downloading another toolchain when the host version differs from `.go-version`; the launcher enforces the exact version.
+`GOTOOLCHAIN=local` keeps these commands from downloading another toolchain when the host version differs from `.go-version`, so they run on the Go you have. `./verify` does the opposite: it names the pinned toolchain, so any host `go` builds the CLI with the version in `.go-version` and fetches it once if needed.
 
 Repo self-checks, matching what CI runs:
 
@@ -40,7 +40,7 @@ See ["Develop the shared checks"](docs/setup.md#develop-the-shared-checks) for t
 
 ## Code style
 
-Follow the conventions in [AGENTS.md](AGENTS.md) (spacing, struct literals, typed choices for finite values). Run the shared [Go lint rules](docs/go-lint.md) (`./verify go-lint`) when changing Go code.
+Follow the conventions in [AGENTS.md](AGENTS.md) (spacing, struct literals, typed choices for finite values). Run the shared [Go lint rules](docs/checks.md#go-lint-rules) (`./verify go-lint`) when changing Go code.
 
 ## Pull requests
 
