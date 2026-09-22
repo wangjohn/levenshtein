@@ -18,6 +18,19 @@ const (
 	ExecutorNative ExecutorKind = "native"
 )
 
+// DiscoveryKind selects how a target's declared inputs are enumerated for
+// fingerprinting. Git discovery asks the work tree which files it tracks or
+// would add; filesystem discovery walks every path under each input.
+type DiscoveryKind string
+
+const (
+	DiscoveryGit        DiscoveryKind = "git"
+	DiscoveryFilesystem DiscoveryKind = "filesystem"
+)
+
+// discoveryKinds lists every mode, so planning can reject anything else.
+var discoveryKinds = []DiscoveryKind{DiscoveryGit, DiscoveryFilesystem}
+
 type CheckKind string
 
 const (

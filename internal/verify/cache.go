@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -25,6 +26,30 @@ type StageResult struct {
 }
 
 type Cache struct{ Dir string }
+
+// Flush persists the process-wide file stat memo beside the result records, so
+// the next run can skip rereading files it has already hashed. The memo is a
+// hint that every lookup revalidates, so a failure here costs speed on the next
+// run and never correctness.
+func (c *Cache) Flush() error {
+	if c == nil {
+		return nil
+	}
+	stats.configure(c.Dir)
+	return stats.flush()
+}
+
+// notes joins the reasons a result carries, so a discovery fallback does not
+// hide a freshness marker or the other way around.
+func notes(values ...string) string {
+	var present []string
+	for _, value := range values {
+		if value != "" {
+			present = append(present, value)
+		}
+	}
+	return strings.Join(present, "; ")
+}
 
 type CachedExecutor struct {
 	Cache    *Cache
@@ -150,6 +175,12 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 		return Result{Status: StatusCancelled, Error: ctx.Err().Error()}
 	}
 
+	// Every snapshot happens inside a check, so this is where the process-wide
+	// stat memo learns which cache directory it persists to.
+	if c.Cache != nil {
+		stats.configure(c.Cache.Dir)
+	}
+
 	if c.Cache != nil && req.Environment.Executor == ExecutorNative {
 		unlock, err := lockFile(ctx, filepath.Join(c.Cache.Dir, "locks", "workspace-"+digest(req.Source)))
 		if err != nil {
@@ -177,12 +208,12 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 		result := c.Executor.Execute(ctx, req)
 		return result.withCache(CacheInfo{Status: CacheUnavailable, Reason: err.Error()})
 	}
-	status, reason := CacheMiss, ""
+	status, reason := CacheMiss, discoveryNote(req.Source, req.Target.Discovery)
 	defer unlock()
 	retryPath := filepath.Join(c.Cache.Dir, "results", key+".retry")
 	if _, err := os.Stat(retryPath); err == nil {
 		req.RerunChecks = true
-		reason = "previous execution did not publish a successful result; bypassing underlying verdict caches"
+		reason = notes(reason, "previous execution did not publish a successful result; bypassing underlying verdict caches")
 	}
 
 	if !req.RerunChecks {
@@ -223,13 +254,13 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 	if result.Status == StatusPassed {
 		after, err := fingerprint(req)
 		if err != nil || after != key {
-			return result.withCache(CacheInfo{Status: status, Key: key, Reason: "inputs changed during execution; result was not cached", LookupMS: lookupMS})
+			return result.withCache(CacheInfo{Status: status, Key: key, Reason: notes(reason, "inputs changed during execution; result was not cached"), LookupMS: lookupMS})
 		}
 		if err := c.Cache.save(req, key, result); err != nil {
-			reason = "cache write unavailable: " + err.Error()
+			reason = notes(reason, "cache write unavailable: "+err.Error())
 		} else {
 			if err := os.Remove(retryPath); err != nil {
-				reason = "freshness marker cleanup unavailable: " + err.Error()
+				reason = notes(reason, "freshness marker cleanup unavailable: "+err.Error())
 			}
 		}
 	}

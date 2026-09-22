@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 )
 
 type PlannedCheck struct {
@@ -95,6 +96,20 @@ func (cfg Config) Plan(source, name string) (Plan, error) {
 			if !relative(path) {
 				return p, fmt.Errorf("invalid input path %q", path)
 			}
+		}
+		for _, path := range target.Exclude {
+			if !literalPath(path) || path == "." {
+				return p, fmt.Errorf("target %q: exclude %q must be a literal repository-relative path without pattern characters", check.Target, path)
+			}
+		}
+
+		// Discovery is explicit in the plan even when configuration omits it, so
+		// a dry run says which enumeration produced a fingerprint.
+		if target.Discovery == "" {
+			target.Discovery = DiscoveryGit
+		}
+		if !slices.Contains(discoveryKinds, target.Discovery) {
+			return p, fmt.Errorf("target %q: unknown discovery %q", check.Target, target.Discovery)
 		}
 
 		if env.Executor == ExecutorDagger {

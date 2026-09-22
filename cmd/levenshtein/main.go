@@ -97,6 +97,9 @@ func runCommand(ctx context.Context, args []string, output io.Writer) (int, erro
 	}
 
 	cache := &verify.Cache{Dir: cacheDir}
+	// The file stat memo is a hint the next run revalidates, so failing to
+	// persist it changes nothing this run reported.
+	defer func() { _ = cache.Flush() }()
 	dagger := &verify.Dagger{}
 	defer func() { _ = dagger.Close() }() // Session teardown does not change the reported verification result.
 

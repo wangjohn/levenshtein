@@ -10,6 +10,12 @@ import (
 	"dagger.io/dagger"
 )
 
+// literalPath is a declared path Dagger can use verbatim: no pattern syntax and
+// no negation, so configuration cannot widen or invert an import rule.
+func literalPath(path string) bool {
+	return relative(path) && !strings.ContainsAny(path, "*?[]{}!\n\r")
+}
+
 func daggerIncludes(inputs []string) ([]string, error) {
 	if len(inputs) == 0 {
 		return nil, fmt.Errorf("Dagger checks require explicit input paths")
@@ -17,7 +23,7 @@ func daggerIncludes(inputs []string) ([]string, error) {
 
 	var includes []string
 	for _, input := range inputs {
-		if !relative(input) || strings.ContainsAny(input, "*?[]{}!\n\r") {
+		if !literalPath(input) {
 			return nil, fmt.Errorf("Dagger input %q must be a literal repository-relative path without pattern characters", input)
 		}
 		if input == "." {
@@ -40,9 +46,21 @@ func privateSourcePath(path string) bool {
 	return false
 }
 
+// daggerExcludes keeps private files out of every import and adds the target's
+// own excluded paths, so a declared input can cover a directory without carrying
+// its dependency or build output into the container.
+func daggerExcludes(excludes []string) []string {
+	out := []string{"**/.env", "**/.env.*", "!**/.env.example", "**/.git"}
+	for _, path := range excludes {
+		slash := filepath.ToSlash(path)
+		out = append(out, slash, slash+"/**")
+	}
+	return out
+}
+
 // Reject aliases before asking Dagger to import files. A path inside an allowed
 // directory must not expose another part of the checkout through a symlink.
-func validateDaggerSource(source string, inputs []string) error {
+func validateDaggerSource(source string, inputs, excludes []string) error {
 	dir, err := os.OpenRoot(source)
 	if err != nil {
 		return err
@@ -50,7 +68,7 @@ func validateDaggerSource(source string, inputs []string) error {
 	defer func() { _ = dir.Close() }()
 
 	for _, input := range inputs {
-		if privateSourcePath(input) {
+		if privateSourcePath(input) || excluded(input, excludes) {
 			continue
 		}
 		prefix := ""
@@ -69,7 +87,7 @@ func validateDaggerSource(source string, inputs []string) error {
 		}
 
 		err := fs.WalkDir(snapshotFS{FS: dir.FS(), root: dir}, filepath.ToSlash(input), func(path string, entry fs.DirEntry, err error) error {
-			if privateSourcePath(path) {
+			if privateSourcePath(path) || excluded(filepath.FromSlash(path), excludes) {
 				if entry != nil && entry.IsDir() {
 					return filepath.SkipDir
 				}
@@ -93,16 +111,16 @@ func validateDaggerSource(source string, inputs []string) error {
 	return nil
 }
 
-func daggerSource(client *dagger.Client, source string, inputs []string) (*dagger.Directory, error) {
+func daggerSource(client *dagger.Client, source string, inputs, excludes []string) (*dagger.Directory, error) {
 	includes, err := daggerIncludes(inputs)
 	if err != nil {
 		return nil, err
 	}
-	if err := validateDaggerSource(source, inputs); err != nil {
+	if err := validateDaggerSource(source, inputs, excludes); err != nil {
 		return nil, err
 	}
 	return client.Host().Directory(source, dagger.HostDirectoryOpts{
 		Include: includes,
-		Exclude: []string{"**/.env", "**/.env.*", "!**/.env.example", "**/.git"},
+		Exclude: daggerExcludes(excludes),
 	}), nil
 }
