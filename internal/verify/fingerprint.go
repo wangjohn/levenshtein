@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -183,8 +184,13 @@ func fingerprint(req Request) (string, error) {
 
 	req.RerunChecks = false
 	var env []string
+	toolchain := ""
 	if req.Environment.Executor == ExecutorNative {
 		env = nativeEnv(req, req.Check.env())
+		toolchain, err = hostToolchain(req, env)
+		if err != nil {
+			return "", err
+		}
 	}
 	return digest(struct {
 		Check          PlannedCheck
@@ -193,5 +199,27 @@ func fingerprint(req Request) (string, error) {
 		OS             string
 		Arch           string
 		Env            []string
-	}{req.PlannedCheck, source, impl, runtime.GOOS, runtime.GOARCH, env}), nil
+		Toolchain      string `json:",omitempty"`
+	}{req.PlannedCheck, source, impl, runtime.GOOS, runtime.GOARCH, env, toolchain}), nil
+}
+
+// hostToolchain identifies the Go a native shared check will actually use. The
+// Dagger path pins its toolchain through the image digest in the implementation
+// snapshot; the native path has nothing equivalent, so the host's own version,
+// OS and architecture join the key. Other native kinds contribute nothing, so
+// their existing cache entries keep their identity.
+func hostToolchain(req Request, env []string) (string, error) {
+	if !sharedGoChecks[req.Check.Kind] {
+		return "", nil
+	}
+
+	dir, err := contained(req.Source, req.Target.Dir)
+	if err != nil {
+		return "", err
+	}
+	identity, err := toolchainIdentity(context.Background(), dir, env)
+	if err != nil {
+		return "", err
+	}
+	return digest(identity), nil
 }

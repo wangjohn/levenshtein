@@ -30,12 +30,48 @@ var nativeKinds = map[CheckKind]nativeKind{
 	},
 	CheckSemanticLint: {
 		validate:   validateSemanticLint,
-		rerunReady: func(Check) error { return nil },
+		rerunReady: alwaysReady,
 		execute: func(_ *Native, ctx context.Context, req Request, dir string, env []string) Result {
 			return semanticLint(ctx, req, dir, env)
 		},
 	},
+	CheckGoLint: {
+		validate:   validateSharedGoCheck,
+		rerunReady: alwaysReady,
+		execute:    goCheckExecutor((*Native).goLint, "Go policy lint failed"),
+	},
+	CheckGoVet: {
+		validate:   validateSharedGoCheck,
+		rerunReady: alwaysReady,
+		execute:    goCheckExecutor((*Native).goVet, "shared check failed"),
+	},
+	CheckGoVuln: {
+		validate:   validateSharedGoCheck,
+		rerunReady: alwaysReady,
+		execute:    goCheckExecutor((*Native).goVuln, "shared check failed"),
+	},
+	CheckWorkflowLint: {
+		validate:   validateSharedGoCheck,
+		rerunReady: alwaysReady,
+		execute:    goCheckExecutor((*Native).workflowLint, "shared check failed"),
+	},
 }
+
+// sharedGoChecks are the kinds either executor can run. Their results are
+// cacheable by kind, the way a Dagger check's are, because they carry no
+// command object to opt in with; go-vuln is still never cached, whichever
+// executor runs it.
+var sharedGoChecks = map[CheckKind]bool{
+	CheckGoLint:       true,
+	CheckGoVet:        true,
+	CheckGoVuln:       true,
+	CheckWorkflowLint: true,
+}
+
+// A kind that always executes verification needs nothing declared for a fresh
+// run: the shared Go kinds bypass their own analysis caches themselves, and
+// semantic-lint has no verdict cache at all.
+func alwaysReady(Check) error { return nil }
 
 func nativeKindNames() string {
 	names := make([]string, 0, len(nativeKinds))

@@ -166,7 +166,9 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 		return result.withCache(CacheInfo{Status: CacheDisabled, Reason: "vulnerability scans always query current advisory data"})
 	}
 
-	eligible := req.Check.cacheable() || req.Environment.Executor == ExecutorDagger
+	// A shared Go check is cacheable for the same reason a Dagger one is: its
+	// inputs and its tooling are both identified, whichever executor runs it.
+	eligible := req.Check.cacheable() || req.Environment.Executor == ExecutorDagger || sharedGoChecks[req.Check.Kind]
 	if c.Cache == nil || !eligible {
 		result := c.Executor.Execute(ctx, req)
 		return result.withCache(CacheInfo{Status: CacheDisabled})
