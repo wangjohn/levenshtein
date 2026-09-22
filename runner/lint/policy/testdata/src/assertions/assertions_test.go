@@ -1,25 +1,30 @@
 package assertions
 
-import "testing"
+import (
+	"log"
+	"os"
+	"regexp"
+	"testing"
+)
 
-func TestCallsOnly(t *testing.T) { // want "TestCallsOnly cannot fail"
+func TestCallsOnly(t *testing.T) { // want "TestCallsOnly has no assertion"
 	Double(2)
 }
 
-func TestLogsOnly(t *testing.T) { // want "TestLogsOnly cannot fail"
+func TestLogsOnly(t *testing.T) { // want "TestLogsOnly has no assertion"
 	t.Parallel()
 	t.Logf("double is %d", Double(2))
 }
 
-func TestEmpty(t *testing.T) {} // want "TestEmpty cannot fail"
+func TestEmpty(t *testing.T) {} // want "TestEmpty has no assertion"
 
-func TestQuietSubtest(t *testing.T) { // want "TestQuietSubtest cannot fail"
+func TestQuietSubtest(t *testing.T) { // want "TestQuietSubtest has no assertion"
 	t.Run("double", func(t *testing.T) {
 		t.Log(Double(2))
 	})
 }
 
-func TestDiscardsResult(t *testing.T) { // want "TestDiscardsResult cannot fail"
+func TestDiscardsResult(t *testing.T) { // want "TestDiscardsResult has no assertion"
 	got := Double(2)
 	_ = got
 	t.Cleanup(func() { t.Log("done") })
@@ -29,6 +34,61 @@ func TestAlwaysSkips(t *testing.T) {
 	t.Skip("flaky") // want "TestAlwaysSkips always skips"
 	if Double(2) != 4 {
 		t.Fatal("wrong")
+	}
+}
+
+func TestSkipsAfterQuietSetup(t *testing.T) {
+	t.Parallel()
+	t.Log("setup")
+	t.Skip("todo") // want "TestSkipsAfterQuietSetup always skips"
+}
+
+func TestSkipsAfterCheck(t *testing.T) {
+	if Double(2) != 4 {
+		t.Fatal("wrong")
+	}
+	t.Skip("rest is todo")
+}
+
+func TestSkipsAfterEarlyReturn(t *testing.T) { // want "TestSkipsAfterEarlyReturn has no assertion"
+	if testing.Short() {
+		return
+	}
+	t.Skip("slow")
+}
+
+func TestSkipsAfterGoto(t *testing.T) { // want "TestSkipsAfterGoto has no assertion"
+	if testing.Short() {
+		goto done
+	}
+	t.Skip("slow")
+done:
+}
+
+func TestOnlyCallsMustFunction(t *testing.T) { // want "TestOnlyCallsMustFunction has no assertion"
+	regexp.MustCompile(`^[a-z]+$`)
+}
+
+func TestStructKeyOnly(t *testing.T) { // want "TestStructKeyOnly has no assertion"
+	_ = harness{t: nil}
+}
+
+func TestLogFatal(t *testing.T) {
+	if Double(2) != 4 {
+		log.Fatal("wrong")
+	}
+}
+
+func TestLoggerPanics(t *testing.T) {
+	logger := log.New(os.Stderr, "", 0)
+	if Double(2) != 4 {
+		logger.Panicf("Double(2) = %d", Double(2))
+	}
+}
+
+func TestExits(t *testing.T) {
+	if Double(2) != 4 {
+		os.Exit(1)
 	}
 }
 
