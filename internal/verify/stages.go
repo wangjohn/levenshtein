@@ -33,7 +33,7 @@ type stageEntry struct {
 func (n *Native) stage(ctx context.Context, req Request, kind StageKind, stage *Preparation) (StageResult, *Result) {
 	start := time.Now()
 	req.RerunChecks = false // Freshness concerns verification, not reusable preparation.
-	inputs, err := snapshot(req.Source, stage.Inputs, stage.Outputs, false)
+	inputs, err := snapshot(snapshotRequest{Root: req.Source, Paths: stage.Inputs, Excludes: stage.Outputs, Discovery: req.Target.Discovery})
 	if err != nil {
 		r := Result{Status: StatusError, Error: "stage inputs: " + err.Error()}
 		return StageResult{Kind: kind}, &r
@@ -49,7 +49,7 @@ func (n *Native) stage(ctx context.Context, req Request, kind StageKind, stage *
 	// the build source scope. Environment/version selection is always explicit.
 	dependency := ""
 	if kind == StageBuild && req.Preparation != nil {
-		d, err := snapshot(req.Source, req.Preparation.Inputs, req.Preparation.Outputs, false)
+		d, err := snapshot(snapshotRequest{Root: req.Source, Paths: req.Preparation.Inputs, Excludes: req.Preparation.Outputs, Discovery: req.Target.Discovery})
 		if err != nil {
 			r := Result{Status: StatusError, Error: err.Error()}
 			return StageResult{Kind: kind}, &r
@@ -70,7 +70,7 @@ func (n *Native) stage(ctx context.Context, req Request, kind StageKind, stage *
 		_ = readRecord(path, &prior)
 	}
 	if prior.Key == key && outputsExist(req.Source, stage.Outputs) {
-		output, err := snapshot(req.Source, stage.Outputs, nil, true)
+		output, err := snapshot(snapshotRequest{Root: req.Source, Paths: stage.Outputs, Outputs: true})
 		if err == nil && output == prior.Outputs {
 			return StageResult{Kind: kind, Key: key, Reused: true, DurationMS: time.Since(start).Milliseconds()}, nil
 		}
@@ -95,13 +95,13 @@ func (n *Native) stage(ctx context.Context, req Request, kind StageKind, stage *
 		failure := result.withOutcome(StatusError, fmt.Sprintf("%s did not produce declared outputs", kind))
 		return info, &failure
 	}
-	output, err := snapshot(req.Source, stage.Outputs, nil, true)
+	output, err := snapshot(snapshotRequest{Root: req.Source, Paths: stage.Outputs, Outputs: true})
 	if err != nil {
 		failure := result.withOutcome(StatusError, err.Error())
 		return info, &failure
 	}
 
-	after, err := snapshot(req.Source, stage.Inputs, stage.Outputs, false)
+	after, err := snapshot(snapshotRequest{Root: req.Source, Paths: stage.Inputs, Excludes: stage.Outputs, Discovery: req.Target.Discovery})
 	if err == nil && after == inputs && path != "" {
 		_ = writeRecord(path, stageEntry{Key: key, Outputs: output})
 	}

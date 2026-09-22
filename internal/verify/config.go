@@ -24,9 +24,11 @@ type Config struct {
 }
 
 type Target struct {
-	Dir       string   `json:"dir"`
-	Workspace string   `json:"workspace"`
-	Inputs    []string `json:"inputs"`
+	Dir       string        `json:"dir"`
+	Workspace string        `json:"workspace"`
+	Inputs    []string      `json:"inputs"`
+	Exclude   []string      `json:"exclude,omitempty"`
+	Discovery DiscoveryKind `json:"discovery,omitempty"`
 }
 
 type Environment struct {

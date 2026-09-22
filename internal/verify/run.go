@@ -46,12 +46,19 @@ type Executor interface {
 // predictable CPU/memory use. Independent checks still overlap within the cap.
 const maxCheckParallelism = 4
 
-func checkParallelism(n int) int {
+// checkParallelism bounds how many checks run at once. A jobs value above zero
+// is the caller's explicit choice and replaces the default cap, including
+// raising it: the operator knows what the worker can carry.
+func checkParallelism(n, jobs int) int {
 	if n <= 1 {
 		return 1
 	}
 
 	limit := min(runtime.GOMAXPROCS(0), maxCheckParallelism)
+	if jobs > 0 {
+		limit = jobs
+	}
+	limit = max(limit, 1)
 	if n < limit {
 		return n
 	}
@@ -69,9 +76,11 @@ func sharedPreparation(a, b PlannedCheck) bool {
 	return digest(a.Preparation) == digest(b.Preparation)
 }
 
-func Execute(ctx context.Context, plan Plan, shared string, executors map[ExecutorKind]Executor) Report {
+// Execute runs a plan's checks, at most jobs of them at once; jobs zero keeps
+// the default cap.
+func Execute(ctx context.Context, plan Plan, shared string, executors map[ExecutorKind]Executor, jobs int) Report {
 	results := make([]Result, len(plan.Checks))
-	workers := checkParallelism(len(plan.Checks))
+	workers := checkParallelism(len(plan.Checks), jobs)
 	slots := make(chan struct{}, workers)
 	done := make([]chan struct{}, len(plan.Checks))
 	for i := range done {

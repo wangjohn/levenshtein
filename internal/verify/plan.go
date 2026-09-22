@@ -179,6 +179,20 @@ func (cfg Config) planCheck(source string, selected selection, rerunChecks bool)
 			return PlannedCheck{}, fmt.Errorf("invalid input path %q", path)
 		}
 	}
+	for _, path := range target.Exclude {
+		if !literalPath(path) || path == "." {
+			return PlannedCheck{}, fmt.Errorf("target %q: exclude %q must be a literal repository-relative path without pattern characters", check.Target, path)
+		}
+	}
+
+	// Discovery is explicit in the plan even when configuration omits it, so a
+	// dry run says which enumeration produced a fingerprint.
+	if target.Discovery == "" {
+		target.Discovery = DiscoveryGit
+	}
+	if !slices.Contains(discoveryKinds, target.Discovery) {
+		return PlannedCheck{}, fmt.Errorf("target %q: unknown discovery %q", check.Target, target.Discovery)
+	}
 
 	if env.Executor == ExecutorDagger {
 		if _, err := daggerIncludes(target.Inputs); err != nil {
