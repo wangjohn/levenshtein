@@ -12,7 +12,7 @@ func TestReviewConflictingPreparation(t *testing.T) {
 	req.Environment.Identity = "conflicting-preparation-fixture"
 	prepA := &Preparation{Command: []string{"/bin/sh", "-c", "printf A > ready"}, Inputs: []string{"lock"}, Outputs: []string{"ready"}}
 	prepB := &Preparation{Command: []string{"/bin/sh", "-c", "printf B > ready"}, Inputs: []string{"lock"}, Outputs: []string{"ready"}}
-	req.Check.Command = []string{"/bin/sh", "-c", "cat ready"}
+	req.Check.Command.Args = []string{"/bin/sh", "-c", "cat ready"}
 	n := &Native{Cache: &Cache{Dir: t.TempDir()}}
 	for i, prep := range []*Preparation{prepA, prepB, prepA} {
 		req.Preparation = prep
@@ -39,8 +39,8 @@ func TestReviewToolEnvironment(t *testing.T) {
 
 	req.Environment.Env = map[string]string{"PATH": filepath.Join(root, "expected")}
 	req.Environment.Tools = []Tool{{Command: []string{"tool"}, Version: "expected"}}
-	req.Check.Env = map[string]string{"PATH": filepath.Join(root, "wrong")}
-	req.Check.Command = []string{"tool"}
+	req.Check.Command.Env = map[string]string{"PATH": filepath.Join(root, "wrong")}
+	req.Check.Command.Args = []string{"tool"}
 	got := (&Native{}).Execute(context.Background(), req)
 	if got.Status == StatusPassed && got.Stdout == "wrong" {
 		t.Errorf("version validation passed but executed wrong tool: %+v", got)

@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 )
 
 type Config struct {
@@ -47,20 +49,63 @@ type Preparation struct {
 	Timeout string            `json:"timeout,omitempty"`
 }
 
+// A Check carries only the options its kind accepts. Dagger kinds take neither
+// object, a command check requires Command, and semantic-lint may carry
+// Semantic. The other combinations cannot be written down.
 type Check struct {
-	Kind         CheckKind         `json:"kind"`
-	Target       string            `json:"target"`
-	Environment  string            `json:"environment"`
-	Command      []string          `json:"command,omitempty"`
-	Env          map[string]string `json:"env,omitempty"`
-	Timeout      string            `json:"timeout,omitempty"`
-	Preparation  string            `json:"preparation,omitempty"`
-	Artifacts    []string          `json:"artifacts,omitempty"`
-	Cache        bool              `json:"cache,omitempty"`
-	Build        string            `json:"build,omitempty"`
-	RerunCommand []string          `json:"rerun_command,omitempty"`
-	Base         string            `json:"base,omitempty"`
-	Model        string            `json:"model,omitempty"`
+	Kind        CheckKind      `json:"kind"`
+	Target      string         `json:"target"`
+	Environment string         `json:"environment"`
+	Command     *CommandCheck  `json:"command,omitempty"`
+	Semantic    *SemanticCheck `json:"semantic,omitempty"`
+}
+
+// CommandCheck runs a repository command on the native executor.
+type CommandCheck struct {
+	Args        []string          `json:"args"`
+	RerunArgs   []string          `json:"rerun_args,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
+	Timeout     string            `json:"timeout,omitempty"`
+	Preparation string            `json:"preparation,omitempty"`
+	Build       string            `json:"build,omitempty"`
+	Artifacts   []string          `json:"artifacts,omitempty"`
+	Cache       bool              `json:"cache,omitempty"`
+}
+
+// SemanticCheck tunes the advisory semantic-lint kind. Every field is optional.
+type SemanticCheck struct {
+	Base    string `json:"base,omitempty"`
+	Model   string `json:"model,omitempty"`
+	Timeout string `json:"timeout,omitempty"`
+}
+
+// artifacts, env and cacheable read options that only a command check has, so
+// every other kind reports the zero value instead of needing a nil test.
+func (check Check) artifacts() []string {
+	if check.Command == nil {
+		return nil
+	}
+	return check.Command.Artifacts
+}
+
+func (check Check) env() map[string]string {
+	if check.Command == nil {
+		return nil
+	}
+	return check.Command.Env
+}
+
+func (check Check) cacheable() bool {
+	return check.Command != nil && check.Command.Cache
+}
+
+// semanticOptions supplies defaults for a semantic-lint check that declares no
+// options of its own.
+func (check Check) semanticOptions() SemanticCheck {
+	if check.Semantic == nil {
+		return SemanticCheck{}
+	}
+	return *check.Semantic
 }
 
 type Run struct {
@@ -139,7 +184,63 @@ func Parse(data []byte) (Config, error) {
 
 	var cfg Config
 	if err := decode(data, &cfg); err != nil {
+		if hint := migrationHint(data); hint != "" {
+			return Config{}, fmt.Errorf("%s: %w", hint, err)
+		}
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// Check options that used to sit directly on a check now live in its command
+// or semantic object. A file written for the earlier layout fails to decode;
+// migrationHint turns that raw decoder error into a pointer at the move.
+var (
+	retiredCommandFields  = []string{"rerun_command", "artifacts", "cache", "preparation", "build", "env"}
+	retiredSemanticFields = []string{"base", "model"}
+)
+
+func migrationHint(data []byte) string {
+	var loose struct {
+		Checks map[string]map[string]json.RawMessage `json:"checks"`
+	}
+	if json.Unmarshal(data, &loose) != nil {
+		return ""
+	}
+
+	for _, id := range slices.Sorted(maps.Keys(loose.Checks)) {
+		check := loose.Checks[id]
+		var kind CheckKind
+		_ = json.Unmarshal(check["kind"], &kind)
+		if raw, ok := check["command"]; ok && bytes.HasPrefix(bytes.TrimSpace(raw), []byte("[")) {
+			return fmt.Sprintf(`check %q: "command" is now an object; write "command": {"args": [...]} (see docs/configuration.md)`, id)
+		}
+		for _, field := range append(append([]string{"timeout"}, retiredCommandFields...), retiredSemanticFields...) {
+			if _, ok := check[field]; ok {
+				return fmt.Sprintf("check %q: %s (see docs/configuration.md)", id, retiredFieldHome(kind, field))
+			}
+		}
+	}
+	return ""
+}
+
+// retiredFieldHome says where a retired top-level check field went for the
+// check's kind, or that it no longer applies.
+func retiredFieldHome(kind CheckKind, field string) string {
+	if daggerFunctions[kind] != "" {
+		if field == "cache" {
+			return `"cache" no longer applies: Dagger results are always cached; remove it`
+		}
+		return fmt.Sprintf("%q does not apply to Dagger checks; remove it", field)
+	}
+	if kind == CheckSemanticLint {
+		if field == "env" {
+			return `"env" is no longer accepted on a semantic-lint check; declare variables in the environment's "env"`
+		}
+		return fmt.Sprintf(`%q now lives inside the "semantic" object`, field)
+	}
+	if field == "rerun_command" {
+		return `"rerun_command" is now "rerun_args" inside the "command" object`
+	}
+	return fmt.Sprintf(`%q now lives inside the "command" object`, field)
 }

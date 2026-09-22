@@ -15,7 +15,7 @@ func nativeRequest(t *testing.T) Request {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Request{Source: source, Shared: t.TempDir(), PlannedCheck: PlannedCheck{ID: "test", Check: Check{Kind: CheckCommand, Command: []string{"/bin/sh", "-c", "printf hello; printf warning >&2"}}, Target: Target{Dir: ".", Workspace: ".", Inputs: []string{"."}}, Environment: Environment{Executor: ExecutorNative}}}
+	return Request{Source: source, Shared: t.TempDir(), PlannedCheck: PlannedCheck{ID: "test", Check: Check{Kind: CheckCommand, Command: &CommandCheck{Args: []string{"/bin/sh", "-c", "printf hello; printf warning >&2"}}}, Target: Target{Dir: ".", Workspace: ".", Inputs: []string{"."}}, Environment: Environment{Executor: ExecutorNative}}}
 }
 
 func TestNativeCommandOutcomes(t *testing.T) {
@@ -26,7 +26,7 @@ func TestNativeCommandOutcomes(t *testing.T) {
 	}{{"pass", "printf hello; printf warning >&2", StatusPassed}, {"assertion", "printf failure; exit 3", StatusFailed}} {
 		t.Run(tc.name, func(t *testing.T) {
 			req := nativeRequest(t)
-			req.Check.Command = []string{"/bin/sh", "-c", tc.script}
+			req.Check.Command.Args = []string{"/bin/sh", "-c", tc.script}
 
 			result := (&Native{}).Execute(context.Background(), req)
 			if result.Status != tc.status || result.Stdout == "" {
@@ -36,7 +36,7 @@ func TestNativeCommandOutcomes(t *testing.T) {
 	}
 
 	req := nativeRequest(t)
-	req.Check.Command = []string{"nonexistent-levenshtein-tool"}
+	req.Check.Command.Args = []string{"nonexistent-levenshtein-tool"}
 
 	result := (&Native{}).Execute(context.Background(), req)
 	if result.Status != StatusError {
@@ -54,8 +54,8 @@ func TestNativeCommandOutcomes(t *testing.T) {
 
 func TestNativeTimeoutKillsProcessGroup(t *testing.T) {
 	req := nativeRequest(t)
-	req.Check.Command = []string{"/bin/sh", "-c", "(sleep 1; touch escaped) & wait"}
-	req.Check.Timeout = "30ms"
+	req.Check.Command.Args = []string{"/bin/sh", "-c", "(sleep 1; touch escaped) & wait"}
+	req.Check.Command.Timeout = "30ms"
 
 	result := (&Native{}).Execute(context.Background(), req)
 	if result.Status != StatusError || result.Error != "command timed out" {
@@ -71,17 +71,17 @@ func TestNativeEnvironmentAndArtifacts(t *testing.T) {
 	t.Setenv("UNDECLARED_VARIABLE", "must-not-leak")
 	req := nativeRequest(t)
 	req.Environment.Env = map[string]string{"VALUE": "configured"}
-	req.Check.Env = map[string]string{"VALUE": "check"}
-	req.Check.Command = []string{"/bin/sh", "-c", `test -z "$UNDECLARED_VARIABLE" && test "$VALUE" = check && test "$LEVENSHTEIN_RERUN_CHECKS" = true && printf report > artifact.txt`}
+	req.Check.Command.Env = map[string]string{"VALUE": "check"}
+	req.Check.Command.Args = []string{"/bin/sh", "-c", `test -z "$UNDECLARED_VARIABLE" && test "$VALUE" = check && test "$LEVENSHTEIN_RERUN_CHECKS" = true && printf report > artifact.txt`}
 	req.RerunChecks = true
-	req.Check.Artifacts = []string{"artifact.txt"}
+	req.Check.Command.Artifacts = []string{"artifact.txt"}
 
 	result := (&Native{}).Execute(context.Background(), req)
 	if result.Status != StatusPassed {
 		t.Fatalf("env/artifact: %+v", result)
 	}
 
-	req.Check.Artifacts = []string{"missing"}
+	req.Check.Command.Artifacts = []string{"missing"}
 
 	result = (&Native{}).Execute(context.Background(), req)
 	if result.Status != StatusError {
@@ -93,7 +93,7 @@ func TestShareCompatiblePreparation(t *testing.T) {
 	req := nativeRequest(t)
 	req.Environment.Identity = "shared-preparation-fixture"
 	req.Preparation = &Preparation{Command: []string{"/bin/sh", "-c", "echo prepare >> count; touch ready"}, Inputs: []string{"lock"}, Outputs: []string{"ready"}}
-	req.Check.Command = []string{"/bin/sh", "-c", "test -f ready"}
+	req.Check.Command.Args = []string{"/bin/sh", "-c", "test -f ready"}
 	native := &Native{Cache: &Cache{Dir: t.TempDir()}}
 	for i := 0; i < 2; i++ {
 		result := native.Execute(context.Background(), req)
@@ -120,7 +120,7 @@ func TestShareCompatiblePreparation(t *testing.T) {
 }
 
 func TestNativeConfiguration(t *testing.T) {
-	cfg, err := Parse([]byte(`{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"host":{"executor":"native"}},"preparations":{"deps":{"command":["true"],"inputs":["lock"],"outputs":["env"]}},"checks":{"test":{"kind":"command","target":"app","environment":"host","command":["true"],"preparation":"deps"}},"runs":{"branch":{"checks":["test"]}}}`))
+	cfg, err := Parse([]byte(`{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"host":{"executor":"native"}},"preparations":{"deps":{"command":["true"],"inputs":["lock"],"outputs":["env"]}},"checks":{"test":{"kind":"command","target":"app","environment":"host","command":{"args":["true"],"preparation":"deps"}}},"runs":{"branch":{"checks":["test"]}}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestNativeConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	check := cfg.Checks["test"]
-	check.Timeout = "0s"
+	check.Command.Timeout = "0s"
 	cfg.Checks["test"] = check
 	if _, err := cfg.Plan(t.TempDir(), "branch"); err == nil {
 		t.Fatal("invalid timeout accepted")
@@ -137,7 +137,7 @@ func TestNativeConfiguration(t *testing.T) {
 
 func TestArtifactErrorRetainsOutput(t *testing.T) {
 	req := nativeRequest(t)
-	req.Check.Artifacts = []string{"missing"}
+	req.Check.Command.Artifacts = []string{"missing"}
 
 	result := (&Native{}).Execute(context.Background(), req)
 	if result.Status != StatusError || result.Stdout != "hello" || result.Stderr != "warning" {
@@ -162,13 +162,13 @@ func TestRejectPreparationOutputAliases(t *testing.T) {
 	}
 }
 
-func TestFreshRunRequiresNativeRerunCommand(t *testing.T) {
-	cfg := Config{Version: 1, Targets: map[string]Target{"app": {Dir: ".", Inputs: []string{"."}}}, Environments: map[string]Environment{"host": {Executor: ExecutorNative}}, Checks: map[string]Check{"test": {Kind: CheckCommand, Target: "app", Environment: "host", Command: []string{"true"}}}, Runs: map[string]Run{"audit": {Checks: []string{"test"}, RerunChecks: true}}}
+func TestFreshRunRequiresNativeRerunArgs(t *testing.T) {
+	cfg := Config{Version: 1, Targets: map[string]Target{"app": {Dir: ".", Inputs: []string{"."}}}, Environments: map[string]Environment{"host": {Executor: ExecutorNative}}, Checks: map[string]Check{"test": {Kind: CheckCommand, Target: "app", Environment: "host", Command: &CommandCheck{Args: []string{"true"}}}}, Runs: map[string]Run{"audit": {Checks: []string{"test"}, RerunChecks: true}}}
 	if _, err := cfg.Plan(t.TempDir(), "audit"); err == nil {
 		t.Fatal("freshness was silently assumed for a generic command")
 	}
 	check := cfg.Checks["test"]
-	check.RerunCommand = []string{"true"}
+	check.Command.RerunArgs = []string{"true"}
 	cfg.Checks["test"] = check
 	if _, err := cfg.Plan(t.TempDir(), "audit"); err != nil {
 		t.Fatal(err)
