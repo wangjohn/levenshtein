@@ -163,4 +163,34 @@ func TestNativeGoChecksAgreeWithTheFixtures(t *testing.T) {
 			t.Fatalf("good fixture must pass vet: %+v", result)
 		}
 	})
+
+	t.Run("go-mod fails mod-untidy with tidy's diff", func(t *testing.T) {
+		result := native.Execute(ctx, fixtureRequest(t, shared, "mod-untidy", CheckGoMod))
+		if result.Status != StatusFailed {
+			t.Fatalf("mod-untidy fixture must fail for its diff, not a tool error: %+v", result)
+		}
+
+		findings := fixtureFindings(t, result)
+		if len(findings) != 1 || findings[0].Code != string(CheckGoMod) || !strings.Contains(findings[0].Message, "-require example.com/mod-untidy/unused v0.0.0") {
+			t.Fatalf("lost the tidy diff: %+v", findings)
+		}
+	})
+
+	// A module that declares no packages, like one that only pins tools, still
+	// has manifests to check.
+	for _, fixture := range []string{"mod-tidy", "empty"} {
+		t.Run("go-mod passes "+fixture, func(t *testing.T) {
+			result := native.Execute(ctx, fixtureRequest(t, shared, fixture, CheckGoMod))
+			if result.Status != StatusPassed {
+				t.Fatalf("%s fixture must pass go-mod: %+v", fixture, result)
+			}
+		})
+	}
+
+	t.Run("go-mod refuses a directory without go.mod", func(t *testing.T) {
+		result := native.Execute(ctx, fixtureRequest(t, shared, "mutation", CheckGoMod))
+		if result.Status != StatusError || !strings.Contains(result.Error, "needs a readable go.mod") {
+			t.Fatalf("a missing go.mod must error rather than pass: %+v", result)
+		}
+	})
 }

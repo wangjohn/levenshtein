@@ -25,12 +25,12 @@ type goRun struct {
 
 // goRunner is the work one shared Go kind does. It reports diagnostics, the raw
 // invocation for the report, and a tool error. goCheckExecutor owns everything
-// the four kinds share.
+// the shared kinds have in common.
 type goRunner func(*Native, context.Context, Request, goRun) ([]finding, toolRun, error)
 
 // goCheckExecutor adapts one kind's work to the native executor's signature,
-// keeping setup, cancellation and result shape identical across the four kinds
-// and identical to what the Dagger path reports.
+// keeping setup, cancellation and result shape identical across the shared
+// kinds and identical to what the Dagger path reports.
 func goCheckExecutor(run goRunner, message string) func(*Native, context.Context, Request, string, []string) Result {
 	return func(n *Native, ctx context.Context, req Request, dir string, env []string) Result {
 		root, release, err := n.cacheRoot()
@@ -184,6 +184,35 @@ func (n *Native) goVet(ctx context.Context, req Request, work goRun) ([]finding,
 	}
 	findings, err := commandFindings(CheckGoVet, req.Target.Dir, run.ExitCode, run.Stdout, run.Stderr)
 	return findings, run, err
+}
+
+// goMod checks the target module's manifests on their own. Tidy ignores a
+// workspace anyway, and with GOWORK=off verify covers this module's
+// requirements rather than every workspace member's. Neither command loads
+// packages, so a module without any, such as one that only declares tools,
+// is still checked; a missing go.mod is an error. Tidy reads go.mod and go.sum
+// and never vendor/, so a vendored module still needs its module proxy.
+func (n *Native) goMod(ctx context.Context, req Request, work goRun) ([]finding, toolRun, error) {
+	if _, err := os.Stat(filepath.Join(work.Dir, "go.mod")); err != nil {
+		return nil, toolRun{}, fmt.Errorf("module %q needs a readable go.mod: %w", req.Target.Dir, err)
+	}
+
+	env := goEnv(work.Env, []string{"GOWORK=off"})
+	var findings []finding
+	var output toolRun
+	for _, step := range modSteps {
+		run, err := runTool(ctx, work.Dir, step.args(), env, goCheckTimeout)
+		output = toolRun{ExitCode: run.ExitCode, Stdout: output.Stdout + run.Stdout, Stderr: output.Stderr + run.Stderr}
+		if err != nil {
+			return nil, output, err
+		}
+		found, err := modFindings(step, req.Target.Dir, run.ExitCode, run.Stdout, run.Stderr)
+		if err != nil {
+			return nil, output, err
+		}
+		findings = append(findings, found...)
+	}
+	return findings, output, nil
 }
 
 func (n *Native) goVuln(ctx context.Context, req Request, work goRun) ([]finding, toolRun, error) {
