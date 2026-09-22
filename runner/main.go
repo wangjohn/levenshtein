@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"dagger/levenshtein/internal/dagger"
 
@@ -86,25 +87,50 @@ func lint(ctx context.Context, source *dagger.Directory, module string, tools to
 	return parseFindings(exitCode, stdout, stderr, tools.Checks)
 }
 
-// allowed mirrors the linter's own selection: a positive pattern turns a code
-// on, "all" turns every code on, and a "-" pattern turns one back off.
+// allowed reproduces Staticcheck's filterAnalyzerNames (lintcmd/lint.go in
+// honnef.co/go/tools v0.8.1) for one code. Patterns apply in order and the
+// last one that matches wins, so "all,-SA5001" turns SA5001 off while
+// "-SA5001,all" turns it back on. A "-" prefix turns a code off rather than on.
 func allowed(checks []string, code string) bool {
 	selected := false
 	for _, check := range checks {
-		pattern, negated := strings.CutPrefix(check, "-")
-		matched := pattern == "all"
-		if !matched {
-			matched, _ = path.Match(pattern, code)
+		pattern := check
+		enable := true
+		if len(pattern) > 1 && pattern[0] == '-' {
+			pattern = pattern[1:]
+			enable = false
 		}
-		if !matched {
-			continue
+		if selects(pattern, code) {
+			selected = enable
 		}
-		if negated {
-			return false
-		}
-		selected = true
 	}
 	return selected
+}
+
+// selects matches one pattern the way Staticcheck does, ignoring case: "all"
+// or "*" matches every code, a trailing "*" after letters matches that exact
+// category (S* matches S1002 but not SA5001), a trailing "*" after a digit is a
+// plain prefix (SA5* matches SA5001), and anything else is a literal name.
+func selects(pattern, code string) bool {
+	pattern = strings.ToLower(pattern)
+	code = strings.ToLower(code)
+
+	//lint:ignore LV1001 patterns are free-form user input; these are two spellings of one wildcard, not an enum.
+	if pattern == "*" || pattern == "all" {
+		return true
+	}
+	prefix, glob := strings.CutSuffix(pattern, "*")
+	if !glob {
+		return pattern == code
+	}
+	if strings.IndexFunc(prefix, unicode.IsNumber) != -1 {
+		return strings.HasPrefix(code, prefix)
+	}
+	category := code
+	if digit := strings.IndexFunc(code, unicode.IsNumber); digit != -1 {
+		category = code[:digit]
+	}
+	return category == prefix
 }
 
 func parseFindings(exitCode int, stdout, stderr string, checks []string) ([]diagnostic, error) {

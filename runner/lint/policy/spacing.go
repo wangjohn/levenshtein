@@ -26,14 +26,19 @@ func runSpacing(pass *analysis.Pass) (any, error) {
 				// gofmt already forces a blank line after the import block.
 				continue
 			}
+			// Count physical lines: a //line directive renumbers what follows it.
 			start := declStart(current)
-			if pass.Fset.Position(start).Line-pass.Fset.Position(previous.End()).Line >= 2 {
+			if physicalLine(pass, start)-physicalLine(pass, previous.End()) >= 2 {
 				continue
 			}
 			pass.Reportf(start, "separate top-level declarations with a blank line")
 		}
 	}
 	return nil, nil
+}
+
+func physicalLine(pass *analysis.Pass, pos token.Pos) int {
+	return pass.Fset.PositionFor(pos, false).Line
 }
 
 func importDecl(decl ast.Decl) bool {

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -46,9 +47,17 @@ func TestCheckSelectionMatchesTheLinter(t *testing.T) {
 		{"all selects an upstream analyzer", []string{"all"}, "nilness", true},
 		{"all selects a house rule", []string{"all"}, "LV1003", true},
 		{"a negation wins over all", []string{"all", "-ST1003"}, "ST1003", false},
-		{"a negation wins over a glob", []string{"SA*", "-SA1019"}, "SA1019", false},
+		{"a later negation turns a glob's code off", []string{"SA*", "-SA1019"}, "SA1019", false},
+		{"a later glob turns a negated code back on", []string{"-SA1019", "SA*"}, "SA1019", true},
+		{"a later all turns a negated code back on", []string{"-SA5001", "all"}, "SA5001", true},
+		{"a later negation turns all's code off", []string{"all", "-SA5001"}, "SA5001", false},
 		{"a glob selects its family", []string{"SA*"}, "SA5001", true},
 		{"a glob leaves other families alone", []string{"SA*"}, "S1002", false},
+		{"a letter glob matches its category only", []string{"S*"}, "SA5001", false},
+		{"a letter glob matches its own category", []string{"S*"}, "S1002", true},
+		{"a letter glob does not prefix-match a bare analyzer", []string{"e*"}, "errcheck", false},
+		{"a glob after a digit is a prefix", []string{"SA5*"}, "SA5001", true},
+		{"names ignore case", []string{"sa5001"}, "SA5001", true},
 		{"an exact name selects only itself", []string{"bodyclose"}, "bodyclose", true},
 		{"an exact name excludes the rest", []string{"bodyclose"}, "sqlclosecheck", false},
 		{"an empty selection reports nothing", nil, "SA5001", false},
@@ -79,10 +88,13 @@ func TestSelfTestCoversEveryDefaultRule(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, code := range expectedBadCodes {
-		if !strings.Contains(string(script), code) {
-			t.Errorf("scripts/test-checks must also assert %s", code)
-		}
+	_, rest, found := strings.Cut(string(script), "\nexpected='")
+	block, _, closed := strings.Cut(rest, "'")
+	if !found || !closed {
+		t.Fatal("scripts/test-checks must define the bad-fixture codes as expected='...'")
+	}
+	if got := strings.Fields(block); !slices.Equal(got, expectedBadCodes) {
+		t.Errorf("scripts/test-checks expects %v, runner expects %v", got, expectedBadCodes)
 	}
 }
 
