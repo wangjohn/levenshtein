@@ -668,6 +668,12 @@ func truncateValue(value any, limit int) any {
 	switch typed := value.(type) {
 	case string:
 		return truncate(typed, limit)
+	case map[string]any:
+		short := make(map[string]any, len(typed))
+		for field, element := range typed {
+			short[field] = truncateValue(element, limit)
+		}
+		return short
 	case []any:
 		short := make([]any, len(typed))
 		for i, element := range typed {
