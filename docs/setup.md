@@ -125,6 +125,20 @@ Event → `./verify` mapping:
 
 Do **not** make draft progress wait on `release-smoke` or full `tests`. When adopting this workflow, replace any required check named `verify` with `lint` and `tests` the same day.
 
+GitHub enforces these from a repository ruleset, which lives in repository settings rather than in a file: rules a pull request could edit would let that pull request weaken them. `.github/rulesets/main.json` is the reviewed copy, and `scripts/test-rulesets --live` in the `tests` job keeps it honest:
+
+- every required check must name a job in `.github/workflows` (its `name:` if it has one, otherwise its ID), so renaming or relabeling a required job fails the pull request instead of leaving later merges waiting on a check that never reports;
+- the rulesets GitHub enforces must match the committed copies. The run's read-only token cannot see `bypass_actors`, so CI compares them only when an admin runs the script locally.
+
+To change a rule, edit it in **Settings → Rules → Rulesets**, then export the new state in the same pull request that needs it:
+
+```sh
+gh api repos/wangjohn/levenshtein/rulesets/<id> \
+  | jq '{name, target, enforcement, conditions, bypass_actors, rules}' > .github/rulesets/main.json
+```
+
+To rename a required job, rename it and update `.github/rulesets/main.json` in one pull request. Its drift check fails until an admin changes the live ruleset to match; do that just before merging, then rerun `tests`.
+
 Treat warm lint wall time creeping toward warm tests as a CI performance regression. Read step and job durations from the Actions run view and compare medians across warm `ubuntu-24.04` runs.
 
 ### Result-cache trust

@@ -1,0 +1,57 @@
+{
+  "name": "main: required checks",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "exclude": [],
+      "include": [
+        "~DEFAULT_BRANCH"
+      ]
+    }
+  },
+  "bypass_actors": [
+    {
+      "actor_id": 5,
+      "actor_type": "RepositoryRole",
+      "bypass_mode": "always"
+    }
+  ],
+  "rules": [
+    {
+      "type": "deletion"
+    },
+    {
+      "type": "non_fast_forward"
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": false,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          {
+            "context": "lint",
+            "integration_id": 15368
+          },
+          {
+            "context": "tests",
+            "integration_id": 15368
+          },
+          {
+            "context": "language-contracts",
+            "integration_id": 15368
+          },
+          {
+            "context": "action",
+            "integration_id": 15368
+          },
+          {
+            "context": "release-smoke",
+            "integration_id": 15368
+          }
+        ]
+      }
+    }
+  ]
+}
