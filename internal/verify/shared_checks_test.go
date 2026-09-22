@@ -33,7 +33,7 @@ func TestVulnerabilityResultsNeverReuseSourceOnlyCache(t *testing.T) {
 	executor := &countingExecutor{status: StatusPassed}
 	runner := CachedExecutor{Cache: &Cache{Dir: t.TempDir()}, Executor: executor}
 
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		result := runner.Execute(context.Background(), req)
 		if result.Status != StatusPassed || result.Cache.Status != CacheDisabled {
 			t.Fatalf("unexpected audit: %+v", result)

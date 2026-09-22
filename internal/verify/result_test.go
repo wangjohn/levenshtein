@@ -32,7 +32,7 @@ func TestResultCopiesPreserveDiagnosticsAndMetadata(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			before, after := reflect.ValueOf(original), reflect.ValueOf(tc.result)
-			for i := 0; i < before.NumField(); i++ {
+			for i := range before.NumField() {
 				name := before.Type().Field(i).Name
 				want, changed := tc.changed[name]
 				if !changed {

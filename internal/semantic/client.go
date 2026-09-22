@@ -89,7 +89,7 @@ func (c Client) Ask(ctx context.Context, state any, questions map[string]wireQue
 	}
 
 	var last error
-	for attempt := 0; attempt < maxAttempts; attempt++ {
+	for range maxAttempts {
 		response, retryAfter, err := c.post(ctx, body)
 		if err == nil {
 			return response, nil

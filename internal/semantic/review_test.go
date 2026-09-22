@@ -47,16 +47,16 @@ func TestOversizedDiffLineIsAnError(t *testing.T) {
 // after the text fields do.
 func TestChangeRequestFitsAWideChange(t *testing.T) {
 	var change Change
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		var hunks []Hunk
-		for j := 0; j < 40; j++ {
+		for j := range 40 {
 			hunks = append(hunks, Hunk{OldStart: j, OldLines: 1, NewStart: j, NewLines: 1, Header: fmt.Sprintf("func Handler%d(w http.ResponseWriter, r *http.Request) error", j)})
 		}
 		change.Files = append(change.Files, FileChange{Path: fmt.Sprintf("pkg/service%03d/handler.go", i), Kind: FileSource, Status: FileModified, Hunks: hunks, Added: 40})
 	}
-	for i := 0; i < maxCommits; i++ {
+	for i := range maxCommits {
 		commit := Commit{SHA: fmt.Sprintf("%012d", i), Subject: fmt.Sprintf("Commit %d", i)}
-		for j := 0; j < 200; j++ {
+		for j := range 200 {
 			commit.Files = append(commit.Files, fmt.Sprintf("pkg/service%03d/handler.go", j))
 			commit.HunkHeaders = append(commit.HunkHeaders, fmt.Sprintf("pkg/service%03d/handler.go @@ -1,1 +1,1 @@ func Handler", j))
 		}
