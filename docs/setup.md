@@ -96,6 +96,11 @@ includes the shared [`go-mod` check](checks.md#module-manifests)
 `runner/tools` on every event, and never reuses a cached result. `runner` is
 left out because `dagger develop` rewrites its manifest.
 
+The Go tests stay steps of the `tests` job, which runs `go test -race` over the
+root module (with a coverage profile) and `runner/lint`. `levenshtein.json` has
+a native [`go-test`](checks.md#tests) run over the same two modules for local
+use, but no CI run includes it, because it would run those tests a second time.
+
 The same `branch` run includes the shared
 [`workflow-security` check](checks.md#workflow-security): zizmor's offline audits
 of the workflows, composite actions, and Dependabot configuration, failing on
@@ -173,7 +178,7 @@ Completed verification results are restored into `$RUNNER_TEMP/levenshtein-verif
 
 In-engine Go module/build and Staticcheck `CacheVolume`s remain version-keyed in `runner/` but are **session-local** on ephemeral GitHub-hosted runners. Persisting those volumes across VMs is **blocked** for Dagger **0.21.9** (no supported CI export/restore API without experimental hacks). This is why `branch` and `pre-merge` run natively: the host's Go build cache (through setup-go) and the Staticcheck cache above do persist.
 
-Self-config targets use narrow literal `inputs` (not `"."`): root Go module paths, `runner` / `runner/lint`, `.github/workflows` for workflow-lint, and `.github` plus `action.yml` for workflow-security. The `runner` module compiles against the gitignored generated SDK, which the `runner` target's git discovery does not list. Its key still changes when the SDK does, because `./verify` passes one directory as both the shared checkout and the source, and every shared Go check hashes all of the shared `runner/` from the filesystem; `TestSelfVerificationFingerprintsTheGeneratedSDK` pins that. Doc-only edits therefore do not invalidate Go analysis result fingerprints. The one exception is the `repository` target, which keeps `"."` so `semantic-lint` still judges Markdown and workflow changes. Independent checks in a run execute concurrently (bounded workers) inside `./verify`.
+Self-config targets use narrow literal `inputs` (not `"."`): root Go module paths, `runner` / `runner/lint`, `.github/workflows` for workflow-lint, and `.github` plus `action.yml` for workflow-security. The `runner` module compiles against the gitignored generated SDK, which the `runner` target's git discovery does not list. Its key still changes when the SDK does, because `./verify` passes one directory as both the shared checkout and the source, and every shared Go check hashes all of the shared `runner/` from the filesystem; `TestSelfVerificationFingerprintsTheGeneratedSDK` pins that. Doc-only edits therefore do not invalidate Go analysis result fingerprints. The one exception is the `repository` target, which keeps `"."` so `semantic-lint` still judges Markdown and workflow changes and so the `go-test` run over the root module, whose tests read `runner/testdata`, is keyed on every file they can read. Independent checks in a run execute concurrently (bounded workers) inside `./verify`.
 
 ### Success criteria and gaps
 
@@ -217,9 +222,9 @@ GOTOOLCHAIN=local go test -race ./...
 ./scripts/test-consumers
 ```
 
-In this repository `./verify branch` and the per-kind runs (`go-lint`, `go-vet`, `go-mod`, `workflow-lint`, `workflow-security`) run natively and need no container runtime, only Go 1.27.1 and the generated SDK from `dagger develop`, since the `runner` module compiles against it. `pre-merge` adds `self-test`, which runs in Dagger. `./verify branch-dagger` runs the same static checks in Dagger, and `./verify main` is the full hermetic audit.
+In this repository `./verify branch` and the per-kind runs (`go-lint`, `go-vet`, `go-mod`, `go-test`, `workflow-lint`, `workflow-security`) run natively and need no container runtime, only Go 1.27.1 and the generated SDK from `dagger develop`, since the `runner` module compiles against it. `pre-merge` adds `self-test`, which runs in Dagger. `./verify branch-dagger` runs the same static checks in Dagger, and `./verify main` is the full hermetic audit.
 
-The generated Go SDK needs a Dagger session, including during unit tests. The deliberately broken Go module lives under `runner/testdata`, outside ordinary test discovery. The self-test requires good code, vendored dependencies, and embedded templates to pass, bad code to emit each intended rule, broken/empty modules to fail verification, and the pinned zizmor to pass `workflow-secure` and report `workflow-insecure`'s template injection. A compiler failure cannot substitute for an expected lint finding.
+The generated Go SDK needs a Dagger session, including during unit tests. The deliberately broken Go module lives under `runner/testdata`, outside ordinary test discovery. The self-test requires good code, vendored dependencies, and embedded templates to pass, bad code to emit each intended rule, broken/empty modules to fail verification, the pinned zizmor to pass `workflow-secure` and report `workflow-insecure`'s template injection, and `go test -race` to pass `test-pass`, report `test-fail` and `test-race` as findings, and refuse `test-build` as an error. A compiler failure cannot substitute for an expected lint finding.
 
 `scripts/test-consumers` checks module and workspace vendoring through the launcher. It also adds synthetic private env files next to root and nested `.env.example` templates; each embed must match exactly one file, proving the templates survive filtering and the private files do not. A final case verifies undeclared dependencies still fail without vendoring.
 

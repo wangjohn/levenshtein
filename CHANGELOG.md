@@ -49,6 +49,10 @@ Consumers pin a release tag, or its commit SHA, as described in
 - Levenshtein's own `branch`, `pre-merge`, `branch-dagger`, and `main` runs
   include `workflow-security`. `security.yml` keeps zizmor's GitHub Action for
   the online audits and now names the same inputs as the shared check.
+- Levenshtein's own `levenshtein.json` has a native `go-test` run over the
+  repository and `runner/lint` for local use. It is not part of `branch`,
+  `pre-merge`, or `main`, because CI's `tests` job already runs
+  `go test -race` over the same modules.
 
 ## [0.1.0] - 2026-09-22
 
