@@ -125,6 +125,7 @@ Levenshtein is new and is being tried out on a few Go repos. The config format i
 - [Using it in CI](docs/consumer-ci.md): GitHub Actions and other providers
 - [Releases](docs/releases.md): prebuilt binaries
 - [Semantic lint](docs/semantic-lint.md): an optional review by a language model
+- [Mutation testing](docs/mutation.md): an optional check that your tests catch deliberate bugs in changed code
 - [Architecture](docs/architecture.md): how `verify` works
 
 ## Contributing

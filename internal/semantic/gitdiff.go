@@ -6,10 +6,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/wangjohn/levenshtein/internal/gitchange"
 )
 
 // FileKind groups changed files by the questions that apply to them.
@@ -69,45 +70,8 @@ type Change struct {
 	Commits []Commit
 }
 
-type gitRunner struct {
-	Git string
-	Dir string
-	Env []string
-}
-
-func (g gitRunner) run(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, g.Git, append([]string{"-c", "core.quotePath=false"}, args...)...)
-	cmd.Dir = g.Dir
-	cmd.Env = g.Env
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		if ctx.Err() != nil {
-			return "", ctx.Err()
-		}
-		return "", fmt.Errorf("git %s: %v: %s", args[0], err, strings.TrimSpace(stderr.String()))
-	}
-	return stdout.String(), nil
-}
-
-// resolveBase accepts a local branch name and falls back to its origin tracking ref.
-func (g gitRunner) resolveBase(ctx context.Context, base string) (string, string, error) {
-	for _, ref := range []string{base, "origin/" + base} {
-		if _, err := g.run(ctx, "rev-parse", "--verify", "--quiet", ref+"^{commit}"); err == nil {
-			mergeBase, err := g.run(ctx, "merge-base", ref, "HEAD")
-			if err != nil {
-				return "", "", err
-			}
-			return ref, strings.TrimSpace(mergeBase), nil
-		}
-	}
-	if shallow, err := g.run(ctx, "rev-parse", "--is-shallow-repository"); err == nil && strings.TrimSpace(shallow) == "true" {
-		return "", "", fmt.Errorf("base branch %q was not found and the checkout is shallow; fetch the base branch or check out with fetch-depth: 0", base)
-	}
-	return "", "", fmt.Errorf("base branch %q was not found locally or as origin/%s; fetch it before running semantic-lint", base, base)
-}
+// gitRunner is the shared runner; semantic-lint reads the change through it.
+type gitRunner = gitchange.Runner
 
 const maxCommits = 50
 
@@ -122,12 +86,12 @@ func diffArgs(command string, rest ...string) []string {
 }
 
 func loadChange(ctx context.Context, g gitRunner, base string, include func(string) bool) (Change, error) {
-	ref, mergeBase, err := g.resolveBase(ctx, base)
+	ref, mergeBase, err := g.ResolveBase(ctx, base)
 	if err != nil {
 		return Change{}, err
 	}
 
-	raw, err := g.run(ctx, diffArgs("diff", mergeBase, "--")...)
+	raw, err := g.Run(ctx, diffArgs("diff", mergeBase, "--")...)
 	if err != nil {
 		return Change{}, err
 	}
@@ -136,7 +100,7 @@ func loadChange(ctx context.Context, g gitRunner, base string, include func(stri
 		return Change{}, err
 	}
 
-	untracked, err := g.run(ctx, "ls-files", "--others", "--exclude-standard", "-z")
+	untracked, err := g.Run(ctx, "ls-files", "--others", "--exclude-standard", "-z")
 	if err != nil {
 		return Change{}, err
 	}
@@ -150,7 +114,7 @@ func loadChange(ctx context.Context, g gitRunner, base string, include func(stri
 		}
 	}
 
-	commits, err := g.commits(ctx, mergeBase)
+	commits, err := loadCommits(ctx, g, mergeBase)
 	if err != nil {
 		return Change{}, err
 	}
@@ -168,9 +132,9 @@ const (
 // commits reads every commit since the merge base in one pass. The patch comes
 // along because commit_subject_matches compares each subject against the files
 // and hunk headers that commit touched.
-func (g gitRunner) commits(ctx context.Context, mergeBase string) ([]Commit, error) {
+func loadCommits(ctx context.Context, g gitRunner, mergeBase string) ([]Commit, error) {
 	args := diffArgs("log", "-p", "--no-merges", "--max-count="+strconv.Itoa(maxCommits), "--format="+commitFormat, mergeBase+"..HEAD", "--")
-	log, err := g.run(ctx, args...)
+	log, err := g.Run(ctx, args...)
 	if err != nil {
 		return nil, err
 	}
