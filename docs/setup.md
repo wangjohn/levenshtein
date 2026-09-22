@@ -94,7 +94,9 @@ actions on every pull request, push to `main`, and weekly, failing on findings
 of medium severity and above; OpenSSF Scorecard with a SARIF upload to code
 scanning on `main` and the weekly schedule, since Scorecard reads the default
 branch rather than a pull request's merge ref; and `dependency-review` on pull
-requests, failing on high severity.
+requests, failing on high severity. `dependency-review` needs the repository's
+**Dependency graph** enabled (Settings → Code security); without it the action
+reports that the repository is unsupported and the job fails.
 
 `release.yml` publishes the archives, their SBOMs, `checksums.txt`, and a build
 provenance attestation when a `vX.Y.Z` tag is pushed; see
