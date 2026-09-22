@@ -81,7 +81,7 @@ jobs:
       # setup-go duration is visible in the Actions UI; shell steps below use ci-step-time.
       - name: Cache pinned Dagger CLI
         id: dagger-cli
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/levenshtein-bin
           key: dagger-cli-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.dagger-version', 'scripts/dagger-checksums.txt') }}
@@ -189,7 +189,7 @@ jobs:
           ./scripts/test-ci-dagger-sdk
       - name: Cache pinned Dagger CLI
         id: dagger-cli
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/levenshtein-bin
           key: dagger-cli-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.dagger-version', 'scripts/dagger-checksums.txt') }}
