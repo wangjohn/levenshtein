@@ -7,7 +7,7 @@ require (
 	github.com/nishanths/exhaustive v0.13.0
 	github.com/ryanrolds/sqlclosecheck v0.6.0
 	github.com/timakin/bodyclose v0.0.0-20260723120731-857993a2939c
-	golang.org/x/tools v0.44.1-0.20260420230617-19499e7caabc
+	golang.org/x/tools v0.50.0
 	honnef.co/go/tools v0.8.1
 )
 
@@ -16,7 +16,7 @@ require (
 	github.com/gostaticanalysis/analysisutil v0.7.1 // indirect
 	github.com/gostaticanalysis/comment v1.4.2 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20231108232855-2478ac86f678 // indirect
-	golang.org/x/mod v0.35.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
+	golang.org/x/mod v0.41.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/tools/go/packages/packagestest v0.1.1-deprecated // indirect
 )
