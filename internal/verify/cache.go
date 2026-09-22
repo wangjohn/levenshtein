@@ -268,7 +268,7 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 }
 
 func (c *Cache) lockedFingerprint(ctx context.Context, req Request) (string, func(), error) {
-	for attempt := 0; attempt < 3; attempt++ {
+	for range 3 {
 		key, err := fingerprint(req)
 		if err != nil {
 			return "", nil, err

@@ -95,7 +95,7 @@ func TestShareCompatiblePreparation(t *testing.T) {
 	req.Preparation = &Preparation{Command: []string{"/bin/sh", "-c", "echo prepare >> count; touch ready"}, Inputs: []string{"lock"}, Outputs: []string{"ready"}}
 	req.Check.Command.Args = []string{"/bin/sh", "-c", "test -f ready"}
 	native := &Native{Cache: &Cache{Dir: t.TempDir()}}
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		result := native.Execute(context.Background(), req)
 		if result.Status != StatusPassed {
 			t.Fatalf("preparation: %+v", result)

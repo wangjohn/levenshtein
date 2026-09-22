@@ -101,7 +101,7 @@ func Execute(ctx context.Context, plan Plan, shared string, executors map[Execut
 
 			// Wait outside the worker slot so shared-prep chains cannot deadlock
 			// the bounded pool (later check holds a slot while waiting on earlier).
-			for j := 0; j < i; j++ {
+			for j := range i {
 				if sharedPreparation(plan.Checks[j], check) {
 					<-done[j]
 				}

@@ -5,10 +5,12 @@
   "staticcheck": "v0.8.1",
   "staticcheckRelease": "2026.2.1",
   "checks": [
-    "SA*",
-    "errcheck",
-    "exhaustive",
-    "LV1001",
-    "LV1002"
+    "all",
+    "-ST1000",
+    "-ST1003",
+    "-ST1016",
+    "-ST1020",
+    "-ST1021",
+    "-ST1022"
   ]
 }

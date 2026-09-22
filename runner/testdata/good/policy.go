@@ -4,12 +4,12 @@ type Status string
 
 const Passed Status = "passed"
 
-type record struct {
+type Record struct {
 	Status Status
 	Value  int
 }
 
-func assembled() record {
+func Assembled() Record {
 	value := 1
-	return record{Status: Passed, Value: value}
+	return Record{Status: Passed, Value: value}
 }
