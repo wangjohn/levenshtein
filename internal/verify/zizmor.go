@@ -99,7 +99,7 @@ func installZizmor(ctx context.Context, shared, root, releases string) (string, 
 		url := fmt.Sprintf("%s/v%s/%s", releases, pin.Version, archive.Name)
 		data, err = download(ctx, url)
 		if err != nil {
-			return "", fmt.Errorf("downloading zizmor %s: %w", pin.Version, err)
+			return "", fmt.Errorf("downloading zizmor %s, which workflow-security needs network access to fetch once per cache directory: %w", pin.Version, err)
 		}
 		if !matchesSHA256(data, archive.SHA256) {
 			return "", fmt.Errorf("zizmor archive %s does not match its reviewed SHA-256", archive.Name)
@@ -173,7 +173,7 @@ func untarFile(data []byte, name string) ([]byte, error) {
 }
 
 func (n *Native) workflowSecurity(ctx context.Context, req Request, work goRun) ([]finding, toolRun, error) {
-	inputs, config, err := zizmorInputs(req.Source)
+	inputs, config, err := zizmorInputs(req.Source, req.Target.Inputs, req.Target.Exclude)
 	if err != nil {
 		return nil, toolRun{}, err
 	}
@@ -214,8 +214,14 @@ var zizmorConfigs = []string{".github/zizmor.yml", ".github/zizmor.yaml", "zizmo
 // .github/actions, and the Dependabot configuration. zizmor's own discovery
 // would read .gitignore and look for a configuration above the repository only
 // when there is no .git, which an exported source never has, so the inputs and
-// the configuration are both named explicitly and the executors agree.
-func zizmorInputs(source string) ([]string, string, error) {
+// the configuration are both named explicitly and the executors agree. Only
+// files under the target's declared inputs and outside its excludes count:
+// they are all the Dagger path imports and all the fingerprint covers.
+func zizmorInputs(source string, declaredInputs, excludes []string) ([]string, string, error) {
+	visible := func(path string) bool {
+		return declared(declaredInputs, path) && !excluded(path, excludes)
+	}
+
 	var inputs []string
 	for _, pattern := range []string{".github/workflows/*.yml", ".github/workflows/*.yaml", "action.yml", "action.yaml", ".github/dependabot.yml", ".github/dependabot.yaml"} {
 		matches, err := filepath.Glob(filepath.Join(source, filepath.FromSlash(pattern)))
@@ -223,7 +229,9 @@ func zizmorInputs(source string) ([]string, string, error) {
 			return nil, "", err
 		}
 		for _, match := range matches {
-			inputs = append(inputs, filepath.ToSlash(repositoryPath(source, match)))
+			if path := repositoryPath(source, match); visible(path) {
+				inputs = append(inputs, filepath.ToSlash(path))
+			}
 		}
 	}
 
@@ -232,8 +240,9 @@ func zizmorInputs(source string) ([]string, string, error) {
 		if err != nil {
 			return err
 		}
-		if !entry.IsDir() && (entry.Name() == "action.yml" || entry.Name() == "action.yaml") {
-			inputs = append(inputs, filepath.ToSlash(repositoryPath(source, path)))
+		rel := repositoryPath(source, path)
+		if !entry.IsDir() && (entry.Name() == "action.yml" || entry.Name() == "action.yaml") && visible(rel) {
+			inputs = append(inputs, filepath.ToSlash(rel))
 		}
 		return nil
 	})
@@ -246,7 +255,8 @@ func zizmorInputs(source string) ([]string, string, error) {
 
 	var configs []string
 	for _, config := range zizmorConfigs {
-		if info, err := os.Stat(filepath.Join(source, filepath.FromSlash(config))); err == nil && info.Mode().IsRegular() {
+		info, err := os.Stat(filepath.Join(source, filepath.FromSlash(config)))
+		if err == nil && info.Mode().IsRegular() && visible(filepath.FromSlash(config)) {
 			configs = append(configs, config)
 		}
 	}
