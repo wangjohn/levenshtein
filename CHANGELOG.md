@@ -18,6 +18,14 @@ Consumers pin a release tag, or its commit SHA, as described in
   `GOWORK=off`, needs the module proxy even for a vendored module, and its
   result is never cached; like `go-vuln`, a direct Dagger `sharedCheck` call
   must pass a unique `nonce` ([details](docs/checks.md#module-manifests)).
+- `workflow-security`, a shared check on both executors that runs zizmor 1.30.1's
+  offline audits over a repository's workflows, composite actions, and
+  Dependabot configuration and fails on findings of medium severity and above,
+  keeping zizmor's report. It honors one root zizmor configuration file,
+  requires a repository-root target, and is not in any default gate: add it to
+  a run of your own. The zizmor release archive is pinned by SHA-256 per
+  platform and verified before it runs; audits that query GitHub stay with
+  zizmor's own action ([details](docs/checks.md#workflow-security)).
 - `go-lint` runs three more upstream analyzers: `unparam` (unused parameters
   and results of unexported functions), `musttag` (untagged fields in structs
   passed to JSON, XML, YAML, and TOML encoders and decoders), and `recvcheck`
@@ -67,6 +75,9 @@ Consumers pin a release tag, or its commit SHA, as described in
   `levenshtein.json` whose runs leave `go-mod` out.
 - Levenshtein's own CI checks its module manifests through `go-mod` in the
   `lint` job's `branch` run instead of two separate workflow steps.
+- Levenshtein's own `branch`, `pre-merge`, `branch-dagger`, and `main` runs
+  include `workflow-security`. `security.yml` keeps zizmor's GitHub Action for
+  the online audits and now names the same inputs as the shared check.
 
 ### Fixed
 

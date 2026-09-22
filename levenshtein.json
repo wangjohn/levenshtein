@@ -26,6 +26,11 @@
       "workspace": ".",
       "inputs": [".github/workflows"]
     },
+    "actions": {
+      "dir": ".",
+      "workspace": ".",
+      "inputs": [".github", "action.yml"]
+    },
     "repository": {
       "dir": ".",
       "workspace": ".",
@@ -45,12 +50,14 @@
     "go-sql": {"kind": "go-sql", "targets": ["root", "runner", "lint"], "environment": "go"},
     "go-vuln": {"kind": "go-vuln", "targets": ["root", "runner", "lint"], "environment": "go"},
     "workflow-lint": {"kind": "workflow-lint", "target": "workflows", "environment": "go"},
+    "workflow-security": {"kind": "workflow-security", "target": "actions", "environment": "go"},
     "self-test": {"kind": "self-test", "target": "root", "environment": "go"},
     "semantic-lint": {"kind": "semantic-lint", "target": "repository", "environment": "host"},
     "native-go-lint": {"kind": "go-lint", "targets": ["root", "runner", "lint"], "environment": "host-go"},
     "native-go-vet": {"kind": "go-vet", "targets": ["root", "runner", "lint"], "environment": "host-go"},
     "native-go-mod": {"kind": "go-mod", "targets": ["root", "lint", "tools"], "environment": "host-go"},
     "native-workflow-lint": {"kind": "workflow-lint", "target": "workflows", "environment": "host-go"},
+    "native-workflow-security": {"kind": "workflow-security", "target": "actions", "environment": "host-go"},
     "go-mutation": {"kind": "go-mutation", "target": "repository", "environment": "go"},
     "go-mutation-lint": {"kind": "go-mutation", "target": "lint", "environment": "go", "mutation": {"accepted": "runner/lint/.levenshtein/mutation-accepted.json"}}
   },
@@ -62,12 +69,13 @@
     "go-sql": {"checks": ["go-sql"]},
     "go-vuln": {"checks": ["go-vuln"]},
     "workflow-lint": {"checks": ["native-workflow-lint"]},
+    "workflow-security": {"checks": ["native-workflow-security"]},
     "self-test": {"checks": ["self-test"]},
     "semantic-lint": {"checks": ["semantic-lint"]},
     "mutation": {"checks": ["go-mutation", "go-mutation-lint"]},
-    "branch": {"checks": ["native-go-lint", "native-go-vet", "native-go-mod", "native-workflow-lint"]},
-    "pre-merge": {"checks": ["native-go-lint", "native-go-vet", "native-go-mod", "native-workflow-lint", "self-test"]},
-    "branch-dagger": {"checks": ["go-lint", "go-vet", "go-mod", "workflow-lint"]},
-    "main": {"checks": ["go-lint", "go-vet", "go-mod", "workflow-lint", "self-test", "go-vuln"], "rerun_checks": true}
+    "branch": {"checks": ["native-go-lint", "native-go-vet", "native-go-mod", "native-workflow-lint", "native-workflow-security"]},
+    "pre-merge": {"checks": ["native-go-lint", "native-go-vet", "native-go-mod", "native-workflow-lint", "native-workflow-security", "self-test"]},
+    "branch-dagger": {"checks": ["go-lint", "go-vet", "go-mod", "workflow-lint", "workflow-security"]},
+    "main": {"checks": ["go-lint", "go-vet", "go-mod", "workflow-lint", "workflow-security", "self-test", "go-vuln"], "rerun_checks": true}
   }
 }

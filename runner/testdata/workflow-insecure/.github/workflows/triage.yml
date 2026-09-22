@@ -1,0 +1,17 @@
+name: triage
+
+on:
+  issues:
+    types: [opened]
+
+permissions: {}
+
+jobs:
+  triage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # template-injection: the issue title is attacker-controlled and expands
+      # straight into the shell script.
+      - name: Echo the title
+        run: echo "${{ github.event.issue.title }}"

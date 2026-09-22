@@ -25,11 +25,12 @@ type Levenshtein struct{}
 var toolchainJSON []byte
 
 type toolchain struct {
-	Go                 string   `json:"go"`
-	GoImage            string   `json:"goImage"`
-	Staticcheck        string   `json:"staticcheck"`
-	StaticcheckRelease string   `json:"staticcheckRelease"`
-	Checks             []string `json:"checks"`
+	Go                 string    `json:"go"`
+	GoImage            string    `json:"goImage"`
+	Staticcheck        string    `json:"staticcheck"`
+	StaticcheckRelease string    `json:"staticcheckRelease"`
+	Checks             []string  `json:"checks"`
+	Zizmor             zizmorPin `json:"zizmor"`
 }
 
 type diagnostic struct {
@@ -223,6 +224,9 @@ func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce strin
 	if err := modSelfTest(ctx, fixtures, tools, nonce); err != nil {
 		return err
 	}
+	if err := workflowSecuritySelfTest(ctx, fixtures, tools, nonce); err != nil {
+		return err
+	}
 	return mutationSelfTest(ctx, fixtures.Directory("mutation"), tools, nonce)
 }
 
@@ -241,6 +245,25 @@ func modSelfTest(ctx context.Context, fixtures *dagger.Directory, tools toolchai
 	}
 	if len(untidy) != 1 || untidy[0].Code != string(checkMod) || !strings.Contains(untidy[0].Message, "-require example.com/mod-untidy/unused v0.0.0") {
 		return fmt.Errorf("mod-untidy fixture must report tidy's diff: %v", untidy)
+	}
+	return nil
+}
+
+// workflowSecuritySelfTest proves the pinned zizmor downloads, verifies and
+// runs, passes a workflow with nothing to report and fails one with a
+// high-severity template injection, keeping zizmor's own report.
+func workflowSecuritySelfTest(ctx context.Context, fixtures *dagger.Directory, tools toolchain, nonce string) error {
+	secure, err := workflowSecurity(ctx, fixtures.Directory("workflow-secure"), ".", tools, nonce)
+	if err != nil || len(secure) != 0 {
+		return fmt.Errorf("workflow-secure fixture must pass workflow-security: findings=%v error=%v", secure, err)
+	}
+
+	insecure, err := workflowSecurity(ctx, fixtures.Directory("workflow-insecure"), ".", tools, nonce)
+	if err != nil {
+		return fmt.Errorf("workflow-insecure fixture must fail for its finding, not a tool error: %w", err)
+	}
+	if len(insecure) != 1 || insecure[0].Code != string(checkWorkflowSecurity) || !strings.Contains(insecure[0].Message, "template-injection") {
+		return fmt.Errorf("workflow-insecure fixture must report zizmor's template-injection finding: %v", insecure)
 	}
 	return nil
 }

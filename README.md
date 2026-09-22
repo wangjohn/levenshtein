@@ -41,7 +41,7 @@ config.go:18:9: LV1001 string choice with multiple alternatives needs a defined 
 - **Bug-finding analyzers**: `errcheck`, `exhaustive`, `bodyclose`, `nilness`, `errorlint`, `contextcheck`, go-critic's likely-bug checks, structured-logging mistakes, and others.
 - **Modernize rules**: five rules for newer Go features, each fixable with `go fix`.
 - **Levenshtein's own rules**: typed constants for enum-like strings, building structs in one literal, and three formatting rules.
-- **Other tools**: `go vet`, `go mod tidy -diff` and `go mod verify`, `govulncheck`, and `actionlint` for GitHub Actions.
+- **Other tools**: `go vet`, `go mod tidy -diff` and `go mod verify`, `govulncheck`, and `actionlint` for GitHub Actions. `zizmor`'s offline security audits of workflows and composite actions are available as the opt-in `workflow-security` check.
 
 To silence a finding, use Staticcheck's usual comment: `//lint:ignore CODE reason`.
 
