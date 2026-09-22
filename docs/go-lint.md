@@ -14,7 +14,7 @@
 | `bodyclose`, `sqlclosecheck`, `rowserrcheck`, `noctx` | Resources a program opens and never closes, and calls that drop the context |
 | `nilness`, `unusedwrite`, `errorlint`, `nilerr`, `durationcheck`, `reassign`, `wastedassign` | Behavior that is wrong rather than unidiomatic |
 | `intrange`, `usestdlibvars`, `perfsprint`, `predeclared`, `errname` | Modern, consistent standard-library usage |
-| `minmax`, `mapsloop`, `slicescontains`, `stringscutprefix`, `stringsseq` | Hand-written loops and comparisons that one standard-library call replaces; `go fix ./...` applies the fix |
+| `minmax`, `mapsloop`, `slicescontains`, `stringscutprefix`, `stringsseq` | Hand-written loops and comparisons that one standard-library call replaces; `go fix` applies the fix |
 | `thelper`, `tparallel`, `testifylint` | Mistakes that only appear in `_test.go` files |
 | LV1001 | Give enum-like strings defined types and typed constants |
 | LV1002 | Construct new structs together with literals, without opt-in markers |
@@ -43,7 +43,7 @@ Upstream analyzers run over generated files, so the facts they export stay corre
 
 `golang.org/x/tools` ships `modernize` as a suite of separately named analyzers, each replacing a hand-written construct with the newer language or library feature that says the same thing. Since Go 1.26, `go fix ./...` applies the whole suite, so every one of its diagnostics has a mechanical fix. That also means a modernize rule only earns a CI failure when the pattern shows up in practice, reads better after the fix, and is not already reported by a rule above.
 
-Measured against this repository at `golang.org/x/tools v0.50.0`, seven of the analyzers fired and the rest reported nothing. These five are on:
+Measured against this repository's own modules at `golang.org/x/tools v0.50.0`, seven analyzers fired: the five below, plus `embedlit` and `appendclipped`. `rangeint` fired only on the deliberately bad fixture. These five are on:
 
 | Rule | Replaces | Needs |
 | --- | --- | --- |
@@ -53,7 +53,15 @@ Measured against this repository at `golang.org/x/tools v0.50.0`, seven of the a
 | `stringscutprefix` | `HasPrefix` followed by `TrimPrefix`, with `strings.CutPrefix` | Go 1.20 |
 | `stringsseq` | Ranging over `strings.Split` or `strings.Fields`, with `SplitSeq` or `FieldsSeq` | Go 1.24 |
 
-Each rule checks the Go version of the file it looks at, so a module whose `go` directive predates the feature gets no diagnostic rather than a fix it cannot compile. The fix is `go fix ./...`, never a suppression.
+Each rule checks the Go version of the file it looks at, so a module whose `go` directive predates the feature gets no diagnostic rather than a fix it cannot compile. The `modernize-legacy` fixture pins that: it declares `go 1.19`, carries the same five patterns, and must lint clean.
+
+The fix is `go fix` with one flag per enabled rule, never a suppression:
+
+```sh
+go fix -minmax -mapsloop -slicescontains -stringscutprefix -stringsseq ./...
+```
+
+A bare `go fix ./...` applies the whole suite, including the rewrites listed below as off, so name the rules.
 
 The rest of the suite stays off:
 
@@ -61,6 +69,7 @@ The rest of the suite stays off:
 - `appendclipped`, `bloop`, `fmtappendf`, and `slicesdelete` are excluded from the suite upstream because the rewrite can change nil-ness, skew benchmarks, or make code less clear.
 - `embedlit` prefers Go 1.27's flattened literals for promoted fields, which hides which embedded struct a field belongs to. That is a spelling preference, not a simplification with a cost.
 - `any`, `atomictypes`, `errorsastype`, `forvar`, `newexpr`, `omitzero`, `plusbuild`, `reflecttypefor`, `slicessort`, `stditerators`, `stringsbuilder`, `stringscut`, `testingcontext`, and `waitgroupgo` never fired here. `go fix` still applies them; a rule with no evidence behind it is not worth a failing build.
+- `importcomment`, `reflecttypeassert`, `slicesbackward`, `slicesclip`, and `unsafefuncs` are in the suite but unexported at this release, so the linter cannot register them on their own. `go fix` still applies them.
 
 To revisit the selection after a `golang.org/x/tools` upgrade, run `go fix -diff ./...` in the repository and compare what changed against this list.
 
