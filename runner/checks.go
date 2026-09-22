@@ -18,19 +18,20 @@ import (
 type checkName string
 
 const (
-	checkLint     checkName = "go-lint"
-	checkVet      checkName = "go-vet"
-	checkMod      checkName = "go-mod"
-	checkHTTP     checkName = "go-http"
-	checkSQL      checkName = "go-sql"
-	checkVuln     checkName = "go-vuln"
-	checkWorkflow checkName = "workflow-lint"
-	checkSelfTest checkName = "self-test"
+	checkLint             checkName = "go-lint"
+	checkVet              checkName = "go-vet"
+	checkMod              checkName = "go-mod"
+	checkHTTP             checkName = "go-http"
+	checkSQL              checkName = "go-sql"
+	checkVuln             checkName = "go-vuln"
+	checkWorkflow         checkName = "workflow-lint"
+	checkWorkflowSecurity checkName = "workflow-security"
+	checkSelfTest         checkName = "self-test"
 )
 
 func knownCheck(check checkName) bool {
 	switch check {
-	case checkLint, checkVet, checkMod, checkHTTP, checkSQL, checkVuln, checkWorkflow, checkSelfTest:
+	case checkLint, checkVet, checkMod, checkHTTP, checkSQL, checkVuln, checkWorkflow, checkWorkflowSecurity, checkSelfTest:
 		return true
 	}
 	return false
@@ -54,6 +55,8 @@ func executeCheck(ctx context.Context, source *dagger.Directory, module string, 
 		return lint(ctx, source, module, tools, nonce)
 	case checkMod:
 		return goMod(ctx, source, module, tools, nonce)
+	case checkWorkflowSecurity:
+		return workflowSecurity(ctx, source, module, tools, nonce)
 	}
 
 	ctr := goContainer(tools)
@@ -258,8 +261,8 @@ func (m *Levenshtein) SharedCheck(ctx context.Context,
 	if !filepath.IsLocal(module) || path.Clean(module) != module || strings.Contains(module, "\\") {
 		return fmt.Errorf("invalid module path %q", module)
 	}
-	if kind == checkWorkflow && module != "." {
-		return fmt.Errorf("workflow-lint requires a repository-root target")
+	if (kind == checkWorkflow || kind == checkWorkflowSecurity) && module != "." {
+		return fmt.Errorf("%s requires a repository-root target", kind)
 	}
 	if kind == checkVuln && nonce == "" {
 		return fmt.Errorf("go-vuln requires a unique nonce; use the Levenshtein CLI")

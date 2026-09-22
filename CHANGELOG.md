@@ -17,6 +17,14 @@ Consumers pin a release tag, or its commit SHA, as described in
   an unreachable module proxy is an error, never a pass. It runs with
   `GOWORK=off`, needs the module proxy even for a vendored module, and its
   result is never cached ([details](docs/checks.md#module-manifests)).
+- `workflow-security`, a shared check on both executors that runs zizmor 1.30.1's
+  offline audits over a repository's workflows, composite actions, and
+  Dependabot configuration and fails on findings of medium severity and above,
+  keeping zizmor's report. It honors one root zizmor configuration file,
+  requires a repository-root target, and is not in any default gate: add it to
+  a run of your own. The zizmor release archive is pinned by SHA-256 per
+  platform and verified before it runs; audits that query GitHub stay with
+  zizmor's own action ([details](docs/checks.md#workflow-security)).
 
 ### Changed
 

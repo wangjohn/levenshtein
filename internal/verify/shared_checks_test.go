@@ -2,12 +2,13 @@ package verify
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
 func TestSharedChecksPlanFromVersionedConfiguration(t *testing.T) {
 	for _, data := range []string{
-		`{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"lint":{"kind":"go-lint","target":"app","environment":"go"},"vet":{"kind":"go-vet","target":"app","environment":"go"},"mod":{"kind":"go-mod","target":"app","environment":"go"},"http":{"kind":"go-http","target":"app","environment":"go"},"sql":{"kind":"go-sql","target":"app","environment":"go"},"audit":{"kind":"go-vuln","target":"app","environment":"go"},"workflows":{"kind":"workflow-lint","target":"app","environment":"go"}},"runs":{"custom":{"checks":["lint","vet","mod","http","sql","audit","workflows"]}}}`,
+		`{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"lint":{"kind":"go-lint","target":"app","environment":"go"},"vet":{"kind":"go-vet","target":"app","environment":"go"},"mod":{"kind":"go-mod","target":"app","environment":"go"},"http":{"kind":"go-http","target":"app","environment":"go"},"sql":{"kind":"go-sql","target":"app","environment":"go"},"audit":{"kind":"go-vuln","target":"app","environment":"go"},"workflows":{"kind":"workflow-lint","target":"app","environment":"go"},"security":{"kind":"workflow-security","target":"app","environment":"go"}},"runs":{"custom":{"checks":["lint","vet","mod","http","sql","audit","workflows","security"]}}}`,
 		`{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"audit":{"kind":"go-vuln","target":"app","environment":"go"}},"runs":{"custom":{"checks":["audit"]}}}`,
 	} {
 		cfg, err := Parse([]byte(data))
@@ -94,13 +95,15 @@ func TestModuleChecksNeverReuseAVerdict(t *testing.T) {
 	}
 }
 
-func TestWorkflowLintRequiresRootTarget(t *testing.T) {
-	cfg, err := Parse([]byte(`{"version":1,"targets":{"app":{"dir":"nested","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"workflow":{"kind":"workflow-lint","target":"app","environment":"go"}},"runs":{"branch":{"checks":["workflow"]}}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := cfg.Plan(t.TempDir(), "branch"); err == nil {
-		t.Fatal("accepted non-root workflow target")
+func TestWorkflowKindsRequireRootTarget(t *testing.T) {
+	for _, kind := range []CheckKind{CheckWorkflowLint, CheckWorkflowSecurity} {
+		cfg, err := Parse([]byte(`{"version":1,"targets":{"app":{"dir":"nested","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"workflow":{"kind":"` + string(kind) + `","target":"app","environment":"go"}},"runs":{"branch":{"checks":["workflow"]}}}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := cfg.Plan(t.TempDir(), "branch"); err == nil || !strings.Contains(err.Error(), string(kind)+" requires a repository-root target") {
+			t.Fatalf("%s accepted a non-root target: %v", kind, err)
+		}
 	}
 }
 
@@ -110,7 +113,7 @@ func TestUnconfiguredRepoGetsSharedCheckDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, count := range map[string]int{"branch": 3, "pre-merge": 3, "main": 4, "go-lint": 1, "go-vet": 1, "go-mod": 1, "go-vuln": 1, "go-http": 1, "go-sql": 1, "workflow-lint": 1} {
+	for name, count := range map[string]int{"branch": 3, "pre-merge": 3, "main": 4, "go-lint": 1, "go-vet": 1, "go-mod": 1, "go-vuln": 1, "go-http": 1, "go-sql": 1, "workflow-lint": 1, "workflow-security": 1} {
 		plan, err := cfg.Plan(source, name)
 		if err != nil || len(plan.Checks) != count {
 			t.Fatalf("%s: %+v %v", name, plan, err)

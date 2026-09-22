@@ -31,14 +31,21 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The shared workflow-security check runs zizmor's offline audits in the
+      # verify workflow. This job adds the online ones, which use the workflow
+      # token (impostor-commit, known-vulnerable-actions, ref-confusion), and
+      # the weekly schedule catches new advisories. It audits the same inputs
+      # as the shared check, which keeps the deliberately insecure fixture
+      # under runner/testdata out, and runs the version runner/toolchain.json
+      # pins; a test keeps the two equal.
       # Annotations instead of a SARIF upload: findings stay readable on pull
-      # requests from forks, which cannot write security events. Findings below
-      # medium severity are reported by zizmor's own defaults elsewhere; this
-      # gate fails the job on medium and above.
+      # requests from forks, which cannot write security events. This gate
+      # fails the job on medium severity and above.
       - name: Audit workflows and composite actions
         uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
         with:
           version: 1.30.1
+          inputs: .github/workflows .github/actions action.yml .github/dependabot.yml
           min-severity: medium
           advanced-security: false
           annotations: true

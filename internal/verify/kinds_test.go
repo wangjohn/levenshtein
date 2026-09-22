@@ -48,7 +48,7 @@ func TestNativeExecutorNamesItsKindsForUnknownCheck(t *testing.T) {
 	req.Check = Check{Kind: CheckSelfTest}
 
 	result := (&Native{}).Execute(context.Background(), req)
-	if result.Status != StatusError || !strings.Contains(result.Error, "command, go-lint, go-mod, go-vet, go-vuln, semantic-lint, workflow-lint") {
+	if result.Status != StatusError || !strings.Contains(result.Error, "command, go-lint, go-mod, go-vet, go-vuln, semantic-lint, workflow-lint, workflow-security") {
 		t.Fatalf("unknown kind: %+v", result)
 	}
 }

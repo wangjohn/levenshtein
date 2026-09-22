@@ -34,22 +34,23 @@ var discoveryKinds = []DiscoveryKind{DiscoveryGit, DiscoveryFilesystem}
 type CheckKind string
 
 const (
-	CheckGoLint       CheckKind = "go-lint"
-	CheckGoVet        CheckKind = "go-vet"
-	CheckGoMod        CheckKind = "go-mod"
-	CheckGoHTTP       CheckKind = "go-http"
-	CheckGoSQL        CheckKind = "go-sql"
-	CheckGoVuln       CheckKind = "go-vuln"
-	CheckWorkflowLint CheckKind = "workflow-lint"
-	CheckSelfTest     CheckKind = "self-test"
-	CheckCommand      CheckKind = "command"
-	CheckSemanticLint CheckKind = "semantic-lint"
-	CheckGoMutation   CheckKind = "go-mutation"
+	CheckGoLint           CheckKind = "go-lint"
+	CheckGoVet            CheckKind = "go-vet"
+	CheckGoMod            CheckKind = "go-mod"
+	CheckGoHTTP           CheckKind = "go-http"
+	CheckGoSQL            CheckKind = "go-sql"
+	CheckGoVuln           CheckKind = "go-vuln"
+	CheckWorkflowLint     CheckKind = "workflow-lint"
+	CheckWorkflowSecurity CheckKind = "workflow-security"
+	CheckSelfTest         CheckKind = "self-test"
+	CheckCommand          CheckKind = "command"
+	CheckSemanticLint     CheckKind = "semantic-lint"
+	CheckGoMutation       CheckKind = "go-mutation"
 )
 
 // checkKinds lists every kind, so tests can prove each one has exactly one
 // executor. Add new kinds here as well as to the executor that runs them.
-var checkKinds = []CheckKind{CheckGoLint, CheckGoVet, CheckGoMod, CheckGoHTTP, CheckGoSQL, CheckGoVuln, CheckWorkflowLint, CheckSelfTest, CheckCommand, CheckSemanticLint, CheckGoMutation}
+var checkKinds = []CheckKind{CheckGoLint, CheckGoVet, CheckGoMod, CheckGoHTTP, CheckGoSQL, CheckGoVuln, CheckWorkflowLint, CheckWorkflowSecurity, CheckSelfTest, CheckCommand, CheckSemanticLint, CheckGoMutation}
 
 // CacheStatus describes reuse without conflating it with verification outcomes.
 type CacheStatus string

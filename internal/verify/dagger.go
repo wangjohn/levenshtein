@@ -41,15 +41,16 @@ func (d *Dagger) Close() error {
 
 // These are the Dagger functions supported by both planning and execution.
 var daggerFunctions = map[CheckKind]string{
-	CheckGoLint:       "goLint",
-	CheckSelfTest:     "selfTest",
-	CheckGoVet:        "sharedCheck",
-	CheckGoMod:        "sharedCheck",
-	CheckGoHTTP:       "sharedCheck",
-	CheckGoSQL:        "sharedCheck",
-	CheckGoVuln:       "sharedCheck",
-	CheckWorkflowLint: "sharedCheck",
-	CheckGoMutation:   "goMutation",
+	CheckGoLint:           "goLint",
+	CheckSelfTest:         "selfTest",
+	CheckGoVet:            "sharedCheck",
+	CheckGoMod:            "sharedCheck",
+	CheckGoHTTP:           "sharedCheck",
+	CheckGoSQL:            "sharedCheck",
+	CheckGoVuln:           "sharedCheck",
+	CheckWorkflowLint:     "sharedCheck",
+	CheckWorkflowSecurity: "sharedCheck",
+	CheckGoMutation:       "goMutation",
 }
 
 func (d *Dagger) Execute(ctx context.Context, req Request) Result {
