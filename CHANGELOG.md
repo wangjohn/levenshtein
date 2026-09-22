@@ -14,8 +14,8 @@ Consumers pin a release tag, or its commit SHA, as described in
 - `go-lint` runs three more upstream analyzers: `unparam` (unused parameters
   and results of unexported functions), `musttag` (untagged fields in structs
   passed to JSON, XML, YAML, and TOML encoders and decoders), and `recvcheck`
-  (types that mix pointer and value receivers). Consumers see their findings
-  when they bump their Levenshtein pin.
+  (types whose hand-written methods mix pointer and value receivers).
+  Consumers see their findings when they bump their Levenshtein pin.
 - `go-lint` runs go-critic's likely-bug (`diagnostic`) checkers, minus the ones
   a rule already on repeats, plus `filepathJoin` and `badRegexp`. Each finding's
   code is the checker's name, such as `offBy1`, so one checker can be ignored or
