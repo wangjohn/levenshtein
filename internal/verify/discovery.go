@@ -119,7 +119,7 @@ func listGit(source string) *gitListing {
 	}
 
 	var files []string
-	for _, name := range strings.Split(stdout.String(), "\x00") {
+	for name := range strings.SplitSeq(stdout.String(), "\x00") {
 		// An untracked nested repository is listed as its directory with a
 		// trailing slash; keep it so the snapshot walks into it.
 		path := filepath.FromSlash(strings.TrimSuffix(name, "/"))
