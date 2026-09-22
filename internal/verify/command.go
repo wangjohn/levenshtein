@@ -3,11 +3,13 @@ package verify
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -34,7 +36,7 @@ func nativeEnv(req Request, extra map[string]string) []string {
 
 	values["LEVENSHTEIN_SOURCE"] = req.Source
 	values["LEVENSHTEIN_WORKSPACE"] = filepath.Join(req.Source, req.Target.Workspace)
-	values["LEVENSHTEIN_RERUN_CHECKS"] = fmt.Sprint(req.RerunChecks)
+	values["LEVENSHTEIN_RERUN_CHECKS"] = strconv.FormatBool(req.RerunChecks)
 
 	keys := make([]string, 0, len(values))
 	for key := range values {
@@ -114,7 +116,7 @@ func command(ctx context.Context, dir string, args, env []string, timeout string
 	case err == nil:
 		status = StatusPassed
 	default:
-		if _, ok := err.(*exec.ExitError); ok {
+		if errors.As(err, new(*exec.ExitError)) {
 			status = StatusFailed
 		}
 		message = err.Error()

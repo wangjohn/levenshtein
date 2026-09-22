@@ -44,7 +44,7 @@ func semanticLint(ctx context.Context, req Request, dir string, env []string) Re
 
 	apiKey := os.Getenv(semanticAPIKeyEnv)
 	if apiKey == "" {
-		return Result{Status: StatusError, Error: fmt.Sprintf("%s is not set; export it locally or supply it from a CI secret", semanticAPIKeyEnv)}
+		return Result{Status: StatusError, Error: semanticAPIKeyEnv + " is not set; export it locally or supply it from a CI secret"}
 	}
 	git, err := executable(dir, env, "git")
 	if err != nil {
