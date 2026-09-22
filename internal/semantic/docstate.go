@@ -104,10 +104,7 @@ func section(lines []string, first, last int) string {
 	}
 
 	if end-start+1 > maxSectionLines {
-		margin := (maxSectionLines - (last - first + 1)) / 2
-		if margin < 5 {
-			margin = 5
-		}
+		margin := max((maxSectionLines-(last-first+1))/2, 5)
 		if first-margin > start {
 			start = first - margin
 		}
