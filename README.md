@@ -2,6 +2,8 @@
 
 A comprehensive, carefully chosen set of Go lint rules for all your repos.
 
+Coding agents write a lot of code quickly, and they fix whatever their tools point out. That makes lint rules more important than they used to be. Good rules catch unchecked errors, leaked resources, and sloppy code before anyone reviews the change, and the agent fixes those problems on its own. When much of your code isn't written by hand, lint rules are the most reliable way to keep a repo clean and well written.
+
 Levenshtein turns on nearly all of Staticcheck, more than twenty other analyzers, and a handful of its own rules. Each rule is there because it catches bugs or makes code clearer, and [docs/checks.md](docs/checks.md) gives the reason for every one. Rules that only enforce someone's taste in naming or comments are off, so a finding is usually worth fixing.
 
 Every repo uses the same rules. Each one pins a revision of Levenshtein and runs `./verify`, which runs the checks in a container with pinned versions of Go and every tool. A result doesn't depend on whose laptop or which CI provider ran it. When you improve a rule, you do it once, and each repo picks it up when it bumps its pin.
