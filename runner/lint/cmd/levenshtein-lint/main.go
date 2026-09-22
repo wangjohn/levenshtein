@@ -41,7 +41,6 @@ import (
 	"github.com/wangjohn/levenshtein/runner/lint/policy"
 	"github.com/ykadowak/zerologlint"
 	"go-simpler.org/musttag"
-	"go-simpler.org/sloglint"
 	fatcontext "go.augendre.info/fatcontext/pkg/analyzer"
 	"golang.org/x/mod/modfile"
 	"golang.org/x/tools/go/analysis"
@@ -130,40 +129,36 @@ func correctness() []*analysis.Analyzer {
 // the package's own module; a wrong module makes musttag skip every named type
 // and pass silently.
 func tagged() *analysis.Analyzer {
-	return inModule(musttag.New())
-}
-
-// inModule gives an analyzer the module of the package being linted.
-// Staticcheck's runner leaves pass.Module nil, which an analyzer that reads it
-// either dereferences or replaces with a guess.
-func inModule(analyzer *analysis.Analyzer) *analysis.Analyzer {
+	analyzer := musttag.New()
 	run := analyzer.Run
 	analyzer.Run = func(pass *analysis.Pass) (any, error) {
-		module, err := moduleOf(pass)
+		module, err := modulePath(pass)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", pass.Analyzer.Name, err)
+			return nil, err
 		}
 		withModule := *pass
-		withModule.Module = module
+		withModule.Module = &analysis.Module{Path: module}
 		return run(&withModule)
 	}
 	return analyzer
 }
 
-// moduleOf reads the module path and Go version from the go.mod nearest a
-// source file of the package. Cgo's intermediate files live in the build
-// cache, so the search tries each file until one sits inside a module.
-func moduleOf(pass *analysis.Pass) (*analysis.Module, error) {
+// modulePath reads the module path from the go.mod nearest a source file of
+// the package. Cgo's intermediate files live in the build cache, so the search
+// tries each file until one sits inside a module.
+func modulePath(pass *analysis.Pass) (string, error) {
 	for _, file := range pass.Files {
 		name := pass.Fset.Position(file.Package).Filename
 		for dir := filepath.Dir(name); ; {
-			manifest := filepath.Join(dir, "go.mod")
-			data, err := os.ReadFile(manifest)
+			data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
 			if err == nil {
-				return parseModule(manifest, data)
+				if path := modfile.ModulePath(data); path != "" {
+					return path, nil
+				}
+				return "", fmt.Errorf("musttag: %s declares no module path", filepath.Join(dir, "go.mod"))
 			}
 			if !errors.Is(err, fs.ErrNotExist) {
-				return nil, err
+				return "", fmt.Errorf("musttag: %w", err)
 			}
 			parent := filepath.Dir(dir)
 			if parent == dir {
@@ -172,27 +167,7 @@ func moduleOf(pass *analysis.Pass) (*analysis.Module, error) {
 			dir = parent
 		}
 	}
-	return nil, fmt.Errorf("no go.mod above package %s", pass.Pkg.Path())
-}
-
-// parseModule reads the module path and the go directive from a go.mod.
-func parseModule(manifest string, data []byte) (*analysis.Module, error) {
-	parsed, err := modfile.ParseLax(manifest, data, nil)
-	if err != nil {
-		return nil, err
-	}
-	if parsed.Module == nil || parsed.Module.Mod.Path == "" {
-		return nil, fmt.Errorf("%s declares no module path", manifest)
-	}
-
-	var goVersion string
-	if parsed.Go != nil {
-		goVersion = parsed.Go.Version
-	}
-	return &analysis.Module{
-		Path:      parsed.Module.Mod.Path,
-		GoVersion: goVersion,
-	}, nil
+	return "", fmt.Errorf("musttag: no go.mod above package %s", pass.Pkg.Path())
 }
 
 // receivers runs recvcheck over hand-written files only. A generator can
@@ -237,11 +212,6 @@ func logging() []*analysis.Analyzer {
 	return []*analysis.Analyzer{
 		zerologlint.Analyzer,
 		keyValues(),
-		// Only mixing key-value pairs with attributes in one call is on;
-		// sloglint's key naming, message, global-logger, and context options
-		// are house style. It reads the module's Go version to decide whether
-		// slog.DiscardHandler exists.
-		inModule(sloglint.New(&sloglint.Options{NoMixedArguments: true})),
 	}
 }
 

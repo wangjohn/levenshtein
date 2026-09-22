@@ -32,16 +32,16 @@ Consumers pin a release tag, or its commit SHA, as described in
   working directory, or temporary files changed). None fired on Levenshtein;
   [docs/checks.md](docs/checks.md#known-bug-patterns) explains why each is on
   anyway.
-- `go-lint` runs three logging analyzers: `zerologlint` (a zerolog event never
-  sent with `Msg` or `Send`), `loggercheck` (a key without a value for logr,
-  klog, zap's sugared logger, or go-kit log), and `sloglint` limited to
-  `log/slog` calls that mix key-value pairs with attributes and handlers that
-  format records into `io.Discard`. A missing value in a `log/slog` call stays
-  with go vet's `slog` check, so it is reported once. None fired on
-  Levenshtein, which uses none of these loggers;
+- `go-lint` runs two logging analyzers: `zerologlint` (a zerolog event never
+  sent with `Msg` or `Send`) and `loggercheck` (a key without a value for logr,
+  klog, zap's sugared logger, or go-kit log). A missing value in a `log/slog`
+  call stays with go vet's `slog` check, so it is reported once. Neither fired
+  on Levenshtein, which uses none of these loggers;
   [docs/checks.md](docs/checks.md#known-bug-patterns) explains why each is on.
   OpenTelemetry's `spancheck` was tried and left out, because it cannot tell
-  an ended span from an open one under Staticcheck's loader.
+  an ended span from an open one under Staticcheck's loader, and `sloglint` was
+  left out because its mixed-argument check is a consistency rule, not a bug
+  check.
 - [docs/checks.md](docs/checks.md#considered-and-off) lists the analyzers that
   were measured and left out, with the reason for each.
 - `levenshtein-lint` includes `gocognit`, which reports a function whose
