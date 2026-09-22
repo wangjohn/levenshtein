@@ -5,6 +5,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"path"
@@ -85,18 +86,30 @@ func lint(ctx context.Context, source *dagger.Directory, module string, tools to
 	return parseFindings(exitCode, stdout, stderr, tools.Checks)
 }
 
+// allowed mirrors the linter's own selection: a positive pattern turns a code
+// on, "all" turns every code on, and a "-" pattern turns one back off.
+func allowed(checks []string, code string) bool {
+	selected := false
+	for _, check := range checks {
+		pattern, negated := strings.CutPrefix(check, "-")
+		matched := pattern == "all"
+		if !matched {
+			matched, _ = path.Match(pattern, code)
+		}
+		if !matched {
+			continue
+		}
+		if negated {
+			return false
+		}
+		selected = true
+	}
+	return selected
+}
+
 func parseFindings(exitCode int, stdout, stderr string, checks []string) ([]diagnostic, error) {
 	if exitCode != 0 && exitCode != 1 {
-		return nil, fmt.Errorf("Staticcheck exited %d: %s\n%s", exitCode, stderr, stdout)
-	}
-
-	allowed := func(code string) bool {
-		for _, check := range checks {
-			if matched, _ := path.Match(check, code); matched {
-				return true
-			}
-		}
-		return false
+		return nil, fmt.Errorf("the linter exited %d: %s\n%s", exitCode, stderr, stdout)
 	}
 
 	var findings []diagnostic
@@ -104,13 +117,13 @@ func parseFindings(exitCode int, stdout, stderr string, checks []string) ([]diag
 	for {
 		var finding diagnostic
 		err := decoder.Decode(&finding)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("invalid Staticcheck JSON: %w", err)
+			return nil, fmt.Errorf("invalid linter JSON: %w", err)
 		}
-		if !allowed(finding.Code) || finding.Message == "" || finding.Location.File == "" || finding.Location.Line < 1 {
+		if !allowed(checks, finding.Code) || finding.Message == "" || finding.Location.File == "" || finding.Location.Line < 1 {
 			return nil, fmt.Errorf("unexpected diagnostic (possibly a compile error): %s", stdout)
 		}
 		finding.Location.File = strings.TrimPrefix(finding.Location.File, "/src/")
@@ -118,12 +131,25 @@ func parseFindings(exitCode int, stdout, stderr string, checks []string) ([]diag
 	}
 
 	if (exitCode == 0 && len(findings) != 0) || (exitCode == 1 && len(findings) == 0) {
-		return nil, fmt.Errorf("Staticcheck exit %d does not match diagnostics: %s\n%s", exitCode, stdout, stderr)
+		return nil, fmt.Errorf("linter exit %d does not match diagnostics: %s\n%s", exitCode, stdout, stderr)
 	}
 	if strings.TrimSpace(stderr) != "" {
-		return nil, fmt.Errorf("Staticcheck could not produce a clean result: %s", stderr)
+		return nil, fmt.Errorf("the linter could not produce a clean result: %s", stderr)
 	}
 	return findings, nil
+}
+
+// expectedBadCodes is the contract that every default rule really runs: the bad
+// fixture carries one triggering case per code, so a rule that stops being
+// registered or stops firing fails the self-test instead of passing silently.
+// scripts/test-checks asserts the same list without Dagger.
+var expectedBadCodes = []string{
+	"SA5001", "SA5003", "SA9001", "S1002", "ST1005", "QF1011", "U1000",
+	"bodyclose", "sqlclosecheck", "rowserrcheck", "noctx",
+	"errcheck", "exhaustive", "nilness", "unusedwrite", "errorlint", "nilerr", "durationcheck", "reassign", "wastedassign",
+	"intrange", "usestdlibvars", "perfsprint", "predeclared", "errname",
+	"thelper", "tparallel", "testifylint",
+	"LV1001", "LV1002", "LV1003", "LV1004", "LV1005",
 }
 
 func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce string) error {
@@ -144,13 +170,16 @@ func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce strin
 	for _, finding := range bad {
 		counts[finding.Code]++
 	}
-	for _, check := range []string{"SA5001", "SA5003", "SA9001", "LV1001", "LV1002", "errcheck", "exhaustive"} {
+	for _, check := range expectedBadCodes {
 		if counts[check] < 1 {
 			return fmt.Errorf("bad fixture must produce a %s diagnostic; got %v", check, counts)
 		}
 	}
 
-	for _, fixture := range []struct{ name, message string }{
+	for _, fixture := range []struct {
+		name    string
+		message string
+	}{
 		{"broken", "undefined: undefinedFunction"},
 		{"empty", "contains no Go packages"},
 	} {

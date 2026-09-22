@@ -31,6 +31,61 @@ func TestLintExitStatusAndDiagnosticsAgree(t *testing.T) {
 	}
 }
 
+func TestCheckSelectionMatchesTheLinter(t *testing.T) {
+	var tools toolchain
+	if err := json.Unmarshal(toolchainJSON, &tools); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		checks []string
+		code   string
+		want   bool
+	}{
+		{"all selects an upstream analyzer", []string{"all"}, "nilness", true},
+		{"all selects a house rule", []string{"all"}, "LV1003", true},
+		{"a negation wins over all", []string{"all", "-ST1003"}, "ST1003", false},
+		{"a negation wins over a glob", []string{"SA*", "-SA1019"}, "SA1019", false},
+		{"a glob selects its family", []string{"SA*"}, "SA5001", true},
+		{"a glob leaves other families alone", []string{"SA*"}, "S1002", false},
+		{"an exact name selects only itself", []string{"bodyclose"}, "bodyclose", true},
+		{"an exact name excludes the rest", []string{"bodyclose"}, "sqlclosecheck", false},
+		{"an empty selection reports nothing", nil, "SA5001", false},
+		{"the shipped default keeps the deselected style rules off", tools.Checks, "ST1000", false},
+		{"the shipped default keeps everything else on", tools.Checks, "errcheck", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := allowed(tc.checks, tc.code); got != tc.want {
+				t.Fatalf("allowed(%v, %q) = %v, want %v", tc.checks, tc.code, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSelfTestCoversEveryDefaultRule(t *testing.T) {
+	var tools toolchain
+	if err := json.Unmarshal(toolchainJSON, &tools); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, code := range expectedBadCodes {
+		if !allowed(tools.Checks, code) {
+			t.Errorf("the bad fixture expects %s, which the default selection does not report", code)
+		}
+	}
+
+	script, err := os.ReadFile("../scripts/test-checks")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, code := range expectedBadCodes {
+		if !strings.Contains(string(script), code) {
+			t.Errorf("scripts/test-checks must also assert %s", code)
+		}
+	}
+}
+
 func TestLinterDependencyMatchesToolchain(t *testing.T) {
 	var tools toolchain
 	if err := json.Unmarshal(toolchainJSON, &tools); err != nil {
