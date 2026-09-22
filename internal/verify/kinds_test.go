@@ -12,7 +12,7 @@ import (
 // so the planner and executor can call its functions without nil checks.
 func TestEveryCheckKindHasExactlyOneCompleteExecutor(t *testing.T) {
 	for _, kind := range checkKinds {
-		_, dagger := daggerFunctions[kind]
+		dagger := daggerFunctions[kind] != "" // Planning tests the value, not key presence.
 		native, ok := nativeKinds[kind]
 		if dagger == ok {
 			t.Errorf("%s must be owned by exactly one executor (dagger=%v native=%v)", kind, dagger, ok)
@@ -22,19 +22,15 @@ func TestEveryCheckKindHasExactlyOneCompleteExecutor(t *testing.T) {
 		}
 	}
 	for kind := range nativeKinds {
-		if !slicesContains(checkKinds, kind) {
+		if !slices.Contains(checkKinds, kind) {
 			t.Errorf("%s is registered but missing from checkKinds", kind)
 		}
 	}
 	for kind := range daggerFunctions {
-		if !slicesContains(checkKinds, kind) {
+		if !slices.Contains(checkKinds, kind) {
 			t.Errorf("%s is registered but missing from checkKinds", kind)
 		}
 	}
-}
-
-func slicesContains(kinds []CheckKind, kind CheckKind) bool {
-	return slices.Contains(kinds, kind)
 }
 
 func TestNativeExecutorNamesItsKindsForUnknownCheck(t *testing.T) {

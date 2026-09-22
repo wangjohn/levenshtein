@@ -49,7 +49,7 @@ func nativeKindNames() string {
 // A fresh run must execute verification, so a command check has to say what
 // bypasses its own verdict cache.
 func commandRerunReady(check Check) error {
-	if len(check.Command.RerunArgs) == 0 {
+	if check.Command == nil || len(check.Command.RerunArgs) == 0 {
 		return fmt.Errorf("fresh native runs require explicit rerun_args")
 	}
 	return nil
