@@ -96,9 +96,19 @@ includes the shared [`go-mod` check](checks.md#module-manifests)
 `runner/tools` on every event, and never reuses a cached result. `runner` is
 left out because `dagger develop` rewrites its manifest.
 
-`security.yml` runs beside it: `zizmor` over the workflows and composite
-actions on every pull request, push to `main`, and weekly, failing on findings
-of medium severity and above; OpenSSF Scorecard with a SARIF upload to code
+The same `branch` run includes the shared
+[`workflow-security` check](checks.md#workflow-security): zizmor's offline audits
+of the workflows, composite actions, and Dependabot configuration, failing on
+findings of medium severity and above, natively in `branch` and `pre-merge` and
+in Dagger in `branch-dagger` and `main`.
+
+`security.yml` runs beside it: zizmor's GitHub Action with the workflow token on
+every pull request, push to `main`, and weekly, so the audits that query GitHub
+(`impostor-commit`, `known-vulnerable-actions`, `ref-confusion`), which the
+offline shared check cannot run, still gate changes and notice new advisories.
+It names the same inputs as the shared check, so the deliberately insecure
+fixture under `runner/testdata` stays out of it, and runs the zizmor version
+`runner/toolchain.json` pins (a test keeps the two equal); OpenSSF Scorecard with a SARIF upload to code
 scanning on `main` and the weekly schedule, since Scorecard reads the default
 branch rather than a pull request's merge ref; and `dependency-review` on pull
 requests, failing on high severity. `dependency-review` needs the repository's
@@ -163,7 +173,7 @@ Completed verification results are restored into `$RUNNER_TEMP/levenshtein-verif
 
 In-engine Go module/build and Staticcheck `CacheVolume`s remain version-keyed in `runner/` but are **session-local** on ephemeral GitHub-hosted runners. Persisting those volumes across VMs is **blocked** for Dagger **0.21.9** (no supported CI export/restore API without experimental hacks). This is why `branch` and `pre-merge` run natively: the host's Go build cache (through setup-go) and the Staticcheck cache above do persist.
 
-Self-config targets use narrow literal `inputs` (not `"."`): root Go module paths, `runner` / `runner/lint`, and `.github/workflows` for workflow-lint. The `runner` module compiles against the gitignored generated SDK, which the `runner` target's git discovery does not list. Its key still changes when the SDK does, because `./verify` passes one directory as both the shared checkout and the source, and every shared Go check hashes all of the shared `runner/` from the filesystem; `TestSelfVerificationFingerprintsTheGeneratedSDK` pins that. Doc-only edits therefore do not invalidate Go analysis result fingerprints. The one exception is the `repository` target, which keeps `"."` so `semantic-lint` still judges Markdown and workflow changes. Independent checks in a run execute concurrently (bounded workers) inside `./verify`.
+Self-config targets use narrow literal `inputs` (not `"."`): root Go module paths, `runner` / `runner/lint`, `.github/workflows` for workflow-lint, and `.github` plus `action.yml` for workflow-security. The `runner` module compiles against the gitignored generated SDK, which the `runner` target's git discovery does not list. Its key still changes when the SDK does, because `./verify` passes one directory as both the shared checkout and the source, and every shared Go check hashes all of the shared `runner/` from the filesystem; `TestSelfVerificationFingerprintsTheGeneratedSDK` pins that. Doc-only edits therefore do not invalidate Go analysis result fingerprints. The one exception is the `repository` target, which keeps `"."` so `semantic-lint` still judges Markdown and workflow changes. Independent checks in a run execute concurrently (bounded workers) inside `./verify`.
 
 ### Success criteria and gaps
 
@@ -207,9 +217,9 @@ GOTOOLCHAIN=local go test -race ./...
 ./scripts/test-consumers
 ```
 
-In this repository `./verify branch` and the per-kind runs (`go-lint`, `go-vet`, `go-mod`, `workflow-lint`) run natively and need no container runtime, only Go 1.27.1 and the generated SDK from `dagger develop`, since the `runner` module compiles against it. `pre-merge` adds `self-test`, which runs in Dagger. `./verify branch-dagger` runs the same static checks in Dagger, and `./verify main` is the full hermetic audit.
+In this repository `./verify branch` and the per-kind runs (`go-lint`, `go-vet`, `go-mod`, `workflow-lint`, `workflow-security`) run natively and need no container runtime, only Go 1.27.1 and the generated SDK from `dagger develop`, since the `runner` module compiles against it. `pre-merge` adds `self-test`, which runs in Dagger. `./verify branch-dagger` runs the same static checks in Dagger, and `./verify main` is the full hermetic audit.
 
-The generated Go SDK needs a Dagger session, including during unit tests. The deliberately broken Go module lives under `runner/testdata`, outside ordinary test discovery. The self-test requires good code, vendored dependencies, and embedded templates to pass, bad code to emit each intended rule, and broken/empty modules to fail verification. A compiler failure cannot substitute for an expected lint finding.
+The generated Go SDK needs a Dagger session, including during unit tests. The deliberately broken Go module lives under `runner/testdata`, outside ordinary test discovery. The self-test requires good code, vendored dependencies, and embedded templates to pass, bad code to emit each intended rule, broken/empty modules to fail verification, and the pinned zizmor to pass `workflow-secure` and report `workflow-insecure`'s template injection. A compiler failure cannot substitute for an expected lint finding.
 
 `scripts/test-consumers` checks module and workspace vendoring through the launcher. It also adds synthetic private env files next to root and nested `.env.example` templates; each embed must match exactly one file, proving the templates survive filtering and the private files do not. A final case verifies undeclared dependencies still fail without vendoring.
 

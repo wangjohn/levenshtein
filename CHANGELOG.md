@@ -36,6 +36,9 @@ Consumers pin a release tag, or its commit SHA, as described in
   `levenshtein.json` whose runs leave `go-mod` out.
 - Levenshtein's own CI checks its module manifests through `go-mod` in the
   `lint` job's `branch` run instead of two separate workflow steps.
+- Levenshtein's own `branch`, `pre-merge`, `branch-dagger`, and `main` runs
+  include `workflow-security`. `security.yml` keeps zizmor's GitHub Action for
+  the online audits and now names the same inputs as the shared check.
 
 ## [0.1.0] - 2026-09-22
 

@@ -15,8 +15,8 @@ func TestRepositoryRunsPlanTheSameCheckIDs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	native := []string{"native-go-lint/root", "native-go-lint/runner", "native-go-lint/lint", "native-go-vet/root", "native-go-vet/runner", "native-go-vet/lint", "native-go-mod/root", "native-go-mod/lint", "native-go-mod/tools", "native-workflow-lint"}
-	dagger := []string{"go-lint/root", "go-lint/runner", "go-lint/lint", "go-vet/root", "go-vet/runner", "go-vet/lint", "go-mod/root", "go-mod/lint", "go-mod/tools", "workflow-lint"}
+	native := []string{"native-go-lint/root", "native-go-lint/runner", "native-go-lint/lint", "native-go-vet/root", "native-go-vet/runner", "native-go-vet/lint", "native-go-mod/root", "native-go-mod/lint", "native-go-mod/tools", "native-workflow-lint", "native-workflow-security"}
+	dagger := []string{"go-lint/root", "go-lint/runner", "go-lint/lint", "go-vet/root", "go-vet/runner", "go-vet/lint", "go-mod/root", "go-mod/lint", "go-mod/tools", "workflow-lint", "workflow-security"}
 	for name, want := range map[string][]string{
 		"branch":        native,
 		"pre-merge":     append(slices.Clone(native), "self-test"),
