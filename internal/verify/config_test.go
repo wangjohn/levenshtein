@@ -243,6 +243,33 @@ func TestParallelExecuteSharedPreparationPreservesPlanOrder(t *testing.T) {
 	}
 }
 
+// A cached command result is trusted only when the environment names its
+// toolchain and a fresh run has explicit arguments; either alone is not enough.
+func TestCacheableCommandNeedsIdentityAndRerunArgs(t *testing.T) {
+	for name, tc := range map[string]struct {
+		identity string
+		rerun    string
+		ok       bool
+	}{
+		"both":          {`,"identity":"go1.27.1"`, `,"rerun_args":["go","test","-count=1"]`, true},
+		"no identity":   {``, `,"rerun_args":["go","test","-count=1"]`, false},
+		"no rerun_args": {`,"identity":"go1.27.1"`, ``, false},
+		"neither":       {``, ``, false},
+	} {
+		data := `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"host":{"executor":"native"` + tc.identity + `}},"checks":{"c":{"kind":"command","target":"app","environment":"host","command":{"args":["go","test"],"cache":true` + tc.rerun + `}}},"runs":{"branch":{"checks":["c"]}}}`
+		cfg, err := Parse([]byte(data))
+		if err == nil {
+			_, err = cfg.Plan(t.TempDir(), "branch")
+		}
+		if tc.ok && err != nil {
+			t.Fatalf("%s: rejected a cacheable command with identity and rerun_args: %v", name, err)
+		}
+		if !tc.ok && (err == nil || !strings.Contains(err.Error(), "environment identity and explicit rerun_args")) {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+}
+
 // A file written for the earlier version 1 layout gets a migration pointer,
 // not just the decoder's field error.
 func TestRetiredCheckFieldsGetAMigrationHint(t *testing.T) {
@@ -251,11 +278,12 @@ func TestRetiredCheckFieldsGetAMigrationHint(t *testing.T) {
 		object string
 	}{
 		"command array":    {`{"kind":"command","target":"app","environment":"host","command":["go","test"]}`, `"command"`},
-		"rerun_command":    {`{"kind":"command","target":"app","environment":"host","command":{"args":["go","test"]},"rerun_command":["go","test","-count=1"]}`, `"command"`},
-		"semantic model":   {`{"kind":"semantic-lint","target":"app","environment":"host","model":"jev-1.13.0"}`, `"semantic"`},
+		"rerun_command":    {`{"kind":"command","target":"app","environment":"host","command":{"args":["go","test"]},"rerun_command":["go","test","-count=1"]}`, `"rerun_args" inside the "command" object`},
+		"semantic model":   {`{"kind":"semantic-lint","target":"app","environment":"host","model":"jev-1.13.0"}`, `"model" now lives inside the "semantic" object`},
 		"semantic timeout": {`{"kind":"semantic-lint","target":"app","environment":"host","timeout":"2m"}`, `"semantic"`},
-		"command timeout":  {`{"kind":"command","target":"app","environment":"host","command":{"args":["go","test"]},"timeout":"2m"}`, `"command"`},
+		"command timeout":  {`{"kind":"command","target":"app","environment":"host","command":{"args":["go","test"]},"timeout":"2m"}`, `"timeout" now lives inside the "command" object`},
 		"dagger cache":     {`{"kind":"go-vuln","target":"app","environment":"host","cache":true}`, `always cached`},
+		"dagger env":       {`{"kind":"go-vuln","target":"app","environment":"host","env":{"FOO":"bar"}}`, `"env" does not apply to Dagger checks`},
 		"semantic env":     {`{"kind":"semantic-lint","target":"app","environment":"host","env":{"FOO":"bar"}}`, `environment's "env"`},
 	} {
 		data := `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"host":{"executor":"native"}},"checks":{"c":` + tc.check + `},"runs":{"branch":{"checks":["c"]}}}`
@@ -263,5 +291,46 @@ func TestRetiredCheckFieldsGetAMigrationHint(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "docs/configuration.md") || !strings.Contains(err.Error(), tc.object) {
 			t.Fatalf("%s: %v", name, err)
 		}
+	}
+}
+
+// The LEVENSHTEIN_ prefix is reserved for the runner, whether a command check or
+// its environment declares the variable.
+func TestInvalidEnvironmentEntriesAreRejected(t *testing.T) {
+	for name, tc := range map[string]struct {
+		environment string
+		command     string
+	}{
+		"command env":     {``, `,"env":{"LEVENSHTEIN_RUN":"x"}`},
+		"environment env": {`,"env":{"LEVENSHTEIN_RUN":"x"}`, ``},
+	} {
+		data := `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"host":{"executor":"native"` + tc.environment + `}},"checks":{"c":{"kind":"command","target":"app","environment":"host","command":{"args":["go","test"]` + tc.command + `}}},"runs":{"branch":{"checks":["c"]}}}`
+		cfg, err := Parse([]byte(data))
+		if err == nil {
+			_, err = cfg.Plan(t.TempDir(), "branch")
+		}
+		if err == nil || !strings.Contains(err.Error(), `invalid environment entry "LEVENSHTEIN_RUN"`) {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+}
+
+// Only a Dagger check copies its inputs into the engine, so only a Dagger check
+// needs literal input paths; a native check may use a pattern.
+func TestOnlyDaggerChecksNeedLiteralInputs(t *testing.T) {
+	const pattern = `{"version":1,"targets":{"app":{"dir":".","inputs":["src/*.go"]}},"environments":{"env":{"executor":%q}},"checks":{"c":%s},"runs":{"branch":{"checks":["c"]}}}`
+	plan := func(executor ExecutorKind, check string) error {
+		cfg, err := Parse([]byte(fmt.Sprintf(pattern, executor, check)))
+		if err == nil {
+			_, err = cfg.Plan(t.TempDir(), "branch")
+		}
+		return err
+	}
+
+	if err := plan(ExecutorDagger, `{"kind":"go-lint","target":"app","environment":"env"}`); err == nil || !strings.Contains(err.Error(), "must be a literal") {
+		t.Fatalf("a Dagger check accepted a pattern input: %v", err)
+	}
+	if err := plan(ExecutorNative, `{"kind":"command","command":{"args":["true"]},"target":"app","environment":"env"}`); err != nil {
+		t.Fatalf("a native check rejected a pattern input: %v", err)
 	}
 }

@@ -41,7 +41,7 @@ config.go:18:9: LV1001 string choice with multiple alternatives needs a defined 
 - **Bug-finding analyzers**: `errcheck`, `exhaustive`, `bodyclose`, `nilness`, `errorlint`, `contextcheck`, go-critic's likely-bug checks, structured-logging mistakes, and others.
 - **Modernize rules**: five rules for newer Go features, each fixable with `go fix`.
 - **Levenshtein's own rules**: typed constants for enum-like strings, building structs in one literal, and three formatting rules.
-- **Other tools**: `go vet`, `govulncheck`, and `actionlint` for GitHub Actions.
+- **Other tools**: `go vet`, `go mod tidy -diff` and `go mod verify`, `govulncheck`, and `actionlint` for GitHub Actions.
 
 To silence a finding, use Staticcheck's usual comment: `//lint:ignore CODE reason`.
 
@@ -67,9 +67,9 @@ The first run takes a few minutes while it downloads and builds the tools. After
 A run is a named group of checks. If your repo has one Go module at its root, you don't need any config:
 
 ```sh
-./levenshtein/verify --source ./myapp            # branch (default): lint and vet
-./levenshtein/verify pre-merge --source ./myapp  # lint and vet
-./levenshtein/verify main --source ./myapp       # lint, vet, and govulncheck
+./levenshtein/verify --source ./myapp            # branch (default): lint, vet, and module manifests
+./levenshtein/verify pre-merge --source ./myapp  # lint, vet, and module manifests
+./levenshtein/verify main --source ./myapp       # lint, vet, module manifests, and govulncheck
 ./levenshtein/verify go-lint --source ./myapp    # one check
 ```
 

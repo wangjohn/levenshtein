@@ -7,7 +7,7 @@ import (
 
 func TestSharedChecksPlanFromVersionedConfiguration(t *testing.T) {
 	for _, data := range []string{
-		`{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"lint":{"kind":"go-lint","target":"app","environment":"go"},"vet":{"kind":"go-vet","target":"app","environment":"go"},"http":{"kind":"go-http","target":"app","environment":"go"},"sql":{"kind":"go-sql","target":"app","environment":"go"},"audit":{"kind":"go-vuln","target":"app","environment":"go"},"workflows":{"kind":"workflow-lint","target":"app","environment":"go"}},"runs":{"custom":{"checks":["lint","vet","http","sql","audit","workflows"]}}}`,
+		`{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"lint":{"kind":"go-lint","target":"app","environment":"go"},"vet":{"kind":"go-vet","target":"app","environment":"go"},"mod":{"kind":"go-mod","target":"app","environment":"go"},"http":{"kind":"go-http","target":"app","environment":"go"},"sql":{"kind":"go-sql","target":"app","environment":"go"},"audit":{"kind":"go-vuln","target":"app","environment":"go"},"workflows":{"kind":"workflow-lint","target":"app","environment":"go"}},"runs":{"custom":{"checks":["lint","vet","mod","http","sql","audit","workflows"]}}}`,
 		`{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"audit":{"kind":"go-vuln","target":"app","environment":"go"}},"runs":{"custom":{"checks":["audit"]}}}`,
 	} {
 		cfg, err := Parse([]byte(data))
@@ -61,6 +61,39 @@ func TestVulnerabilityResultsNeverReuseSourceOnlyCache(t *testing.T) {
 	}
 }
 
+// go mod verify inspects the module cache, which no input fingerprint covers,
+// so a go-mod verdict is never reused on either executor and its Dagger call is
+// never answered from Dagger's own cache.
+func TestModuleChecksNeverReuseAVerdict(t *testing.T) {
+	for _, kind := range []ExecutorKind{ExecutorDagger, ExecutorNative} {
+		req := cacheRequest(t)
+		req.Check.Kind = CheckGoMod
+		req.Environment.Executor = kind
+		executor := &countingExecutor{status: StatusPassed}
+		runner := CachedExecutor{Cache: &Cache{Dir: t.TempDir()}, Executor: executor}
+
+		for range 2 {
+			result := runner.Execute(context.Background(), req)
+			if result.Status != StatusPassed || result.Cache.Status != CacheDisabled || result.Cache.Reason == "" {
+				t.Fatalf("%s: unexpected go-mod result: %+v", kind, result)
+			}
+		}
+		if executor.calls != 2 {
+			t.Fatalf("%s: reused a go-mod verdict: %d calls", kind, executor.calls)
+		}
+		executor.status = StatusFailed
+		if result := runner.Execute(context.Background(), req); result.Status != StatusFailed {
+			t.Fatalf("%s: cached success hid an untidy module: %+v", kind, result)
+		}
+	}
+
+	req := cacheRequest(t)
+	req.Check.Kind = CheckGoMod
+	if first, second := executionNonce(req), executionNonce(req); first == "" || first == second {
+		t.Fatal("go-mod must get unique Dagger execution inputs")
+	}
+}
+
 func TestWorkflowLintRequiresRootTarget(t *testing.T) {
 	cfg, err := Parse([]byte(`{"version":1,"targets":{"app":{"dir":"nested","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"workflow":{"kind":"workflow-lint","target":"app","environment":"go"}},"runs":{"branch":{"checks":["workflow"]}}}`))
 	if err != nil {
@@ -77,7 +110,7 @@ func TestUnconfiguredRepoGetsSharedCheckDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, count := range map[string]int{"branch": 2, "pre-merge": 2, "main": 3, "go-lint": 1, "go-vet": 1, "go-vuln": 1, "go-http": 1, "go-sql": 1, "workflow-lint": 1} {
+	for name, count := range map[string]int{"branch": 3, "pre-merge": 3, "main": 4, "go-lint": 1, "go-vet": 1, "go-mod": 1, "go-vuln": 1, "go-http": 1, "go-sql": 1, "workflow-lint": 1} {
 		plan, err := cfg.Plan(source, name)
 		if err != nil || len(plan.Checks) != count {
 			t.Fatalf("%s: %+v %v", name, plan, err)

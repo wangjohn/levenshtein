@@ -44,6 +44,7 @@ var daggerFunctions = map[CheckKind]string{
 	CheckGoLint:       "goLint",
 	CheckSelfTest:     "selfTest",
 	CheckGoVet:        "sharedCheck",
+	CheckGoMod:        "sharedCheck",
 	CheckGoHTTP:       "sharedCheck",
 	CheckGoSQL:        "sharedCheck",
 	CheckGoVuln:       "sharedCheck",
@@ -96,8 +97,16 @@ func (d *Dagger) executeMutation(parent context.Context, req Request) Result {
 		return Result{Status: StatusError, Error: err.Error()}
 	}
 
+	lines := ""
+	if selection.Lines != nil {
+		encoded, err := json.Marshal(selection.Lines)
+		if err != nil {
+			return Result{Status: StatusError, Error: err.Error()}
+		}
+		lines = string(encoded)
+	}
 	var summary string
-	result := daggerResult(d.execute(ctx, req, &mutationArgs{files: selection.Files, accepted: options.Accepted, tags: options.Tags, summary: &summary}))
+	result := daggerResult(d.execute(ctx, req, &mutationArgs{files: selection.Files, lines: lines, accepted: options.Accepted, tags: options.Tags, summary: &summary}))
 	if raw := mutationSummaryOf(result, summary); raw != "" {
 		result.Stdout, result.Details = mutationStdout(raw, selection.Note, result.Details)
 	}
@@ -115,6 +124,7 @@ func (d *Dagger) executeMutation(parent context.Context, req Request) Result {
 // module, and where its returned summary lands.
 type mutationArgs struct {
 	files    []string
+	lines    string
 	accepted string
 	tags     string
 	summary  *string
@@ -148,7 +158,7 @@ func (d *Dagger) execute(ctx context.Context, req Request, mutation *mutationArg
 		query = query.Arg("check", string(req.Check.Kind))
 	}
 	if mutation != nil {
-		query = query.Arg("files", mutation.files).Arg("accepted", mutation.accepted).Arg("tags", mutation.tags).Bind(mutation.summary)
+		query = query.Arg("files", mutation.files).Arg("lines", mutation.lines).Arg("accepted", mutation.accepted).Arg("tags", mutation.tags).Bind(mutation.summary)
 	}
 	return query.Execute(ctx)
 }
@@ -220,7 +230,7 @@ func daggerResult(err error) Result {
 
 // Generate freshness outside Dagger's cached function invocation.
 func executionNonce(req Request) string {
-	if req.RerunChecks || req.Check.Kind == CheckGoVuln {
+	if req.RerunChecks || alwaysFresh[req.Check.Kind] != "" {
 		return rand.Text()
 	}
 	return ""

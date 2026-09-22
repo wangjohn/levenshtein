@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -260,5 +261,66 @@ func TestFreshFailureBypassesUnderlyingVerdictCache(t *testing.T) {
 	result := runner.Execute(context.Background(), req)
 	if result.Status != StatusFailed || result.Cache.Status != CacheFresh {
 		t.Fatalf("lower-level cached success hid known failure: %+v", result)
+	}
+}
+
+// A Dagger check's result is reusable without opting in, because the runner's
+// pinned toolchain identifies it; a native command is reused only when it opts
+// in with command.cache.
+func TestDaggerChecksAreCacheableWithoutOptingIn(t *testing.T) {
+	req := cacheRequest(t)
+	req.Check = Check{Kind: CheckGoHTTP}
+	req.Environment = Environment{Executor: ExecutorDagger}
+	executor := &countingExecutor{status: StatusPassed}
+	runner := CachedExecutor{Cache: &Cache{Dir: t.TempDir()}, Executor: executor}
+
+	runner.Execute(t.Context(), req)
+	if result := runner.Execute(t.Context(), req); result.Cache.Status != CacheHit || executor.calls != 1 {
+		t.Fatalf("a repeated Dagger check must be reused: %+v after %d calls", result, executor.calls)
+	}
+
+	native := cacheRequest(t)
+	native.Check.Command.Cache = false
+	runner.Execute(t.Context(), native)
+	if result := runner.Execute(t.Context(), native); result.Cache.Status != CacheDisabled || executor.calls != 3 {
+		t.Fatalf("a native command without command.cache must not be reused: %+v after %d calls", result, executor.calls)
+	}
+}
+
+// Without a result cache there is nothing to reuse, and nothing to lock.
+func TestNoCacheExecutesEveryTime(t *testing.T) {
+	req := cacheRequest(t)
+	executor := &countingExecutor{status: StatusPassed}
+	runner := CachedExecutor{Executor: executor}
+
+	runner.Execute(t.Context(), req)
+	if result := runner.Execute(t.Context(), req); result.Cache.Status != CacheDisabled || executor.calls != 2 {
+		t.Fatalf("without a cache every run must execute: %+v after %d calls", result, executor.calls)
+	}
+}
+
+// Native checks in one workspace share the working tree, so they take its
+// lock; a Dagger check runs on its own copy of the source and must not wait.
+func TestOnlyNativeChecksLockTheWorkspace(t *testing.T) {
+	req := cacheRequest(t)
+	cache := &Cache{Dir: t.TempDir()}
+	unlock, err := lockFile(t.Context(), filepath.Join(cache.Dir, "locks", "workspace-"+digest(req.Source)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	runner := CachedExecutor{Cache: cache, Executor: &countingExecutor{status: StatusPassed}}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	if result := runner.Execute(ctx, req); result.Status != StatusError || !strings.Contains(result.Error, "cannot lock native workspace") {
+		t.Fatalf("a native check ran while its workspace was locked: %+v", result)
+	}
+
+	dagger := req
+	dagger.Check = Check{Kind: CheckGoHTTP}
+	dagger.Environment = Environment{Executor: ExecutorDagger}
+	if result := runner.Execute(t.Context(), dagger); result.Status != StatusPassed {
+		t.Fatalf("a Dagger check waited on the native workspace lock: %+v", result)
 	}
 }
