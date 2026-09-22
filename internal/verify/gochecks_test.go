@@ -117,7 +117,7 @@ func keyWithToolchain(t *testing.T, req Request, toolchain string) string {
 		paths = append(paths, stage.definition.Inputs...)
 	}
 	slices.Sort(paths)
-	source, err := snapshot(snapshotRequest{
+	source, err := snapshot(t.Context(), snapshotRequest{
 		Root:      req.Source,
 		Paths:     paths,
 		Excludes:  append(outputPaths(req), req.Target.Exclude...),
@@ -126,7 +126,7 @@ func keyWithToolchain(t *testing.T, req Request, toolchain string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	impl, err := implementation(req)
+	impl, err := implementation(t.Context(), req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,10 +153,10 @@ func keyWithToolchain(t *testing.T, req Request, toolchain string) string {
 func TestNativeGoFingerprintIncludesTheHostToolchain(t *testing.T) {
 	command := nativeRequest(t)
 
-	if toolchain, err := hostToolchain(command, nativeEnv(command, nil)); err != nil || toolchain != "" {
+	if toolchain, err := hostToolchain(t.Context(), command, nativeEnv(command, nil)); err != nil || toolchain != "" {
 		t.Fatalf("a command check derived a host toolchain: %q, %v", toolchain, err)
 	}
-	key, err := fingerprint(command)
+	key, err := fingerprint(t.Context(), command)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestNativeGoFingerprintIncludesTheHostToolchain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lintKey, err := fingerprint(lint)
+	lintKey, err := fingerprint(t.Context(), lint)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func TestSharedGoCheckKeyCoversTheRunner(t *testing.T) {
 				req.Check.Command = &CommandCheck{Args: []string{"true"}}
 			}
 			req.Environment.Executor = executor
-			key, err := fingerprint(req)
+			key, err := fingerprint(t.Context(), req)
 			if err != nil {
 				t.Fatal(err)
 			}
