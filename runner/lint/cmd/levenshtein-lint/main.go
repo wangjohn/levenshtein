@@ -349,8 +349,7 @@ func complexity() []*analysis.Analyzer {
 
 // cognitiveThreshold is the cognitive complexity above which gocognit reports
 // a function. Past 30, a function has more branches and nesting than a reader
-// can hold at once; it is the line golangci-lint's gocognit settings and
-// SonarSource's own guidance treat as hard to maintain.
+// can hold at once; it is golangci-lint's default for gocognit.
 const cognitiveThreshold = "30"
 
 // cognitive runs gocognit at a fixed threshold. Its -over flag defaults to 0,
