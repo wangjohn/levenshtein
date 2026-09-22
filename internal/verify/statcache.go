@@ -137,8 +137,11 @@ func (s *statStore) lookup(key statKey, current fileStat) (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// A racy entry is no more trustworthy in memory than on disk: on a
+	// filesystem with coarse timestamps, a same-size rewrite in the tick the
+	// content was hashed in leaves the stat unchanged.
 	entry, ok := s.entries[key]
-	if !ok || entry.Stat != current {
+	if !ok || entry.Stat != current || !entry.settled() {
 		return "", false
 	}
 	s.seen[key] = true

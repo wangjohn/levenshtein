@@ -71,7 +71,9 @@ func TestFileStatMemoReusesOnlyIdenticalStats(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "input.go")
 	writeFile(t, path, sourceOne)
-	stamp := modTime(t, path)
+	// Settled: modified well before it is hashed, so the memo may trust it.
+	stamp := modTime(t, path).Add(-time.Minute)
+	setModTime(t, path, stamp)
 	stats.configure(t.TempDir())
 	req := snapshotRequest{Root: root, Paths: []string{"."}, Discovery: DiscoveryFilesystem}
 
@@ -108,6 +110,28 @@ func TestFileStatMemoReusesOnlyIdenticalStats(t *testing.T) {
 	setModTime(t, path, stamp.Add(time.Second))
 	if grown := mustSnapshot(t, req); grown == replaced {
 		t.Fatal("changed size reused the memoized hash")
+	}
+}
+
+// A file hashed in the tick it was written can be rewritten, same size, in
+// that tick, leaving every stat field unchanged; filesystems with coarse
+// timestamps, such as Dagger's, do this routinely. The in-memory memo must
+// reread such a file rather than trust the stat.
+func TestFileStatMemoRereadsARacyFile(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "input.go")
+	writeFile(t, path, sourceOne)
+	stamp := modTime(t, path)
+	stats.configure(t.TempDir())
+	req := snapshotRequest{Root: root, Paths: []string{"."}, Discovery: DiscoveryFilesystem}
+
+	before := mustSnapshot(t, req)
+	writeFile(t, path, sourceTwo)
+	setModTime(t, path, stamp)
+	after := mustSnapshot(t, req)
+
+	if after == before {
+		t.Fatal("a same-tick rewrite of a freshly hashed file reused the stale hash")
 	}
 }
 
