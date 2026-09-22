@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -136,10 +137,8 @@ func semanticScope(target Target) func(string) bool {
 		if privateSourcePath(path) || !relative(path) {
 			return false
 		}
-		for _, part := range strings.Split(filepath.ToSlash(path), "/") {
-			if part == "testdata" {
-				return false
-			}
+		if slices.Contains(strings.Split(filepath.ToSlash(path), "/"), "testdata") {
+			return false
 		}
 		if target.Dir != "." && !within(path, target.Dir) {
 			return false

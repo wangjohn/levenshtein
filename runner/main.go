@@ -174,6 +174,7 @@ var expectedBadCodes = []string{
 	"bodyclose", "sqlclosecheck", "rowserrcheck", "noctx",
 	"errcheck", "exhaustive", "nilness", "unusedwrite", "errorlint", "nilerr", "durationcheck", "reassign", "wastedassign",
 	"intrange", "usestdlibvars", "perfsprint", "predeclared", "errname",
+	"minmax", "mapsloop", "slicescontains", "stringscutprefix", "stringsseq",
 	"thelper", "tparallel", "testifylint",
 	"LV1001", "LV1002", "LV1003", "LV1004", "LV1005",
 }
