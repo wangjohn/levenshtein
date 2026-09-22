@@ -100,7 +100,7 @@ func resources() []*analysis.Analyzer {
 func correctness() []*analysis.Analyzer {
 	return []*analysis.Analyzer{
 		errcheck.Analyzer,
-		exhaustive.Analyzer,
+		switches(),
 		nilness.Analyzer,
 		unusedwrite.Analyzer,
 		errorlint.NewAnalyzer(),
@@ -121,6 +121,18 @@ func correctness() []*analysis.Analyzer {
 		// from one that grows.
 		fatcontext.NewAnalyzer(),
 	}
+}
+
+// switches runs exhaustive over generated files as well. Its own check skips a
+// file with a generated header, and cgo gives its rewrite of every
+// hand-written file one, which would leave every switch in a package that
+// imports "C" unchecked. policy.Adapt still drops findings in files that are
+// generated at their source.
+func switches() *analysis.Analyzer {
+	if err := exhaustive.Analyzer.Flags.Set(exhaustive.CheckGeneratedFlag, "true"); err != nil {
+		panic(err)
+	}
+	return exhaustive.Analyzer
 }
 
 // tagged runs musttag with the module of the package being linted. Without
@@ -174,14 +186,15 @@ func modulePath(pass *analysis.Pass) (string, error) {
 // declare methods on a hand-written type, such as the value-receiver
 // MarshalJSON that Dagger's codegen adds to a module's main object, whose
 // hand-written methods take pointers. Nobody can change the generated receiver,
-// so counting it would report a mix the author cannot fix.
+// so counting it would report a mix the author cannot fix. cgo's rewrite of a
+// hand-written file counts as hand-written.
 func receivers() *analysis.Analyzer {
 	analyzer := recvcheck.NewAnalyzer(recvcheck.Settings{})
 	run := analyzer.Run
 	analyzer.Run = func(pass *analysis.Pass) (any, error) {
 		var written []*ast.File
 		for _, file := range pass.Files {
-			if !ast.IsGenerated(file) {
+			if !policy.Generated(pass.Fset, file) {
 				written = append(written, file)
 			}
 		}
@@ -274,7 +287,7 @@ func unusedParams() *analysis.Analyzer {
 			checker.CheckExportedFuncs(false)
 			checker.Packages([]*packages.Package{{
 				Fset:      pass.Fset,
-				Syntax:    pass.Files,
+				Syntax:    withoutCgoHeaders(pass),
 				Types:     pass.Pkg,
 				TypesInfo: pass.TypesInfo,
 			}})
@@ -293,6 +306,33 @@ func unusedParams() *analysis.Analyzer {
 			return nil, nil
 		},
 	}
+}
+
+// withoutCgoHeaders hands unparam the package's files with cgo's generated
+// header hidden. unparam skips every function in a file whose first comment
+// says it is generated, and cgo's rewrite of a hand-written file opens with
+// one ahead of the //line directive that maps it to the original. The copies
+// keep only the comments of the original, so unparam judges it instead;
+// generated files are left alone.
+func withoutCgoHeaders(pass *analysis.Pass) []*ast.File {
+	files := make([]*ast.File, 0, len(pass.Files))
+	for _, file := range pass.Files {
+		source := policy.SourceName(pass.Fset, file)
+		if source == pass.Fset.File(file.FileStart).Name() || policy.Generated(pass.Fset, file) {
+			files = append(files, file)
+			continue
+		}
+
+		original := *file
+		original.Comments = nil
+		for _, group := range file.Comments {
+			if pass.Fset.Position(group.Pos()).Filename == source {
+				original.Comments = append(original.Comments, group)
+			}
+		}
+		files = append(files, &original)
+	}
+	return files
 }
 
 // hygiene analyzers keep the code on modern, consistent standard-library usage.

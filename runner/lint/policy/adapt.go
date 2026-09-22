@@ -1,7 +1,6 @@
 package policy
 
 import (
-	"go/ast"
 	"go/token"
 
 	"golang.org/x/tools/go/analysis"
@@ -14,7 +13,8 @@ import (
 // own findings (nilness, perfsprint) would report nothing. Clearing the category
 // restores the analyzer's name as the reported code. Generated files stay silent
 // because nobody edits them, while the analyzer still runs there so the facts it
-// exports for hand-written callers remain correct.
+// exports for hand-written callers remain correct. A file is judged by its
+// source, so findings in cgo's rewrite of a hand-written file still report.
 func Adapt(analyzers ...*analysis.Analyzer) []*analysis.Analyzer {
 	for _, current := range analyzers {
 		run := current.Run
@@ -39,7 +39,7 @@ func Adapt(analyzers ...*analysis.Analyzer) []*analysis.Analyzer {
 func generatedFiles(pass *analysis.Pass) map[*token.File]bool {
 	generated := map[*token.File]bool{}
 	for _, file := range pass.Files {
-		if ast.IsGenerated(file) {
+		if Generated(pass.Fset, file) {
 			generated[pass.Fset.File(file.FileStart)] = true
 		}
 	}
