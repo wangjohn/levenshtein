@@ -24,9 +24,11 @@ inputs:
     default: 'true'
   cache:
     description: >-
-      Restore and save Levenshtein's cache (helper builds, analysis cache, and
-      completed results) with actions/cache. Pull request entries stay in the
-      pull request's own cache scope, which the default branch never reads.
+      Restore and save Levenshtein's caches with actions/cache: completed
+      results on every run, and the Staticcheck analysis cache from pushes to
+      the default branch and scheduled runs only. Pull requests restore both
+      but write only their own results, which stay in the pull request's cache
+      scope. Helper binaries are not cached; they rebuild from Go's build cache.
     default: 'true'
 
 outputs:
@@ -47,6 +49,7 @@ runs:
         EVENT: ${{ github.event_name }}
         DRAFT: ${{ github.event.pull_request.draft }}
         REQUESTED: ${{ inputs.run }}
+        LEVENSHTEIN: ${{ github.action_path }}
       run: |
         run=$REQUESTED
         if [[ -z $run ]]; then
@@ -57,10 +60,15 @@ runs:
             run=branch
           fi
         fi
+        # Staticcheck salts its cache with a hash of the linter binary, so a
+        # cache built by another linter only misses. Key it on what builds the
+        # linter; hashFiles cannot read the action's own files.
+        linter=$(cd "$LEVENSHTEIN" && find .go-version runner/toolchain.json runner/lint -type f | LC_ALL=C sort | xargs shasum -a 256 | shasum -a 256 | cut -c1-16)
         {
           echo "run=$run"
           echo "report=$RUNNER_TEMP/levenshtein-$run.json"
           echo "cache-dir=$RUNNER_TEMP/levenshtein-cache"
+          echo "linter=$linter"
         } >> "$GITHUB_OUTPUT"
     - name: Set up the pinned Go
       if: ${{ inputs.setup-go == 'true' }}
@@ -70,16 +78,31 @@ runs:
         # setup-go hashes only workspace files, so key on the application's
         # manifests; a repository without go.sum just skips this cache.
         cache-dependency-path: ${{ inputs.source }}/**/go.sum
-    - name: Restore Levenshtein cache
+    # Only the result records are saved per commit. The cache directory also
+    # holds helper binaries and Staticcheck data, so the record directories are
+    # named rather than the whole directory: an exclusion (!path) does not
+    # apply beneath a directory the pattern already includes.
+    - name: Restore Levenshtein results
       id: cache
       if: ${{ inputs.cache == 'true' }}
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: ${{ steps.plan.outputs.cache-dir }}
+        path: |
+          ${{ steps.plan.outputs.cache-dir }}/results
+          ${{ steps.plan.outputs.cache-dir }}/stages
+          ${{ steps.plan.outputs.cache-dir }}/stat
         # Seed from the newest entry for this job: every result is re-keyed by
         # its fingerprint before reuse, so a stale directory can only help.
-        key: levenshtein-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ github.sha }}
-        restore-keys: levenshtein-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
+        key: levenshtein-v2-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ github.sha }}
+        restore-keys: levenshtein-v2-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
+    - name: Restore Staticcheck cache
+      id: staticcheck
+      if: ${{ inputs.cache == 'true' }}
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.plan.outputs.cache-dir }}/staticcheck
+        key: levenshtein-staticcheck-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.plan.outputs.linter }}-${{ github.sha }}
+        restore-keys: levenshtein-staticcheck-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.plan.outputs.linter }}-
     - name: Verify
       id: verify
       shell: bash
@@ -107,12 +130,40 @@ runs:
           echo '| --- | --- |'
           jq -r '.results[]? | "| `\(.id)` | \(.status) |"' "$REPORT" || echo '| (no report) | error |'
         } >> "$GITHUB_STEP_SUMMARY"
-    - name: Save Levenshtein cache
+    - name: Save Levenshtein results
       if: >-
         ${{ !cancelled() && inputs.cache == 'true' &&
         (steps.verify.outcome == 'success' || steps.verify.outcome == 'failure') &&
         steps.cache.outputs.cache-hit != 'true' }}
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: ${{ steps.plan.outputs.cache-dir }}
+        path: |
+          ${{ steps.plan.outputs.cache-dir }}/results
+          ${{ steps.plan.outputs.cache-dir }}/stages
+          ${{ steps.plan.outputs.cache-dir }}/stat
         key: ${{ steps.cache.outputs.cache-primary-key }}
+    - name: Check for Staticcheck data
+      id: analysis
+      if: ${{ !cancelled() && inputs.cache == 'true' }}
+      shell: bash
+      env:
+        DIR: ${{ steps.plan.outputs.cache-dir }}/staticcheck
+      run: |
+        if [[ -d $DIR ]] && [[ -n $(ls -A "$DIR") ]]; then
+          echo 'present=true' >> "$GITHUB_OUTPUT"
+        fi
+    # Only trusted default-branch runs write analysis data; pull requests,
+    # including forks, restore it and never contribute to it. A scheduled run
+    # always runs on the default branch, and its payload has no repository.
+    - name: Save Staticcheck cache
+      if: >-
+        ${{ !cancelled() && inputs.cache == 'true' &&
+        (github.event_name == 'schedule' ||
+        (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))) &&
+        (steps.verify.outcome == 'success' || steps.verify.outcome == 'failure') &&
+        steps.staticcheck.outputs.cache-hit != 'true' &&
+        steps.analysis.outputs.present == 'true' }}
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.plan.outputs.cache-dir }}/staticcheck
+        key: ${{ steps.staticcheck.outputs.cache-primary-key }}
