@@ -34,11 +34,11 @@ func TestAtomicArtifactKeepsRootAndPermissions(t *testing.T) {
 	if err := atomicWriteRoot(root, "reports/test.txt", []byte("restored"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Stat(filepath.Join(moved, "reports/test.txt"))
+	info, err := os.Stat(filepath.Join(moved, "reports", "test.txt"))
 	if err != nil || info.Mode().Perm() != 0600 {
 		t.Fatalf("artifact permissions: %v, %v", info, err)
 	}
-	data, err := os.ReadFile(filepath.Join(moved, "reports/test.txt"))
+	data, err := os.ReadFile(filepath.Join(moved, "reports", "test.txt"))
 	if err != nil || string(data) != "restored" {
 		t.Fatalf("restored artifact: %q, %v", data, err)
 	}
