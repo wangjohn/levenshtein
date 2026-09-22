@@ -50,13 +50,14 @@ if [[ $cache_hit != true ]]; then
 fi
 
 # Build into a scratch directory so a passing check never leaves an executable
-# in the checkout, then compile the test files without running any test. A
-# plain compile is the whole contract: vet would turn an ordinary diagnostic,
-# including one in generated code, into a false "SDK broken" failure.
+# in the checkout. A plain compile is the whole contract: vet would turn an
+# ordinary diagnostic into a false "SDK broken" failure, and running the test
+# binary is impossible here because the generated package panics at init
+# without a Dagger session (the tests job runs it under dagger run).
 sdk_compiles() {
   local output status=0
   output=$(mktemp -d)
-  (cd runner && go build -o "$output/" ./... && go test -count=1 -run '^$' ./...) || status=$?
+  (cd runner && go build -o "$output/" ./...) || status=$?
   rm -rf "$output"
   return "$status"
 }
