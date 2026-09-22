@@ -5,11 +5,11 @@ temporary=$(mktemp -d)
 trap 'rm -rf "$temporary"' EXIT
 
 (cd "$root" && go build -o "$temporary/verify" ./cmd/levenshtein)
-for fixture in resources-good resources-bad vet-bad; do
+for fixture in resources-good resources-bad vet-bad good bad; do
   mkdir -p "$temporary/$fixture"
   cp "$root/runner/testdata/$fixture/"* "$temporary/$fixture/"
   cat > "$temporary/$fixture/levenshtein.json" <<'JSON'
-{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"http":{"kind":"go-http","target":"app","environment":"go"},"sql":{"kind":"go-sql","target":"app","environment":"go"},"vet":{"kind":"go-vet","target":"app","environment":"go"}},"runs":{"http":{"checks":["http"]},"sql":{"checks":["sql"]},"vet":{"checks":["vet"]}}}
+{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"},"host":{"executor":"native"}},"checks":{"http":{"kind":"go-http","target":"app","environment":"go"},"sql":{"kind":"go-sql","target":"app","environment":"go"},"vet":{"kind":"go-vet","target":"app","environment":"go"},"native-vet":{"kind":"go-vet","target":"app","environment":"host"},"native-lint":{"kind":"go-lint","target":"app","environment":"host"}},"runs":{"http":{"checks":["http"]},"sql":{"checks":["sql"]},"vet":{"checks":["vet"]},"native-vet":{"checks":["native-vet"]},"native-lint":{"checks":["native-lint"]}}}
 JSON
 done
 for check in http sql vet; do
@@ -25,6 +25,22 @@ for check in http sql vet; do
   if [[ $status != 1 ]] || ! grep -q "\"code\": \"$code\"" "$temporary/bad.json"; then
     cat "$temporary/bad.json"
     echo "Expected $check finding through the current CLI, got exit $status" >&2
+    exit 1
+  fi
+done
+# The same fixtures through the native executor, which needs no container. Only
+# the kinds a native environment runs appear here.
+for check in native-lint native-vet; do
+  case "$check" in
+    native-lint) clean=good; broken=bad; code=SA5001 ;;
+    native-vet) clean=resources-good; broken=vet-bad; code=go-vet ;;
+  esac
+  "$temporary/verify" "$check" --source "$temporary/$clean" --shared "$root" --cache-dir "$temporary/native-cache" > "$temporary/good.json"
+  status=0
+  "$temporary/verify" "$check" --source "$temporary/$broken" --shared "$root" --cache-dir "$temporary/native-cache" > "$temporary/bad.json" || status=$?
+  if [[ $status != 1 ]] || ! grep -q "\"code\": \"$code\"" "$temporary/bad.json"; then
+    cat "$temporary/bad.json"
+    echo "Expected $check finding through the native executor, got exit $status" >&2
     exit 1
   fi
 done

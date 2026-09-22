@@ -138,6 +138,12 @@ jobs:
         env:
           GOTOOLCHAIN: local
         run: go test -race ./...
+      # The native executor runs the shared Go checks on the host, so this step
+      # must stay above the Dagger setup: it proves they need no container.
+      - name: Native shared Go checks
+        env:
+          GOTOOLCHAIN: local
+        run: go test -tags=integration ./internal/verify -run TestNativeGoChecksAgreeWithTheFixtures -count=1
       # The scripts carry no extension, so name them explicitly by shebang.
       # shellcheck ships with the ubuntu-24.04 runner image.
       - name: Shell script checks
