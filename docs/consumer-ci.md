@@ -82,7 +82,7 @@ jobs:
       - uses: wangjohn/levenshtein@v0.1.0
 ```
 
-With no `run` input, the action picks one from the event: a schedule runs `main`, a push or draft pull request runs `branch`, and a ready pull request, merge queue, or manual dispatch runs `pre-merge`. Pass `run:` to choose explicitly, for example one job per run.
+With no `run` input, the action picks one from the event: a schedule runs `main`, a push or draft pull request runs `branch`, and a ready pull request, merge queue, or manual dispatch runs `pre-merge`. Pass `run:` to choose explicitly, for example one job per run. If a run includes [`go-mutation`](mutation.md) or `semantic-lint`, check out with `fetch-depth: 0`: both diff against the base branch.
 
 | Input | Default | Meaning |
 | --- | --- | --- |
