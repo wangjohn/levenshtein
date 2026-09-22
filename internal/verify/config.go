@@ -24,9 +24,11 @@ type Config struct {
 }
 
 type Target struct {
-	Dir       string   `json:"dir"`
-	Workspace string   `json:"workspace"`
-	Inputs    []string `json:"inputs"`
+	Dir       string        `json:"dir"`
+	Workspace string        `json:"workspace"`
+	Inputs    []string      `json:"inputs"`
+	Exclude   []string      `json:"exclude,omitempty"`
+	Discovery DiscoveryKind `json:"discovery,omitempty"`
 }
 
 type Environment struct {
@@ -53,12 +55,25 @@ type Preparation struct {
 // A Check carries only the options its kind accepts. Dagger kinds take neither
 // object, a command check requires Command, and semantic-lint may carry
 // Semantic. The other combinations cannot be written down.
+//
+// A check names one target, either with Target or as a Targets list that
+// expands to one planned check per entry. Exactly one of the two is set; see
+// Plan.
 type Check struct {
 	Kind        CheckKind      `json:"kind"`
-	Target      string         `json:"target"`
+	Target      string         `json:"target,omitempty"`
+	Targets     []string       `json:"targets,omitempty"`
 	Environment string         `json:"environment"`
 	Command     *CommandCheck  `json:"command,omitempty"`
 	Semantic    *SemanticCheck `json:"semantic,omitempty"`
+}
+
+// at binds a multi-target check to one of its targets, so every planned check
+// names the single target it runs against.
+func (check Check) at(target string) Check {
+	check.Target = target
+	check.Targets = nil
+	return check
 }
 
 // CommandCheck runs a repository command on the native executor.

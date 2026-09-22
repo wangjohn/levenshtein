@@ -174,13 +174,14 @@ var expectedBadCodes = []string{
 	"bodyclose", "sqlclosecheck", "rowserrcheck", "noctx",
 	"errcheck", "exhaustive", "nilness", "unusedwrite", "errorlint", "nilerr", "durationcheck", "reassign", "wastedassign",
 	"intrange", "usestdlibvars", "perfsprint", "predeclared", "errname",
+	"minmax", "mapsloop", "slicescontains", "stringscutprefix", "stringsseq",
 	"thelper", "tparallel", "testifylint",
 	"LV1001", "LV1002", "LV1003", "LV1004", "LV1005", "LV1006",
 }
 
 func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce string) error {
 	fixtures := dag.CurrentModule().Source().Directory("testdata")
-	for _, name := range []string{"good", "vendored", "embedded"} {
+	for _, name := range []string{"good", "vendored", "embedded", "modernize-legacy"} {
 		findings, err := lint(ctx, fixtures.Directory(name), ".", tools, nonce)
 		if err != nil || len(findings) != 0 {
 			return fmt.Errorf("%s fixture must pass: findings=%v error=%v", name, findings, err)

@@ -1,8 +1,10 @@
 # Standalone runner configuration
 
-`./verify [RUN] --source /path/to/repo` builds the small Go CLI through Go's incremental build cache and runs it. The launcher requires the version in `.go-version`; Dagger is needed only when a selected Dagger check executes. A prebuilt CLI can be used directly with `--shared /path/to/pinned/levenshtein`.
+`./verify [RUN] --source /path/to/repo` builds the small Go CLI through Go's incremental build cache and runs it. The launcher builds with the Go version pinned in `.go-version`, which Go provisions itself when the host version differs; Dagger is needed only when a selected Dagger check executes. A prebuilt CLI can be used directly with `--shared /path/to/pinned/levenshtein`.
 
 `./verify branch --dry-run` reads configuration and returns the selected plan without starting execution tools. Relative target and input paths are resolved from the source repository. Inputs are literal files/directories, not glob patterns. Workspace context can differ from the check's working directory. Target/workspace directories must exist inside the source repository.
+
+`--jobs N` caps how many checks run at once. The default, `0`, keeps the built-in cap (the smaller of four and `GOMAXPROCS`); an explicit value replaces it in either direction, so a large worker can raise it and a shared one can lower it to `1`.
 
 ## Version 1
 
@@ -10,25 +12,43 @@
 {
   "version": 1,
   "targets": {
-    "api": {"dir": "services/api", "workspace": ".", "inputs": ["services/api", "go.work", "contracts"]}
+    "api": {"dir": "services/api", "workspace": ".", "inputs": ["services/api", "go.work", "contracts"]},
+    "worker": {"dir": "services/worker", "workspace": ".", "inputs": ["services/worker", "go.work"]}
   },
   "environments": {"go": {"executor": "dagger"}},
   "checks": {
-    "cleanup": {"kind": "go-lint", "target": "api", "environment": "go"}
+    "cleanup": {"kind": "go-lint", "targets": ["api", "worker"], "environment": "go"},
+    "workflows": {"kind": "workflow-lint", "target": "api", "environment": "go"}
   },
   "runs": {
-    "branch": {"checks": ["cleanup"]},
+    "branch": {"checks": ["cleanup/api"]},
     "pre-merge": {"checks": ["cleanup"]},
     "daily": {"checks": ["cleanup"], "rerun_checks": true}
   }
 }
 ```
 
-Dagger checks include `go-lint`, `go-vet`, `go-http`, `go-sql`, `go-vuln`, `workflow-lint`, and Levenshtein's own `self-test`; native checks use `command` or the advisory [`semantic-lint`](semantic-lint.md). See the [shared checks](go-lint.md) for scope and examples. Workflow lint requires a repository-root target. Go tool versions remain pinned in the shared checkout. Local caching is described below.
+### One check, several targets
+
+A check declares either one `target` or a `targets` list, never both and never
+neither. `targets` must be nonempty and must not repeat a name.
+
+A check with `targets` plans one check per entry, in the order they are
+declared, with the ID `<check>/<target>`: `cleanup` above plans `cleanup/api`
+and then `cleanup/worker`. A run selects either the check ID, which takes every
+target, or a single `<check>/<target>`, as `branch` does. Referencing
+`<check>/<target>` for a check declared with the singular `target` is an error,
+as is naming a target the check does not declare, or selecting the same planned
+check twice in one run.
+
+Each expanded check keeps its own cache identity, inputs, and result; the
+expansion is a way to write one declaration instead of one per module.
+
+Dagger checks include `go-lint`, `go-vet`, `go-http`, `go-sql`, `go-vuln`, `workflow-lint`, and Levenshtein's own `self-test`; native checks use `command` or the advisory [`semantic-lint`](semantic-lint.md). See the [shared checks](checks.md) for scope and examples. Workflow lint requires a repository-root target. Go tool versions remain pinned in the shared checkout. Local caching is described below.
 
 Without a configuration file, `branch` and `pre-merge` run `go-lint` and `go-vet`; `main` also runs `go-vuln`. Named runs for each shared check are available. An explicit configuration replaces these defaults.
 
-A run selects check IDs. `rerun_checks: true` forces verification execution while retaining compatible dependency/build caches. It replaces the earlier `fresh` setting; use `rerun_checks` in configuration and `LEVENSHTEIN_RERUN_CHECKS` in scripts. Any run name can use it; versioned configuration gives `main` no special behavior. Unknown checks, executors, references, and configuration fields fail explicitly.
+A run selects check IDs, optionally per target as described in [one check, several targets](#one-check-several-targets). `rerun_checks: true` forces verification execution while retaining compatible dependency/build caches. It replaces the earlier `fresh` setting; use `rerun_checks` in configuration and `LEVENSHTEIN_RERUN_CHECKS` in scripts. Any run name can use it; versioned configuration gives `main` no special behavior. Unknown checks, executors, references, and configuration fields fail explicitly.
 
 Recommended run policy:
 
@@ -46,6 +66,35 @@ For Dagger checks, target `inputs` controls both the files imported into Dagger 
 Only declared paths are imported. Within them, `.git`, `.env`, and `.env.*` are excluded, except public `.env.example` templates. Symlinks inside declared inputs or along their ancestors are rejected, including aliases to other directories inside the repo. Declare the real paths instead. The no-configuration defaults use `inputs: ["."]`, which imports the whole source tree subject to the exclusions above; use version 1 with explicit product paths for mixed product/private repos.
 
 Native inputs only define cache identity. Native commands are trusted host processes with normal filesystem access; they are not sandboxed by the input list. Native relative symlinks may stay inside the repository, but disable completed-result reuse. Dagger's stricter rule prevents importing undeclared source through aliases.
+
+### Input discovery
+
+A target's `discovery` says how the files under its `inputs` are enumerated for fingerprinting.
+
+| Mode | Enumerates |
+| --- | --- |
+| `git` (default) | The work tree's own files: everything `git ls-files --cached --others --exclude-per-directory=.gitignore` reports under the source, which is tracked files plus untracked files the repository's `.gitignore` files do not ignore |
+| `filesystem` | Every path under each declared input, as a directory walk finds it |
+
+Git discovery keeps build output, dependency directories, and editor scratch files out of the fingerprint without naming them, so a target can keep `inputs: ["."]` and still fingerprint only the repository. It runs `git` once per run, found through the absolute entries of `PATH` only (a relative entry would resolve inside the repository being verified), with the source as its working directory and nothing but `PATH` and `HOME` in its environment. The listing is taken again after a check executes, so files a check creates are part of the key its result is cached under. A source that is not a work tree, or a `git` that fails, falls back to the filesystem walk; a failure is reported in the result's cache `Reason`.
+
+**Only the repository's committed `.gitignore` files apply.** A personal `core.excludesFile`, the default `~/.config/git/ignore`, and `.git/info/exclude` are all ignored, so every developer and CI worker enumerates the same files for the same tree.
+
+Two consequences are worth stating. A file the repository's `.gitignore` files ignore is not part of the fingerprint, so a target whose real inputs are **generated and gitignored** must set `"discovery": "filesystem"`. And in git mode directories have no entries of their own and a tracked path that is absent from disk is skipped rather than recorded as `missing`, so a working tree and a fresh clone of the same content fingerprint identically. The exception is a submodule or an untracked nested repository: git lists it as a single path, so its directory is walked in full like the filesystem mode does. A declared input that exists neither in the work tree's list nor on disk is still recorded as `missing`, exactly as the filesystem walk records it.
+
+### Excluding paths
+
+A target's `exclude` lists literal repository-relative paths to drop from an otherwise broad input. Excluded paths leave the fingerprint, and for Dagger checks they are also excluded from the imported source, so a declared directory can be imported without its dependency or build output:
+
+```json
+{
+  "targets": {
+    "web": {"dir": "services/web", "inputs": ["services/web"], "exclude": ["services/web/node_modules", "services/web/build"], "discovery": "filesystem"}
+  }
+}
+```
+
+Exclude entries are validated like inputs: clean, relative, and free of pattern or negation characters. `.` is rejected. Symlinks inside an excluded path are not inspected, so excluding a dependency directory also excludes it from the Dagger alias check.
 
 ## Results
 
@@ -85,7 +134,9 @@ A command check may reference an entry in top-level `preparations` by its `comma
 
 Successful Dagger checks reuse completed results by default, except `go-vuln`: vulnerability scans always execute against current advisory data, even with `cache: true` or in custom runs. A native command opts in with `command.cache: true`, an environment `identity` identifying a provisioned toolchain/system setup, and an explicit `command.rerun_args` argument array. The fresh command must actually execute verification, bypassing any test runner verdict cache (for example `go test -count=1`). Every native `command` check selected by a fresh run must declare `rerun_args`, including checks with result caching disabled; `semantic-lint` always executes and needs none. It may equal `args` for tools that already execute their tests on each invocation. `LEVENSHTEIN_RERUN_CHECKS` also tells scripts the run policy.
 
-Declare every relevant source, test, script, configuration, local dependency, and lockfile in target inputs. Command options, declared environment values, platform, selected preparation/build definitions, and effective shared implementation also identify results. The pinned shared checkout is snapshotted once per CLI process; edit it between runs, not during one. Declared outputs are excluded from source fingerprints. Undeclared external state cannot be cached safely: leave `cache` off for live-service checks. A native worker's `identity` is a provisioning contract; an eligible cached result can satisfy it without starting tools on the current host. Use fresh audits to obtain new observations.
+Declare every relevant source, test, script, configuration, local dependency, and lockfile in target inputs. Command options, declared environment values, platform, selected preparation/build definitions, target `discovery`/`exclude`, and effective shared implementation also identify results. The pinned shared checkout is snapshotted once per CLI process; edit it between runs, not during one. Declared outputs are excluded from source fingerprints. Undeclared external state cannot be cached safely: leave `cache` off for live-service checks. A native worker's `identity` is a provisioning contract; an eligible cached result can satisfy it without starting tools on the current host. Use fresh audits to obtain new observations.
+
+Fingerprinting hashes file content, so it is memoized. Within a process a file whose size, modification time, inode, and permissions are all unchanged reuses its recorded hash instead of being read again, and every target in the run shares those records. The memo is persisted under `<cache-dir>/stat/` at the end of a run and reloaded at the start of the next one. A persisted record is only a hint: every lookup revalidates the file's current stat, a corrupt or unreadable record is ignored rather than fatal, and an entry whose modification time is within two seconds of the moment its content was read is never trusted from disk, because the filesystem may not have been able to distinguish a later write in the same timestamp tick. At the end of a run, entries for files that were deleted or changed since they were recorded are dropped from the record. Within one process, an edit that preserves a file's size, permissions, inode, **and** modification time is not detected; on a filesystem with nanosecond timestamps two different writes cannot share a modification time. Content hashing runs concurrently, bounded by `GOMAXPROCS`.
 
 By default, cache records live under the user's cache directory in `levenshtein/verification-v1`. Override with `--cache-dir /absolute/path/outside/source`. This is private local storage; do not share writable caches between trusted jobs and untrusted PRs. Levenshtein's own `verify.yml` restores that directory across GitHub Actions workers with an exact cache key and saves only from trusted (non-fork) refs; see [Levenshtein's own CI](setup.md#levenshteins-own-ci). Consumer cross-worker templates remain separate.
 

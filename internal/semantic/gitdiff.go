@@ -140,7 +140,7 @@ func loadChange(ctx context.Context, g gitRunner, base string, include func(stri
 	if err != nil {
 		return Change{}, err
 	}
-	for _, path := range strings.Split(untracked, "\x00") {
+	for path := range strings.SplitSeq(untracked, "\x00") {
 		if path == "" || !include(path) {
 			continue
 		}

@@ -14,12 +14,15 @@ expected='SA5001 SA5003 SA9001 S1002 ST1005 QF1011 U1000
 bodyclose sqlclosecheck rowserrcheck noctx
 errcheck exhaustive nilness unusedwrite errorlint nilerr durationcheck reassign wastedassign
 intrange usestdlibvars perfsprint predeclared errname
+minmax mapsloop slicescontains stringscutprefix stringsseq
 thelper tparallel testifylint
 LV1001 LV1002 LV1003 LV1004 LV1005 LV1006'
 
 (cd "$root/runner/testdata/good" && "$temporary/lint" -checks="$checks" ./...)
 (cd "$root/runner/testdata/vendored" && "$temporary/lint" -checks="$checks" ./...)
 (cd "$root/runner/testdata/embedded" && "$temporary/lint" -checks="$checks" ./...)
+# The modernize rules check the file's Go version, so the same patterns pass under go 1.19.
+(cd "$root/runner/testdata/modernize-legacy" && "$temporary/lint" -checks="$checks" ./...)
 # scripts/test-release lints this fixture with the defaults, so it has to pass both.
 (cd "$root/runner/testdata/resources-good" && "$temporary/lint" -checks=bodyclose,sqlclosecheck ./...)
 (cd "$root/runner/testdata/resources-good" && "$temporary/lint" -checks="$checks" ./...)

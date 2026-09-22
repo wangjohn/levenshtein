@@ -11,4 +11,4 @@
 
 - Use defined string types and typed constants for finite choices such as statuses and check kinds. Keep free-form text as strings.
 - Construct new struct values together in a literal, without opt-in markers. Compute fields first; reserve subsequent field mutation for existing state-bearing objects.
-- Run the shared [Go lint rules](docs/go-lint.md) when changing Go code.
+- Run the shared [Go lint rules](docs/checks.md#go-lint-rules) when changing Go code.
