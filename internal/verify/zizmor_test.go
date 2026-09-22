@@ -71,7 +71,7 @@ func TestZizmorInputsNameWorkflowsActionsAndDependabot(t *testing.T) {
 		writeTestFile(t, filepath.Join(source, filepath.FromSlash(path)), "name: x\n")
 	}
 
-	inputs, config, err := zizmorInputs(source)
+	inputs, config, err := zizmorInputs(source, []string{"."}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestZizmorInputsNameWorkflowsActionsAndDependabot(t *testing.T) {
 	}
 
 	writeTestFile(t, filepath.Join(source, ".github", "zizmor.yml"), "rules: {}\n")
-	if _, config, err := zizmorInputs(source); err != nil || config != ".github/zizmor.yml" {
+	if _, config, err := zizmorInputs(source, []string{"."}, nil); err != nil || config != ".github/zizmor.yml" {
 		t.Fatalf("the repository's zizmor configuration was not used: %q %v", config, err)
 	}
 	if args := zizmorArguments("zizmor", ".github/zizmor.yml", inputs); !slices.Contains(args, "--config=.github/zizmor.yml") || slices.Contains(args, "--no-config") {
@@ -92,8 +92,33 @@ func TestZizmorInputsNameWorkflowsActionsAndDependabot(t *testing.T) {
 	}
 
 	writeTestFile(t, filepath.Join(source, "zizmor.yaml"), "rules: {}\n")
-	if _, _, err := zizmorInputs(source); err == nil || !strings.Contains(err.Error(), "configure only one zizmor file") {
+	if _, _, err := zizmorInputs(source, []string{"."}, nil); err == nil || !strings.Contains(err.Error(), "configure only one zizmor file") {
 		t.Fatalf("two configurations must be an error: %v", err)
+	}
+}
+
+// The native executor reads only what the Dagger path imports and the
+// fingerprint covers, so an undeclared or excluded file can neither change
+// the verdict nor leave a cached result stale.
+func TestZizmorInputsStayWithinTheTargetInputs(t *testing.T) {
+	source := t.TempDir()
+	for _, path := range []string{
+		".github/workflows/ci.yml",
+		".github/actions/setup/action.yml",
+		".github/actions/skipped/action.yml",
+		"action.yml",
+		"zizmor.yml",
+	} {
+		writeTestFile(t, filepath.Join(source, filepath.FromSlash(path)), "name: x\n")
+	}
+
+	inputs, config, err := zizmorInputs(source, []string{".github"}, []string{filepath.Join(".github", "actions", "skipped")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{".github/actions/setup/action.yml", ".github/workflows/ci.yml"}
+	if !slices.Equal(inputs, want) || config != "" {
+		t.Fatalf("inputs=%v config=%q, want %v and no configuration", inputs, config, want)
 	}
 }
 
@@ -101,7 +126,7 @@ func TestZizmorInputsRefuseAnEmptyAudit(t *testing.T) {
 	source := t.TempDir()
 	writeTestFile(t, filepath.Join(source, "README.md"), "nothing to audit\n")
 
-	if _, _, err := zizmorInputs(source); err == nil {
+	if _, _, err := zizmorInputs(source, []string{"."}, nil); err == nil {
 		t.Fatal("a repository with nothing to audit must be an error, not a pass")
 	}
 }
