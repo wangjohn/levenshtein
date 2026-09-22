@@ -56,32 +56,35 @@ jobs:
         uses: ./.github/actions/setup-dagger
       - name: Restore or generate the Dagger Go SDK
         uses: ./.github/actions/dagger-sdk
-      # Native checks keep Staticcheck data and built tools in the same
-      # directory. Results are saved per commit, so those stay out of this
-      # entry: the Staticcheck cache has its own below, and the tools rebuild
-      # from the Go build cache in seconds.
+      # Only the result records are saved per commit: results/ and the stat/
+      # hints. Native checks also keep built tools and Staticcheck data in this
+      # directory; naming the record directories keeps those out, since an
+      # exclusion (!path) does not apply beneath a directory the pattern already
+      # includes. Staticcheck has its own cache below, and the tools rebuild from
+      # the Go build cache in seconds.
       - name: Restore verification result cache
         id: verification-results
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            ${{ runner.temp }}/levenshtein-verification-v1
-            !${{ runner.temp }}/levenshtein-verification-v1/staticcheck
-            !${{ runner.temp }}/levenshtein-verification-v1/tools
+            ${{ runner.temp }}/levenshtein-verification-v1/results
+            ${{ runner.temp }}/levenshtein-verification-v1/stat
           # Seed from the newest lint entry: ./verify re-fingerprints every target
           # before reusing a result, so a stale directory can only help.
           key: verification-v1-lint-${{ runner.os }}-${{ github.sha }}
           restore-keys: verification-v1-lint-${{ runner.os }}-
-      # Staticcheck keys its entries by package content and analyzer version,
-      # so one cache serves every commit. A Go, linter or rule-set change starts
-      # a new one. Only main and the schedule write it (see the save step).
+      # Staticcheck salts every entry with a hash of the linter binary, so an
+      # entry built by another linter can never be reused, only missed. Keying on
+      # everything that builds the linter (Go, its module, its source, the rule
+      # list) starts a fresh cache instead of carrying dead entries. One cache
+      # serves every commit; only main and the schedule write it.
       - name: Restore Staticcheck cache
         id: staticcheck-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/levenshtein-verification-v1/staticcheck
-          key: staticcheck-v1-${{ runner.os }}-${{ hashFiles('.go-version', 'runner/lint/go.sum', 'runner/toolchain.json') }}-${{ github.sha }}
-          restore-keys: staticcheck-v1-${{ runner.os }}-${{ hashFiles('.go-version', 'runner/lint/go.sum', 'runner/toolchain.json') }}-
+          key: staticcheck-v1-${{ runner.os }}-${{ hashFiles('.go-version', 'runner/lint/**', 'runner/toolchain.json') }}-${{ github.sha }}
+          restore-keys: staticcheck-v1-${{ runner.os }}-${{ hashFiles('.go-version', 'runner/lint/**', 'runner/toolchain.json') }}-
       - name: Lint and static checks
         id: verify-branch
         env:
@@ -99,6 +102,7 @@ jobs:
         if: ${{ !cancelled() }}
         env:
           REPORT: ${{ runner.temp }}/branch-report.json
+          VERIFICATION_CACHE: ${{ runner.temp }}/levenshtein-verification-v1
           STATICCHECK_CACHE_DIR: ${{ runner.temp }}/levenshtein-verification-v1/staticcheck
         run: |
           if [[ -s $REPORT ]]; then
@@ -110,6 +114,15 @@ jobs:
               echo '| --- | --- | --- | --- |'
               jq -r '.results[] | "| \(.id) | \(.status) | \(.cache.status) | \(.duration_ms) |"' "$REPORT"
             } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          # The sizes of what the two save steps would store, so a cache that
+          # starts carrying more than its records shows up in every run.
+          records=()
+          for dir in results stat; do
+            [[ -d $VERIFICATION_CACHE/$dir ]] && records+=("$VERIFICATION_CACHE/$dir")
+          done
+          if (( ${#records[@]} > 0 )); then
+            printf '\nResult cache entry: %s\n' "$(du -ch "${records[@]}" | tail -1 | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
           fi
           if [[ -d $STATICCHECK_CACHE_DIR ]] && [[ -n $(ls -A "$STATICCHECK_CACHE_DIR") ]]; then
             echo "staticcheck=true" >> "$GITHUB_OUTPUT"
@@ -125,9 +138,8 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            ${{ runner.temp }}/levenshtein-verification-v1
-            !${{ runner.temp }}/levenshtein-verification-v1/staticcheck
-            !${{ runner.temp }}/levenshtein-verification-v1/tools
+            ${{ runner.temp }}/levenshtein-verification-v1/results
+            ${{ runner.temp }}/levenshtein-verification-v1/stat
           key: ${{ steps.verification-results.outputs.cache-primary-key }}
       # Pull requests restore main's Staticcheck cache but never write one,
       # which bounds the entry count and keeps untrusted runs from contributing
