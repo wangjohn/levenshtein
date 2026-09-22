@@ -12,7 +12,7 @@ For example, add a Go rule that catches misplaced `defer` calls, then adopt it a
 
 ## Usage
 
-**Available now:** shared Go lint, vet, resource and vulnerability checks, workflow lint, native commands, an advisory model-backed semantic lint, and local caching of results and compatible setup/builds. [Set up Go checks](docs/setup.md) or [configure native checks](docs/configuration.md).
+**Available now:** shared Go lint, vet, resource and vulnerability checks, workflow lint, mutation testing of changed Go code, native commands, an advisory model-backed semantic lint, and local caching of results and compatible setup/builds. [Set up Go checks](docs/setup.md) or [configure native checks](docs/configuration.md).
 
 ```sh
 ./verify              # fast checks for your branch
@@ -34,6 +34,7 @@ To check another Go repo: `./verify go-lint --source /path/to/repo`. [Use it fro
 - [Configuration](docs/configuration.md): standalone planning, targets, and runs.
 - [Shared checks](docs/checks.md): every check kind, the Go lint rules, and suggested runs.
 - [Semantic lint](docs/semantic-lint.md): advisory Jev questions about Go, docs, and pull request shape.
+- [Mutation testing](docs/mutation.md): fail when a test covers changed code but does not catch a deliberate bug in it.
 - [Use from your existing CI](docs/consumer-ci.md): local and CI examples for application repos.
 - [Release archives](docs/releases.md): package the CLI and shared checks with GoReleaser.
 - [Language fixtures](docs/language-fixtures.md): Rust/Python compatibility checks.

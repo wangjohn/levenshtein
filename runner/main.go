@@ -10,6 +10,7 @@ import (
 	"io"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -214,6 +215,35 @@ func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce strin
 		if err == nil || !strings.Contains(err.Error(), fixture.message) {
 			return fmt.Errorf("%s fixture must fail for %q; got %v", fixture.name, fixture.message, err)
 		}
+	}
+	return mutationSelfTest(ctx, fixtures.Directory("mutation"), tools, nonce)
+}
+
+// mutationSelfTest runs real gremlins on three fixtures and checks the exact
+// outcome of each, so a verdict that fails for the wrong reason still fails
+// the self-test.
+func mutationSelfTest(ctx context.Context, fixtures *dagger.Directory, tools toolchain, nonce string) error {
+	strong, err := mutate(ctx, fixtures.Directory("strong"), ".", tools, []string{"add.go"}, defaultAcceptedPath, "", nonce)
+	if err != nil || len(strong.Findings) != 0 || strong.Summary.Killed != 1 {
+		return fmt.Errorf("mutation/strong must pass with one killed mutant: %+v %v", strong, err)
+	}
+
+	accepted, err := mutate(ctx, fixtures.Directory("accepted"), ".", tools, []string{"clamp.go"}, defaultAcceptedPath, "", nonce)
+	if err != nil || len(accepted.Findings) != 0 || accepted.Summary.Accepted != 2 {
+		return fmt.Errorf("mutation/accepted must pass with both boundary survivors accepted: %+v %v", accepted, err)
+	}
+
+	weak, err := mutate(ctx, fixtures.Directory("weak"), ".", tools, []string{"clamp.go"}, defaultAcceptedPath, "", nonce)
+	if err != nil {
+		return fmt.Errorf("mutation/weak must fail for its survivors, not a tool error: %w", err)
+	}
+	var survivors []string
+	for _, finding := range weak.Findings {
+		survivors = append(survivors, fmt.Sprintf("%s %s:%d", finding.Code, finding.Location.File, finding.Location.Line))
+	}
+	want := []string{"go-mutation clamp.go:5", "go-mutation clamp.go:8"}
+	if !slices.Equal(survivors, want) || weak.Incomplete || weak.Summary.NotCovered != 0 {
+		return fmt.Errorf("mutation/weak must report exactly %v, with limits/ excluded; got %v (summary %+v)", want, survivors, weak.Summary)
 	}
 	return nil
 }

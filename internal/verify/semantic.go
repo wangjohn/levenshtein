@@ -17,8 +17,8 @@ import (
 const (
 	semanticAPIKeyEnv  = "TYPESAFE_API_KEY"
 	semanticBaseURLEnv = "TYPESAFE_BASE_URL"
-	semanticBaseRefEnv = "GITHUB_BASE_REF"
-	semanticDefaultRef = "main"
+	baseRefEnv         = "GITHUB_BASE_REF"
+	defaultBaseRef     = "main"
 )
 
 // semanticLint asks a pinned Jev model the shared catalog's questions about the
@@ -58,10 +58,10 @@ func semanticLint(ctx context.Context, req Request, dir string, env []string) Re
 	}
 	base := options.Base
 	if base == "" {
-		base = hostValue(env, semanticBaseRefEnv) // GitHub sets this for pull requests.
+		base = hostValue(env, baseRefEnv) // GitHub sets this for pull requests.
 	}
 	if base == "" {
-		base = semanticDefaultRef
+		base = defaultBaseRef
 	}
 	if strings.HasPrefix(base, "-") || strings.ContainsAny(base, " \t\n\x00") {
 		return Result{Status: StatusError, Error: fmt.Sprintf("invalid semantic-lint base %q", base)}
