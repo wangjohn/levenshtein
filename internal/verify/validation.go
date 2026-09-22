@@ -11,6 +11,9 @@ import (
 // Validation therefore asks whether the right object is present rather than
 // listing every field the other kinds would have used.
 func validateCheck(check Check, env Environment) error {
+	if check.Mutation != nil && check.Kind != CheckGoMutation {
+		return fmt.Errorf("mutation options apply only to go-mutation checks")
+	}
 	if env.Executor == ExecutorDagger {
 		return validateDaggerCheck(check, env)
 	}
@@ -38,7 +41,41 @@ func validateDaggerCheck(check Check, env Environment) error {
 	if env.Identity != "" || len(env.Env) > 0 || len(env.PassEnv) > 0 || len(env.Tools) > 0 {
 		return fmt.Errorf("native environment options cannot be used for Dagger Go checks")
 	}
+	if check.Kind == CheckGoMutation {
+		return validateGoMutation(check)
+	}
 	return nil
+}
+
+// validateGoMutation checks a go-mutation check's options. The accepted file
+// is read from the Dagger source, so it has to be a clean relative path.
+func validateGoMutation(check Check) error {
+	options := check.Mutation
+	if options == nil {
+		return nil
+	}
+
+	if options.Scope != "" && options.Scope != MutationScopeChanged && options.Scope != MutationScopeModule {
+		return fmt.Errorf("go-mutation scope %q must be %q or %q", options.Scope, MutationScopeChanged, MutationScopeModule)
+	}
+	if options.Base != "" && !gitRef(options.Base) {
+		return fmt.Errorf("invalid go-mutation base %q", options.Base)
+	}
+	if options.Base != "" && options.Scope == MutationScopeModule {
+		return fmt.Errorf("go-mutation base has no effect with scope %q; remove it", MutationScopeModule)
+	}
+	if options.Accepted != "" && (!relative(options.Accepted) || privateSourcePath(options.Accepted)) {
+		return fmt.Errorf("go-mutation accepted file %q must be a clean repository-relative path", options.Accepted)
+	}
+	if strings.ContainsAny(options.Tags, " \t\n\x00") {
+		return fmt.Errorf("go-mutation tags %q must be one comma-separated list without spaces", options.Tags)
+	}
+	return validateDuration(options.Timeout)
+}
+
+// gitRef accepts a branch name that git cannot read as an option.
+func gitRef(ref string) bool {
+	return !strings.HasPrefix(ref, "-") && !strings.ContainsAny(ref, " \t\n\x00")
 }
 
 func validateCommandCheck(check Check, env Environment) error {
@@ -92,7 +129,7 @@ func validateSemanticLint(check Check, env Environment) error {
 	if check.Semantic.Model != "" && !semanticModel.MatchString(check.Semantic.Model) {
 		return fmt.Errorf("semantic-lint model %q must be a pinned release such as jev-1.13.0", check.Semantic.Model)
 	}
-	if check.Semantic.Base != "" && (strings.HasPrefix(check.Semantic.Base, "-") || strings.ContainsAny(check.Semantic.Base, " \t\n\x00")) {
+	if check.Semantic.Base != "" && !gitRef(check.Semantic.Base) {
 		return fmt.Errorf("invalid semantic-lint base %q", check.Semantic.Base)
 	}
 	return nil

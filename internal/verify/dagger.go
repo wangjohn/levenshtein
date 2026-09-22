@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"dagger.io/dagger"
 	"dagger.io/dagger/engineconn"
@@ -47,10 +48,14 @@ var daggerFunctions = map[CheckKind]string{
 	CheckGoSQL:        "sharedCheck",
 	CheckGoVuln:       "sharedCheck",
 	CheckWorkflowLint: "sharedCheck",
+	CheckGoMutation:   "goMutation",
 }
 
 func (d *Dagger) Execute(ctx context.Context, req Request) Result {
-	result := daggerResult(d.execute(ctx, req))
+	if req.Check.Kind == CheckGoMutation {
+		return d.executeMutation(ctx, req)
+	}
+	result := daggerResult(d.execute(ctx, req, nil))
 
 	if err := ctx.Err(); err != nil {
 		return Result{Status: StatusCancelled, Error: err.Error(), Stdout: result.Stdout, Stderr: result.Stderr, Details: result.Details}
@@ -58,7 +63,57 @@ func (d *Dagger) Execute(ctx context.Context, req Request) Result {
 	return result
 }
 
-func (d *Dagger) execute(ctx context.Context, req Request) error {
+// executeMutation selects the files on the host, skips Dagger when there is
+// nothing to mutate, and bounds the whole run by the check's timeout.
+func (d *Dagger) executeMutation(parent context.Context, req Request) Result {
+	options := req.Check.mutationOptions()
+	timeout := defaultMutationTimeout
+	if options.Timeout != "" {
+		parsed, err := time.ParseDuration(options.Timeout)
+		if err != nil || parsed <= 0 {
+			return Result{Status: StatusError, Error: fmt.Sprintf("invalid go-mutation timeout %q", options.Timeout)}
+		}
+		timeout = parsed
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+
+	if err := acceptedReachable(req, options.Accepted); err != nil {
+		return Result{Status: StatusError, Error: err.Error()}
+	}
+	selection, err := mutationFiles(ctx, req)
+	if err != nil {
+		return Result{Status: StatusError, Error: err.Error()}
+	}
+	if len(selection.Files) == 0 {
+		return Result{Status: StatusPassed, Stdout: selection.Note + ": no Go files to mutate"}
+	}
+
+	var summary string
+	result := daggerResult(d.execute(ctx, req, &mutationArgs{files: selection.Files, accepted: options.Accepted, tags: options.Tags, summary: &summary}))
+	if raw := mutationSummaryOf(result, summary); raw != "" {
+		result.Stdout, result.Details = mutationStdout(raw, selection.Note, result.Details)
+	}
+
+	if err := parent.Err(); err != nil {
+		return Result{Status: StatusCancelled, Error: err.Error(), Stdout: result.Stdout, Stderr: result.Stderr, Details: result.Details}
+	}
+	if ctx.Err() != nil {
+		return Result{Status: StatusError, Error: fmt.Sprintf("go-mutation exceeded its %s timeout", timeout), Stdout: result.Stdout, Stderr: result.Stderr, Details: result.Details}
+	}
+	return result
+}
+
+// mutationArgs are the go-mutation function's arguments beyond source and
+// module, and where its returned summary lands.
+type mutationArgs struct {
+	files    []string
+	accepted string
+	tags     string
+	summary  *string
+}
+
+func (d *Dagger) execute(ctx context.Context, req Request, mutation *mutationArgs) error {
 	function, ok := daggerFunctions[req.Check.Kind]
 	if !ok {
 		return fmt.Errorf("unsupported Dagger check %q", req.Check.Kind)
@@ -84,6 +139,9 @@ func (d *Dagger) execute(ctx context.Context, req Request) error {
 	}
 	if function == "sharedCheck" {
 		query = query.Arg("check", string(req.Check.Kind))
+	}
+	if mutation != nil {
+		query = query.Arg("files", mutation.files).Arg("accepted", mutation.accepted).Arg("tags", mutation.tags).Bind(mutation.summary)
 	}
 	return query.Execute(ctx)
 }
@@ -137,9 +195,16 @@ func daggerResult(err error) Result {
 		var diagnostics []json.RawMessage
 		if encodeErr == nil && json.Unmarshal(data, &diagnostics) == nil && len(diagnostics) > 0 {
 			status = StatusFailed
+			// A run whose findings include results it could not finish, such as
+			// timed-out mutants, is incomplete rather than a verdict.
+			if incomplete, _ := failure.Extensions["levenshteinIncomplete"].(bool); incomplete {
+				status = StatusIncomplete
+			}
+			summary, _ := failure.Extensions["levenshteinSummary"].(string)
 			details, _ = json.Marshal(struct {
 				Findings []json.RawMessage `json:"findings"`
-			}{diagnostics})
+				Summary  json.RawMessage   `json:"summary,omitempty"`
+			}{diagnostics, rawJSON(summary)})
 		}
 	}
 

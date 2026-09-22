@@ -1,0 +1,118 @@
+name: Levenshtein verify
+description: >-
+  Run a named Levenshtein verification run (branch, pre-merge, main, or one of
+  your own) against a checked-out repository. The pinned ref of this action is
+  the pinned revision of the shared checks. See docs/consumer-ci.md.
+author: wangjohn
+branding:
+  icon: check-circle
+  color: gray-dark
+
+inputs:
+  run:
+    description: >-
+      Run to execute. Empty picks one from the event: schedule runs main, a push
+      or a draft pull request runs branch, and anything else runs pre-merge.
+    default: ''
+  source:
+    description: Repository directory to verify, relative to the workspace.
+    default: .
+  setup-go:
+    description: >-
+      Install the Go version this revision pins. Set to false when the job
+      already provides it; the launcher still downloads the pinned toolchain.
+    default: 'true'
+  cache:
+    description: >-
+      Restore and save Levenshtein's cache (helper builds, analysis cache, and
+      completed results) with actions/cache. Pull request entries stay in the
+      pull request's own cache scope, which the default branch never reads.
+    default: 'true'
+
+outputs:
+  run:
+    description: The run that was executed.
+    value: ${{ steps.plan.outputs.run }}
+  report:
+    description: Path to the JSON report the run printed.
+    value: ${{ steps.plan.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - name: Choose the run
+      id: plan
+      shell: bash
+      env:
+        EVENT: ${{ github.event_name }}
+        DRAFT: ${{ github.event.pull_request.draft }}
+        REQUESTED: ${{ inputs.run }}
+      run: |
+        run=$REQUESTED
+        if [[ -z $run ]]; then
+          run=pre-merge
+          if [[ "$EVENT" == schedule ]]; then
+            run=main
+          elif [[ "$EVENT" == push || "$DRAFT" == true ]]; then
+            run=branch
+          fi
+        fi
+        {
+          echo "run=$run"
+          echo "report=$RUNNER_TEMP/levenshtein-$run.json"
+          echo "cache-dir=$RUNNER_TEMP/levenshtein-cache"
+        } >> "$GITHUB_OUTPUT"
+    - name: Set up the pinned Go
+      if: ${{ inputs.setup-go == 'true' }}
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: ${{ github.action_path }}/.go-version
+        # setup-go hashes only workspace files, so key on the application's
+        # manifests; a repository without go.sum just skips this cache.
+        cache-dependency-path: ${{ inputs.source }}/**/go.sum
+    - name: Restore Levenshtein cache
+      id: cache
+      if: ${{ inputs.cache == 'true' }}
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.plan.outputs.cache-dir }}
+        # Seed from the newest entry for this job: every result is re-keyed by
+        # its fingerprint before reuse, so a stale directory can only help.
+        key: levenshtein-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ github.sha }}
+        restore-keys: levenshtein-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
+    - name: Verify
+      id: verify
+      shell: bash
+      env:
+        LEVENSHTEIN: ${{ github.action_path }}
+        RUN: ${{ steps.plan.outputs.run }}
+        REPORT: ${{ steps.plan.outputs.report }}
+        CACHE_DIR: ${{ steps.plan.outputs.cache-dir }}
+        SOURCE: ${{ inputs.source }}
+        NO_COLOR: '1'
+      run: |
+        mkdir -p "$CACHE_DIR"
+        "$LEVENSHTEIN/verify" "$RUN" --source "$SOURCE" --cache-dir "$CACHE_DIR" | tee "$REPORT"
+    - name: Summarize
+      if: ${{ !cancelled() && (steps.verify.outcome == 'success' || steps.verify.outcome == 'failure') }}
+      shell: bash
+      env:
+        RUN: ${{ steps.plan.outputs.run }}
+        REPORT: ${{ steps.plan.outputs.report }}
+      run: |
+        {
+          echo "### Levenshtein \`$RUN\`"
+          echo
+          echo '| Check | Status |'
+          echo '| --- | --- |'
+          jq -r '.results[]? | "| `\(.id)` | \(.status) |"' "$REPORT" || echo '| (no report) | error |'
+        } >> "$GITHUB_STEP_SUMMARY"
+    - name: Save Levenshtein cache
+      if: >-
+        ${{ !cancelled() && inputs.cache == 'true' &&
+        (steps.verify.outcome == 'success' || steps.verify.outcome == 'failure') &&
+        steps.cache.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.plan.outputs.cache-dir }}
+        key: ${{ steps.cache.outputs.cache-primary-key }}

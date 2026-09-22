@@ -52,9 +52,10 @@ type Preparation struct {
 	Timeout string            `json:"timeout,omitempty"`
 }
 
-// A Check carries only the options its kind accepts. Dagger kinds take neither
-// object, a command check requires Command, and semantic-lint may carry
-// Semantic. The other combinations cannot be written down.
+// A Check carries only the options its kind accepts. Most Dagger kinds take no
+// object, a command check requires Command, semantic-lint may carry Semantic,
+// and go-mutation may carry Mutation. The other combinations cannot be written
+// down.
 //
 // A check names one target, either with Target or as a Targets list that
 // expands to one planned check per entry. Exactly one of the two is set; see
@@ -66,6 +67,7 @@ type Check struct {
 	Environment string         `json:"environment"`
 	Command     *CommandCheck  `json:"command,omitempty"`
 	Semantic    *SemanticCheck `json:"semantic,omitempty"`
+	Mutation    *MutationCheck `json:"mutation,omitempty"`
 }
 
 // at binds a multi-target check to one of its targets, so every planned check
@@ -95,6 +97,25 @@ type SemanticCheck struct {
 	Timeout string `json:"timeout,omitempty"`
 }
 
+// MutationScope selects which files a go-mutation check mutates.
+type MutationScope string
+
+const (
+	// MutationScopeChanged mutates the files the branch changed against its base.
+	MutationScopeChanged MutationScope = "changed"
+	// MutationScopeModule mutates every eligible file in the target.
+	MutationScopeModule MutationScope = "module"
+)
+
+// MutationCheck tunes the go-mutation kind. Every field is optional.
+type MutationCheck struct {
+	Base     string        `json:"base,omitempty"`
+	Scope    MutationScope `json:"scope,omitempty"`
+	Accepted string        `json:"accepted,omitempty"`
+	Tags     string        `json:"tags,omitempty"`
+	Timeout  string        `json:"timeout,omitempty"`
+}
+
 // artifacts, env and cacheable read options that only a command check has, so
 // every other kind reports the zero value instead of needing a nil test.
 func (check Check) artifacts() []string {
@@ -122,6 +143,25 @@ func (check Check) semanticOptions() SemanticCheck {
 		return SemanticCheck{}
 	}
 	return *check.Semantic
+}
+
+// defaultAccepted is where a go-mutation check looks for accepted survivors
+// when its configuration names no file.
+const defaultAccepted = ".levenshtein/mutation-accepted.json"
+
+// mutationOptions fills in the defaults a go-mutation check leaves out.
+func (check Check) mutationOptions() MutationCheck {
+	var options MutationCheck
+	if check.Mutation != nil {
+		options = *check.Mutation
+	}
+	if options.Scope == "" {
+		options.Scope = MutationScopeChanged
+	}
+	if options.Accepted == "" {
+		options.Accepted = defaultAccepted
+	}
+	return options
 }
 
 type Run struct {

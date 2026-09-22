@@ -79,6 +79,7 @@ The checked-in `Levenshtein self-checks` workflow verifies this repo's runner an
 | `lint` | Static `./verify branch` only, on the native executor (early signal; no host race tests or consumer regressions) |
 | `tests` | Host race/fixtures, `shellcheck`, SDK restore or regen, non-lint Dagger checks, consumer regressions |
 | `language-contracts` | Rust and Python contract fixtures |
+| `action` | The root `action.yml` as a consumer calls it, on a native fixture: one passing run and one that must fail with the planted finding |
 | `release-smoke` | `goreleaser check`, then a GoReleaser snapshot + archive test (skipped on draft PRs) |
 | `semantic-lint` | Advisory Jev review of the pull request; runs only on `pull_request` events; without the `TYPESAFE_API_KEY` secret the review step is skipped and the job passes with no findings |
 
@@ -87,7 +88,8 @@ Go tests: `gofmt` over every tracked Go file outside `testdata`, whose lint
 fixtures are deliberately unformatted; `go mod tidy -diff` and
 `go mod verify` in `.`, `runner/lint`, and `runner/tools` (not `runner`, whose
 manifest `dagger develop` rewrites), and `ruff check` over `scripts` and
-`sdk/patched-go`. The Go test step writes a coverage profile that is uploaded
+`sdk/patched-go`; and `scripts/test-doc-pins`, which requires every consumer
+example to pin the newest release in `CHANGELOG.md`. The Go test step writes a coverage profile that is uploaded
 as an artifact for seven days; no threshold gates the run.
 
 `security.yml` runs beside it: `zizmor` over the workflows and composite
@@ -116,7 +118,7 @@ Event → `./verify` mapping. `branch` and `pre-merge` run the static Go checks 
 | When | Require |
 | --- | --- |
 | Early PR progress (including drafts) | **`lint`** |
-| Merge / ready-for-review / merge queue / `main` | **`lint`**, **`tests`**, **`language-contracts`**, **`release-smoke`** |
+| Merge / ready-for-review / merge queue / `main` | **`lint`**, **`tests`**, **`language-contracts`**, **`action`**, **`release-smoke`** |
 | Pull requests | **`dependency-review`** (fails on a high-severity dependency added by the pull request, or if the dependency graph is off) |
 | Pull requests | `semantic-lint` (advisory; not required to pass; the job passes with no findings when `TYPESAFE_API_KEY` is absent) |
 

@@ -1,0 +1,1 @@
+{"go_module":"example.com/strong","files":[{"file_name":"add.go","mutations":[{"type":"ARITHMETIC_BASE","status":"KILLED","line":5,"column":11}]}],"test_efficacy":100,"mutations_coverage":100,"mutants_total":1,"mutants_killed":1,"mutants_lived":0,"mutants_not_viable":0,"mutants_not_covered":0,"elapsed_time":0.310895583,"mutator_statistics":{"arithmetic_base":1}}

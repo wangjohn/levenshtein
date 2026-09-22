@@ -101,7 +101,7 @@ See [docs/configuration.md](docs/configuration.md) for everything else.
 
 ## In CI
 
-Levenshtein runs inside your existing CI. Your CI job checks out your repo and Levenshtein side by side, then runs `verify`. A common setup is `branch` on pushes, `pre-merge` on pull requests, and `main` every night. [docs/consumer-ci.md](docs/consumer-ci.md) has a full GitHub Actions example.
+Levenshtein runs inside your existing CI. On GitHub Actions it is one step, `uses: wangjohn/levenshtein@v0.1.0`, which runs `branch` on pushes, `pre-merge` on pull requests, and `main` on a nightly schedule. On other providers, your CI job checks out your repo and Levenshtein side by side, then runs `verify`. [docs/consumer-ci.md](docs/consumer-ci.md) has both.
 
 Pin Levenshtein to a commit SHA or a release tag, not a branch. That way rule changes reach your repo only when you choose to update.
 
@@ -125,6 +125,7 @@ Levenshtein is new and is being tried out on a few Go repos. The config format i
 - [Using it in CI](docs/consumer-ci.md): GitHub Actions and other providers
 - [Releases](docs/releases.md): prebuilt binaries
 - [Semantic lint](docs/semantic-lint.md): an optional review by a language model
+- [Mutation testing](docs/mutation.md): an optional check that your tests catch deliberate bugs in changed code
 - [Architecture](docs/architecture.md): how `verify` works
 
 ## Contributing
