@@ -37,6 +37,7 @@ import (
 	"github.com/sonatard/noctx"
 	"github.com/timakin/bodyclose/passes/bodyclose"
 	"github.com/timonwong/loggercheck"
+	"github.com/uudashr/gocognit"
 	"github.com/wangjohn/levenshtein/runner/lint/policy"
 	"github.com/ykadowak/zerologlint"
 	"go-simpler.org/musttag"
@@ -99,7 +100,7 @@ func resources() []*analysis.Analyzer {
 func correctness() []*analysis.Analyzer {
 	return []*analysis.Analyzer{
 		errcheck.Analyzer,
-		exhaustive.Analyzer,
+		switches(),
 		nilness.Analyzer,
 		unusedwrite.Analyzer,
 		errorlint.NewAnalyzer(),
@@ -120,6 +121,18 @@ func correctness() []*analysis.Analyzer {
 		// from one that grows.
 		fatcontext.NewAnalyzer(),
 	}
+}
+
+// switches runs exhaustive over generated files as well. Its own check skips a
+// file with a generated header, and cgo gives its rewrite of every
+// hand-written file one, which would leave every switch in a package that
+// imports "C" unchecked. policy.Adapt still drops findings in files that are
+// generated at their source.
+func switches() *analysis.Analyzer {
+	if err := exhaustive.Analyzer.Flags.Set(exhaustive.CheckGeneratedFlag, "true"); err != nil {
+		panic(err)
+	}
+	return exhaustive.Analyzer
 }
 
 // tagged runs musttag with the module of the package being linted. Without
@@ -173,14 +186,15 @@ func modulePath(pass *analysis.Pass) (string, error) {
 // declare methods on a hand-written type, such as the value-receiver
 // MarshalJSON that Dagger's codegen adds to a module's main object, whose
 // hand-written methods take pointers. Nobody can change the generated receiver,
-// so counting it would report a mix the author cannot fix.
+// so counting it would report a mix the author cannot fix. cgo's rewrite of a
+// hand-written file counts as hand-written.
 func receivers() *analysis.Analyzer {
 	analyzer := recvcheck.NewAnalyzer(recvcheck.Settings{})
 	run := analyzer.Run
 	analyzer.Run = func(pass *analysis.Pass) (any, error) {
 		var written []*ast.File
 		for _, file := range pass.Files {
-			if !ast.IsGenerated(file) {
+			if !policy.Generated(pass.Fset, file) {
 				written = append(written, file)
 			}
 		}
@@ -273,7 +287,7 @@ func unusedParams() *analysis.Analyzer {
 			checker.CheckExportedFuncs(false)
 			checker.Packages([]*packages.Package{{
 				Fset:      pass.Fset,
-				Syntax:    pass.Files,
+				Syntax:    withoutCgoHeaders(pass),
 				Types:     pass.Pkg,
 				TypesInfo: pass.TypesInfo,
 			}})
@@ -292,6 +306,29 @@ func unusedParams() *analysis.Analyzer {
 			return nil, nil
 		},
 	}
+}
+
+// withoutCgoHeaders hands unparam the package's files with cgo's generated
+// header hidden. unparam skips every function in a file whose first comment
+// says it is generated, and cgo's rewrite of a hand-written file opens with
+// one ahead of the //line directive that maps it to the original. The copies
+// drop that first comment, so unparam judges the original's own comments
+// instead; generated files are left alone. Only the copied file's comment
+// list differs, so the shared syntax stays untouched.
+func withoutCgoHeaders(pass *analysis.Pass) []*ast.File {
+	files := make([]*ast.File, 0, len(pass.Files))
+	for _, file := range pass.Files {
+		source := policy.SourceName(pass.Fset, file)
+		if source == pass.Fset.File(file.FileStart).Name() || policy.Generated(pass.Fset, file) {
+			files = append(files, file)
+			continue
+		}
+
+		original := *file
+		original.Comments = file.Comments[1:]
+		files = append(files, &original)
+	}
+	return files
 }
 
 // hygiene analyzers keep the code on modern, consistent standard-library usage.
@@ -334,6 +371,30 @@ func modernizers() []*analysis.Analyzer {
 		modernize.StringsCutPrefixAnalyzer,
 		modernize.StringsSeqAnalyzer,
 	}
+}
+
+// complexity analyzers report functions too hard to follow. They are
+// registered so a consumer can select them, and the shipped default in
+// runner/toolchain.json turns them off with "-gocognit": a length or nesting
+// threshold is a maintenance judgment, not a bug.
+func complexity() []*analysis.Analyzer {
+	return []*analysis.Analyzer{
+		cognitive(),
+	}
+}
+
+// cognitiveThreshold is the cognitive complexity above which gocognit reports
+// a function. Past 30, a function has more branches and nesting than a reader
+// can hold at once; it is golangci-lint's default for gocognit.
+const cognitiveThreshold = "30"
+
+// cognitive runs gocognit at a fixed threshold. Its -over flag defaults to 0,
+// which reports every function.
+func cognitive() *analysis.Analyzer {
+	if err := gocognit.Analyzer.Flags.Set("over", cognitiveThreshold); err != nil {
+		panic(err)
+	}
+	return gocognit.Analyzer
 }
 
 // tests analyzers cover mistakes that only appear in _test.go files.
@@ -385,6 +446,7 @@ func main() {
 	command.AddBareAnalyzers(policy.Adapt(hygiene()...)...)
 	command.AddBareAnalyzers(policy.Adapt(modernizers()...)...)
 	command.AddBareAnalyzers(policy.Adapt(tests()...)...)
+	command.AddBareAnalyzers(policy.Adapt(complexity()...)...)
 	command.AddBareAnalyzers(house()...)
 
 	command.ParseFlags(os.Args[1:])

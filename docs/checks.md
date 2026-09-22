@@ -28,6 +28,7 @@ Every shared check kind runs the same pinned tools locally and in any CI provide
 | `minmax`, `mapsloop`, `slicescontains`, `stringscutprefix`, `stringsseq` | Hand-written loops and comparisons that one standard-library call replaces; `go fix` applies the fix |
 | `thelper`, `tparallel`, `testifylint` | Mistakes that only appear in `_test.go` files |
 | `usetesting` | A test that changes the working directory or environment, or creates a temporary file or directory, in a way that outlives it ([why](#known-bug-patterns), [settings](#upstream-analyzer-settings)) |
+| `gocognit` | Off by default, opt-in: a function whose cognitive complexity is over 30 ([opt in](#opt-in-complexity-gocognit)) |
 | LV1001 | Give enum-like strings defined types and typed constants |
 | LV1002 | Construct new structs together with literals, without opt-in markers |
 | LV1003 | Declare each struct field on its own line |
@@ -48,9 +49,9 @@ Every shared check kind runs the same pinned tools locally and in any CI provide
 | [ST1021](https://staticcheck.dev/docs/checks/#ST1021) | Requires a comment on every exported type |
 | [ST1022](https://staticcheck.dev/docs/checks/#ST1022) | Requires a comment on every exported variable |
 
-`all` also selects the bare analyzers compiled into the binary, so `errcheck`, `exhaustive`, the resource and correctness analyzers, and the `LV*` rules are part of it. A consumer that wants less can pass its own selection; the same `-checks` syntax applies, and a `-` prefix removes a rule a wider pattern selected.
+`all` also selects the bare analyzers compiled into the binary, so `errcheck`, `exhaustive`, the resource and correctness analyzers, and the `LV*` rules are part of it. The selection then turns one of those off again, `-gocognit`, which is [opt-in](#opt-in-complexity-gocognit). Someone running the linter directly can pass their own selection; the same `-checks` syntax applies, a `-` prefix removes a rule a wider pattern selected, and a later name turns a removed rule back on.
 
-Upstream analyzers run over generated files, so the facts they export stay correct, but their diagnostics there are dropped: nobody edits generated code for style. Staticcheck's own `//lint:ignore` directives keep working for everything else.
+Upstream analyzers run over generated files, so the facts they export stay correct, but their diagnostics there are dropped: nobody edits generated code for style. In a package that imports `"C"`, the analyzers see cgo's rewrite of each file, which cgo marks generated; every rule judges such a file by the original it maps back to, so hand-written cgo files are checked and reported at their own paths, while cgo's own additions such as `_cgo_gotypes.go` count as generated. Staticcheck's own `//lint:ignore` directives keep working for everything else.
 
 ## The modernize selection
 
@@ -198,6 +199,26 @@ These analyzers were measured against this repository and left out. Counts are f
 | `sloglint` | Its only bug-adjacent option, `no-mixed-args`, is a consistency rule: `slog` handles key-value pairs and attributes mixed in one call correctly. It also always suggests `slog.DiscardHandler` over a handler writing to `io.Discard`, a modernization that cannot be turned off |
 | `spancheck` | Reports every span as never ended under Staticcheck's loader, and crashes on a reused span variable ([details](#known-bug-patterns)) |
 
+## Opt-in complexity: gocognit
+
+`gocognit` reports a function whose [cognitive complexity](https://github.com/uudashr/gocognit#cognitive-complexity) is over 30. Each `if`, loop, `switch`, `select`, jump, and run of mixed `&&`/`||` adds one, plus one more for each level of nesting it sits in, so the score tracks how much a reader has to hold in mind rather than how many paths a test needs. The binary registers it, and the shipped selection turns it off with `-gocognit`, because a threshold says a function is hard to maintain, not that it is wrong: it would fail builds on working code, which is the bar every default rule is held to.
+
+The threshold is fixed at 30, golangci-lint's default and the common line past which a function is hard to maintain. A shared linter has no per-repository settings, so a consumer that wants a different line cannot set one. Levenshtein does not opt itself in. Measured with `-checks=gocognit`, nine of its functions are over the line, which shows what the rule asks for:
+
+| Function | Complexity |
+| --- | --- |
+| `checkConstruction` in `runner/lint/policy/records.go` | 90 |
+| `checkEnumUsage` in `runner/lint/policy/enum_usage.go` | 65 |
+| `runTypedValues` in `runner/lint/policy/typed.go` | 55 |
+| `buildRequests` in `internal/semantic/check.go` | 41 |
+| `validateDaggerSource` in `internal/verify/source.go` | 36 |
+| `CachedExecutor.Execute` in `internal/verify/cache.go` | 33 |
+| `Config.planCheck` in `internal/verify/plan.go` | 33 |
+| `request.fit` in `internal/semantic/check.go` | 32 |
+| `TestDaggerSourceRejectsAliasesButDoesNotInspectExcludedTrees` in `internal/verify/source_test.go` | 31 |
+
+The `go-lint` check always runs the shipped selection; `levenshtein.json` has no setting that changes which rules it reports. To opt in, run the linter directly, as in [Development and exceptions](#development-and-exceptions), with the shipped selection minus its `-gocognit`, or with `-checks=gocognit` for this rule alone. A finding can be suppressed like any other, with `//lint:ignore gocognit <reason>` above the function.
+
 ## Typed choices: LV1001
 
 Fields named `Status`, `State`, `Kind`, `Mode`, or `Executor` (case insensitive) must use a defined type instead of plain `string` or an alias of `string`. Other text fields, such as paths and messages, remain ordinary strings. LV1001 also detects enum-like usage regardless of the name, for fields, parameters, and local variables:
@@ -269,7 +290,7 @@ The rule does not ask for more than one blank line, and it says nothing about sp
 
 ## Formatted files: LV1005
 
-LV1005 compares a file's bytes with what `go/format` produces and reports once per file when they differ. It exists so a consumer gets formatting enforcement from `./verify go-lint` without a separate `gofmt` step in CI. The fix is always plain `gofmt -w`, never a suppression. Generated files are skipped.
+LV1005 compares a file's bytes with what `go/format` produces and reports once per file when they differ. It exists so a consumer gets formatting enforcement from `./verify go-lint` without a separate `gofmt` step in CI. The fix is always plain `gofmt -w`, never a suppression. Generated files are skipped. For a cgo file it checks the original source, not cgo's rewrite in the build cache.
 
 ## Tests that can fail: LV1006
 
@@ -302,12 +323,12 @@ The analyzers use Go's `go/analysis` framework and Staticcheck's runner for pack
 
 For an exceptional interop requirement, use Staticcheck's normal directive with a reason, for example `//lint:ignore LV1001 external schema requires this field`. Prefer a proper type or record literal when possible.
 
-You can run the same linter directly without Dagger:
+You can run the same linter directly without Dagger. The selection below is the shipped default; drop `-gocognit` from it to [opt in to gocognit](#opt-in-complexity-gocognit):
 
 ```sh
 (cd /path/to/levenshtein/runner/lint && go build -o /tmp/levenshtein-lint ./cmd/levenshtein-lint)
 cd /path/to/consumer
-/tmp/levenshtein-lint -checks='all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022' ./...
+/tmp/levenshtein-lint -checks='all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-gocognit' ./...
 ```
 
 ## Named checks and suggested runs

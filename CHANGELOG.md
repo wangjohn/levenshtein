@@ -59,6 +59,11 @@ Consumers pin a release tag, or its commit SHA, as described in
   check.
 - [docs/checks.md](docs/checks.md#considered-and-off) lists the analyzers that
   were measured and left out, with the reason for each.
+- `levenshtein-lint` includes `gocognit`, which reports a function whose
+  cognitive complexity is over 30. It is off in the shipped selection, so
+  `go-lint` does not report it and no consumer sees new findings; running the
+  linter directly with `gocognit` selected turns it on
+  ([opt in](docs/checks.md#opt-in-complexity-gocognit)).
 
 ### Changed
 
@@ -79,6 +84,10 @@ Consumers pin a release tag, or its commit SHA, as described in
 - Input discovery passes the run's context to the `git ls-files` it starts, so
   cancelling `verify` stops it too, and a cancelled or failed listing is no
   longer remembered for the rest of the run.
+- `go-lint` in a package that imports `"C"` judges each file by its original
+  source instead of cgo's generated rewrite of it. Upstream findings in
+  hand-written cgo files, which were all silently dropped, are now reported,
+  and LV1005 no longer reports cgo's build-cache output as unformatted.
 
 ## [0.1.0] - 2026-09-22
 

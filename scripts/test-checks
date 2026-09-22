@@ -6,11 +6,11 @@ trap 'rm -rf "$temporary"' EXIT
 (cd "$root/runner/lint" && go build -o "$temporary/lint" ./cmd/levenshtein-lint)
 
 # The default selection in runner/toolchain.json, spelled the way the linter takes it.
-checks='all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022'
+checks='all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-gocognit'
 
 # One triggering case per default rule. This list mirrors expectedBadCodes in
 # runner/main.go, so a rule that stops running fails here without Dagger too.
-expected='SA5001 SA5003 SA9001 S1002 ST1005 QF1011 U1000
+expected='SA4006 SA5001 SA5003 SA9001 S1002 ST1005 QF1011 U1000
 bodyclose sqlclosecheck rowserrcheck noctx contextcheck
 errcheck exhaustive nilness unusedwrite errorlint nilerr durationcheck reassign wastedassign musttag recvcheck nilnesserr fatcontext
 appendAssign argOrder badCall badCond badRegexp codegenComment deprecatedComment dupArg dupBranchBody dupCase exitAfterDefer filepathJoin flagDeref flagName mapKey offBy1
@@ -30,6 +30,8 @@ LV1001 LV1002 LV1003 LV1004 LV1005 LV1006'
 # scripts/test-release lints this fixture with the defaults, so it has to pass both.
 (cd "$root/runner/testdata/resources-good" && "$temporary/lint" -checks=bodyclose,sqlclosecheck ./...)
 (cd "$root/runner/testdata/resources-good" && "$temporary/lint" -checks="$checks" ./...)
+# gocognit is registered but off by default, so its fixture passes the default.
+(cd "$root/runner/testdata/complexity" && "$temporary/lint" -checks="$checks" ./...)
 
 # fails runs a command in a fixture and requires it to fail, keeping the output.
 fails() {
@@ -62,7 +64,18 @@ expect_failure() {
 }
 
 expect_failure bad "$expected" "$temporary/lint" -checks="$checks" ./...
+# The linter sees cgo/cgo.go through cgo's rewrite, which lives in the build cache
+# and is marked generated: its findings must still report, against the original.
+reported '^cgo/cgo\.go:[0-9]+:[0-9]+: .*\(SA4006\)$' 'SA4006 in the hand-written cgo file'
+reported '^cgo/cgo\.go:[0-9]+:[0-9]+: .*\(exhaustive\)$' 'exhaustive in the hand-written cgo file'
+if grep -q '^/' "$temporary/output"; then
+  cat "$temporary/output" >&2
+  echo "A bad finding points outside the fixture, such as into the build cache" >&2
+  exit 1
+fi
 expect_failure resources-bad 'bodyclose sqlclosecheck' "$temporary/lint" -checks=bodyclose,sqlclosecheck ./...
+expect_failure complexity gocognit "$temporary/lint" -checks=gocognit ./...
+expect_failure complexity gocognit "$temporary/lint" -checks=all ./...
 fails vet-bad go vet ./...
 reported 'passes lock by value' 'passes lock by value'
 echo 'Expanded check regression fixtures passed'

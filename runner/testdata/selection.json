@@ -3,6 +3,9 @@
   "cases": [
     {"name": "all selects an upstream analyzer", "checks": ["all"], "code": "nilness", "want": true},
     {"name": "all selects a house rule", "checks": ["all"], "code": "LV1003", "want": true},
+    {"name": "all selects an analyzer the shipped default turns off", "checks": ["all"], "code": "gocognit", "want": true},
+    {"name": "an exact name selects an analyzer the shipped default turns off", "checks": ["gocognit"], "code": "gocognit", "want": true},
+    {"name": "a later name turns a negated analyzer back on", "checks": ["all", "-gocognit", "gocognit"], "code": "gocognit", "want": true},
     {"name": "a star selects everything", "checks": ["*"], "code": "SA5001", "want": true},
     {"name": "a negation wins over all", "checks": ["all", "-ST1003"], "code": "ST1003", "want": false},
     {"name": "a later negation turns a glob's code off", "checks": ["SA*", "-SA1019"], "code": "SA1019", "want": false},

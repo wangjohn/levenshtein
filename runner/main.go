@@ -172,7 +172,7 @@ func parseFindings(exitCode int, stdout, stderr string, checks []string) ([]diag
 // registered or stops firing fails the self-test instead of passing silently.
 // scripts/test-checks asserts the same list without Dagger.
 var expectedBadCodes = []string{
-	"SA5001", "SA5003", "SA9001", "S1002", "ST1005", "QF1011", "U1000",
+	"SA4006", "SA5001", "SA5003", "SA9001", "S1002", "ST1005", "QF1011", "U1000",
 	"bodyclose", "sqlclosecheck", "rowserrcheck", "noctx", "contextcheck",
 	"errcheck", "exhaustive", "nilness", "unusedwrite", "errorlint", "nilerr", "durationcheck", "reassign", "wastedassign", "musttag", "recvcheck", "nilnesserr", "fatcontext",
 	"appendAssign", "argOrder", "badCall", "badCond", "badRegexp", "codegenComment", "deprecatedComment", "dupArg", "dupBranchBody", "dupCase", "exitAfterDefer", "filepathJoin", "flagDeref", "flagName", "mapKey", "offBy1",
@@ -187,7 +187,7 @@ var expectedBadCodes = []string{
 
 func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce string) error {
 	fixtures := dag.CurrentModule().Source().Directory("testdata")
-	for _, name := range []string{"good", "vendored", "embedded", "modernize-legacy"} {
+	for _, name := range []string{"good", "vendored", "embedded", "modernize-legacy", "complexity"} {
 		findings, err := lint(ctx, fixtures.Directory(name), ".", tools, nonce)
 		if err != nil || len(findings) != 0 {
 			return fmt.Errorf("%s fixture must pass: findings=%v error=%v", name, findings, err)

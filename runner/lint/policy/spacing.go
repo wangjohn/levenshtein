@@ -16,7 +16,7 @@ var Spacing = &analysis.Analyzer{
 
 func runSpacing(pass *analysis.Pass) (any, error) {
 	for _, file := range pass.Files {
-		if ast.IsGenerated(file) {
+		if Generated(pass.Fset, file) {
 			continue
 		}
 
