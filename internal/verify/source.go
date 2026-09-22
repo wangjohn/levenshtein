@@ -31,7 +31,7 @@ func daggerIncludes(inputs []string) ([]string, error) {
 }
 
 func privateSourcePath(path string) bool {
-	for _, part := range strings.Split(filepath.ToSlash(path), "/") {
+	for part := range strings.SplitSeq(filepath.ToSlash(path), "/") {
 		//lint:ignore LV1001 Filesystem components are arbitrary paths, not an enum.
 		if part == ".git" || part == ".env" || (strings.HasPrefix(part, ".env.") && part != ".env.example") {
 			return true
@@ -54,7 +54,7 @@ func validateDaggerSource(source string, inputs []string) error {
 			continue
 		}
 		prefix := ""
-		for _, part := range strings.Split(input, string(filepath.Separator)) {
+		for part := range strings.SplitSeq(input, string(filepath.Separator)) {
 			prefix = filepath.Join(prefix, part)
 			info, err := dir.Lstat(prefix)
 			if os.IsNotExist(err) {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,12 +28,8 @@ func nativeEnv(req Request, extra map[string]string) []string {
 			values[key] = value
 		}
 	}
-	for key, value := range req.Environment.Env {
-		values[key] = value
-	}
-	for key, value := range extra {
-		values[key] = value
-	}
+	maps.Copy(values, req.Environment.Env)
+	maps.Copy(values, extra)
 
 	values["LEVENSHTEIN_SOURCE"] = req.Source
 	values["LEVENSHTEIN_WORKSPACE"] = filepath.Join(req.Source, req.Target.Workspace)
@@ -60,8 +57,8 @@ func executable(dir string, env []string, name string) (string, error) {
 
 	path := ""
 	for _, entry := range env {
-		if strings.HasPrefix(entry, "PATH=") {
-			path = strings.TrimPrefix(entry, "PATH=")
+		if rest, ok := strings.CutPrefix(entry, "PATH="); ok {
+			path = rest
 		}
 	}
 	for _, entry := range filepath.SplitList(path) {
