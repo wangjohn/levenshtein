@@ -69,6 +69,16 @@ func TestOnlyCallsMustFunction(t *testing.T) { // want "TestOnlyCallsMustFunctio
 	regexp.MustCompile(`^[a-z]+$`)
 }
 
+func TestOnlyCallsExitWrapper(t *testing.T) { // want "TestOnlyCallsExitWrapper has no assertion"
+	if Double(2) != 4 {
+		die()
+	}
+}
+
+func die() {
+	os.Exit(1)
+}
+
 func TestStructKeyOnly(t *testing.T) { // want "TestStructKeyOnly has no assertion"
 	_ = harness{t: nil}
 }
