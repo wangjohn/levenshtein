@@ -20,7 +20,7 @@ Every shared check kind runs the same pinned tools locally and in any CI provide
 | `nilnesserr` | Return an error already known to be nil after checking a different one, so a failure reaches the caller as success ([why](#known-bug-patterns)) |
 | `fatcontext` | Reassign a context to a child of itself in a loop or function literal, so the chain, and every lookup through it, grows with each pass ([why](#known-bug-patterns)) |
 | `appendAssign`, `argOrder`, `badCall`, `badCond`, `badRegexp`, `codegenComment`, `deprecatedComment`, `dupArg`, `dupBranchBody`, `dupCase`, `exitAfterDefer`, `filepathJoin`, `flagDeref`, `flagName`, `mapKey`, `offBy1` | go-critic's likely-bug checks that no rule above already reports ([selection](#the-go-critic-selection)) |
-| `zerologlint`, `loggercheck`, `sloglint` | Log calls that lose or garble what they record: a zerolog event never sent, a key without a value for logr, klog, zap, or go-kit log, and `log/slog` calls that mix key-value pairs with attributes ([why](#known-bug-patterns), [settings](#upstream-analyzer-settings)) |
+| `zerologlint`, `loggercheck` | Log calls that lose what they record: a zerolog event never sent, and a key without a value for logr, klog, zap, or go-kit log ([why](#known-bug-patterns), [settings](#upstream-analyzer-settings)) |
 | `bidichk`, `gocheckcompilerdirectives` | Source that runs differently than it reads: Unicode bidirectional controls that reorder how a line displays, and `//go:` directives the toolchain silently ignores ([why](#known-bug-patterns)) |
 | `unparam` | Unexported functions with a parameter no caller needs, a parameter that always receives the same value, or a result no caller uses |
 | `intrange`, `usestdlibvars`, `perfsprint`, `predeclared`, `errname` | Modern, consistent standard-library usage |
@@ -136,7 +136,7 @@ To revisit the selection after a go-critic upgrade, run the linter test in `runn
 
 ## Known bug patterns
 
-The rest of this page holds a rule to one bar: it is on because it was measured to fire on real code, here or in the fixtures that stand in for a consumer. Nine analyzers are an explicit exception. None of them found anything in Levenshtein's own modules when they were added; each is on because the pattern it reports is a known bug, not a matter of style, its false alarms are rare, and its fix is local:
+The rest of this page holds a rule to one bar: it is on because it was measured to fire on real code, here or in the fixtures that stand in for a consumer. Eight analyzers are an explicit exception. None of them found anything in Levenshtein's own modules when they were added; each is on because the pattern it reports is a known bug, not a matter of style, its false alarms are rare, and its fix is local:
 
 | Analyzer | Why it earns a failing build |
 | --- | --- |
@@ -147,7 +147,6 @@ The rest of this page holds a rule to one bar: it is on because it was measured 
 | `exptostd` | `golang.org/x/exp` is experimental and has already changed signatures under its callers, such as `slices.SortFunc` moving from a less function to a comparison function. The standard-library `slices`, `maps`, and `cmp` replacements keep the Go 1 compatibility promise. It reports nothing in a module that does not import x/exp |
 | `zerologlint` | A zerolog event writes nothing until `Msg`, `Msgf`, `MsgFunc`, or `Send` dispatches it, so `log.Error().Err(err)` without one compiles, runs, and drops the line, usually on the error path where it was needed. It reports nothing in a module that does not use zerolog |
 | `loggercheck` | Structured loggers take their fields as alternating keys and values in a `...any` parameter, so the compiler accepts a key with no value. The logger then records the field with a placeholder or an error in its place, and a forgotten key moves every later value under the wrong name. It reports nothing in a module that uses none of the loggers it knows |
-| `sloglint` | `slog.Info` accepts `"key", value` pairs and `slog.Attr` arguments in the same call, but then a reader has to count arguments to tell which is which, and a key that lost its value takes the next attribute as its value without any report, since go vet accepts an attribute as a value and so does this check. One form per call keeps the pairing readable, so that slip stands out in review |
 | `usetesting` | `os.Setenv` and `os.Chdir` in a test change process state that every later test in the package sees, and `os.MkdirTemp` and `os.CreateTemp("", ...)` leave files behind. `t.Setenv`, `t.Chdir`, and `t.TempDir` undo the change when the test ends |
 
 Three more analyzers were added on the same argument and then left out, because they cannot find their bug under this linter:
@@ -169,8 +168,7 @@ These upstream analyzers need a word about scope or settings:
 - `bidichk` reports all nine bidirectional control characters, its default.
 - `gocheckcompilerdirectives` checks a directive that has an argument after it, such as `//go:generate stringer` or `//go:linkname local remote`. A directive with nothing after it, such as a misspelled `//go:noinline`, is not checked.
 - `zerologlint` follows an event through branches and into a function it is passed to, one call deep. A function that returns a `*zerolog.Event` for its caller to finish is reported, because nothing dispatches the event inside it; mark such a builder with `//lint:ignore zerologlint reason`.
-- `loggercheck` checks logr, `k8s.io/klog/v2` (`InfoS`, `ErrorS`, and their variants), zap's sugared `With` and `...w` methods, and go-kit log, which is off upstream and on here because an odd key-value list is the same bug there. It skips a call that spreads a slice with `...`. `log/slog` is left to go vet's `slog` check, which reports the same missing value and a key that is not a string, so a slip in a `slog` call is one finding in `go-vet` rather than one in each check. Its `requirestringkey` and `noprintflike` options stay off: a key held in a variable is fine, and a `%` in a message is not always a format verb. Its report that a nil pointer to a `fmt.Stringer` may panic is dropped: zap, klog, logr's `funcr`, and `fmt` all recover from a `String` method that panics on a nil receiver.
-- `sloglint` runs its `no-mixed-args` check, its default, with `slog.Group` allowed among key-value pairs. Its key naming, constant key, allowed and forbidden key, message style, static message, context, global logger, and argument layout options are house style and stay off. One check has no option: in a module whose `go` version is 1.24 or later, it reports a handler writing to `io.Discard` and suggests `slog.DiscardHandler`, which skips formatting records that go nowhere.
+- `loggercheck` checks logr, `k8s.io/klog/v2` (`InfoS`, `ErrorS`, and their variants), zap's sugared `With` and `...w` methods, and go-kit log, which is off upstream and on here because an odd key-value list is the same bug there. It skips a call that spreads a slice with `...`. `log/slog` is left to go vet's `slog` check, which reports the same missing value and a key that is not a string, so a slip in a `slog` call is one finding in `go-vet` rather than one in each check. A configuration that runs `go-lint` without `go-vet` gets no report of it. Its `requirestringkey` and `noprintflike` options stay off: a key held in a variable is fine, and a `%` in a message is not always a format verb. Its report that a nil pointer to a `fmt.Stringer` may panic is dropped: zap, klog, logr's `funcr`, and `fmt` all recover from a `String` method that panics on a nil receiver.
 - `exptostd` suggests a replacement only when the module's `go` version has it: Go 1.21 for most of `slices` and `maps`, and Go 1.23 for `maps.Keys` and `maps.Values`, which return iterators in the standard library.
 
 ## Considered and off
@@ -197,6 +195,7 @@ These analyzers were measured against this repository and left out. Counts are f
 | `nolintlint` | Staticcheck already reports a `//lint:ignore` directive that matches nothing |
 | `asasalint` | Misses its bug when the parameter or the slice is spelled with `any` ([details](#known-bug-patterns)) |
 | `makezero` | Never reports under Staticcheck's loader, and prints a warning for every `append` ([details](#known-bug-patterns)) |
+| `sloglint` | Its only bug-adjacent option, `no-mixed-args`, is a consistency rule: `slog` handles key-value pairs and attributes mixed in one call correctly. It also always suggests `slog.DiscardHandler` over a handler writing to `io.Discard`, a modernization that cannot be turned off |
 | `spancheck` | Reports every span as never ended under Staticcheck's loader, and crashes on a reused span variable ([details](#known-bug-patterns)) |
 
 ## Typed choices: LV1001

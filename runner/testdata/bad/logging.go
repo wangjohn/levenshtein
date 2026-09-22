@@ -1,7 +1,6 @@
 package bad
 
 import (
-	"log/slog"
 	"os"
 
 	"github.com/go-logr/logr"
@@ -21,9 +20,4 @@ func Zerologlint() {
 func Loggercheck(logger logr.Logger, sugared *zap.SugaredLogger, attempt int) {
 	logger.Info("retrying", "attempt")
 	sugared.Infow("retrying", "attempt", attempt, "user")
-}
-
-// sloglint: key-value pairs and attributes mixed in one call.
-func Sloglint(attempt int) {
-	slog.Info("retrying", "attempt", attempt, slog.String("user", "ada"))
 }
