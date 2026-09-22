@@ -4,6 +4,7 @@ package verify
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -119,7 +120,7 @@ func decode(data []byte, value any) error {
 	if err := d.Decode(value); err != nil {
 		return err
 	}
-	if err := d.Decode(new(any)); err != io.EOF {
+	if err := d.Decode(new(any)); !errors.Is(err, io.EOF) {
 		return fmt.Errorf("expected exactly one JSON object")
 	}
 	return nil

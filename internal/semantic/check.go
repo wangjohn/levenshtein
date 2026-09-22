@@ -3,6 +3,7 @@ package semantic
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -189,7 +190,7 @@ func askAll(ctx context.Context, opts Options, requests []request) ([]wireRespon
 
 	// Report the failure that caused cancellation, not the cancellations it produced.
 	for _, err := range errs {
-		if err != nil && err != context.Canceled {
+		if err != nil && !errors.Is(err, context.Canceled) {
 			return nil, err
 		}
 	}
@@ -336,7 +337,7 @@ func goRequest(unit goUnit, isTest bool, neighbours []string) (request, bool) {
 			}
 			continue
 		}
-		for i := 0; i < counts[q.Items]; i++ {
+		for i := range counts[q.Items] {
 			r.add(q, i, pending{question: q, path: unit.Path, line: lines[q.Items][i], symbol: unit.Symbol})
 		}
 	}
@@ -705,7 +706,7 @@ func compose(report *Report, r request, answers map[string]Answer) {
 			continue
 		}
 
-		fired := false
+		var fired bool
 		if p.question.Direction == DirectionLow {
 			fired = value <= p.question.Threshold
 		} else {

@@ -371,7 +371,7 @@ func parseHunkHeader(line string) (Hunk, bool) {
 	if !ok {
 		return Hunk{}, false
 	}
-	old, new, ok := strings.Cut(ranges, " +")
+	old, updated, ok := strings.Cut(ranges, " +")
 	if !ok || !strings.HasPrefix(old, "-") {
 		return Hunk{}, false
 	}
@@ -379,7 +379,7 @@ func parseHunkHeader(line string) (Hunk, bool) {
 	if !ok {
 		return Hunk{}, false
 	}
-	newStart, newLines, ok := parseRange(new)
+	newStart, newLines, ok := parseRange(updated)
 	if !ok {
 		return Hunk{}, false
 	}
