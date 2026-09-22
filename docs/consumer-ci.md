@@ -2,7 +2,7 @@
 
 Your CI checks out the application, chooses a run, and invokes a pinned Levenshtein version. Levenshtein prepares the check environment and returns results and an exit status. Application tests and CI schedules belong to the application repo.
 
-**Available now:** shared Go lint, vet, HTTP/SQL cleanup checks, vulnerability scanning, workflow lint, native commands, and local result/setup/build caching. Start with one product target and a few useful checks; keep existing CI gates while proving equivalent behavior.
+**Available now:** shared Go lint, vet, module manifest checks, HTTP/SQL cleanup checks, vulnerability scanning, workflow lint, native commands, and local result/setup/build caching. Start with one product target and a few useful checks; keep existing CI gates while proving equivalent behavior.
 
 ## The same command locally and in CI
 
@@ -35,12 +35,13 @@ A single Go module at the application root works without configuration. For adop
   "checks": {
     "lint": {"kind": "go-lint", "target": "api", "environment": "go"},
     "vet": {"kind": "go-vet", "target": "api", "environment": "go"},
+    "modules": {"kind": "go-mod", "target": "api", "environment": "go"},
     "vulnerabilities": {"kind": "go-vuln", "target": "api", "environment": "go"}
   },
   "runs": {
     "branch": {"checks": ["lint"]},
-    "pre-merge": {"checks": ["lint", "vet"]},
-    "main": {"checks": ["lint", "vet", "vulnerabilities"], "rerun_checks": true}
+    "pre-merge": {"checks": ["lint", "vet", "modules"]},
+    "main": {"checks": ["lint", "vet", "modules", "vulnerabilities"], "rerun_checks": true}
   }
 }
 ```
@@ -99,7 +100,7 @@ The action's outputs are `run`, the run it executed, and `report`, the path to t
 
 ## A native lint job without Docker
 
-`go-lint`, `go-vet`, `workflow-lint`, and `go-vuln` also run on a [native environment](configuration.md#native-go-checks), using the host's Go instead of a container. Declare it in the application's `levenshtein.json`:
+`go-lint`, `go-vet`, `go-mod`, `workflow-lint`, and `go-vuln` also run on a [native environment](configuration.md#native-go-checks), using the host's Go instead of a container. Declare it in the application's `levenshtein.json`:
 
 ```json
 {
