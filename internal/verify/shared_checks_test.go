@@ -8,7 +8,7 @@ import (
 func TestSharedChecksPlanFromVersionedConfiguration(t *testing.T) {
 	for _, data := range []string{
 		`{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"lint":{"kind":"go-lint","target":"app","environment":"go"},"vet":{"kind":"go-vet","target":"app","environment":"go"},"http":{"kind":"go-http","target":"app","environment":"go"},"sql":{"kind":"go-sql","target":"app","environment":"go"},"audit":{"kind":"go-vuln","target":"app","environment":"go"},"workflows":{"kind":"workflow-lint","target":"app","environment":"go"}},"runs":{"custom":{"checks":["lint","vet","http","sql","audit","workflows"]}}}`,
-		`{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"audit":{"kind":"go-vuln","target":"app","environment":"go","cache":true}},"runs":{"custom":{"checks":["audit"]}}}`,
+		`{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"audit":{"kind":"go-vuln","target":"app","environment":"go"}},"runs":{"custom":{"checks":["audit"]}}}`,
 	} {
 		cfg, err := Parse([]byte(data))
 		if err != nil {

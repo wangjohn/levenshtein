@@ -7,40 +7,62 @@ import (
 	"time"
 )
 
+// A check carries at most one options object, and its kind decides which one.
+// Validation therefore asks whether the right object is present rather than
+// listing every field the other kinds would have used.
 func validateCheck(check Check, env Environment) error {
 	if env.Executor == ExecutorDagger {
-		if daggerFunctions[check.Kind] == "" {
-			return fmt.Errorf("unknown Dagger check %q", check.Kind)
-		}
-		if check.Build != "" || len(check.RerunCommand) > 0 || len(check.Command) > 0 || len(check.Env) > 0 || check.Timeout != "" || check.Preparation != "" || len(check.Artifacts) > 0 || check.Base != "" || check.Model != "" || env.Identity != "" || len(env.Env) > 0 || len(env.PassEnv) > 0 || len(env.Tools) > 0 {
-			return fmt.Errorf("native command options cannot be used for Dagger Go checks")
-		}
-		return nil
+		return validateDaggerCheck(check, env)
 	}
-
 	if env.Executor != ExecutorNative {
 		return fmt.Errorf("unsupported executor %q", env.Executor)
 	}
-	if check.Kind == CheckSemanticLint {
-		return validateSemanticLint(check, env)
-	}
-	if check.Kind != CheckCommand || len(check.Command) == 0 || check.Command[0] == "" {
-		return fmt.Errorf("native check needs kind command and a nonempty command array")
-	}
-	if check.Cache && (env.Identity == "" || len(check.RerunCommand) == 0) {
-		return fmt.Errorf("cacheable native check needs environment identity and explicit rerun_command")
-	}
-	if len(check.RerunCommand) > 0 && check.RerunCommand[0] == "" {
-		return fmt.Errorf("rerun_command cannot be empty")
-	}
-	if check.Base != "" || check.Model != "" {
-		return fmt.Errorf("base and model apply only to semantic-lint checks")
-	}
 
-	if err := validateNativeEnvironment(check, env); err != nil {
+	kind, ok := nativeKinds[check.Kind]
+	if !ok {
+		return fmt.Errorf("native environments run %s checks, not %q", nativeKindNames(), check.Kind)
+	}
+	if err := validateEnvironment(env); err != nil {
 		return err
 	}
-	for _, path := range check.Artifacts {
+	return kind.validate(check, env)
+}
+
+func validateDaggerCheck(check Check, env Environment) error {
+	if daggerFunctions[check.Kind] == "" {
+		return fmt.Errorf("unknown Dagger check %q", check.Kind)
+	}
+	if check.Command != nil || check.Semantic != nil {
+		return fmt.Errorf("command and semantic options cannot be used for Dagger Go checks")
+	}
+	if env.Identity != "" || len(env.Env) > 0 || len(env.PassEnv) > 0 || len(env.Tools) > 0 {
+		return fmt.Errorf("native environment options cannot be used for Dagger Go checks")
+	}
+	return nil
+}
+
+func validateCommandCheck(check Check, env Environment) error {
+	if check.Semantic != nil {
+		return fmt.Errorf("semantic options apply only to semantic-lint checks")
+	}
+	command := check.Command
+	if command == nil || len(command.Args) == 0 || command.Args[0] == "" {
+		return fmt.Errorf("command check needs a nonempty args array")
+	}
+	if command.Cache && (env.Identity == "" || len(command.RerunArgs) == 0) {
+		return fmt.Errorf("cacheable command check needs environment identity and explicit rerun_args")
+	}
+	if len(command.RerunArgs) > 0 && command.RerunArgs[0] == "" {
+		return fmt.Errorf("rerun_args cannot be empty")
+	}
+	if err := validateDuration(command.Timeout); err != nil {
+		return err
+	}
+	if err := validateEnv(command.Env); err != nil {
+		return err
+	}
+
+	for _, path := range command.Artifacts {
 		if !relative(path) || path == "." {
 			return fmt.Errorf("invalid artifact path %q", path)
 		}
@@ -54,22 +76,26 @@ var semanticModel = regexp.MustCompile(`^jev-[0-9]+\.[0-9]+\.[0-9]+$`)
 // A semantic-lint check has no command of its own, always executes, and reads
 // its API key from the environment rather than configuration.
 func validateSemanticLint(check Check, env Environment) error {
-	if len(check.Command) > 0 || len(check.RerunCommand) > 0 || len(check.Artifacts) > 0 || check.Preparation != "" || check.Build != "" {
-		return fmt.Errorf("semantic-lint does not accept command, rerun_command, artifacts, preparation, or build")
+	if check.Command != nil {
+		return fmt.Errorf("semantic-lint does not accept command options")
 	}
-	if check.Cache {
-		return fmt.Errorf("semantic-lint results are not cached")
-	}
-	if check.Model != "" && !semanticModel.MatchString(check.Model) {
-		return fmt.Errorf("semantic-lint model %q must be a pinned release such as jev-1.13.0", check.Model)
-	}
-	if check.Base != "" && (strings.HasPrefix(check.Base, "-") || strings.ContainsAny(check.Base, " \t\n\x00")) {
-		return fmt.Errorf("invalid semantic-lint base %q", check.Base)
-	}
-	if err := validateSemanticCredentials(check, env); err != nil {
+	if err := validateSemanticCredentials(env); err != nil {
 		return err
 	}
-	return validateNativeEnvironment(check, env)
+	if check.Semantic == nil {
+		return nil
+	}
+
+	if err := validateDuration(check.Semantic.Timeout); err != nil {
+		return err
+	}
+	if check.Semantic.Model != "" && !semanticModel.MatchString(check.Semantic.Model) {
+		return fmt.Errorf("semantic-lint model %q must be a pinned release such as jev-1.13.0", check.Semantic.Model)
+	}
+	if check.Semantic.Base != "" && (strings.HasPrefix(check.Semantic.Base, "-") || strings.ContainsAny(check.Semantic.Base, " \t\n\x00")) {
+		return fmt.Errorf("invalid semantic-lint base %q", check.Semantic.Base)
+	}
+	return nil
 }
 
 // validateSemanticCredentials keeps the API key and the API origin out of
@@ -77,23 +103,15 @@ func validateSemanticLint(check Check, env Environment) error {
 // declared origin would otherwise decide where the CI secret is sent.
 // Committed PATH or GIT_* values would choose which git runs and how it
 // behaves, and so what the check sends; the host owns those too.
-func validateSemanticCredentials(check Check, env Environment) error {
+func validateSemanticCredentials(env Environment) error {
 	for name := range env.Env {
 		if name == "PATH" || strings.HasPrefix(name, "GIT_") {
 			return fmt.Errorf("semantic-lint runs git from the host environment; remove %s from the environment's env", name)
 		}
 	}
-	for name := range check.Env {
-		if name == "PATH" || strings.HasPrefix(name, "GIT_") {
-			return fmt.Errorf("semantic-lint runs git from the host environment; remove %s from the check's env", name)
-		}
-	}
 	for _, name := range []string{semanticAPIKeyEnv, semanticBaseURLEnv} {
 		if _, declared := env.Env[name]; declared {
 			return fmt.Errorf("semantic-lint reads %s from the host environment; remove it from the environment's env, which is committed configuration", name)
-		}
-		if _, declared := check.Env[name]; declared {
-			return fmt.Errorf("semantic-lint reads %s from the host environment; remove it from the check's env, which is committed configuration", name)
 		}
 	}
 	for _, name := range env.PassEnv {
@@ -107,14 +125,8 @@ func validateSemanticCredentials(check Check, env Environment) error {
 	return nil
 }
 
-func validateNativeEnvironment(check Check, env Environment) error {
-	if err := validateDuration(check.Timeout); err != nil {
-		return err
-	}
+func validateEnvironment(env Environment) error {
 	if err := validateEnv(env.Env); err != nil {
-		return err
-	}
-	if err := validateEnv(check.Env); err != nil {
 		return err
 	}
 	for _, name := range env.PassEnv {

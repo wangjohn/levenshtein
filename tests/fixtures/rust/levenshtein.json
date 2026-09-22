@@ -56,23 +56,25 @@
       "kind": "command",
       "target": "app",
       "environment": "rust",
-      "command": [
-        "cargo",
-        "test",
-        "--workspace",
-        "--locked"
-      ],
-      "rerun_command": [
-        "cargo",
-        "test",
-        "--workspace",
-        "--locked"
-      ],
-      "cache": true,
-      "build": "tests",
-      "artifacts": [
-        "test-executions.txt"
-      ]
+      "command": {
+        "args": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked"
+        ],
+        "rerun_args": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked"
+        ],
+        "build": "tests",
+        "artifacts": [
+          "test-executions.txt"
+        ],
+        "cache": true
+      }
     }
   },
   "runs": {

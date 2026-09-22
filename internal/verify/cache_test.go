@@ -26,8 +26,8 @@ func cacheRequest(t *testing.T) Request {
 	t.Helper()
 	req := nativeRequest(t)
 	req.Shared = t.TempDir()
-	req.Check.Cache = true
-	req.Check.RerunCommand = req.Check.Command
+	req.Check.Command.Cache = true
+	req.Check.Command.RerunArgs = req.Check.Command.Args
 	req.Environment.Identity = "fixture-v1"
 	req.Target.Inputs = []string{"input"}
 	if err := os.WriteFile(filepath.Join(req.Source, "input"), []byte("one"), 0600); err != nil {
@@ -74,7 +74,7 @@ func TestResultCacheInvalidationAndFreshness(t *testing.T) {
 		t.Fatalf("fresh should populate ordinary result: %+v", result)
 	}
 
-	req.Check.Env = map[string]string{"FEATURE": "other"}
+	req.Check.Command.Env = map[string]string{"FEATURE": "other"}
 	if result := runner.Execute(context.Background(), req); result.Cache.Status != CacheMiss {
 		t.Fatalf("variant: %+v", result)
 	}
@@ -88,7 +88,7 @@ func TestResultCacheInvalidationAndFreshness(t *testing.T) {
 
 func TestCacheArtifactsCorruptionAndFailedResults(t *testing.T) {
 	req := cacheRequest(t)
-	req.Check.Artifacts = []string{"report.txt"}
+	req.Check.Command.Artifacts = []string{"report.txt"}
 	cache := &Cache{Dir: t.TempDir()}
 	executor := &countingExecutor{status: StatusPassed, artifact: "report.txt"}
 	runner := CachedExecutor{Cache: cache, Executor: executor}
@@ -110,7 +110,7 @@ func TestCacheArtifactsCorruptionAndFailedResults(t *testing.T) {
 		t.Fatalf("corruption: %+v", result)
 	}
 
-	req.Check.Command = []string{"different"}
+	req.Check.Command.Args = []string{"different"}
 	executor.status = StatusFailed
 	for i := 0; i < 2; i++ {
 		if result := runner.Execute(context.Background(), req); result.Status != StatusFailed || result.Cache.Status == CacheHit {
@@ -125,8 +125,8 @@ func TestCacheArtifactsCorruptionAndFailedResults(t *testing.T) {
 func TestPersistentPreparationAcrossExecutors(t *testing.T) {
 	req := cacheRequest(t)
 	req.Preparation = &Preparation{Command: []string{"/bin/sh", "-c", "echo prep >> count; printf environment > ready"}, Inputs: []string{"lock"}, Outputs: []string{"ready"}}
-	req.Check.Command = []string{"/bin/sh", "-c", "test -f ready"}
-	req.Check.RerunCommand = req.Check.Command
+	req.Check.Command.Args = []string{"/bin/sh", "-c", "test -f ready"}
+	req.Check.Command.RerunArgs = req.Check.Command.Args
 	cache := &Cache{Dir: t.TempDir()}
 	for i := 0; i < 2; i++ {
 		result := (&Native{Cache: cache}).Execute(context.Background(), req)

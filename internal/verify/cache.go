@@ -87,13 +87,13 @@ func (c *Cache) load(req Request, key string) (Result, error) {
 	if err := readRecord(filepath.Join(c.Dir, "results", key+".json"), &e); err != nil {
 		return Result{}, err
 	}
-	if e.Key != key || e.Result.Status != StatusPassed || e.Result.VerifiedAt.IsZero() || len(e.Artifacts) != len(req.Check.Artifacts) {
+	if e.Key != key || e.Result.Status != StatusPassed || e.Result.VerifiedAt.IsZero() || len(e.Artifacts) != len(req.Check.artifacts()) {
 		return Result{}, fmt.Errorf("incomplete cached result")
 	}
 
 	// Validate every output destination before restoring any artifacts.
 	for i, a := range e.Artifacts {
-		if a.Path != req.Check.Artifacts[i] {
+		if a.Path != req.Check.artifacts()[i] {
 			return Result{}, fmt.Errorf("artifact scope mismatch")
 		}
 		if _, err := outputPath(req.Source, a.Path); err != nil {
@@ -123,7 +123,7 @@ func (c *Cache) save(req Request, key string, result Result) error {
 		return err
 	}
 	defer func() { _ = root.Close() }() // Directory handle cleanup; writes are closed separately.
-	for _, path := range req.Check.Artifacts {
+	for _, path := range req.Check.artifacts() {
 		_, err := outputPath(req.Source, path)
 		if err != nil {
 			return err
@@ -166,7 +166,7 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 		return result.withCache(CacheInfo{Status: CacheDisabled, Reason: "vulnerability scans always query current advisory data"})
 	}
 
-	eligible := req.Check.Cache || req.Environment.Executor == ExecutorDagger
+	eligible := req.Check.cacheable() || req.Environment.Executor == ExecutorDagger
 	if c.Cache == nil || !eligible {
 		result := c.Executor.Execute(ctx, req)
 		return result.withCache(CacheInfo{Status: CacheDisabled})

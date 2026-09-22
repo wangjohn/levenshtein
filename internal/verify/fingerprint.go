@@ -121,7 +121,7 @@ func snapshot(root string, paths, excludes []string, outputs bool) (string, erro
 }
 
 func outputPaths(req Request) []string {
-	out := append([]string{}, req.Check.Artifacts...)
+	out := append([]string{}, req.Check.artifacts()...)
 	for _, stage := range req.stages() {
 		out = append(out, stage.definition.Outputs...)
 	}
@@ -184,7 +184,7 @@ func fingerprint(req Request) (string, error) {
 	req.RerunChecks = false
 	var env []string
 	if req.Environment.Executor == ExecutorNative {
-		env = nativeEnv(req, req.Check.Env)
+		env = nativeEnv(req, req.Check.env())
 	}
 	return digest(struct {
 		Check          PlannedCheck
