@@ -171,7 +171,7 @@ func parseFindings(exitCode int, stdout, stderr string, checks []string) ([]diag
 // registered or stops firing fails the self-test instead of passing silently.
 // scripts/test-checks asserts the same list without Dagger.
 var expectedBadCodes = []string{
-	"SA5001", "SA5003", "SA9001", "S1002", "ST1005", "QF1011", "U1000",
+	"SA4006", "SA5001", "SA5003", "SA9001", "S1002", "ST1005", "QF1011", "U1000",
 	"bodyclose", "sqlclosecheck", "rowserrcheck", "noctx", "contextcheck",
 	"errcheck", "exhaustive", "nilness", "unusedwrite", "errorlint", "nilerr", "durationcheck", "reassign", "wastedassign", "musttag", "recvcheck", "nilnesserr", "fatcontext",
 	"appendAssign", "argOrder", "badCall", "badCond", "badRegexp", "codegenComment", "deprecatedComment", "dupArg", "dupBranchBody", "dupCase", "exitAfterDefer", "filepathJoin", "flagDeref", "flagName", "mapKey", "offBy1",

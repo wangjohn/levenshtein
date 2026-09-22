@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-critic/go-critic/checkers"
 	"github.com/go-critic/go-critic/linter"
+	"github.com/wangjohn/levenshtein/runner/lint/policy"
 	"golang.org/x/tools/go/analysis"
 )
 
@@ -75,7 +76,8 @@ func critic(info *linter.CheckerInfo) *analysis.Analyzer {
 				return nil, err
 			}
 			for _, file := range pass.Files {
-				shared.SetFileInfo(filepath.Base(pass.Fset.File(file.FileStart).Name()), file)
+				// A checker that looks at the name sees the original of a cgo file.
+				shared.SetFileInfo(filepath.Base(policy.SourceName(pass.Fset, file)), file)
 				for _, warning := range checker.Check(file) {
 					pass.Report(diagnostic(warning))
 				}

@@ -52,7 +52,7 @@ var skipMethods = map[string]bool{
 
 func runAssertions(pass *analysis.Pass) (any, error) {
 	for _, file := range pass.Files {
-		if ast.IsGenerated(file) || !strings.HasSuffix(pass.Fset.File(file.FileStart).Name(), "_test.go") {
+		if Generated(pass.Fset, file) || !strings.HasSuffix(SourceName(pass.Fset, file), "_test.go") {
 			continue
 		}
 

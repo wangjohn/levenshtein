@@ -2,7 +2,6 @@ package policy
 
 import (
 	"bytes"
-	"go/ast"
 	"go/format"
 	"os"
 
@@ -23,12 +22,20 @@ func runFormatting(pass *analysis.Pass) (any, error) {
 	}
 
 	for _, file := range pass.Files {
-		if ast.IsGenerated(file) {
+		if Generated(pass.Fset, file) {
 			continue
 		}
 
-		name := pass.Fset.File(file.FileStart).Name()
-		source, err := read(name)
+		// For a package that imports "C", the parsed file is cgo's rewrite in
+		// the build cache; the file to check and report is the original.
+		// Pass.ReadFile only permits the rewrite's name, so the original is
+		// read directly.
+		name := SourceName(pass.Fset, file)
+		readSource, start := read, file.FileStart
+		if name != pass.Fset.File(file.FileStart).Name() {
+			readSource, start = os.ReadFile, file.Package
+		}
+		source, err := readSource(name)
 		if err != nil {
 			return nil, err
 		}
@@ -38,7 +45,7 @@ func runFormatting(pass *analysis.Pass) (any, error) {
 			continue
 		}
 		if !bytes.Equal(source, formatted) {
-			pass.Reportf(file.FileStart, "file is not gofmt-formatted; run gofmt -w")
+			pass.Reportf(start, "file is not gofmt-formatted; run gofmt -w")
 		}
 	}
 	return nil, nil

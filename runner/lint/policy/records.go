@@ -18,7 +18,7 @@ var Records = &analysis.Analyzer{
 
 func runRecords(pass *analysis.Pass) (any, error) {
 	for _, file := range pass.Files {
-		if ast.IsGenerated(file) {
+		if Generated(pass.Fset, file) {
 			continue
 		}
 		ast.Inspect(file, func(node ast.Node) bool {
