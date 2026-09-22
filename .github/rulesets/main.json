@@ -49,6 +49,10 @@
           {
             "context": "release-smoke",
             "integration_id": 15368
+          },
+          {
+            "context": "dependency-review",
+            "integration_id": 15368
           }
         ]
       }
