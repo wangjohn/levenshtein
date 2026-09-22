@@ -16,8 +16,21 @@ Consumers pin a release tag, or its commit SHA, as described in
   passed to JSON, XML, YAML, and TOML encoders and decoders), and `recvcheck`
   (types that mix pointer and value receivers). Consumers see their findings
   when they bump their Levenshtein pin.
+- `go-lint` runs go-critic's likely-bug (`diagnostic`) checkers, minus the ones
+  a rule already on repeats, plus `filepathJoin` and `badRegexp`. Each finding's
+  code is the checker's name, such as `offBy1`, so one checker can be ignored or
+  deselected on its own ([selection](docs/checks.md#the-go-critic-selection)).
+- `go-lint` runs `contextcheck`, which reports a function that has a context but
+  calls something that starts its own, so cancelling the caller does not stop
+  the work.
 - [docs/checks.md](docs/checks.md#considered-and-off) lists the analyzers that
   were measured and left out, with the reason for each.
+
+### Fixed
+
+- Input discovery passes the run's context to the `git ls-files` it starts, so
+  cancelling `verify` stops it too, and a cancelled or failed listing is no
+  longer remembered for the rest of the run.
 
 ## [0.1.0] - 2026-09-22
 

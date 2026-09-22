@@ -13,6 +13,7 @@ import (
 	"github.com/gostaticanalysis/nilerr"
 	"github.com/jingyugao/rowserrcheck/passes/rowserr"
 	"github.com/kisielk/errcheck/errcheck"
+	"github.com/kkHAIKE/contextcheck"
 	thelper "github.com/kulti/thelper/pkg/analyzer"
 	"github.com/moricho/tparallel"
 	"github.com/nishanths/exhaustive"
@@ -70,6 +71,10 @@ func resources() []*analysis.Analyzer {
 		sqlclose.NewDeferOnlyAnalyzer(),
 		rowserr.NewAnalyzer(sqlPackages...),
 		noctx.Analyzer,
+		// Staticcheck's runner hands every package fact to its own analyzers
+		// regardless of type, and they panic on another analyzer's fact, so
+		// contextcheck follows call chains within one package only.
+		contextcheck.NewAnalyzer(contextcheck.Configuration{DisableFact: true}),
 	}
 }
 
@@ -207,6 +212,7 @@ func main() {
 
 	command.AddBareAnalyzers(policy.Adapt(resources()...)...)
 	command.AddBareAnalyzers(policy.Adapt(correctness()...)...)
+	command.AddBareAnalyzers(policy.Adapt(critics()...)...)
 	command.AddBareAnalyzers(policy.Adapt(signatures()...)...)
 	command.AddBareAnalyzers(policy.Adapt(hygiene()...)...)
 	command.AddBareAnalyzers(policy.Adapt(modernizers()...)...)

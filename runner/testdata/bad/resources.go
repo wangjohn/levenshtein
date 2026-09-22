@@ -1,8 +1,10 @@
 package bad
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
+	"os/exec"
 )
 
 // bodyclose: the response body is never closed.
@@ -37,4 +39,15 @@ func Scan(db *sql.DB) (int, error) {
 		count++
 	}
 	return count, nil
+}
+
+// list runs a command under a context of its own.
+func list(dir string) ([]byte, error) {
+	return exec.CommandContext(context.Background(), "ls", dir).Output()
+}
+
+// contextcheck: cancelling the caller's context does not stop the command
+// list runs.
+func List(ctx context.Context, dir string) ([]byte, error) {
+	return list(dir)
 }
