@@ -80,6 +80,22 @@ func TestCheckSelectionMatchesTheRunner(t *testing.T) {
 	}
 }
 
+// gocognit is compiled into the linter but opt-in, so the shipped selection a
+// native go-lint reads must keep it off while leaving the rest on.
+func TestShippedSelectionLeavesGocognitOff(t *testing.T) {
+	checks, err := sharedChecks(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if allowed(checks, "gocognit") {
+		t.Errorf("the shipped selection %v reports gocognit", checks)
+	}
+	if !allowed(checks, "errcheck") {
+		t.Errorf("the shipped selection %v drops errcheck", checks)
+	}
+}
+
 func TestCommandFailuresDoNotBecomePassingResults(t *testing.T) {
 	for _, tc := range []struct {
 		check     CheckKind

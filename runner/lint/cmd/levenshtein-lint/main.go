@@ -37,6 +37,7 @@ import (
 	"github.com/sonatard/noctx"
 	"github.com/timakin/bodyclose/passes/bodyclose"
 	"github.com/timonwong/loggercheck"
+	"github.com/uudashr/gocognit"
 	"github.com/wangjohn/levenshtein/runner/lint/policy"
 	"github.com/ykadowak/zerologlint"
 	"go-simpler.org/musttag"
@@ -366,6 +367,31 @@ func modernizers() []*analysis.Analyzer {
 	}
 }
 
+// complexity analyzers report functions too hard to follow. They are
+// registered so a consumer can select them, and the shipped default in
+// runner/toolchain.json turns them off with "-gocognit": a length or nesting
+// threshold is a maintenance judgment, not a bug.
+func complexity() []*analysis.Analyzer {
+	return []*analysis.Analyzer{
+		cognitive(),
+	}
+}
+
+// cognitiveThreshold is the cognitive complexity above which gocognit reports
+// a function. Past 30, a function has more branches and nesting than a reader
+// can hold at once; it is the line golangci-lint's gocognit settings and
+// SonarSource's own guidance treat as hard to maintain.
+const cognitiveThreshold = "30"
+
+// cognitive runs gocognit at a fixed threshold. Its -over flag defaults to 0,
+// which reports every function.
+func cognitive() *analysis.Analyzer {
+	if err := gocognit.Analyzer.Flags.Set("over", cognitiveThreshold); err != nil {
+		panic(err)
+	}
+	return gocognit.Analyzer
+}
+
 // tests analyzers cover mistakes that only appear in _test.go files.
 func tests() []*analysis.Analyzer {
 	return []*analysis.Analyzer{
@@ -415,6 +441,7 @@ func main() {
 	command.AddBareAnalyzers(policy.Adapt(hygiene()...)...)
 	command.AddBareAnalyzers(policy.Adapt(modernizers()...)...)
 	command.AddBareAnalyzers(policy.Adapt(tests()...)...)
+	command.AddBareAnalyzers(policy.Adapt(complexity()...)...)
 	command.AddBareAnalyzers(house()...)
 
 	command.ParseFlags(os.Args[1:])

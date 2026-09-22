@@ -186,7 +186,7 @@ var expectedBadCodes = []string{
 
 func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce string) error {
 	fixtures := dag.CurrentModule().Source().Directory("testdata")
-	for _, name := range []string{"good", "vendored", "embedded", "modernize-legacy"} {
+	for _, name := range []string{"good", "vendored", "embedded", "modernize-legacy", "complexity"} {
 		findings, err := lint(ctx, fixtures.Directory(name), ".", tools, nonce)
 		if err != nil || len(findings) != 0 {
 			return fmt.Errorf("%s fixture must pass: findings=%v error=%v", name, findings, err)
