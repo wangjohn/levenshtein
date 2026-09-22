@@ -30,6 +30,15 @@ Consumers pin a release tag, or its commit SHA, as described in
 - `go-lint` runs `contextcheck`, which reports a function that has a context but
   calls something that starts its own, so cancelling the caller does not stop
   the work.
+- `go-lint` runs six analyzers for known bug patterns: `nilnesserr` (returning
+  an error already known to be nil), `fatcontext` (a context that wraps itself
+  in a loop), `bidichk` (Unicode bidirectional controls that make code display
+  differently than it compiles), `gocheckcompilerdirectives` (misspelled
+  `//go:` directives), `exptostd` (`golang.org/x/exp` calls the standard
+  library replaces), and `usetesting` (tests that leave the environment,
+  working directory, or temporary files changed). None fired on Levenshtein;
+  [docs/checks.md](docs/checks.md#known-bug-patterns) explains why each is on
+  anyway.
 - [docs/checks.md](docs/checks.md#considered-and-off) lists the analyzers that
   were measured and left out, with the reason for each.
 
