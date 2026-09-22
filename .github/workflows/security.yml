@@ -79,26 +79,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # The action needs the repository's dependency graph, which is a
-      # repository setting rather than anything a workflow can turn on. Probe
-      # for it so a repository without it gets a documented skip instead of a
-      # permanent red check; where it is enabled, the review below is a real
-      # gate.
-      - name: Check for the dependency graph
-        id: graph
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          if gh api "repos/$REPOSITORY/dependency-graph/sbom" > /dev/null 2>&1; then
-            echo 'available=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'available=false' >> "$GITHUB_OUTPUT"
-            echo 'Dependency review was skipped: this repository has no dependency graph.' >> "$GITHUB_STEP_SUMMARY"
-            echo 'Enable it under Settings → Code security to gate on added dependencies.' >> "$GITHUB_STEP_SUMMARY"
-          fi
+      # Requires the repository's dependency graph (Settings -> Code security).
+      # Without it the action fails, which is the intended signal.
       - name: Review added dependencies
-        if: steps.graph.outputs.available == 'true'
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: high

@@ -227,6 +227,8 @@ For example, an HTTP service can compose checks using the current versioned inte
 }
 ```
 
+Levenshtein's own `levenshtein.json` is a worked example of splitting executors: `branch` and `pre-merge` bind `go-lint`, `go-vet`, and `workflow-lint` to a [native environment](configuration.md#native-go-checks) for speed, and `main` keeps the same kinds in Dagger as the daily hermetic audit.
+
 A check with [`targets`](configuration.md#one-check-several-targets) plans one check per target: `lint` becomes `lint/api` and `lint/worker`, while `http/api` selects a single target. Each Go check runs for its selected target. Use a repository-root target (`dir: "."`) for `workflow-lint`; a workflow-less repo should omit it. A repository without `levenshtein.json` gets these checks over a single whole-tree target. HTTP and SQL checks do not replace application tests. ShellCheck and Pyflakes integration is explicitly disabled so results do not depend on optional host tools.
 
 Go vet and standalone tool failures retain native output, including file/line details, inside the report's diagnostic message. Their outer location identifies the module/root rather than pretending the message was parsed into individual source diagnostics. Tool errors never pass; govulncheck's vulnerability exit code is distinguished from network or tool failures.

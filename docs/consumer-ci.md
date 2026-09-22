@@ -89,13 +89,13 @@ With no `run` input, the action picks one from the event: a schedule runs `main`
 | `run` | chosen from the event | Run to execute |
 | `source` | `.` | Directory to verify, relative to the workspace |
 | `setup-go` | `true` | Install the Go version this revision pins. Set `false` when the job already provides Go |
-| `cache` | `true` | Restore and save Levenshtein's helper builds, analysis cache, and completed results with `actions/cache` |
+| `cache` | `true` | Restore and save completed results and the Staticcheck analysis cache with `actions/cache` |
 
 The action's outputs are `run`, the run it executed, and `report`, the path to the JSON report. It also writes a status table to the job summary. A failed check fails the step. Make the job a required status check in the application's branch protection or ruleset.
 
 **Pin a release.** `@v0.1.0` names a published [release](releases.md). To pin immutably, use that tag's commit SHA with the version as a comment, as this repository does for every action it calls. Dependabot's `github-actions` ecosystem proposes new Levenshtein releases like any other action, including the SHA and comment. Do not pin a branch.
 
-**Caching and trust.** The cache step keys entries by runner OS, architecture, and job. A pull request's entries live in that pull request's own cache scope, which the default branch never reads, so an untrusted pull request cannot seed `main`'s results. Every result is re-keyed by a content fingerprint before reuse, so a restored directory can only skip work, never change a verdict.
+**Caching and trust.** The action keeps two caches. Completed results are small records, saved per commit from every event and keyed by runner OS, architecture, and job; a pull request's entries live in that pull request's own cache scope, which the default branch never reads, so an untrusted pull request cannot seed `main`'s results. Every result is re-keyed by a content fingerprint before reuse, so a restored directory can only skip work, never change a verdict. The Staticcheck analysis cache, used by native `go-lint`, is saved only from pushes to the default branch and scheduled runs, keyed by a hash of the pinned linter; pull requests restore it and never write it. Helper binaries are not cached, because they rebuild from Go's build cache in seconds.
 
 ## A native lint job without Docker
 
@@ -119,7 +119,7 @@ The action's outputs are `run`, the run it executed, and `report`, the path to t
 }
 ```
 
-The workflow is unchanged. The job needs no container runtime, and the action's cache restores the helper binaries, the Staticcheck analysis cache, and completed results across workers, which Dagger's in-engine cache volumes cannot do on ephemeral runners. A native check's result key includes the host's Go version, operating system, and architecture, so a job that changes runner image or Go version re-verifies rather than reusing another host's verdict.
+The workflow is unchanged. The job needs no container runtime, and the action's caches restore the Staticcheck analysis cache and completed results across workers, which Dagger's in-engine cache volumes cannot do on ephemeral runners; setup-go's cache keeps the helper builds fast. A native check's result key includes the host's Go version, operating system, and architecture, so a job that changes runner image or Go version re-verifies rather than reusing another host's verdict.
 
 ## CircleCI and other providers
 
@@ -130,6 +130,6 @@ git clone --depth 1 --branch v0.1.0 https://github.com/wangjohn/levenshtein ../l
 ../levenshtein/verify pre-merge --source .
 ```
 
-Keep the Levenshtein checkout outside the application directory. Alternatively, download a platform archive from the [release](releases.md), which needs no Go compiler. Configure PR triggers, daily schedules, and required results through the provider. Restore and save a `--cache-dir` outside both checkouts with the provider's cache feature to reuse results across workers.
+Keep the Levenshtein checkout outside the application directory. Alternatively, download a platform archive from the [release](releases.md), which needs no Go compiler. Configure PR triggers, daily schedules, and required results through the provider. Restore and save a `--cache-dir` outside both checkouts with the provider's cache feature to reuse results across workers. Cache its `results/`, `stages/`, and `stat/` directories per commit; its `staticcheck/` directory is shared analysis data that only trusted default-branch jobs should write, and its `tools/` directory rebuilds cheaply.
 
 Cross-worker cache transport beyond that directory and multi-job result aggregation are not implemented; keep required platform jobs individually required. Do not share writable result caches with untrusted PRs. See [the roadmap](roadmap.md#consumer-pilot-acceptance) for planned pilot adoption steps.

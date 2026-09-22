@@ -29,7 +29,8 @@
   },
   "environments": {
     "go": {"executor": "dagger"},
-    "host": {"executor": "native"}
+    "host": {"executor": "native"},
+    "host-go": {"executor": "native"}
   },
   "checks": {
     "go-lint": {"kind": "go-lint", "targets": ["root", "runner", "lint"], "environment": "go"},
@@ -39,19 +40,23 @@
     "go-vuln": {"kind": "go-vuln", "targets": ["root", "runner", "lint"], "environment": "go"},
     "workflow-lint": {"kind": "workflow-lint", "target": "workflows", "environment": "go"},
     "self-test": {"kind": "self-test", "target": "root", "environment": "go"},
-    "semantic-lint": {"kind": "semantic-lint", "target": "repository", "environment": "host"}
+    "semantic-lint": {"kind": "semantic-lint", "target": "repository", "environment": "host"},
+    "native-go-lint": {"kind": "go-lint", "targets": ["root", "runner", "lint"], "environment": "host-go"},
+    "native-go-vet": {"kind": "go-vet", "targets": ["root", "runner", "lint"], "environment": "host-go"},
+    "native-workflow-lint": {"kind": "workflow-lint", "target": "workflows", "environment": "host-go"}
   },
   "runs": {
-    "go-lint": {"checks": ["go-lint"]},
-    "go-vet": {"checks": ["go-vet"]},
+    "go-lint": {"checks": ["native-go-lint"]},
+    "go-vet": {"checks": ["native-go-vet"]},
     "go-http": {"checks": ["go-http"]},
     "go-sql": {"checks": ["go-sql"]},
     "go-vuln": {"checks": ["go-vuln"]},
-    "workflow-lint": {"checks": ["workflow-lint"]},
+    "workflow-lint": {"checks": ["native-workflow-lint"]},
     "self-test": {"checks": ["self-test"]},
     "semantic-lint": {"checks": ["semantic-lint"]},
-    "branch": {"checks": ["go-lint", "go-vet", "workflow-lint"]},
-    "pre-merge": {"checks": ["go-lint", "go-vet", "workflow-lint", "self-test"]},
+    "branch": {"checks": ["native-go-lint", "native-go-vet", "native-workflow-lint"]},
+    "pre-merge": {"checks": ["native-go-lint", "native-go-vet", "native-workflow-lint", "self-test"]},
+    "branch-dagger": {"checks": ["go-lint", "go-vet", "workflow-lint"]},
     "main": {"checks": ["go-lint", "go-vet", "workflow-lint", "self-test", "go-vuln"], "rerun_checks": true}
   }
 }

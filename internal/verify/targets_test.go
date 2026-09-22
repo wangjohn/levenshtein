@@ -7,19 +7,21 @@ import (
 )
 
 // The repository's own configuration declares one check per kind and lets the
-// targets list expand it. These are the check IDs each gate ran before that
-// rewrite, spelled kind/target, so the literal lists below are the contract.
+// targets list expand it. Branch and pre-merge run the static checks natively
+// and main audits them in Dagger, so the literal lists below are the contract.
 func TestRepositoryRunsPlanTheSameCheckIDs(t *testing.T) {
 	cfg, err := Load("../..")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	goChecks := []string{"go-lint/root", "go-lint/runner", "go-lint/lint", "go-vet/root", "go-vet/runner", "go-vet/lint"}
+	native := []string{"native-go-lint/root", "native-go-lint/runner", "native-go-lint/lint", "native-go-vet/root", "native-go-vet/runner", "native-go-vet/lint", "native-workflow-lint"}
+	dagger := []string{"go-lint/root", "go-lint/runner", "go-lint/lint", "go-vet/root", "go-vet/runner", "go-vet/lint", "workflow-lint"}
 	for name, want := range map[string][]string{
-		"branch":    append(slices.Clone(goChecks), "workflow-lint"),
-		"pre-merge": append(slices.Clone(goChecks), "workflow-lint", "self-test"),
-		"main":      append(slices.Clone(goChecks), "workflow-lint", "self-test", "go-vuln/root", "go-vuln/runner", "go-vuln/lint"),
+		"branch":        native,
+		"pre-merge":     append(slices.Clone(native), "self-test"),
+		"branch-dagger": dagger,
+		"main":          append(slices.Clone(dagger), "self-test", "go-vuln/root", "go-vuln/runner", "go-vuln/lint"),
 	} {
 		plan, err := cfg.Plan("../..", name)
 		if err != nil {
@@ -35,6 +37,37 @@ func TestRepositoryRunsPlanTheSameCheckIDs(t *testing.T) {
 		}
 		if !slices.Equal(ids, want) {
 			t.Fatalf("%s planned %v, want %v", name, ids, want)
+		}
+	}
+}
+
+// Fast gates run their static checks on the host and the daily audit keeps
+// the hermetic container path. Only self-test, which exists only in Dagger,
+// may cross that line.
+func TestRepositoryRunsSplitExecutors(t *testing.T) {
+	cfg, err := Load("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, want := range map[string]ExecutorKind{
+		"branch":        ExecutorNative,
+		"pre-merge":     ExecutorNative,
+		"branch-dagger": ExecutorDagger,
+		"main":          ExecutorDagger,
+	} {
+		plan, err := cfg.Plan("../..", name)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+
+		for _, check := range plan.Checks {
+			if check.Check.Kind == CheckSelfTest {
+				continue
+			}
+			if check.Environment.Executor != want {
+				t.Errorf("%s: %s runs on %s, want %s", name, check.ID, check.Environment.Executor, want)
+			}
 		}
 	}
 }
