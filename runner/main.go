@@ -172,8 +172,10 @@ func parseFindings(exitCode int, stdout, stderr string, checks []string) ([]diag
 // scripts/test-checks asserts the same list without Dagger.
 var expectedBadCodes = []string{
 	"SA5001", "SA5003", "SA9001", "S1002", "ST1005", "QF1011", "U1000",
-	"bodyclose", "sqlclosecheck", "rowserrcheck", "noctx",
-	"errcheck", "exhaustive", "nilness", "unusedwrite", "errorlint", "nilerr", "durationcheck", "reassign", "wastedassign",
+	"bodyclose", "sqlclosecheck", "rowserrcheck", "noctx", "contextcheck",
+	"errcheck", "exhaustive", "nilness", "unusedwrite", "errorlint", "nilerr", "durationcheck", "reassign", "wastedassign", "musttag", "recvcheck",
+	"appendAssign", "argOrder", "badCall", "badCond", "badRegexp", "codegenComment", "deprecatedComment", "dupArg", "dupBranchBody", "dupCase", "exitAfterDefer", "filepathJoin", "flagDeref", "flagName", "mapKey", "offBy1",
+	"unparam",
 	"intrange", "usestdlibvars", "perfsprint", "predeclared", "errname",
 	"minmax", "mapsloop", "slicescontains", "stringscutprefix", "stringsseq",
 	"thelper", "tparallel", "testifylint",
@@ -216,7 +218,29 @@ func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce strin
 			return fmt.Errorf("%s fixture must fail for %q; got %v", fixture.name, fixture.message, err)
 		}
 	}
+	if err := modSelfTest(ctx, fixtures, tools, nonce); err != nil {
+		return err
+	}
 	return mutationSelfTest(ctx, fixtures.Directory("mutation"), tools, nonce)
+}
+
+// modSelfTest proves go-mod passes a tidy module and fails an untidy one with
+// tidy's own diff, not a tool error. Both fixtures resolve without a module
+// proxy.
+func modSelfTest(ctx context.Context, fixtures *dagger.Directory, tools toolchain, nonce string) error {
+	tidy, err := goMod(ctx, fixtures.Directory("mod-tidy"), ".", tools, nonce)
+	if err != nil || len(tidy) != 0 {
+		return fmt.Errorf("mod-tidy fixture must pass go-mod: findings=%v error=%v", tidy, err)
+	}
+
+	untidy, err := goMod(ctx, fixtures.Directory("mod-untidy"), ".", tools, nonce)
+	if err != nil {
+		return fmt.Errorf("mod-untidy fixture must fail for its diff, not a tool error: %w", err)
+	}
+	if len(untidy) != 1 || untidy[0].Code != string(checkMod) || !strings.Contains(untidy[0].Message, "-require example.com/mod-untidy/unused v0.0.0") {
+		return fmt.Errorf("mod-untidy fixture must report tidy's diff: %v", untidy)
+	}
+	return nil
 }
 
 // mutationSelfTest runs real gremlins on three fixtures and checks the exact

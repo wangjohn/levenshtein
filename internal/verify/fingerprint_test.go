@@ -49,7 +49,7 @@ func modTime(t *testing.T, path string) time.Time {
 
 func mustSnapshot(t *testing.T, req snapshotRequest) string {
 	t.Helper()
-	value, err := snapshot(req)
+	value, err := snapshot(t.Context(), req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +302,7 @@ func TestGitDiscoveryFollowsTheWorkTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = dir.Close() }()
-	listed, ok := gitFiles(root)
+	listed, ok := gitFiles(t.Context(), root)
 	if !ok {
 		t.Fatal("git listing unavailable inside a work tree")
 	}
@@ -343,7 +343,7 @@ func TestGitDiscoveryRecordsMissingButNotIgnoredInputs(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = dir.Close() }()
-	listed, ok := gitFiles(root)
+	listed, ok := gitFiles(t.Context(), root)
 	if !ok {
 		t.Fatal("git listing unavailable inside a work tree")
 	}
@@ -376,8 +376,32 @@ func TestGitDiscoveryFallsBackOutsideAWorkTree(t *testing.T) {
 	if git != host {
 		t.Fatal("a directory that is not a work tree must fall back to the filesystem walk")
 	}
-	if note := discoveryNote(root, DiscoveryGit); note != "" {
+	if note := discoveryNote(t.Context(), root, DiscoveryGit); note != "" {
 		t.Fatalf("ordinary fallback reported a problem: %q", note)
+	}
+}
+
+// A lookup whose context has ended cannot run git, which says nothing about the
+// work tree. The next lookup must ask git again rather than inherit a
+// filesystem walk for the rest of the run.
+func TestGitDiscoveryDoesNotMemoizeACancelledListing(t *testing.T) {
+	root := gitRepository(t)
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	if _, ok := gitFiles(cancelled, root); ok {
+		t.Fatal("a cancelled lookup listed files")
+	}
+	if note := discoveryNote(cancelled, root, DiscoveryGit); !strings.Contains(note, "git input discovery failed") {
+		t.Fatalf("a cancelled lookup gave no reason: %q", note)
+	}
+
+	listed, ok := gitFiles(t.Context(), root)
+	if !ok || !slices.Contains(listed, "tracked.go") {
+		t.Fatalf("the cancelled lookup was memoized: %v, %v", listed, ok)
+	}
+	if note := discoveryNote(t.Context(), root, DiscoveryGit); note != "" {
+		t.Fatalf("the cancelled lookup's reason outlived it: %q", note)
 	}
 }
 
@@ -460,7 +484,7 @@ func TestGitDiscoveryIgnoresPersonalExcludes(t *testing.T) {
 	}
 	t.Setenv("HOME", home)
 
-	listed, ok := gitFiles(root)
+	listed, ok := gitFiles(t.Context(), root)
 	if !ok {
 		t.Fatal("git listing unavailable inside a work tree")
 	}
@@ -488,7 +512,7 @@ func TestGitDiscoveryIgnoresRelativePathEntries(t *testing.T) {
 	if !ok || !filepath.IsAbs(found) {
 		t.Fatalf("host git = %q, %v", found, ok)
 	}
-	if _, ok := gitFiles(root); !ok {
+	if _, ok := gitFiles(t.Context(), root); !ok {
 		t.Fatal("git listing unavailable inside a work tree")
 	}
 	if _, err := os.Stat(filepath.Join(root, "pwned")); !os.IsNotExist(err) {
@@ -619,7 +643,7 @@ func BenchmarkFingerprint(b *testing.B) {
 			b.StopTimer()
 			stats.configure(b.TempDir())
 			b.StartTimer()
-			if _, err := snapshot(req); err != nil {
+			if _, err := snapshot(b.Context(), req); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -627,11 +651,11 @@ func BenchmarkFingerprint(b *testing.B) {
 
 	b.Run("warm", func(b *testing.B) {
 		stats.configure(b.TempDir())
-		if _, err := snapshot(req); err != nil {
+		if _, err := snapshot(b.Context(), req); err != nil {
 			b.Fatal(err)
 		}
 		for b.Loop() {
-			if _, err := snapshot(req); err != nil {
+			if _, err := snapshot(b.Context(), req); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -650,10 +674,10 @@ func TestDiscoveryNoteExplainsAnIgnoredSourceForGitDiscoveryOnly(t *testing.T) {
 	writeFile(t, filepath.Join(root, ".gitignore"), "*\n")
 	writeFile(t, filepath.Join(root, "input.go"), sourceOne)
 
-	if note := discoveryNote(root, DiscoveryGit); !strings.Contains(note, "lists no files") {
+	if note := discoveryNote(t.Context(), root, DiscoveryGit); !strings.Contains(note, "lists no files") {
 		t.Fatalf("an ignored source must explain its filesystem fallback: %q", note)
 	}
-	if note := discoveryNote(root, DiscoveryFilesystem); note != "" {
+	if note := discoveryNote(t.Context(), root, DiscoveryFilesystem); note != "" {
 		t.Fatalf("a filesystem target has no fallback to explain: %q", note)
 	}
 }

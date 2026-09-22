@@ -117,7 +117,7 @@ func keyWithToolchain(t *testing.T, req Request, toolchain string) string {
 		paths = append(paths, stage.definition.Inputs...)
 	}
 	slices.Sort(paths)
-	source, err := snapshot(snapshotRequest{
+	source, err := snapshot(t.Context(), snapshotRequest{
 		Root:      req.Source,
 		Paths:     paths,
 		Excludes:  append(outputPaths(req), req.Target.Exclude...),
@@ -126,7 +126,7 @@ func keyWithToolchain(t *testing.T, req Request, toolchain string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	impl, err := implementation(req)
+	impl, err := implementation(t.Context(), req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,10 +153,10 @@ func keyWithToolchain(t *testing.T, req Request, toolchain string) string {
 func TestNativeGoFingerprintIncludesTheHostToolchain(t *testing.T) {
 	command := nativeRequest(t)
 
-	if toolchain, err := hostToolchain(command, nativeEnv(command, nil)); err != nil || toolchain != "" {
+	if toolchain, err := hostToolchain(t.Context(), command, nativeEnv(command, nil)); err != nil || toolchain != "" {
 		t.Fatalf("a command check derived a host toolchain: %q, %v", toolchain, err)
 	}
-	key, err := fingerprint(command)
+	key, err := fingerprint(t.Context(), command)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestNativeGoFingerprintIncludesTheHostToolchain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lintKey, err := fingerprint(lint)
+	lintKey, err := fingerprint(t.Context(), lint)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +324,7 @@ func TestSharedGoCheckKeyCoversTheRunner(t *testing.T) {
 				req.Check.Command = &CommandCheck{Args: []string{"true"}}
 			}
 			req.Environment.Executor = executor
-			key, err := fingerprint(req)
+			key, err := fingerprint(t.Context(), req)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -366,6 +366,34 @@ func TestNativeGoCheckWithoutACacheLeavesNoToolDirectory(t *testing.T) {
 	}
 	if len(leftovers) != 0 {
 		t.Fatalf("tool directories were left behind: %v", leftovers)
+	}
+}
+
+// go-mod checks the target module on its own even when a declared go.work
+// covers it. The workspace here lists a member that does not exist, so a check
+// that honored it, as go-vet does, could not load at all; go-mod still reports
+// the target's own untidy manifests.
+func TestNativeGoModIgnoresAWorkspace(t *testing.T) {
+	req := nativeRequest(t)
+	req.Target.Dir = "app"
+	writeTestFile(t, filepath.Join(req.Source, "go.work"), "go 1.27\n\nuse (\n\t./app\n\t./missing\n)\n")
+	writeTestFile(t, filepath.Join(req.Source, "app", "go.mod"), "module example.com/app\n\ngo 1.27\n")
+	writeTestFile(t, filepath.Join(req.Source, "app", "app.go"), "package app\n")
+
+	req.Check = Check{Kind: CheckGoVet, Target: "app", Environment: "host"}
+	if result := (&Native{}).Execute(t.Context(), req); result.Status != StatusError || !strings.Contains(result.Error, "go.work") {
+		t.Fatalf("go-vet should load the broken workspace and fail: %+v", result)
+	}
+
+	req.Check.Kind = CheckGoMod
+	if result := (&Native{}).Execute(t.Context(), req); result.Status != StatusPassed {
+		t.Fatalf("go-mod on a tidy module in a workspace: %+v", result)
+	}
+
+	writeTestFile(t, filepath.Join(req.Source, "app", "go.sum"), "example.com/stray v1.0.0/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=\n")
+	result := (&Native{}).Execute(t.Context(), req)
+	if result.Status != StatusFailed || !strings.Contains(result.Stdout, "-example.com/stray v1.0.0/go.mod") {
+		t.Fatalf("go-mod must report the stray go.sum line as a finding: %+v", result)
 	}
 }
 

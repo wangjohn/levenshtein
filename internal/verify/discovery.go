@@ -3,6 +3,7 @@ package verify
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,20 +34,26 @@ type gitListing struct {
 // matching the run-scoped view the implementation snapshot already takes.
 var gitListings sync.Map
 
-func listing(source string) *gitListing {
+func listing(ctx context.Context, source string) *gitListing {
 	if memoized, ok := gitListings.Load(source); ok {
 		return memoized.(*gitListing)
 	}
 
-	found := listGit(source)
+	found, err := listGit(ctx, source)
+	if err != nil {
+		// A cancelled or failed git run says nothing about the work tree, so it
+		// is not memoized: the next snapshot asks git again rather than walking
+		// the filesystem for the rest of the run.
+		return &gitListing{note: "git input discovery failed, so inputs were enumerated from the filesystem: " + err.Error()}
+	}
 	memoized, _ := gitListings.LoadOrStore(source, found)
 	return memoized.(*gitListing)
 }
 
 // gitFiles reports the work tree's files under source, or false when the caller
 // must walk the filesystem instead.
-func gitFiles(source string) ([]string, bool) {
-	found := listing(source)
+func gitFiles(ctx context.Context, source string) ([]string, bool) {
+	found := listing(ctx, source)
 	return found.files, found.files != nil
 }
 
@@ -59,11 +66,11 @@ func relist(source string) {
 
 // discoveryNote explains why a git-discovery target fell back to a filesystem
 // walk, for the result's cache Reason. It is empty in the ordinary cases.
-func discoveryNote(source string, mode DiscoveryKind) string {
+func discoveryNote(ctx context.Context, source string, mode DiscoveryKind) string {
 	if mode != DiscoveryGit {
 		return ""
 	}
-	return listing(source).note
+	return listing(ctx, source).note
 }
 
 // hostGit finds git on the process PATH, considering absolute entries only. A
@@ -92,7 +99,11 @@ func hostGit() (string, bool) {
 // would also honour the developer's core.excludesFile and .git/info/exclude, so
 // an untracked input one person ignores privately would leave their fingerprint
 // and not a colleague's; core.excludesFile is also cleared explicitly.
-func listGit(source string) *gitListing {
+//
+// A directory outside any work tree, or a host without git, is an ordinary
+// answer. An error means git could not answer this time, including when ctx
+// ends first.
+func listGit(ctx context.Context, source string) (*gitListing, error) {
 	env := []string{}
 	for _, name := range []string{"PATH", "HOME"} {
 		if value, ok := os.LookupEnv(name); ok {
@@ -101,10 +112,10 @@ func listGit(source string) *gitListing {
 	}
 	path, ok := hostGit()
 	if !ok {
-		return &gitListing{}
+		return &gitListing{}, nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, "-c", "core.excludesFile=", "ls-files", "-z", "--cached", "--others", "--exclude-per-directory=.gitignore")
 	cmd.Dir = source
@@ -113,9 +124,9 @@ func listGit(source string) *gitListing {
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
 		if strings.Contains(stderr.String(), "not a git repository") {
-			return &gitListing{}
+			return &gitListing{}, nil
 		}
-		return &gitListing{note: "git input discovery failed, so inputs were enumerated from the filesystem: " + strings.TrimSpace(stderr.String()+" "+err.Error())}
+		return nil, errors.New(strings.TrimSpace(stderr.String() + " " + err.Error()))
 	}
 
 	var files []string
@@ -132,9 +143,9 @@ func listGit(source string) *gitListing {
 	// Fingerprinting almost nothing would make unrelated trees look identical,
 	// so walk the filesystem and say why.
 	if len(files) == 0 {
-		return &gitListing{note: "git lists no files under the source, so inputs were enumerated from the filesystem"}
+		return &gitListing{note: "git lists no files under the source, so inputs were enumerated from the filesystem"}, nil
 	}
 
 	sort.Strings(files)
-	return &gitListing{files: files}
+	return &gitListing{files: files}, nil
 }

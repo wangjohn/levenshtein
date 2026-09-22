@@ -13,8 +13,12 @@ Every shared check kind runs the same pinned tools locally and in any CI provide
 | `U1000` | Unused unexported code |
 | `errcheck` | Report implicitly discarded errors; explicit `_ =` remains allowed |
 | `exhaustive` | Require enum switches to cover declared values |
-| `bodyclose`, `sqlclosecheck`, `rowserrcheck`, `noctx` | Resources a program opens and never closes, and calls that drop the context |
+| `bodyclose`, `sqlclosecheck`, `rowserrcheck`, `noctx`, `contextcheck` | Resources a program opens and never closes, and calls that drop the context ([settings](#upstream-analyzer-settings)) |
 | `nilness`, `unusedwrite`, `errorlint`, `nilerr`, `durationcheck`, `reassign`, `wastedassign` | Behavior that is wrong rather than unidiomatic |
+| `musttag` | Tag every exported field of a struct passed to a JSON, XML, YAML, or TOML encoder or decoder, so renaming a Go field cannot silently change the format ([settings](#upstream-analyzer-settings)) |
+| `recvcheck` | Give a type all pointer or all value receivers; a mix means a value and a pointer have different method sets, and value methods work on a copy |
+| `appendAssign`, `argOrder`, `badCall`, `badCond`, `badRegexp`, `codegenComment`, `deprecatedComment`, `dupArg`, `dupBranchBody`, `dupCase`, `exitAfterDefer`, `filepathJoin`, `flagDeref`, `flagName`, `mapKey`, `offBy1` | go-critic's likely-bug checks that no rule above already reports ([selection](#the-go-critic-selection)) |
+| `unparam` | Unexported functions with a parameter no caller needs, a parameter that always receives the same value, or a result no caller uses |
 | `intrange`, `usestdlibvars`, `perfsprint`, `predeclared`, `errname` | Modern, consistent standard-library usage |
 | `minmax`, `mapsloop`, `slicescontains`, `stringscutprefix`, `stringsseq` | Hand-written loops and comparisons that one standard-library call replaces; `go fix` applies the fix |
 | `thelper`, `tparallel`, `testifylint` | Mistakes that only appear in `_test.go` files |
@@ -75,6 +79,86 @@ The rest of the suite stays off:
 - `importcomment`, `reflecttypeassert`, `slicesbackward`, `slicesclip`, and `unsafefuncs` are in the suite but unexported at this release, so the linter cannot register them on their own. `go fix` still applies them.
 
 To revisit the selection after a `golang.org/x/tools` upgrade, run `go fix -diff ./...` in the repository and compare what changed against this list.
+
+## The go-critic selection
+
+[go-critic](https://go-critic.com/overview.html) tags each of its checkers. The `diagnostic` tag marks likely bugs; `style`, `performance`, and `opinionated` are advice, and `experimental` marks checkers upstream has not settled. The linter runs the stable `diagnostic` checkers, minus four that repeat a rule already on, plus two experimental ones that nothing else covers.
+
+Each checker is registered as its own analyzer, so a finding's code is the checker's name, as with the modernize rules. `//lint:ignore offBy1 reason` silences one checker on one line, and `-checks='all,...,-offBy1'` turns one off; there is no single `gocritic` code or glob that covers them all.
+
+| Checker | Reports |
+| --- | --- |
+| `appendAssign` | `x = append(y, ...)` where `y` is not `x`, usually a copy-paste slip |
+| `argOrder` | Arguments that look swapped, such as `strings.HasPrefix("#", line)` |
+| `badCall` | A call that does nothing useful, such as `strings.SplitN(s, sep, 0)` or `filepath.Join` of one element |
+| `badCond` | A condition that is always true or false, or a loop condition that points the wrong way |
+| `badRegexp` | A valid regular expression with a likely mistake, such as a repeated character in a class; experimental upstream |
+| `codegenComment` | A generated-file comment tools do not recognize, so the file is linted and reviewed as hand-written |
+| `deprecatedComment` | A deprecation notice not written as `Deprecated: `, which tools and pkg.go.dev then miss |
+| `dupArg` | The same argument twice where that is a no-op, such as `copy(dst, dst)` |
+| `dupBranchBody` | An `if` whose two branches are identical |
+| `dupCase` | A `switch` case listed twice, which can never match the second time |
+| `exitAfterDefer` | `log.Fatal` or `os.Exit` in a function with deferred calls that will not run |
+| `filepathJoin` | A path separator inside one `filepath.Join` element; experimental upstream, and it found two in Levenshtein's own tests |
+| `flagDeref` | Dereferencing a `flag` pointer at definition, which reads the default instead of the parsed value |
+| `flagName` | A flag name with whitespace that no command line can pass |
+| `mapKey` | A map literal key with stray whitespace next to keys without it |
+| `offBy1` | Indexing a slice at its length, which always panics |
+
+These stable diagnostic checkers are off because a rule already on reports the same line. Each was confirmed on a sample where both fire:
+
+| Checker | Already reported by |
+| --- | --- |
+| `caseOrder` | `SA4020`, an unreachable case in a type switch |
+| `dupSubExpr` | `SA4000`, identical operands on both sides of `==`, `-`, `&&`, and the other binary operators |
+| `sloppyLen` | `SA4024` for `len(x) < 0`; its other finding, `len(x) <= 0`, is a spelling preference |
+| `sloppyTypeAssert` | `S1040`, a type assertion to the type the value already has |
+
+`badCall` overlaps in part: `SA1018` also reports `strings.Replace` with a count of zero, and `SA4021` a single-argument `append`, so those two lines get a finding from each. It stays on because nothing else reports its `SplitN` and one-element `filepath.Join` cases.
+
+The other experimental checkers stay off. Five of them looked like candidates and were checked one by one: four repeat a rule already on, confirmed on a sample where both fire, and one is taste.
+
+| Checker | Why it is off |
+| --- | --- |
+| `builtinShadowDecl` | `predeclared` reports the same declaration |
+| `externalErrorReassign` | `reassign` reports the same assignment |
+| `nilValReturn` | `nilerr` reports the same `return err` inside `if err == nil` |
+| `dynamicFmtString` | `SA1006` reports the same call, and `go vet`'s printf check does too |
+| `sloppyReassign` | Taste: it asks for `err :=` in place of `err =`, which can introduce shadowing |
+
+To revisit the selection after a go-critic upgrade, run the linter test in `runner/lint` (`TestCriticSelection` pins the list) and compare the new checkers against this page.
+
+## Upstream analyzer settings
+
+Four of the upstream analyzers above need a word about scope:
+
+- `unparam` skips exported functions, its own default. The linter checks one package at a time, so it cannot see callers in other packages, and changing an exported signature would break them. Functions in a `main` package are checked either way, since nothing can import them. A package is also checked without its tests, so a parameter that receives the same value at four or more call sites in non-test code is reported even when a test passes other values.
+- `musttag` checks the calls it knows: `encoding/json`, `encoding/xml`, `gopkg.in/yaml.v3`, `github.com/BurntSushi/toml`, `github.com/mitchellh/mapstructure`, and `github.com/jmoiron/sqlx`. It skips named struct types declared outside the module that contains the package, found from the nearest `go.mod`, and types that implement the matching marshaler interface. A field tagged with the name it already had, such as `json:"Checksum"`, is the fix that keeps existing data readable. The analyzer skips an argument that is a bare variable name, because Staticcheck's loader parses without the object resolution it uses to tell a variable from `nil`, so `json.Marshal(value)` is not checked while `json.Marshal(&value)`, `json.Unmarshal(data, &value)`, and a composite literal are.
+- `contextcheck` reports a function that has a context but calls something that starts its own, directly or through a chain of calls, so cancelling the caller does not stop the work. It follows those chains within one package only: Staticcheck's runner hands every package fact to its own analyzers regardless of type, and they panic on the facts contextcheck exports, so it runs with facts off. A call into another package that makes its own context is missed rather than misreported. Its known false alarms are work that is meant to outlive the caller, such as a cleanup after cancellation or a goroutine that finishes a request's side effects: derive that context with `context.WithoutCancel(ctx)`, which the check accepts and which keeps the caller's values, or use `//lint:ignore contextcheck reason` on the call. A function that returns a context is treated as a constructor and not reported, and an HTTP handler is treated as having the request's context.
+- `recvcheck` keeps its built-in exclusions for `UnmarshalText`, `UnmarshalJSON`, `UnmarshalYAML`, `UnmarshalXML`, `UnmarshalBinary`, and `GobDecode`, which need a pointer receiver even on a type whose other methods take values. Methods declared in generated files do not count: code generators such as Dagger's add a value-receiver `MarshalJSON` to a type whose hand-written methods take pointers, and nobody can change the generated receiver.
+
+## Considered and off
+
+These analyzers were measured against this repository and left out. Counts are findings on Levenshtein's own modules.
+
+| Analyzer | Why it is off |
+| --- | --- |
+| `noinlineerr` | 175 findings on the idiomatic `if err := f(); err != nil` form; house taste, not a bug |
+| `paralleltest` | 122 findings asking every test to call `t.Parallel()`; whether a test can run in parallel is the author's call, and `tparallel` already reports the inconsistent case |
+| `err113` | 100 findings asking for package-level sentinel errors instead of errors built in place; house taste |
+| `goconst` | 90 findings on repeated string literals; a constant does not make a repeated message or test input clearer |
+| `wrapcheck` | 85 findings asking for every error returned from another package to be wrapped; house taste |
+| `cyclop` | 50 findings on cyclomatic complexity, a threshold with no bug behind it |
+| `testpackage` | 25 findings asking for external `_test` packages; white-box tests are a legitimate choice |
+| `gochecknoglobals` | 33 findings, all read-only lookup tables and fixed configuration such as check-kind lists |
+| `govet` `shadow` | 13 findings, every one an `err` declared again in a nested scope |
+| `gosec` | Its findings were file-permission and `exec` noise, and its taint findings were false alarms |
+| `nilnil` | Flags the idiomatic `return nil, nil` in `go/analysis` run functions |
+| `forcetypeassert` | Only hit `sync.Map` loads whose type is fixed by construction |
+| `unconvert` | A false alarm on a syscall conversion that another OS needs |
+| `dupword` | Its findings were intended repeated words |
+| `copyloopvar` | Obsolete since Go 1.22 gave each loop iteration its own variable |
+| `nolintlint` | Staticcheck already reports a `//lint:ignore` directive that matches nothing |
 
 ## Typed choices: LV1001
 
@@ -196,6 +280,7 @@ Runs select checks by name; existing CI still owns triggers and schedules.
 | --- | --- | --- |
 | `go-lint` | The whole default set above: Staticcheck `SA*`/`S1*`/`ST1*`/`QF1*`/`U1000`, the curated upstream and modernize analyzers, and LV1001–LV1006 | Branch and pre-merge |
 | `go-vet` | The pinned Go toolchain's default vet checks | Branch and pre-merge |
+| `go-mod` | `go mod tidy -diff` and `go mod verify`: manifests tidy, downloads matching `go.sum` ([details](#module-manifests)) | Branch and pre-merge |
 | `go-http` | bodyclose alone, for a repo that wants the resource check without the rest | HTTP clients/services |
 | `go-sql` | sqlclosecheck alone, for a repo that wants the resource check without the rest | Database users |
 | `workflow-lint` | actionlint: GitHub Actions syntax and expressions | Repos with GitHub Actions |
@@ -227,11 +312,21 @@ For example, an HTTP service can compose checks using the current versioned inte
 }
 ```
 
-Levenshtein's own `levenshtein.json` is a worked example of splitting executors: `branch` and `pre-merge` bind `go-lint`, `go-vet`, and `workflow-lint` to a [native environment](configuration.md#native-go-checks) for speed, and `main` keeps the same kinds in Dagger as the daily hermetic audit.
+Levenshtein's own `levenshtein.json` is a worked example of splitting executors: `branch` and `pre-merge` bind `go-lint`, `go-vet`, `go-mod`, and `workflow-lint` to a [native environment](configuration.md#native-go-checks) for speed, and `main` keeps the same kinds in Dagger as the daily hermetic audit. Its `go-mod` check covers the root module, `runner/lint`, and `runner/tools`, but not `runner`, whose `go.mod` `dagger develop` rewrites on every regeneration.
 
 A check with [`targets`](configuration.md#one-check-several-targets) plans one check per target: `lint` becomes `lint/api` and `lint/worker`, while `http/api` selects a single target. Each Go check runs for its selected target. Use a repository-root target (`dir: "."`) for `workflow-lint`; a workflow-less repo should omit it. A repository without `levenshtein.json` gets these checks over a single whole-tree target. HTTP and SQL checks do not replace application tests. ShellCheck and Pyflakes integration is explicitly disabled so results do not depend on optional host tools.
 
 Go vet and standalone tool failures retain native output, including file/line details, inside the report's diagnostic message. Their outer location identifies the module/root rather than pretending the message was parsed into individual source diagnostics. Tool errors never pass; govulncheck's vulnerability exit code is distinguished from network or tool failures.
+
+### Module manifests
+
+`go-mod` runs `go mod tidy -diff`, then `go mod verify`, in the target module. A module whose `go.mod` or `go.sum` differs from what `go mod tidy` would write fails with tidy's own diff as the finding; so does a downloaded dependency that no longer matches the hash recorded when it was fetched, or a download that disagrees with `go.sum` (Go's `SECURITY ERROR`). Both commands exit 1 for a finding and for a failure alike, so the output decides: anything else, such as an unreachable module proxy or a private module the check cannot fetch, is an error, never a pass. The check loads no packages, so a module that only pins tools is still checked; a target without a `go.mod` is an error.
+
+- **Workspaces.** `go-mod` always runs with `GOWORK=off`. `go mod tidy` checks one module's own manifests whatever workspace it belongs to, and `go mod verify` then covers that module's requirements rather than every workspace member's. Give each workspace module its own target.
+- **Vendored modules.** Neither command reads `vendor/`: tidy resolves from `go.mod`, `go.sum`, and the module proxy, so `go-mod` needs the proxy (and, natively, any `GOPRIVATE`/`GOPROXY`/credential settings passed with `pass_env`) even for a module that vendors its dependencies. The Dagger container has no private-module credentials. The go command already refuses a `vendor/modules.txt` that disagrees with `go.mod` when `go-vet` or `go-lint` loads packages. A repository that must verify offline leaves `go-mod` out of its runs.
+- **Caching.** `go mod verify` checks the module cache as it is now, which no input fingerprint covers, so like `go-vuln` a `go-mod` result is never reused, on either executor, and each Dagger call gets a fresh nonce; a direct Dagger `sharedCheck` call for `go-mod` without one is refused. With the modules already downloaded it takes a few seconds.
+
+Without a `levenshtein.json`, `go-mod` is part of the default `branch`, `pre-merge`, and `main` runs over the root module.
 
 ### Errors and enum switches
 
@@ -241,7 +336,7 @@ Keep errcheck's upstream exclusions for operations documented never to fail. Int
 
 Dagger shares pinned tool builds, dependency downloads, and compiler caches. Staticcheck retains its own analysis cache. The default selection expands only when a pinned analyzer version changes; review new findings with dependency upgrades.
 
-Vulnerability data can change without source changes. A `go-vuln` check always bypasses the local result cache, even with `cache: true` and in custom runs. The Dagger executor generates a unique nonce before invoking `sharedCheck`; the nonce enters after tool construction, forcing a new advisory lookup and scan while reusing tool builds. Ordinary checks retain their result caches. Direct Dagger callers must supply a unique `nonce` for each vulnerability invocation.
+Vulnerability data can change without source changes. A `go-vuln` check always bypasses the local result cache, even with `cache: true` and in custom runs. The Dagger executor generates a unique nonce before invoking `sharedCheck`; the nonce enters after tool construction, forcing a new advisory lookup and scan while reusing tool builds. Ordinary checks retain their result caches. Direct Dagger callers must supply a unique `nonce` for each vulnerability or `go-mod` invocation; `sharedCheck` refuses either without one.
 
 The report does not claim an immutable vulnerability-database snapshot. Network/database failures fail verification. Levenshtein's daily `main` run includes the scan; consumer CI owns its daily and dependency-change triggers. Pinned standalone tools live in `runner/tools/go.mod`, separate from Staticcheck's analysis dependencies in `runner/lint/go.mod`.
 

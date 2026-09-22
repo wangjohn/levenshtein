@@ -2,6 +2,7 @@ package verify
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -173,8 +174,33 @@ func TestArtifactRestorationRejectsSymlink(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(root, "alias")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := outputPath(root, "alias/report"); err == nil {
+	if err := checkOutputPath(root, "alias/report"); err == nil {
 		t.Fatal("artifact escaped through alias")
+	}
+}
+
+func TestRecordLayoutMatchesUntaggedEnvelope(t *testing.T) {
+	data := json.RawMessage(`{"Key":"untagged"}`)
+	untagged := `{"Checksum":"` + digest(data) + `","Data":` + string(data) + `}`
+	path := filepath.Join(t.TempDir(), "record.json")
+	if err := os.WriteFile(path, []byte(untagged), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	var e entry
+	if err := readRecord(path, &e); err != nil || e.Key != "untagged" {
+		t.Fatalf("record written before the envelope had tags: entry %+v, error %v", e, err)
+	}
+
+	if err := writeRecord(path, map[string]string{"Key": "untagged"}); err != nil {
+		t.Fatal(err)
+	}
+	written, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(written) != untagged {
+		t.Fatalf("writeRecord changed the on-disk layout:\n got %s\nwant %s", written, untagged)
 	}
 }
 
