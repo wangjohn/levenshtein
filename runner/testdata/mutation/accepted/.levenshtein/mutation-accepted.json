@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "accepted": [
+    {
+      "file": "clamp.go",
+      "mutator": "CONDITIONALS_BOUNDARY",
+      "line": "if n < lo {",
+      "reason": "n == lo returns lo either way"
+    },
+    {
+      "file": "clamp.go",
+      "mutator": "CONDITIONALS_BOUNDARY",
+      "line": "if n > hi {",
+      "reason": "n == hi returns hi either way"
+    }
+  ]
+}

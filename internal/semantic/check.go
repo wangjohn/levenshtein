@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/wangjohn/levenshtein/internal/gitchange"
 	"sync"
 )
 
@@ -102,11 +104,11 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 	report := Report{Version: 1, Mode: ModeAdvisory, Catalog: CatalogVersion, Model: opts.Client.Model, Findings: []Finding{}, Judgments: []Judgment{}}
 	git := gitRunner{Git: opts.Git, Dir: opts.Source, Env: opts.Env}
 
-	top, err := git.run(ctx, "rev-parse", "--show-toplevel")
+	top, err := git.Run(ctx, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return report, err
 	}
-	prefix, err := sourcePrefix(strings.TrimSpace(top), opts.Source)
+	prefix, err := gitchange.SourcePrefix(strings.TrimSpace(top), opts.Source)
 	if err != nil {
 		return report, err
 	}
@@ -200,23 +202,6 @@ func askAll(ctx context.Context, opts Options, requests []request) ([]wireRespon
 		}
 	}
 	return responses, nil
-}
-
-// sourcePrefix maps git's toplevel-relative paths onto the verified source directory.
-func sourcePrefix(top, source string) (string, error) {
-	top, topErr := filepath.EvalSymlinks(top)
-	source, sourceErr := filepath.EvalSymlinks(source)
-	if topErr != nil || sourceErr != nil {
-		return "", fmt.Errorf("cannot resolve git worktree %q for source %q", top, source)
-	}
-	rel, err := filepath.Rel(top, source)
-	if err != nil || !filepath.IsLocal(rel) && rel != "." {
-		return "", fmt.Errorf("source %q is outside the git worktree %q", source, top)
-	}
-	if rel == "." {
-		return "", nil
-	}
-	return filepath.ToSlash(rel) + "/", nil
 }
 
 func buildRequests(opts Options, change Change, prefix string) ([]request, []string) {

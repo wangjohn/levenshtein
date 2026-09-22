@@ -224,8 +224,8 @@ process exit code described above.
   analyzers listed in [Go lint rules](checks.md#go-lint-rules), and the house rules
   `LV1001`-`LV1006` in `runner/lint/policy`) do not leak into the Dagger
   module's own dependency resolution.
-- **`runner/tools/`** (`runner/tools/go.mod`): pins `actionlint` and
-  `govulncheck` via Go's `tool` directive, so their versions are locked
+- **`runner/tools/`** (`runner/tools/go.mod`): pins `actionlint`,
+  `govulncheck`, and `gremlins` via Go's `tool` directive, so their versions are locked
   independently of the modules that build and run them.
 
 ## `sdk/patched-go`
