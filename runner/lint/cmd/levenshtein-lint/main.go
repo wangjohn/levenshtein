@@ -112,7 +112,8 @@ func formatting() *analysis.Analyzer {
 // library call that says the same thing. Go 1.26+ `go fix` applies the whole
 // modernize suite; this is the subset measured to fire on real code, with a
 // result that reads better, and that no rule above already reports (rangeint
-// repeats intrange). The fix is always `go fix ./...`.
+// repeats intrange). The fix is `go fix -minmax -mapsloop -slicescontains -stringscutprefix -stringsseq ./...`;
+// a bare `go fix ./...` also applies the rewrites left off here.
 func modernizers() []*analysis.Analyzer {
 	return []*analysis.Analyzer{
 		modernize.MinMaxAnalyzer,

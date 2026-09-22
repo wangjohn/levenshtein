@@ -51,7 +51,7 @@ func checkParallelism(n int) int {
 		return 1
 	}
 
-	limit := max(min(runtime.GOMAXPROCS(0), maxCheckParallelism), 1)
+	limit := min(runtime.GOMAXPROCS(0), maxCheckParallelism)
 	if n < limit {
 		return n
 	}
