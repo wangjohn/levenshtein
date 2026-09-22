@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"unicode"
 )
@@ -148,6 +149,57 @@ func commandFindings(check CheckKind, module string, exitCode int, stdout, stder
 	}
 	return []finding{{
 		Code:     string(check),
+		Message:  message,
+		Location: location{File: module, Line: 1},
+	}}, nil
+}
+
+// modStep is one of the two go commands a go-mod check runs, in order: whether
+// go.mod and go.sum are already what tidy would write, then whether the
+// downloaded dependencies still match the hashes go.sum recorded.
+type modStep string
+
+const (
+	modTidy   modStep = "tidy -diff"
+	modVerify modStep = "verify"
+)
+
+var modSteps = []modStep{modTidy, modVerify}
+
+func (s modStep) args() []string {
+	return append([]string{"go", "mod"}, strings.Fields(string(s))...)
+}
+
+// modifiedModule is how go mod verify names a download that no longer matches
+// the hash recorded when it was fetched.
+var modifiedModule = regexp.MustCompile(`(?m)^\S+ \S+: (zip has been modified|dir has been modified|missing ziphash)`)
+
+// modFindings tells a go-mod step's diagnostics from a tool error. Both
+// commands exit 1 either way, so the output decides: tidy -diff prints a diff
+// on stdout only when the manifests are untidy, verify names each module whose
+// download was modified, and either reports a SECURITY ERROR when a download
+// disagrees with go.sum. Anything else, such as an unreachable module proxy, is
+// an error and never a pass. The native output is kept, as commandFindings
+// keeps it. runner/checks.go keeps a copy for the Dagger path; change both
+// together.
+func modFindings(step modStep, module string, exitCode int, stdout, stderr string) ([]finding, error) {
+	if exitCode == 0 {
+		return nil, nil
+	}
+
+	message := strings.TrimSpace(stdout + "\n" + stderr)
+	mismatch := strings.Contains(stderr, "SECURITY ERROR")
+	switch step {
+	case modTidy:
+		mismatch = mismatch || strings.TrimSpace(stdout) != ""
+	case modVerify:
+		mismatch = mismatch || modifiedModule.MatchString(stderr)
+	}
+	if exitCode != 1 || !mismatch {
+		return nil, fmt.Errorf("go mod %s exited %d: %s", step, exitCode, message)
+	}
+	return []finding{{
+		Code:     string(CheckGoMod),
 		Message:  message,
 		Location: location{File: module, Line: 1},
 	}}, nil

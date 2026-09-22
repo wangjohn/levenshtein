@@ -189,12 +189,13 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 		defer unlock()
 	}
 
-	// Advisory data changes independently of source fingerprints. Never reuse
-	// a vulnerability verdict, even when the consumer enables result caching.
-	if req.Check.Kind == CheckGoVuln {
+	// Some verdicts depend on state that changes independently of source
+	// fingerprints. Never reuse one, even when the consumer enables result
+	// caching.
+	if reason := alwaysFresh[req.Check.Kind]; reason != "" {
 		req.RerunChecks = true
 		result := c.Executor.Execute(ctx, req)
-		return result.withCache(CacheInfo{Status: CacheDisabled, Reason: "vulnerability scans always query current advisory data"})
+		return result.withCache(CacheInfo{Status: CacheDisabled, Reason: reason})
 	}
 
 	// The files a go-mutation run mutates depend on where the base branch

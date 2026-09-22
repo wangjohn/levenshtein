@@ -35,8 +35,8 @@ builds a `Dagger` executor and a `Native` executor, wraps both in
   inputs are enumerated.
 - **Environment**: an `executor` (`dagger` or `native`), plus native-only
   options such as `identity`, `env`, `pass_env`, and pinned `tools`.
-- **Check**: a `kind` (`go-lint`, `go-vet`, `go-http`, `go-sql`, `go-vuln`,
-  `workflow-lint`, `self-test`, `command`, `semantic-lint`) bound to an
+- **Check**: a `kind` (`go-lint`, `go-vet`, `go-mod`, `go-http`, `go-sql`,
+  `go-vuln`, `workflow-lint`, `self-test`, `command`, `semantic-lint`) bound to an
   environment and to either one `target` or a list of `targets`, plus
   kind-specific options for `command` and `semantic-lint` checks (see
   [configuration](configuration.md)). `internal/verify/validation.go` enforces
@@ -96,7 +96,7 @@ instead.
 ### Native executor
 
 `internal/verify/native.go` runs `command`, `semantic-lint`, and the shared Go
-kinds `go-lint`, `go-vet`, `workflow-lint` and `go-vuln` as trusted host
+kinds `go-lint`, `go-vet`, `go-mod`, `workflow-lint` and `go-vuln` as trusted host
 processes (macOS or Linux only). There is no sandbox, so native
 commands have full host access. Before running, `validateTools` executes each
 `Environment.Tool`'s version command and compares its trimmed stdout against
@@ -109,8 +109,8 @@ still match a recorded run, which requires the environment to declare an
 
 #### Shared Go kinds on the native executor
 
-`internal/verify/kinds.go` registers `go-lint`, `go-vet`, `workflow-lint` and
-`go-vuln` for the native executor as well as the Dagger one; `self-test`,
+`internal/verify/kinds.go` registers `go-lint`, `go-vet`, `go-mod`,
+`workflow-lint` and `go-vuln` for the native executor as well as the Dagger one; `self-test`,
 `go-http` and `go-sql` stay Dagger-only. `internal/verify/gotools.go` builds the
 helper binaries (`levenshtein-lint` from `runner/lint`, `actionlint` and
 `govulncheck` from `runner/tools`) out of the pinned shared checkout into
@@ -124,11 +124,14 @@ the runner's nonce — and reads the rule list from the shared checkout's
 `runner/toolchain.json` rather than repeating it. Every Go invocation runs
 with `GOTOOLCHAIN=local` and `GOWORK` set to what the container would see:
 the nearest declared `go.work` between the target directory and the source
-root (`workspace` in `gochecks.go`), or `off`. Without a cache directory, a
+root (`workspace` in `gochecks.go`), or `off`. `go-mod` is the exception: it
+needs only a readable `go.mod`, not packages, and always runs `go mod tidy
+-diff` and `go mod verify` with `GOWORK=off` on both executors, because tidy
+checks one module's own manifests. Without a cache directory, a
 check's tools go into a temporary directory removed when it finishes.
 
 `internal/verify/findings.go` is a deliberate copy of the runner's
-`parseFindings`/`commandFindings` and of its check-selection filter
+`parseFindings`/`commandFindings`/`modFindings` and of its check-selection filter
 (`allowed`/`selects`), since `runner` is a separate `package main` module
 that cannot be imported. Both filters are tested against one table,
 `runner/testdata/selection.json`, so they cannot drift apart unnoticed. It
@@ -198,9 +201,12 @@ native `command` checks with `cache: true`), it:
    the `.retry` marker left behind forces the next attempt to bypass any
    cached verdict, even if the fingerprint would otherwise hit.
 
-`go-vuln` is never cached: `CachedExecutor.Execute` forces `RerunChecks` and
-returns `CacheStatus: "disabled"` for it unconditionally, because
-vulnerability data changes independently of source fingerprints.
+`go-vuln` and `go-mod` are never cached: `CachedExecutor.Execute` forces
+`RerunChecks` and returns `CacheStatus: "disabled"` for them unconditionally
+(the `alwaysFresh` table in `kinds.go`), and the Dagger executor gives each
+call a nonce. Vulnerability data changes independently of source
+fingerprints, and `go mod verify` checks the module cache, which no
+fingerprint covers.
 
 ## Report and exit codes
 

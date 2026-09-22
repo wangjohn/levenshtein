@@ -9,6 +9,26 @@ Consumers pin a release tag, or its commit SHA, as described in
 
 ## [Unreleased]
 
+### Added
+
+- `go-mod`, a shared check on both executors that runs `go mod tidy -diff` and
+  `go mod verify` in the target module. Untidy manifests fail with tidy's diff,
+  and a download that no longer matches its recorded hash or `go.sum` fails too;
+  an unreachable module proxy is an error, never a pass. It runs with
+  `GOWORK=off`, needs the module proxy even for a vendored module, and its
+  result is never cached ([details](docs/checks.md#module-manifests)).
+
+### Changed
+
+- **Repositories without a `levenshtein.json` now run `go-mod` in their
+  default `branch`, `pre-merge`, and `main` runs**, next to `go-lint` and
+  `go-vet`. An untidy root module, or one whose dependencies the container
+  cannot download (such as private modules reached only through `vendor/`),
+  starts failing those runs when the pin is bumped. Tidy the module, or add a
+  `levenshtein.json` whose runs leave `go-mod` out.
+- Levenshtein's own CI checks its module manifests through `go-mod` in the
+  `lint` job's `branch` run instead of two separate workflow steps.
+
 ## [0.1.0] - 2026-09-22
 
 The first release: everything merged into `main` so far, grouped by what it

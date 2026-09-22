@@ -44,6 +44,7 @@ var daggerFunctions = map[CheckKind]string{
 	CheckGoLint:       "goLint",
 	CheckSelfTest:     "selfTest",
 	CheckGoVet:        "sharedCheck",
+	CheckGoMod:        "sharedCheck",
 	CheckGoHTTP:       "sharedCheck",
 	CheckGoSQL:        "sharedCheck",
 	CheckGoVuln:       "sharedCheck",
@@ -220,7 +221,7 @@ func daggerResult(err error) Result {
 
 // Generate freshness outside Dagger's cached function invocation.
 func executionNonce(req Request) string {
-	if req.RerunChecks || req.Check.Kind == CheckGoVuln {
+	if req.RerunChecks || alwaysFresh[req.Check.Kind] != "" {
 		return rand.Text()
 	}
 	return ""
