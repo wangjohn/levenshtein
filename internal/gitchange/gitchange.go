@@ -121,25 +121,40 @@ func (g Runner) Changed(ctx context.Context, source, base string) (Paths, error)
 	}
 
 	// Zero context makes every hunk's new side exactly the lines the change
-	// wrote. The prefixes are pinned because diff.mnemonicPrefix would change them.
-	hunks, err := g.Run(ctx, "diff", "--unified=0", "--no-color", "--no-renames", "--no-ext-diff", "--diff-filter=d", "--src-prefix=a/", "--dst-prefix=b/", mergeBase, "--")
+	// wrote. The prefixes are pinned because diff.mnemonicPrefix would change
+	// them, and textconv is off so line numbers are the file's own. Only Go
+	// files are read: a large regenerated fixture would otherwise be buffered
+	// whole. In a pathspec without glob magic, * also matches /, so the one
+	// pattern covers every directory from the top of the work tree.
+	hunks, err := g.Run(ctx, "diff", "--unified=0", "--no-color", "--no-renames", "--no-ext-diff", "--no-textconv", "--diff-filter=d", "--src-prefix=a/", "--dst-prefix=b/", mergeBase, "--", ":(top)*.go")
 	if err != nil {
 		return Paths{}, err
 	}
 
+	parsed := changedLines(hunks)
+	lines := map[string][]Range{}
 	var paths []string
-	for _, path := range slices.Concat(strings.Split(diffed, "\x00"), strings.Split(untracked, "\x00")) {
+	for path := range strings.SplitSeq(diffed, "\x00") {
+		rel, ok := strings.CutPrefix(path, prefix)
+		if !ok || rel == "" {
+			continue
+		}
+		paths = append(paths, rel)
+		// A tracked file the diff names but whose hunks were not read, such as
+		// a mode-only change or a non-Go file, changed no lines. Only an
+		// untracked file counts every line as new.
+		ranges := parsed[path]
+		if ranges == nil {
+			ranges = []Range{}
+		}
+		lines[rel] = ranges
+	}
+	for path := range strings.SplitSeq(untracked, "\x00") {
 		if rel, ok := strings.CutPrefix(path, prefix); ok && rel != "" {
 			paths = append(paths, rel)
 		}
 	}
 	slices.Sort(paths)
-	lines := map[string][]Range{}
-	for path, ranges := range changedLines(hunks) {
-		if rel, ok := strings.CutPrefix(path, prefix); ok && rel != "" {
-			lines[rel] = ranges
-		}
-	}
 	return Paths{BaseRef: ref, Base: mergeBase, Paths: slices.Compact(paths), Lines: lines}, nil
 }
 
@@ -161,8 +176,7 @@ func changedLines(diff string) map[string][]Range {
 		if name, ok := strings.CutPrefix(line, "+++ "); ok && header {
 			header = false
 			path = ""
-			// Git ends the name with a tab when it contains a space.
-			if name, ok := strings.CutPrefix(strings.TrimSuffix(name, "\t"), "b/"); ok {
+			if name, ok := strings.CutPrefix(headerName(name), "b/"); ok {
 				path = name
 				lines[path] = []Range{}
 			}
@@ -182,6 +196,20 @@ func changedLines(diff string) map[string][]Range {
 		}
 	}
 	return lines
+}
+
+// headerName reads the path from a "+++ " header. Git ends the name with a tab
+// when it contains a space, and quotes it C-style, even with core.quotePath
+// off, when it contains a quote, a backslash, or a control character. Go's
+// string syntax reads those escapes, octal ones included.
+func headerName(name string) string {
+	name = strings.TrimSuffix(name, "\t")
+	if strings.HasPrefix(name, `"`) {
+		if unquoted, err := strconv.Unquote(name); err == nil {
+			return unquoted
+		}
+	}
+	return name
 }
 
 // hunkRange parses a hunk header's "+start,count" side; a missing count is one.

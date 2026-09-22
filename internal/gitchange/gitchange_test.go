@@ -150,11 +150,17 @@ func TestChangedReportsTheLinesEachFileChanged(t *testing.T) {
 	r := newRepo(t)
 	r.write(t, "app/edit.go", "one\ntwo\nthree\nfour\nfive\n")
 	r.write(t, "app/trim.go", "keep\ndrop\n")
+	r.write(t, "app/mode.go", "same\n")
+	r.write(t, "app/q\"uote.go", "one\n")
 	r.run(t, "add", ".")
 	r.run(t, "commit", "--quiet", "-m", "base")
 	r.run(t, "switch", "--quiet", "-c", "feature")
 	r.write(t, "app/edit.go", "one\nTWO\nthree\nfour\nfive\nsix\nseven\n")
 	r.write(t, "app/trim.go", "keep\n")
+	r.write(t, "app/q\"uote.go", "one\ntwo\n")
+	if err := os.Chmod(filepath.Join(r.dir, "app", "mode.go"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	r.write(t, "app/new.go", "fresh\n")
 
 	got, err := r.runner().Changed(t.Context(), r.dir, "main")
@@ -171,6 +177,15 @@ func TestChangedReportsTheLinesEachFileChanged(t *testing.T) {
 	if _, ok := got.Lines["app/new.go"]; ok {
 		t.Errorf("an untracked file has no entry, because all of it is new: %v", got.Lines)
 	}
+	// A mode-only change prints no hunk header; it changed no lines, rather
+	// than counting every line as new.
+	if ranges, ok := got.Lines["app/mode.go"]; !ok || len(ranges) != 0 {
+		t.Errorf("a mode-only change must have an entry with no lines: %v, %v", ranges, ok)
+	}
+	// Git quotes this name in the diff header even with core.quotePath off.
+	if want := []Range{{Start: 2, End: 2}}; !slices.Equal(got.Lines["app/q\"uote.go"], want) {
+		t.Errorf("quoted name lines = %v, want %v (all: %v)", got.Lines["app/q\"uote.go"], want, got.Lines)
+	}
 }
 
 func TestChangedLinesReadsOnlyRealFileHeaders(t *testing.T) {
@@ -181,6 +196,11 @@ func TestChangedLinesReadsOnlyRealFileHeaders(t *testing.T) {
 		"@@ -1 +1 @@",
 		"-old",
 		"+new",
+		`diff --git "a/q\"uote.go" "b/q\"uote.go"`,
+		`--- "a/q\"uote.go"`,
+		`+++ "b/q\"uote.go"`,
+		"@@ -1,0 +2 @@",
+		"+x",
 		"diff --git a/tricky.go b/tricky.go",
 		"--- a/tricky.go",
 		"+++ b/tricky.go",
@@ -198,6 +218,9 @@ func TestChangedLinesReadsOnlyRealFileHeaders(t *testing.T) {
 	}
 	if want := []Range{{Start: 4, End: 5}}; !slices.Equal(got["tricky.go"], want) {
 		t.Errorf("tricky.go = %v, want %v (a pure deletion adds no range)", got["tricky.go"], want)
+	}
+	if want := []Range{{Start: 2, End: 2}}; !slices.Equal(got[`q"uote.go`], want) {
+		t.Errorf("quoted name: %v", got)
 	}
 	if _, ok := got["not-a-header.go"]; ok {
 		t.Errorf("an added line beginning with ++ was read as a header: %v", got)

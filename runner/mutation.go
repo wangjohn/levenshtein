@@ -28,6 +28,10 @@ const (
 	gremlinsReportPath  = gremlinsReportDir + "/out.json"
 	gremlinsNoResults   = "No results to report."
 
+	// minTimeoutsForIncomplete is how many covered mutants have to time out,
+	// with none killed or surviving, before the run is blamed on the machine.
+	minTimeoutsForIncomplete = 3
+
 	// defaultAcceptedPath matches the CLI default and the +default below.
 	defaultAcceptedPath = ".levenshtein/mutation-accepted.json"
 )
@@ -212,9 +216,10 @@ func exclusions(all, selected []string) []string {
 // A survivor fails the check only on a line the change wrote, so a pull request
 // is not failed for gaps it inherited; other survivors are listed in the
 // summary. A timed-out mutant counts as caught, the way PIT and Stryker count
-// it: a mutation that makes the code hang is one the tests noticed. Only a run
-// where mutants timed out and none were killed is incomplete, because that
-// points at the machine rather than the code.
+// it: a mutation that makes the code hang is one the tests noticed. A run is
+// incomplete only when every covered mutant timed out, and there were enough of
+// them that deliberate hangs are an unlikely explanation; that points at the
+// machine rather than the code.
 func decideMutation(run mutationRun, in mutationInput) (mutationVerdict, error) {
 	summary := mutationSummary{Files: in.Files}
 	if run.ExitCode != 0 || strings.Contains(run.Stderr, "ERROR:") {
@@ -303,12 +308,16 @@ func decideMutation(run mutationRun, in mutationInput) (mutationVerdict, error) 
 			Location: location{File: in.AcceptedPath, Line: entryLine(in.AcceptedText, entry.Line)},
 		})
 	}
-	incomplete := summary.TimedOut > 0 && summary.Killed == 0
+	// Hangs are deterministic, so a few mutants that all hang is a result, not
+	// an environment failure; incomplete would fail that change on every run,
+	// with nothing the accepted file could clear.
+	survivors := summary.Lived + summary.Unchanged + summary.Accepted
+	incomplete := summary.TimedOut >= minTimeoutsForIncomplete && summary.Killed == 0 && survivors == 0
 	if incomplete {
 		for _, mutant := range sortedMutants(timedOut) {
 			findings = append(findings, diagnostic{
 				Code:     "go-mutation-timeout",
-				Message:  fmt.Sprintf("%s mutant timed out and no mutant was killed, so the run gave no verdict: %s", mutant.Mutator, sourceLine(in.Sources, mutant)),
+				Message:  fmt.Sprintf("%s mutant timed out, like every other covered mutant, so the run gave no verdict: %s", mutant.Mutator, sourceLine(in.Sources, mutant)),
 				Location: location{File: moduleFile(in.Module, mutant.File), Line: mutant.Line, Column: mutant.Column},
 			})
 		}

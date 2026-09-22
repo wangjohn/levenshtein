@@ -169,22 +169,49 @@ func TestDecideMutationCountsATimeoutAsCaught(t *testing.T) {
 	}
 }
 
-func TestDecideMutationIsIncompleteWhenNothingWasKilled(t *testing.T) {
-	// Every mutant that should have been killed timed out instead, which points
-	// at the machine rather than the tests.
-	body := strings.ReplaceAll(report(t, "weak"), `"KILLED"`, `"TIMED OUT"`)
+func TestDecideMutationIsIncompleteOnlyWhenEveryCoveredMutantTimedOut(t *testing.T) {
+	weak := report(t, "weak")
 	in := mutationInput{Module: ".", Files: []string{"clamp.go"}, Sources: sources(t, "weak", "clamp.go")}
+	// weak.json: KILLED and LIVED CONDITIONALS_NEGATION/BOUNDARY on lines 5 and 8.
+	for _, tc := range []struct {
+		name       string
+		body       string
+		incomplete bool
+		codes      []string
+	}{
+		{
+			name:       "all four covered mutants timed out",
+			body:       strings.NewReplacer(`"KILLED"`, `"TIMED OUT"`, `"LIVED"`, `"TIMED OUT"`).Replace(weak),
+			incomplete: true,
+			codes:      []string{"go-mutation-timeout", "go-mutation-timeout", "go-mutation-timeout", "go-mutation-timeout"},
+		},
+		{
+			// The review's case: a deliberate hang next to a survivor, nothing
+			// killed. The survivor is a normal finding, fixable with a test.
+			name:  "hangs next to survivors",
+			body:  strings.ReplaceAll(weak, `"KILLED"`, `"TIMED OUT"`),
+			codes: []string{"go-mutation", "go-mutation"},
+		},
+		{
+			// Two deterministic hangs are the change's result, not a broken
+			// machine, so the run passes rather than staying incomplete forever.
+			name: "too few timeouts to blame the machine",
+			body: strings.NewReplacer(`"KILLED"`, `"TIMED OUT"`, `"LIVED"`, `"NOT COVERED"`).Replace(weak),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			verdict, err := decideMutation(reported(tc.body), in)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	verdict, err := decideMutation(reported(body), in)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if !verdict.Incomplete {
-		t.Fatalf("no killed mutants and some timeouts must be incomplete: %+v", verdict)
-	}
-	if got := codes(verdict.Findings); !slices.Equal(got, []string{"go-mutation", "go-mutation", "go-mutation-timeout", "go-mutation-timeout"}) {
-		t.Errorf("findings = %v, want both survivors and both timeouts", got)
+			if verdict.Incomplete != tc.incomplete {
+				t.Errorf("incomplete = %v, want %v (%+v)", verdict.Incomplete, tc.incomplete, verdict.Summary)
+			}
+			if got := codes(verdict.Findings); !slices.Equal(got, tc.codes) {
+				t.Errorf("findings = %v, want %v", got, tc.codes)
+			}
+		})
 	}
 }
 
