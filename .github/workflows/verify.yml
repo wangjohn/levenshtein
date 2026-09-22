@@ -169,6 +169,8 @@ jobs:
           mapfile -t bash_scripts < <(grep -rl '^#!/usr/bin/env bash' scripts)
           test "${#bash_scripts[@]}" -gt 0
           shellcheck verify "${bash_scripts[@]}"
+      - name: Documentation pins name the newest release
+        run: ./scripts/test-doc-pins
       - name: Expanded check fixtures
         run: |
           ./scripts/test-checks
@@ -255,6 +257,58 @@ jobs:
         env:
           GOTOOLCHAIN: local
         run: ./scripts/test-language-contracts
+
+  action:
+    # The root action.yml exactly as a consumer calls it, on a native fixture
+    # so no container runtime is involved.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify a passing consumer
+        id: passing
+        uses: ./
+        with:
+          run: pre-merge
+          source: tests/fixtures/action
+      - name: Plant a lint finding
+        run: |
+          cat > tests/fixtures/action/broken.go <<'EOF'
+          package greeting
+
+          import "os"
+
+          // Size defers Close before checking the Open error.
+          func Size(path string) int64 {
+          	f, err := os.Open(path)
+          	defer f.Close()
+          	if err != nil {
+          		return 0
+          	}
+          	return 1
+          }
+          EOF
+      - name: Verify a failing consumer
+        id: failing
+        continue-on-error: true
+        uses: ./
+        with:
+          run: pre-merge
+          source: tests/fixtures/action
+          setup-go: 'false'
+          cache: 'false'
+      - name: The action reported the finding and failed
+        env:
+          OUTCOME: ${{ steps.failing.outcome }}
+          REPORT: ${{ steps.failing.outputs.report }}
+          PASSING_RUN: ${{ steps.passing.outputs.run }}
+        run: |
+          test "$PASSING_RUN" = pre-merge
+          test "$OUTCOME" = failure
+          jq -e '.results[] | select(.id == "lint") | .status == "failed"' "$REPORT"
+          grep -q '"code": "SA5001"' "$REPORT"
 
   release-smoke:
     # Keep release archives off the draft-PR lint critical path; still required

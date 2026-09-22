@@ -13,13 +13,24 @@ Snapshot builds create files in `dist/` and publish nothing.
 
 ## Publishing a release
 
-Publication is a tag. Push an annotated `vX.Y.Z` tag on a reviewed `main`
-commit and `.github/workflows/release.yml` does the rest:
+Publication is a tag, prepared by a release pull request:
+
+1. In one pull request, rename `## [Unreleased]` in `CHANGELOG.md` to
+   `## [X.Y.Z] - YYYY-MM-DD` above a fresh empty `[Unreleased]`, and update every
+   consumer example that pins Levenshtein (`wangjohn/levenshtein@vX.Y.Z` and
+   `--branch vX.Y.Z`) to the new version. `scripts/test-doc-pins` fails the
+   pull request if any example names a different version than the newest
+   changelog entry.
+2. Merge it, then push an annotated tag on the merge commit.
+   `.github/workflows/release.yml` does the rest:
 
 ```sh
 git tag -a v0.1.0 -m 'Levenshtein v0.1.0'
 git push origin v0.1.0
 ```
+
+Tag promptly after the merge: until the tag exists, the documented examples
+name a version GitHub cannot resolve.
 
 The workflow checks out the full history, builds with the pinned Go from
 `.go-version`, installs the pinned syft, and runs `goreleaser release --clean`.
@@ -43,6 +54,11 @@ runs.
 A consumer may pin a published tag instead of a commit SHA. A tag is readable in
 a diff and is what release notes name; a SHA cannot be moved. Either is a
 deliberate, reviewed update. Do not pin a branch.
+
+A tag also names the GitHub Action at the repository root: `uses:
+wangjohn/levenshtein@vX.Y.Z` runs that release's checks, and Dependabot's
+`github-actions` ecosystem proposes the next one. See
+[GitHub Actions](consumer-ci.md#github-actions).
 
 After extracting an archive, run the binary with explicit paths:
 

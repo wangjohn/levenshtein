@@ -11,7 +11,7 @@ Use the [runtime prerequisites](setup.md#prerequisites): any Go on `PATH` for th
 ```text
 workspace/
   app/          # your application checkout
-  levenshtein/  # shared checks at a reviewed commit
+  levenshtein/  # shared checks at a pinned release
 ```
 
 From `workspace/`, run:
@@ -51,9 +51,9 @@ Application tests stay in the application repo. Wrap existing test scripts with 
 
 For an advisory model review of each pull request, add a native environment, a `semantic-lint` check in its own run, and supply `TYPESAFE_API_KEY` from a CI secret with `fetch-depth: 0` on checkout. The check reads the key and the pull request's base branch from the host environment itself. Findings never fail the run. See [semantic lint](semantic-lint.md).
 
-## Example: an application using GitHub Actions
+## GitHub Actions
 
-Add these steps to the application's existing workflow, or start with this small workflow. Both checkouts are siblings so the shared runner's files stay outside the application source passed to verification. Pin a reviewed revision: either the full commit SHA below or a published `vX.Y.Z` [release](releases.md) tag. Update it deliberately as part of a reviewed change; do not use a moving branch.
+Call the action at the repository root. The ref you pin is the revision of the shared checks: GitHub downloads Levenshtein at that ref outside your workspace, so the shared runner's files never enter the verified source. This is a complete workflow:
 
 ```yaml
 name: Application verification
@@ -76,98 +76,60 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - name: Check out application
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: app
           persist-credentials: false
-      - name: Check out shared checks
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: wangjohn/levenshtein
-          ref: 4529f54d3e341d37a6d0d1bc0e987b5dec6c6938
-          path: levenshtein
-          persist-credentials: false
-      - name: Set up Go for the source launcher
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: levenshtein/.go-version
-          cache-dependency-path: levenshtein/go.sum
-      - name: Verify application
-        env:
-          EVENT: ${{ github.event_name }}
-          DRAFT: ${{ github.event.pull_request.draft }}
-        run: |
-          run=pre-merge
-          if [[ "$EVENT" == schedule ]]; then
-            run=main
-          elif [[ "$EVENT" == push || "$DRAFT" == true ]]; then
-            run=branch
-          fi
-          ./levenshtein/verify "$run" --source ./app
+      - uses: wangjohn/levenshtein@v0.1.0
 ```
 
-The job's normal shell failure handling propagates the launcher's nonzero exit status. Configure the application's required check in its existing repository settings. The schedule above belongs to this application; Levenshtein's own daily workflow checks its shared runner and fixtures.
+With no `run` input, the action picks one from the event: a schedule runs `main`, a push or draft pull request runs `branch`, and a ready pull request, merge queue, or manual dispatch runs `pre-merge`. Pass `run:` to choose explicitly, for example one job per run.
+
+| Input | Default | Meaning |
+| --- | --- | --- |
+| `run` | chosen from the event | Run to execute |
+| `source` | `.` | Directory to verify, relative to the workspace |
+| `setup-go` | `true` | Install the Go version this revision pins. Set `false` when the job already provides Go |
+| `cache` | `true` | Restore and save Levenshtein's helper builds, analysis cache, and completed results with `actions/cache` |
+
+The action's outputs are `run`, the run it executed, and `report`, the path to the JSON report. It also writes a status table to the job summary. A failed check fails the step. Make the job a required status check in the application's branch protection or ruleset.
+
+**Pin a release.** `@v0.1.0` names a published [release](releases.md). To pin immutably, use that tag's commit SHA with the version as a comment, as this repository does for every action it calls. Dependabot's `github-actions` ecosystem proposes new Levenshtein releases like any other action, including the SHA and comment. Do not pin a branch.
+
+**Caching and trust.** The cache step keys entries by runner OS, architecture, and job. A pull request's entries live in that pull request's own cache scope, which the default branch never reads, so an untrusted pull request cannot seed `main`'s results. Every result is re-keyed by a content fingerprint before reuse, so a restored directory can only skip work, never change a verdict.
 
 ## A native lint job without Docker
 
-`go-lint`, `go-vet`, `workflow-lint`, and `go-vuln` also run on a [native environment](configuration.md#native-go-checks), using the host's Go instead of a container. That job needs no container runtime, and the caches that make it fast are ordinary Go caches plus Levenshtein's own, all restorable with `actions/cache`:
+`go-lint`, `go-vet`, `workflow-lint`, and `go-vuln` also run on a [native environment](configuration.md#native-go-checks), using the host's Go instead of a container. Declare it in the application's `levenshtein.json`:
 
-```yaml
-  lint:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - name: Check out application
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          path: app
-          persist-credentials: false
-      - name: Check out shared checks
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: wangjohn/levenshtein
-          ref: 4529f54d3e341d37a6d0d1bc0e987b5dec6c6938
-          path: levenshtein
-          persist-credentials: false
-      - name: Set up the pinned Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: levenshtein/.go-version
-          # Restores GOCACHE and GOMODCACHE, which the helper builds and the
-          # analysis itself both reuse.
-          cache-dependency-path: |
-            app/go.sum
-            levenshtein/go.sum
-            levenshtein/runner/lint/go.sum
-            levenshtein/runner/tools/go.sum
-      - name: Restore Levenshtein cache
-        id: levenshtein-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          # Built helper binaries, the Staticcheck analysis cache, and completed
-          # verification results.
-          path: ${{ runner.temp }}/levenshtein-cache
-          key: levenshtein-native-${{ runner.os }}-${{ github.sha }}
-          restore-keys: levenshtein-native-${{ runner.os }}-
-      - name: Lint
-        env:
-          NO_COLOR: '1'
-        run: |
-          mkdir -p "$RUNNER_TEMP/levenshtein-cache"
-          ./levenshtein/verify branch --source ./app --cache-dir "$RUNNER_TEMP/levenshtein-cache"
-      - name: Save Levenshtein cache
-        if: ${{ !cancelled() && steps.levenshtein-cache.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/levenshtein-cache
-          key: ${{ steps.levenshtein-cache.outputs.cache-primary-key }}
+```json
+{
+  "version": 1,
+  "targets": {"app": {"dir": ".", "inputs": ["go.mod", "go.sum", "cmd", "internal"]}},
+  "environments": {"host": {"executor": "native"}},
+  "checks": {
+    "lint": {"kind": "go-lint", "target": "app", "environment": "host"},
+    "vet": {"kind": "go-vet", "target": "app", "environment": "host"},
+    "vulnerabilities": {"kind": "go-vuln", "target": "app", "environment": "host"}
+  },
+  "runs": {
+    "branch": {"checks": ["lint"]},
+    "pre-merge": {"checks": ["lint", "vet"]},
+    "main": {"checks": ["lint", "vet", "vulnerabilities"], "rerun_checks": true}
+  }
+}
 ```
 
-Unlike Dagger's in-engine cache volumes, which do not survive an ephemeral runner, all three of these caches restore across workers. Do not share a writable cache directory between trusted jobs and untrusted pull requests. A native check's result key includes the host's Go version, operating system, and architecture, so a job that changes runner image or Go version re-verifies rather than reusing another host's verdict.
+The workflow is unchanged. The job needs no container runtime, and the action's cache restores the helper binaries, the Staticcheck analysis cache, and completed results across workers, which Dagger's in-engine cache volumes cannot do on ephemeral runners. A native check's result key includes the host's Go version, operating system, and architecture, so a job that changes runner image or Go version re-verifies rather than reusing another host's verdict.
 
 ## CircleCI and other providers
 
-Use the same arrangement in an existing job: check out the application and pinned shared revision, provide Go for the source launcher and a Docker-compatible runtime, and invoke `verify` with the application source. Configure PR triggers, daily schedules, and required results through that provider. Provider-specific bootstrap configuration remains in the consuming repo; the shared checks receive a source directory and a run name.
+Use the same arrangement in an existing job: check out the application, fetch the pinned Levenshtein release beside it, provide any Go for the source launcher and a Docker-compatible runtime for Dagger checks, and pick a run from the provider's trigger:
 
-Local caches work today. Cross-worker cache transport and multi-job result aggregation are not implemented; keep required platform jobs individually required. Do not share writable result caches with untrusted PRs. See [the roadmap](roadmap.md#consumer-pilot-acceptance) for planned pilot adoption steps.
+```sh
+git clone --depth 1 --branch v0.1.0 https://github.com/wangjohn/levenshtein ../levenshtein
+../levenshtein/verify pre-merge --source .
+```
+
+Keep the Levenshtein checkout outside the application directory. Alternatively, download a platform archive from the [release](releases.md), which needs no Go compiler. Configure PR triggers, daily schedules, and required results through the provider. Restore and save a `--cache-dir` outside both checkouts with the provider's cache feature to reuse results across workers.
+
+Cross-worker cache transport beyond that directory and multi-job result aggregation are not implemented; keep required platform jobs individually required. Do not share writable result caches with untrusted PRs. See [the roadmap](roadmap.md#consumer-pilot-acceptance) for planned pilot adoption steps.
