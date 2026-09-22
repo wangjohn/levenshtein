@@ -63,7 +63,7 @@ Each entry is one pattern: an optional `-`, then `all`, `*`, a rule name such as
 
 Turning a default rule off hides every finding it would report in the repository, including future ones. For one site, prefer `//lint:ignore <code> <reason>` on that line, which keeps the rule on everywhere else and records why.
 
-Upstream analyzers run over generated files, so the facts they export stay correct, but their diagnostics there are dropped: nobody edits generated code for style. Staticcheck's own `//lint:ignore` directives keep working for everything else.
+Upstream analyzers run over generated files, so the facts they export stay correct, but their diagnostics there are dropped: nobody edits generated code for style. In a package that imports `"C"`, the analyzers see cgo's rewrite of each file, which cgo marks generated; every rule judges such a file by the original it maps back to, so hand-written cgo files are checked and reported at their own paths, while cgo's own additions such as `_cgo_gotypes.go` count as generated. Staticcheck's own `//lint:ignore` directives keep working for everything else.
 
 ## The modernize selection
 
@@ -308,7 +308,7 @@ The rule does not ask for more than one blank line, and it says nothing about sp
 
 ## Formatted files: LV1005
 
-LV1005 compares a file's bytes with what `go/format` produces and reports once per file when they differ. It exists so a consumer gets formatting enforcement from `./verify go-lint` without a separate `gofmt` step in CI. The fix is always plain `gofmt -w`, never a suppression. Generated files are skipped.
+LV1005 compares a file's bytes with what `go/format` produces and reports once per file when they differ. It exists so a consumer gets formatting enforcement from `./verify go-lint` without a separate `gofmt` step in CI. The fix is always plain `gofmt -w`, never a suppression. Generated files are skipped. For a cgo file it checks the original source, not cgo's rewrite in the build cache.
 
 ## Tests that can fail: LV1006
 
