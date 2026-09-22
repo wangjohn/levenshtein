@@ -12,6 +12,7 @@ type options struct {
 	source   string
 	shared   string
 	name     string
+	jobs     int
 	dry      bool
 }
 
@@ -21,6 +22,7 @@ func parseArgs(args []string, opts options, output io.Writer) (options, error) {
 	flags.StringVar(&opts.source, "source", opts.source, "Repository directory to verify")
 	flags.StringVar(&opts.shared, "shared", opts.shared, "Pinned Levenshtein checkout")
 	flags.StringVar(&opts.cacheDir, "cache-dir", opts.cacheDir, "Verification cache directory outside source and shared checkouts")
+	flags.IntVar(&opts.jobs, "jobs", opts.jobs, "Maximum checks to run at once (0 keeps the default cap)")
 	flags.BoolVar(&opts.dry, "dry-run", false, "Print the verification plan without running checks")
 	help := flags.BoolP("help", "h", false, "Show usage")
 	flags.Usage = func() {
@@ -45,6 +47,9 @@ func parseArgs(args []string, opts options, output io.Writer) (options, error) {
 	}
 	if opts.source == "" {
 		return opts, fmt.Errorf("source directory cannot be empty")
+	}
+	if opts.jobs < 0 {
+		return opts, fmt.Errorf("--jobs cannot be negative")
 	}
 	return opts, nil
 }

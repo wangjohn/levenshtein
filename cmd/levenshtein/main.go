@@ -106,7 +106,7 @@ func runCommand(ctx context.Context, args []string, output io.Writer) (int, erro
 	report := verify.Execute(ctx, plan, shared, map[verify.ExecutorKind]verify.Executor{
 		verify.ExecutorDagger: verify.CachedExecutor{Cache: cache, Executor: dagger},
 		verify.ExecutorNative: verify.CachedExecutor{Cache: cache, Executor: &verify.Native{Cache: cache}},
-	})
+	}, opts.jobs)
 
 	if err := encoder.Encode(report); err != nil {
 		return 2, err
