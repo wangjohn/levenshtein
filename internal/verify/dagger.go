@@ -147,6 +147,11 @@ func (d *Dagger) execute(ctx context.Context, req Request, mutation *mutationArg
 	if function == "sharedCheck" {
 		query = query.Arg("check", string(req.Check.Kind))
 	}
+	// The added patterns are a function argument, so Dagger's own call cache
+	// keys on them just as the CLI's fingerprint does.
+	if checks := req.Check.lintChecks(); len(checks) > 0 {
+		query = query.Arg("checks", checks)
+	}
 	if mutation != nil {
 		query = query.Arg("files", mutation.files).Arg("accepted", mutation.accepted).Arg("tags", mutation.tags).Bind(mutation.summary)
 	}

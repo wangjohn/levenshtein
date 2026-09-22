@@ -2,6 +2,8 @@ package verify
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -68,6 +70,121 @@ func TestDaggerEnvironmentIsUnchanged(t *testing.T) {
 	}
 	if err := validateCheck(Check{Kind: CheckGoLint, Command: &CommandCheck{Args: []string{"true"}}}, Environment{Executor: ExecutorDagger}); err == nil {
 		t.Fatal("Dagger accepted a command object")
+	}
+}
+
+// A go-lint check may add Staticcheck patterns to the shipped selection on
+// either executor. Every other kind keeps its fixed rules, and an entry that is
+// not one pattern would change what the joined -checks flag means.
+func TestLintOptionsBelongToGoLint(t *testing.T) {
+	environments := []Environment{nativeGoEnvironment(), {Executor: ExecutorDagger}}
+	for _, env := range environments {
+		t.Run(string(env.Executor), func(t *testing.T) {
+			added := &LintCheck{Checks: []string{"gocognit", "-unparam", "SA5*", "all"}}
+			if err := validateCheck(Check{Kind: CheckGoLint, Lint: added}, env); err != nil {
+				t.Fatalf("rejected lint options on go-lint: %v", err)
+			}
+
+			for _, checks := range [][]string{
+				nil, {}, {""}, {"-"}, {"gocognit,unparam"}, {"gocognit unparam"}, {" gocognit"}, {"--unparam"}, {"SA*5"}, {"go-cognit"},
+			} {
+				if err := validateCheck(Check{Kind: CheckGoLint, Lint: &LintCheck{Checks: checks}}, env); err == nil {
+					t.Errorf("accepted malformed lint checks %q", checks)
+				}
+			}
+		})
+	}
+
+	for _, tc := range []struct {
+		kind CheckKind
+		env  Environment
+	}{
+		{CheckGoVet, nativeGoEnvironment()},
+		{CheckGoVuln, nativeGoEnvironment()},
+		{CheckWorkflowLint, nativeGoEnvironment()},
+		{CheckGoVet, Environment{Executor: ExecutorDagger}},
+		{CheckGoHTTP, Environment{Executor: ExecutorDagger}},
+		{CheckGoSQL, Environment{Executor: ExecutorDagger}},
+		{CheckSelfTest, Environment{Executor: ExecutorDagger}},
+		{CheckGoMutation, Environment{Executor: ExecutorDagger}},
+	} {
+		err := validateCheck(Check{Kind: tc.kind, Lint: &LintCheck{Checks: []string{"gocognit"}}}, tc.env)
+		if err == nil || !strings.Contains(err.Error(), "only to go-lint") {
+			t.Errorf("%s on %s accepted lint options: %v", tc.kind, tc.env.Executor, err)
+		}
+	}
+	command := Check{Kind: CheckCommand, Command: &CommandCheck{Args: []string{"true"}}, Lint: &LintCheck{Checks: []string{"gocognit"}}}
+	if err := validateCheck(command, Environment{Executor: ExecutorNative}); err == nil {
+		t.Error("a command check accepted lint options")
+	}
+}
+
+// The option is an additive field of version 1: a file that declares it plans,
+// and the shape a repository might guess instead, a bare "checks" list on the
+// check, is an unknown field rather than silently ignored.
+func TestLintOptionsParseFromVersionOne(t *testing.T) {
+	const config = `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"lint":{"kind":"go-lint","target":"app","environment":"go",%s}},"runs":{"branch":{"checks":["lint"]}}}`
+
+	cfg, err := Parse(fmt.Appendf(nil, config, `"lint":{"checks":["gocognit","-unparam"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := cfg.Plan(t.TempDir(), "branch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := plan.Checks[0].Check.lintChecks(); !slices.Equal(got, []string{"gocognit", "-unparam"}) {
+		t.Fatalf("planned lint checks = %q", got)
+	}
+
+	if _, err := Parse(fmt.Appendf(nil, config, `"checks":["gocognit"]`)); err == nil {
+		t.Fatal(`accepted "checks" directly on a check`)
+	}
+}
+
+// What a go-lint check adds changes what it reports, so it is part of the
+// result's identity on both executors: changing it re-runs the check rather
+// than reusing a verdict reached under another selection. A check without the
+// option keeps the key it had before the option existed, because the field is
+// left out of the key entirely.
+func TestLintChecksAreInTheResultKey(t *testing.T) {
+	for _, executor := range []ExecutorKind{ExecutorNative, ExecutorDagger} {
+		t.Run(string(executor), func(t *testing.T) {
+			req := nativeRequest(t)
+			req.Environment.Executor = executor
+			key := func(lint *LintCheck) string {
+				t.Helper()
+				req.Check = Check{Kind: CheckGoLint, Target: "app", Environment: "host", Lint: lint}
+				value, err := fingerprint(t.Context(), req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return value
+			}
+
+			shipped := key(nil)
+			opted := key(&LintCheck{Checks: []string{"gocognit"}})
+			if shipped == opted {
+				t.Fatal("adding gocognit kept the shipped selection's key")
+			}
+			if opted == key(&LintCheck{Checks: []string{"gocognit", "-unparam"}}) {
+				t.Fatal("adding another pattern kept the key")
+			}
+			if opted == key(&LintCheck{Checks: []string{"-gocognit"}}) {
+				t.Fatal("negating the pattern kept the key")
+			}
+			if opted != key(&LintCheck{Checks: []string{"gocognit"}}) {
+				t.Fatal("the same selection produced a different key")
+			}
+		})
+	}
+
+	data, err := json.Marshal(Check{Kind: CheckGoLint, Target: "app", Environment: "host"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"lint"`) {
+		t.Fatalf("a check without lint options changed its encoded identity: %s", data)
 	}
 }
 

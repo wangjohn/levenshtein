@@ -51,6 +51,18 @@ Every shared check kind runs the same pinned tools locally and in any CI provide
 
 `all` also selects the bare analyzers compiled into the binary, so `errcheck`, `exhaustive`, the resource and correctness analyzers, and the `LV*` rules are part of it. The selection then turns one of those off again, `-gocognit`, which is [opt-in](#opt-in-complexity-gocognit). Someone running the linter directly can pass their own selection; the same `-checks` syntax applies, a `-` prefix removes a rule a wider pattern selected, and a later name turns a removed rule back on.
 
+### Changing the selection for one repository
+
+A `go-lint` check in `levenshtein.json` can add patterns after the shipped selection with a `lint` object. They use the same `-checks` syntax and the last pattern that matches a rule wins, so a name turns an opt-in rule on and a `-` name turns a default rule off, without restating the rest:
+
+```json
+"cleanup": {"kind": "go-lint", "target": "app", "environment": "go", "lint": {"checks": ["gocognit", "-unparam"]}}
+```
+
+Each entry is one pattern: an optional `-`, then `all`, `*`, a rule name such as `gocognit`, or a name ending in `*` such as `SA5*`. An entry with a comma or a space is a configuration error, and so is `lint` on any other kind: `go-http` and `go-sql` keep their single rule. A pattern that matches no rule the pinned linter registers fails the check with an error rather than doing nothing, so a misspelled opt-in cannot pass silently. Both executors apply the same list, and changing it re-runs the check instead of reusing an earlier result ([configuration](configuration.md#lint-selection)).
+
+Turning a default rule off hides every finding it would report in the repository, including future ones. For one site, prefer `//lint:ignore <code> <reason>` on that line, which keeps the rule on everywhere else and records why.
+
 Upstream analyzers run over generated files, so the facts they export stay correct, but their diagnostics there are dropped: nobody edits generated code for style. Staticcheck's own `//lint:ignore` directives keep working for everything else.
 
 ## The modernize selection
@@ -203,7 +215,7 @@ These analyzers were measured against this repository and left out. Counts are f
 
 `gocognit` reports a function whose [cognitive complexity](https://github.com/uudashr/gocognit#cognitive-complexity) is over 30. Each `if`, loop, `switch`, `select`, jump, and run of mixed `&&`/`||` adds one, plus one more for each level of nesting it sits in, so the score tracks how much a reader has to hold in mind rather than how many paths a test needs. The binary registers it, and the shipped selection turns it off with `-gocognit`, because a threshold says a function is hard to maintain, not that it is wrong: it would fail builds on working code, which is the bar every default rule is held to.
 
-The threshold is fixed at 30, golangci-lint's default and the common line past which a function is hard to maintain. A shared linter has no per-repository settings, so a consumer that wants a different line cannot set one. Levenshtein does not opt itself in. Measured with `-checks=gocognit`, nine of its functions are over the line, which shows what the rule asks for:
+The threshold is fixed at 30, golangci-lint's default and the common line past which a function is hard to maintain. A repository can turn the rule on, but the line itself is not a setting, so a consumer that wants a different one cannot set it. Levenshtein does not opt itself in. Measured with `-checks=gocognit`, nine of its functions are over the line, which shows what the rule asks for:
 
 | Function | Complexity |
 | --- | --- |
@@ -217,7 +229,13 @@ The threshold is fixed at 30, golangci-lint's default and the common line past w
 | `request.fit` in `internal/semantic/check.go` | 32 |
 | `TestDaggerSourceRejectsAliasesButDoesNotInspectExcludedTrees` in `internal/verify/source_test.go` | 31 |
 
-The `go-lint` check always runs the shipped selection; `levenshtein.json` has no setting that changes which rules it reports. To opt in, run the linter directly, as in [Development and exceptions](#development-and-exceptions), with the shipped selection minus its `-gocognit`, or with `-checks=gocognit` for this rule alone. A finding can be suppressed like any other, with `//lint:ignore gocognit <reason>` above the function.
+To opt in, add it to the repository's `go-lint` check, which [appends it to the shipped selection](#changing-the-selection-for-one-repository), after `-gocognit`, so it wins:
+
+```json
+"cleanup": {"kind": "go-lint", "target": "app", "environment": "go", "lint": {"checks": ["gocognit"]}}
+```
+
+The check then fails on every function over the line, so fix or suppress the existing ones in the same change. A finding can be suppressed like any other, with `//lint:ignore gocognit <reason>` above the function. To try the rule without changing configuration, run the linter directly, as in [Development and exceptions](#development-and-exceptions), with `-checks=gocognit` for this rule alone.
 
 ## Typed choices: LV1001
 
@@ -323,7 +341,7 @@ The analyzers use Go's `go/analysis` framework and Staticcheck's runner for pack
 
 For an exceptional interop requirement, use Staticcheck's normal directive with a reason, for example `//lint:ignore LV1001 external schema requires this field`. Prefer a proper type or record literal when possible.
 
-You can run the same linter directly without Dagger. The selection below is the shipped default; drop `-gocognit` from it to [opt in to gocognit](#opt-in-complexity-gocognit):
+You can run the same linter directly without Dagger. The selection below is the shipped default; append the patterns a repository's check adds, such as `,gocognit` to [opt in to gocognit](#opt-in-complexity-gocognit), to reproduce what its `go-lint` check reports:
 
 ```sh
 (cd /path/to/levenshtein/runner/lint && go build -o /tmp/levenshtein-lint ./cmd/levenshtein-lint)

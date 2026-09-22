@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -94,6 +95,53 @@ func TestNativeGoChecksAgreeWithTheFixtures(t *testing.T) {
 		result := native.Execute(ctx, fixtureRequest(t, shared, "empty", CheckGoLint))
 		if result.Status != StatusError {
 			t.Fatalf("empty module must error rather than pass: %+v", result)
+		}
+	})
+
+	t.Run("go-lint leaves opt-in gocognit off by default", func(t *testing.T) {
+		result := native.Execute(ctx, fixtureRequest(t, shared, "complexity", CheckGoLint))
+		if result.Status != StatusPassed {
+			t.Fatalf("complexity fixture must pass the shipped selection: %+v", result)
+		}
+	})
+
+	t.Run("go-lint reports gocognit when the check adds it", func(t *testing.T) {
+		req := fixtureRequest(t, shared, "complexity", CheckGoLint)
+		req.Check.Lint = &LintCheck{Checks: []string{"gocognit"}}
+		result := native.Execute(ctx, req)
+		if result.Status != StatusFailed {
+			t.Fatalf("complexity fixture must fail once gocognit is added: %+v", result)
+		}
+
+		findings := fixtureFindings(t, result)
+		if len(findings) != 1 || findings[0].Code != "gocognit" || findings[0].Location.File != "complexity.go" {
+			t.Fatalf("want one gocognit finding in complexity.go, got %+v", findings)
+		}
+	})
+
+	t.Run("go-lint drops a default rule the check turns off", func(t *testing.T) {
+		req := fixtureRequest(t, shared, "bad", CheckGoLint)
+		req.Check.Lint = &LintCheck{Checks: []string{"-errcheck"}}
+		result := native.Execute(ctx, req)
+		if result.Status != StatusFailed {
+			t.Fatalf("bad fixture must still fail for its other rules: %+v", result)
+		}
+
+		counts := map[string]int{}
+		for _, item := range fixtureFindings(t, result) {
+			counts[item.Code]++
+		}
+		if counts["errcheck"] != 0 || counts["SA5001"] < 1 {
+			t.Fatalf("want errcheck off and the rest on; got %v", counts)
+		}
+	})
+
+	t.Run("go-lint refuses an added rule the linter does not register", func(t *testing.T) {
+		req := fixtureRequest(t, shared, "complexity", CheckGoLint)
+		req.Check.Lint = &LintCheck{Checks: []string{"gocogint"}}
+		result := native.Execute(ctx, req)
+		if result.Status != StatusError || !strings.Contains(result.Error, `"gocogint" matches no rule`) {
+			t.Fatalf("a misspelled rule must be an error, not a silent pass: %+v", result)
 		}
 	})
 

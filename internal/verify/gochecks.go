@@ -61,9 +61,10 @@ func goCheckExecutor(run goRunner, message string) func(*Native, context.Context
 	}
 }
 
-// validateSharedGoCheck accepts a shared Go kind on a native environment. The
-// kind has no options of its own; the environment may still pin an identity,
-// values, passed names and tool versions, which validateEnvironment checked.
+// validateSharedGoCheck accepts a shared Go kind on a native environment. Only
+// go-lint takes options of its own, which validateCheck checked; the
+// environment may still pin an identity, values, passed names and tool
+// versions, which validateEnvironment checked.
 func validateSharedGoCheck(check Check, _ Environment) error {
 	if check.Command != nil || check.Semantic != nil {
 		return fmt.Errorf("command and semantic options cannot be used for shared Go checks")
@@ -141,7 +142,7 @@ func staticcheckCache(req Request, root string) (string, func(), error) {
 }
 
 func (n *Native) goLint(ctx context.Context, req Request, work goRun) ([]finding, toolRun, error) {
-	checks, err := sharedChecks(req.Shared)
+	shipped, err := sharedChecks(req.Shared)
 	if err != nil {
 		return nil, toolRun{}, err
 	}
@@ -149,6 +150,10 @@ func (n *Native) goLint(ctx context.Context, req Request, work goRun) ([]finding
 		return nil, toolRun{}, err
 	}
 	binary, err := build(ctx, req, work, helperLint)
+	if err != nil {
+		return nil, toolRun{}, err
+	}
+	checks, err := lintSelection(ctx, work, binary, shipped, req.Check.lintChecks())
 	if err != nil {
 		return nil, toolRun{}, err
 	}

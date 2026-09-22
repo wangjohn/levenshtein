@@ -1,0 +1,18 @@
+{
+  "comment": "Cases for registered, which checks the patterns a go-lint check adds against the linter's -list-checks output. runner/main_test.go and internal/verify/findings_test.go both load this table, so the two copies cannot drift.",
+  "listing": "LV1001 \nSA5001 Deferring Close before checking for a possible error\nS1002 Omit comparison with boolean constant\nST1000 Incorrect or missing package comment\ngocognit Find complex function using cognitive complexity calculation.\nunparam \n",
+  "cases": [
+    {"name": "an opt-in rule by name", "checks": ["gocognit"], "matches": true},
+    {"name": "names ignore case", "checks": ["GoCognit"], "matches": true},
+    {"name": "turning a default rule off", "checks": ["-unparam"], "matches": true},
+    {"name": "a category", "checks": ["S*"], "matches": true},
+    {"name": "a numbered prefix", "checks": ["SA5*"], "matches": true},
+    {"name": "every rule", "checks": ["all"], "matches": true},
+    {"name": "several patterns that all match", "checks": ["gocognit", "-ST1000", "LV1001"], "matches": true},
+    {"name": "a misspelled rule", "checks": ["gocogint"], "matches": false},
+    {"name": "a misspelled removal", "checks": ["-unparma"], "matches": false},
+    {"name": "a category nothing registers", "checks": ["QF*"], "matches": false},
+    {"name": "a prefix nothing registers", "checks": ["SA9*"], "matches": false},
+    {"name": "one unmatched pattern among matching ones", "checks": ["gocognit", "SA9*"], "matches": false}
+  ]
+}

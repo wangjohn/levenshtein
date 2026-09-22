@@ -46,9 +46,18 @@ Consumers pin a release tag, or its commit SHA, as described in
   were measured and left out, with the reason for each.
 - `levenshtein-lint` includes `gocognit`, which reports a function whose
   cognitive complexity is over 30. It is off in the shipped selection, so
-  `go-lint` does not report it and no consumer sees new findings; running the
-  linter directly with `gocognit` selected turns it on
+  `go-lint` does not report it and no consumer sees new findings; a repository
+  turns it on with the `lint` option below
   ([opt in](docs/checks.md#opt-in-complexity-gocognit)).
+- A `go-lint` check in `levenshtein.json` accepts an optional
+  `"lint": {"checks": [...]}` object whose Staticcheck patterns are appended to
+  the shipped selection, so a repository can turn an opt-in rule such as
+  `gocognit` on, or a default rule off, without restating the rest. It works on
+  both executors, is part of the check's result key, and rejects malformed
+  entries at planning time and patterns that match no registered rule when the
+  check runs ([lint selection](docs/configuration.md#lint-selection)). This is
+  an additive field of configuration version 1; files without it are
+  unchanged and keep their cached results.
 
 ### Fixed
 

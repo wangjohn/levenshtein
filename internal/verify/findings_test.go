@@ -96,6 +96,40 @@ func TestShippedSelectionLeavesGocognitOff(t *testing.T) {
 	}
 }
 
+// registeredCase is one row of runner/testdata/registered.json.
+type registeredCase struct {
+	Name    string   `json:"name"`
+	Checks  []string `json:"checks"`
+	Matches bool     `json:"matches"`
+}
+
+// A pattern a go-lint check adds must match a rule the linter lists, and this
+// copy must agree with the runner's, so both load one table.
+func TestAddedLintChecksMatchTheRunner(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "runner", "testdata", "registered.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var shared struct {
+		Listing string           `json:"listing"`
+		Cases   []registeredCase `json:"cases"`
+	}
+	if err := json.Unmarshal(data, &shared); err != nil {
+		t.Fatal(err)
+	}
+	if len(shared.Cases) == 0 {
+		t.Fatal("runner/testdata/registered.json has no cases")
+	}
+
+	for _, tc := range shared.Cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			if err := registered(tc.Checks, shared.Listing); (err == nil) != tc.Matches {
+				t.Fatalf("registered(%v) = %v, want matches=%v", tc.Checks, err, tc.Matches)
+			}
+		})
+	}
+}
+
 func TestCommandFailuresDoNotBecomePassingResults(t *testing.T) {
 	for _, tc := range []struct {
 		check     CheckKind
