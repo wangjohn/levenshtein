@@ -61,8 +61,10 @@ func (cfg Config) Plan(source, name string) (Plan, error) {
 		if err := validateCheck(check, env); err != nil {
 			return p, fmt.Errorf("check %q: %w", id, err)
 		}
-		if run.RerunChecks && env.Executor == ExecutorNative && check.Kind == CheckCommand && len(check.Command.RerunArgs) == 0 {
-			return p, fmt.Errorf("check %q: fresh native runs require explicit rerun_args", id)
+		if run.RerunChecks && env.Executor == ExecutorNative {
+			if err := nativeKinds[check.Kind].rerunReady(check); err != nil {
+				return p, fmt.Errorf("check %q: %w", id, err)
+			}
 		}
 
 		if check.Kind == CheckWorkflowLint && target.Dir != "." {
