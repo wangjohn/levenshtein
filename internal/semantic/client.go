@@ -144,6 +144,8 @@ func (c Client) post(ctx context.Context, body []byte) (wireResponse, time.Durat
 		return wireResponse{}, time.Second, err
 	}
 	switch resp.StatusCode {
+	case http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther, http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
+		return wireResponse{}, -1, fmt.Errorf("TypeSafe API redirected to %q; redirects are not followed so the key only reaches the configured origin", resp.Header.Get("Location"))
 	case http.StatusOK:
 		var response wireResponse
 		if err := json.Unmarshal(data, &response); err != nil {

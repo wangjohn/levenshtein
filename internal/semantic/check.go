@@ -122,7 +122,7 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 
 	requests, notes := buildRequests(opts, change, prefix)
 	report.Notes = notes
-	if len(requests) == 0 {
+	if len(requests) == 0 && len(notes) == 0 {
 		report.Notes = append(report.Notes, "no reviewable Go or Markdown changes against "+change.BaseRef)
 		return report, nil
 	}
@@ -495,6 +495,18 @@ var shrinkLimits = []int{maxStateChars / 4, maxStateChars / 16, maxStateChars / 
 // items, so they can lose entries once every text field has been shortened.
 var summaryLists = []string{"files", "commits"}
 
+// summaryTextLists are the change.summary lists: free text that has no other
+// cap, so they shorten and then shrink with the summaries.
+var summaryTextLists = []string{"commit_subjects", "added_symbols", "added_config_keys"}
+
+func truncateStrings(values []string, limit int) []string {
+	short := make([]string, len(values))
+	for i, value := range values {
+		short[i] = truncate(value, limit)
+	}
+	return short
+}
+
 // fit returns an error when the state is still over the limit after every
 // shrink; the caller reports that instead of sending a request the API would
 // reject.
@@ -519,6 +531,14 @@ func (r *request) fit() error {
 	for _, key := range summaryLists {
 		if value, ok := r.state[key]; ok {
 			summaries[key] = value
+		}
+	}
+	change, _ := r.state["change"].(map[string]any)
+	summary, _ := change["summary"].(map[string]any)
+	summaryTexts := map[string][]string{}
+	for _, key := range summaryTextLists {
+		if values, ok := summary[key].([]string); ok {
+			summaryTexts[key] = values
 		}
 	}
 	for _, limit := range shrinkLimits {
@@ -547,7 +567,10 @@ func (r *request) fit() error {
 			return nil
 		}
 		for key, value := range summaries {
-			r.state[key] = capList(value, limit/listDivisor)
+			r.state[key] = capList(truncateValue(genericJSON(value), limit), limit/listDivisor)
+		}
+		for key, values := range summaryTexts {
+			summary[key] = capList(truncateStrings(values, limit), limit/listDivisor)
 		}
 		if r.size() <= maxStateChars {
 			return nil
@@ -560,19 +583,35 @@ func (r *request) fit() error {
 // round keeps four entries.
 const listDivisor = 64
 
+// genericJSON converts a typed value to its generic JSON shape so truncateValue
+// can shorten the strings inside it. Values that do not round-trip are
+// returned unchanged.
+func genericJSON(value any) any {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return value
+	}
+	var generic any
+	if err := json.Unmarshal(data, &generic); err != nil {
+		return value
+	}
+	return generic
+}
+
 // capList keeps the first n entries of a JSON list and a count of the rest.
 // Values that are not lists are returned unchanged.
 func capList(value any, n int) any {
+	if n < 1 {
+		n = 1
+	}
 	data, err := json.Marshal(value)
 	if err != nil {
 		return value
 	}
 	var list []any
-	if err := json.Unmarshal(data, &list); err != nil || len(list) <= n {
+	// The marker replaces at least two entries, so a cap never grows the list.
+	if err := json.Unmarshal(data, &list); err != nil || len(list) <= n+1 {
 		return value
-	}
-	if n < 1 {
-		n = 1
 	}
 	return append(list[:n], fmt.Sprintf("... %d more", len(list)-n))
 }

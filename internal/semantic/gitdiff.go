@@ -301,6 +301,7 @@ func parseDiff(raw string, include func(string) bool) ([]FileChange, error) {
 	var added, removed int
 	var current *Hunk
 	binary := false
+	sawHunk := false
 
 	flush := func() {
 		if current != nil {
@@ -310,7 +311,7 @@ func parseDiff(raw string, include func(string) bool) ([]FileChange, error) {
 		if path != "" && !binary && include(path) && (len(hunks) > 0 || status == FileDeleted) {
 			files = append(files, FileChange{Path: path, Kind: classify(path), Status: status, Hunks: hunks, Added: added, Removed: removed})
 		}
-		path, status, hunks, added, removed, binary = "", FileModified, nil, 0, 0, false
+		path, status, hunks, added, removed, binary, sawHunk = "", FileModified, nil, 0, 0, false, false
 	}
 
 	scanner := bufio.NewScanner(strings.NewReader(raw))
@@ -329,15 +330,16 @@ func parseDiff(raw string, include func(string) bool) ([]FileChange, error) {
 		// File headers only precede the first hunk. Inside a hunk, a line that
 		// starts with "+++ " or "--- " is content (an added "++ x" or a removed
 		// "-- x") and must not rename the file or vanish from the counts.
-		case current == nil && len(hunks) == 0 && strings.HasPrefix(line, "--- "):
+		case !sawHunk && strings.HasPrefix(line, "--- "):
 			if name := strings.TrimPrefix(line, "--- "); path == "" && name != "/dev/null" {
 				path = strings.TrimPrefix(name, "a/")
 			}
-		case current == nil && len(hunks) == 0 && strings.HasPrefix(line, "+++ "):
+		case !sawHunk && strings.HasPrefix(line, "+++ "):
 			if name := strings.TrimPrefix(line, "+++ "); name != "/dev/null" {
 				path = strings.TrimPrefix(name, "b/")
 			}
 		case strings.HasPrefix(line, "@@ "):
+			sawHunk = true // Even a malformed header ends the header region.
 			if current != nil {
 				hunks = append(hunks, *current)
 			}

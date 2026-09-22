@@ -419,11 +419,15 @@ func packageFunctions(dir, current string, isTest bool, exclude map[string]bool)
 
 // truncate cuts on a rune boundary so a shortened state never carries half a
 // multi-byte character.
+const truncationMarker = "\n... [truncated]"
+
+// truncate never grows its input: text that would not get shorter with the
+// marker attached is returned as is.
 func truncate(text string, limit int) string {
-	if len(text) <= limit {
+	if len(text) <= limit+len(truncationMarker) {
 		return text
 	}
-	return text[:runeBoundary(text, limit)] + "\n... [truncated]"
+	return text[:runeBoundary(text, limit)] + truncationMarker
 }
 
 // runeBoundary trims an index back to the start of the rune it lands inside.

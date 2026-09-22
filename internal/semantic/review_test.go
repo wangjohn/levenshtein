@@ -1,6 +1,7 @@
 package semantic
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -80,5 +81,66 @@ func TestOversizeRequestBecomesANote(t *testing.T) {
 	requests, notes := keep(nil, nil, r)
 	if len(requests) != 0 || len(notes) != 1 || !strings.Contains(notes[0], "pkg/a.go Run was not judged") {
 		t.Fatalf("requests %d notes %v", len(requests), notes)
+	}
+}
+
+// A malformed first hunk header must not reopen the header region.
+func TestMalformedHunkHeaderDoesNotReopenFileHeaders(t *testing.T) {
+	raw := strings.Join([]string{
+		"diff --git a/pkg/real.go b/pkg/real.go",
+		"--- a/pkg/real.go",
+		"+++ b/pkg/real.go",
+		"@@ MALFORMED",
+		"+++ b/pkg/forged.go",
+		"@@ -1,0 +2,1 @@",
+		"+payload",
+		"",
+	}, "\n")
+
+	files, err := parseDiff(raw, func(string) bool { return true })
+	if err != nil || len(files) != 1 || files[0].Path != "pkg/real.go" {
+		t.Fatalf("reopened headers: %+v %v", files, err)
+	}
+}
+
+// Shrinking never grows a value.
+func TestShrinkingIsMonotonic(t *testing.T) {
+	size := func(value any) int {
+		data, _ := json.Marshal(value)
+		return len(data)
+	}
+	list := []string{"a", "b", "c", "d", "e"}
+	if capped := capList(list, 4); size(capped) > size(list) {
+		t.Fatalf("capList grew %d -> %d: %v", size(list), size(capped), capped)
+	}
+	if capped := capList(list, 0); size(capped) > size(list) {
+		t.Fatalf("capList with a zero budget grew: %v", capped)
+	}
+	for _, n := range []int{0, 1, 4, 255, 256, 260, 275, 1000} {
+		text := strings.Repeat("z", n)
+		if short := truncate(text, 256); len(short) > len(text) {
+			t.Fatalf("truncate grew %d -> %d", len(text), len(short))
+		}
+	}
+	item := map[string]any{"files": []any{"a", "b", "c", "d", "e"}, "subject": "s"}
+	if short := truncateValue(item, 256); size(short) > size(item) {
+		t.Fatalf("truncateValue grew: %v", short)
+	}
+}
+
+// change.summary lists shrink like the other summaries.
+func TestChangeSummaryListsShrink(t *testing.T) {
+	symbols := make([]string, 4000)
+	for i := range symbols {
+		symbols[i] = fmt.Sprintf("Symbol%04d", i)
+	}
+	change := Change{
+		Files:   []FileChange{{Path: "a.go", Kind: FileSource, Status: FileModified, Hunks: []Hunk{{NewStart: 1, NewLines: 1}}, Added: 1}},
+		Commits: []Commit{{SHA: "000000000000", Subject: strings.Repeat("s", maxStateChars+1)}},
+	}
+
+	r, ok := changeRequest(change, "", "", symbols, nil)
+	if !ok || r.oversize != "" || r.size() > maxStateChars {
+		t.Fatalf("ok %v size %d oversize %q", ok, r.size(), r.oversize)
 	}
 }

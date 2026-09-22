@@ -100,6 +100,9 @@ func validateSemanticCredentials(check Check, env Environment) error {
 		if name == semanticAPIKeyEnv {
 			return fmt.Errorf("semantic-lint reads %s itself; remove it from pass_env so the key is not passed to the check's subprocesses", name)
 		}
+		if name == "PATH" || strings.HasPrefix(name, "GIT_") {
+			return fmt.Errorf("semantic-lint runs git from the host environment; remove %s from pass_env", name)
+		}
 	}
 	return nil
 }
