@@ -152,7 +152,7 @@ The rest of this page holds a rule to one bar: it is on because it was measured 
 
 Three more analyzers were added on the same argument and then left out, because they cannot find their bug under this linter:
 
-- `asasalint` reports a `[]any` passed as a single argument to a `...any` parameter. At v0.0.11 it recognizes the parameter only when it is spelled `...interface{}`: since Go 1.23 `any` is an alias type, and the check does not unwrap it, so the modern spelling is never reported (golangci-lint's build misses it the same way).
+- `asasalint` reports a `[]any` passed as a single argument to a `...any` parameter. At v0.0.11 it recognizes the call only when both the parameter and the slice are spelled with `interface{}`: since Go 1.23 `any` is an alias type, and the check does not unwrap it, so a call that spells either one `any` is never reported (golangci-lint's build misses it the same way).
 - `makezero` reports an `append` to a slice made with a non-zero length. It tracks the slice through the parser's object resolution, which Staticcheck's loader turns off, so under this linter it never reports anything and prints a warning for every `append`.
 - `spancheck` reports an OpenTelemetry or OpenCensus span that is not ended on every path. At v0.6.5 it matches `span.End()` to the span through the same object resolution, so under this linter it reports every span, including one closed with `defer span.End()`, and it crashes on a function that starts a second span into the same variable.
 
@@ -195,7 +195,7 @@ These analyzers were measured against this repository and left out. Counts are f
 | `dupword` | Its findings were intended repeated words |
 | `copyloopvar` | Obsolete since Go 1.22 gave each loop iteration its own variable |
 | `nolintlint` | Staticcheck already reports a `//lint:ignore` directive that matches nothing |
-| `asasalint` | Misses its bug when the parameter is spelled `...any` ([details](#known-bug-patterns)) |
+| `asasalint` | Misses its bug when the parameter or the slice is spelled with `any` ([details](#known-bug-patterns)) |
 | `makezero` | Never reports under Staticcheck's loader, and prints a warning for every `append` ([details](#known-bug-patterns)) |
 | `spancheck` | Reports every span as never ended under Staticcheck's loader, and crashes on a reused span variable ([details](#known-bug-patterns)) |
 

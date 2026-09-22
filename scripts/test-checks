@@ -31,23 +31,38 @@ LV1001 LV1002 LV1003 LV1004 LV1005 LV1006'
 (cd "$root/runner/testdata/resources-good" && "$temporary/lint" -checks=bodyclose,sqlclosecheck ./...)
 (cd "$root/runner/testdata/resources-good" && "$temporary/lint" -checks="$checks" ./...)
 
-expect_failure() {
-  local fixture=$1 codes=$2
-  shift 2
+# fails runs a command in a fixture and requires it to fail, keeping the output.
+fails() {
+  local fixture=$1
+  shift
   if (cd "$root/runner/testdata/$fixture" && "$@") > "$temporary/output" 2>&1; then
     echo "$fixture unexpectedly passed" >&2
     exit 1
   fi
+}
+
+# reported requires the last failing output to contain a line matching pattern.
+reported() {
+  if ! grep -qE -- "$1" "$temporary/output"; then
+    cat "$temporary/output" >&2
+    echo "Missing intended diagnostic: $2" >&2
+    exit 1
+  fi
+}
+
+# expect_failure requires each code as a whole diagnostic code: the linter ends
+# every finding with "(code)", so nilness is not satisfied by nilnesserr.
+expect_failure() {
+  local fixture=$1 codes=$2
+  shift 2
+  fails "$fixture" "$@"
   for code in $codes; do
-    if ! grep -q "$code" "$temporary/output"; then
-      cat "$temporary/output" >&2
-      echo "Missing intended diagnostic: $code" >&2
-      exit 1
-    fi
+    reported "\\($code\\)\$" "$code"
   done
 }
 
 expect_failure bad "$expected" "$temporary/lint" -checks="$checks" ./...
 expect_failure resources-bad 'bodyclose sqlclosecheck' "$temporary/lint" -checks=bodyclose,sqlclosecheck ./...
-expect_failure vet-bad 'passes lock by value' go vet ./...
+fails vet-bad go vet ./...
+reported 'passes lock by value' 'passes lock by value'
 echo 'Expanded check regression fixtures passed'
