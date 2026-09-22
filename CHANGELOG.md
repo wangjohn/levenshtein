@@ -55,6 +55,8 @@ gave a consumer.
 - `go-lint` enforces the whole pinned Staticcheck release minus six naming and
   documentation style rules, nineteen curated upstream analyzers, five
   `modernize` analyzers, and house rules LV1003 through LV1005 (#29, #33).
+- House rule LV1006 reports tests that cannot fail, including tests skipped
+  unconditionally (#35).
 - The `./verify` launcher accepts any host Go and provisions the pinned
   toolchain itself (#27).
 - Fingerprinting hashes each file once per process, persists a stat cache
