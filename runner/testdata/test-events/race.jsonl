@@ -1,0 +1,49 @@
+{"Action":"start","Package":"example.com/test-race"}
+{"Action":"run","Package":"example.com/test-race","Test":"TestCount"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"=== RUN   TestCount\n","OutputType":"frame"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"==================\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"WARNING: DATA RACE\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"Read at 0x00c00011c178 by goroutine 9:\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"  example.com/test-race.Count.func1()\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"      /src/counter.go:10 +0x33\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"Previous write at 0x00c00011c178 by goroutine 8:\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"  example.com/test-race.Count()\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"      /src/counter.go:13 +0x116\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"  example.com/test-race.TestCount()\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"      /src/counter_test.go:6 +0x1c\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"  testing.tRunner()\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"      /usr/local/go/src/testing/testing.go:2193 +0x21c\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"  testing.(*T).Run.gowrap1()\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"      /usr/local/go/src/testing/testing.go:2258 +0x38\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"Goroutine 9 (running) created at:\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"  example.com/test-race.Count()\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"      /src/counter.go:9 +0xf9\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"  example.com/test-race.TestCount()\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"      /src/counter_test.go:6 +0x1c\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"  testing.tRunner()\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"      /usr/local/go/src/testing/testing.go:2193 +0x21c\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"  testing.(*T).Run.gowrap1()\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"      /usr/local/go/src/testing/testing.go:2258 +0x38\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"Goroutine 8 (running) created at:\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"  testing.(*T).Run()\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"      /usr/local/go/src/testing/testing.go:2258 +0xb12\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"  testing.runTests.func1()\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"      /usr/local/go/src/testing/testing.go:2742 +0x84\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"  testing.tRunner()\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"      /usr/local/go/src/testing/testing.go:2193 +0x21c\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"  testing.runTests()\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"      /usr/local/go/src/testing/testing.go:2740 +0x9e9\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"  testing.(*M).Run()\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"      /usr/local/go/src/testing/testing.go:2600 +0xf44\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"  main.main()\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"      _testmain.go:46 +0x164\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"==================\n"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"    testing.go:1865: race detected during execution of test\n","OutputType":"error"}
+{"Action":"output","Package":"example.com/test-race","Test":"TestCount","Output":"--- FAIL: TestCount (0.00s)\n","OutputType":"frame"}
+{"Action":"fail","Package":"example.com/test-race","Test":"TestCount","Elapsed":0}
+{"Action":"output","Package":"example.com/test-race","Output":"FAIL\n","OutputType":"frame"}
+{"Action":"output","Package":"example.com/test-race","Output":"FAIL\texample.com/test-race\t0.015s\n","OutputType":"frame"}
+{"Action":"fail","Package":"example.com/test-race","Elapsed":0.015}

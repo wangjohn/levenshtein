@@ -1,0 +1,8 @@
+{"Action":"start","Package":"example.com/test-pass"}
+{"Action":"run","Package":"example.com/test-pass","Test":"TestTotal"}
+{"Action":"output","Package":"example.com/test-pass","Test":"TestTotal","Output":"=== RUN   TestTotal\n","OutputType":"frame"}
+{"Action":"output","Package":"example.com/test-pass","Test":"TestTotal","Output":"--- PASS: TestTotal (0.00s)\n","OutputType":"frame"}
+{"Action":"pass","Package":"example.com/test-pass","Test":"TestTotal","Elapsed":0}
+{"Action":"output","Package":"example.com/test-pass","Output":"PASS\n","OutputType":"frame"}
+{"Action":"output","Package":"example.com/test-pass","Output":"ok  \texample.com/test-pass\t1.013s\n"}
+{"Action":"pass","Package":"example.com/test-pass","Elapsed":1.013}

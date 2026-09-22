@@ -50,6 +50,11 @@ var nativeKinds = map[CheckKind]nativeKind{
 		rerunReady: alwaysReady,
 		execute:    goCheckExecutor((*Native).goMod, "shared check failed"),
 	},
+	CheckGoTest: {
+		validate:   validateSharedGoCheck,
+		rerunReady: alwaysReady,
+		execute:    goCheckExecutor((*Native).goTest, "shared check failed"),
+	},
 	CheckGoVuln: {
 		validate:   validateSharedGoCheck,
 		rerunReady: alwaysReady,
@@ -75,6 +80,7 @@ var sharedGoChecks = map[CheckKind]bool{
 	CheckGoLint:           true,
 	CheckGoVet:            true,
 	CheckGoMod:            true,
+	CheckGoTest:           true,
 	CheckGoVuln:           true,
 	CheckWorkflowLint:     true,
 	CheckWorkflowSecurity: true,

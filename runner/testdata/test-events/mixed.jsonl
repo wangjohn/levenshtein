@@ -1,0 +1,27 @@
+{"ImportPath":"example.com/mixed/broken [example.com/mixed/broken.test]","Action":"build-output","Output":"# example.com/mixed/broken [example.com/mixed/broken.test]\n"}
+{"ImportPath":"example.com/mixed/broken [example.com/mixed/broken.test]","Action":"build-output","Output":"broken/a_test.go:3:45: cannot use Add(1, 2) (value of type int) as string value in variable declaration\n"}
+{"ImportPath":"example.com/mixed/broken [example.com/mixed/broken.test]","Action":"build-fail"}
+{"Action":"start","Package":"example.com/mixed/bad"}
+{"Action":"start","Package":"example.com/mixed/broken"}
+{"Action":"output","Package":"example.com/mixed/broken","Output":"FAIL\texample.com/mixed/broken [build failed]\n","OutputType":"frame"}
+{"Action":"start","Package":"example.com/mixed/ok"}
+{"Action":"fail","Package":"example.com/mixed/broken","Elapsed":0,"FailedBuild":"example.com/mixed/broken [example.com/mixed/broken.test]"}
+{"Action":"run","Package":"example.com/mixed/bad","Test":"TestAdd"}
+{"Action":"output","Package":"example.com/mixed/bad","Test":"TestAdd","Output":"=== RUN   TestAdd\n","OutputType":"frame"}
+{"Action":"output","Package":"example.com/mixed/bad","Test":"TestAdd","Output":"    a_test.go:3: Add(1, 2) = 3, want 4\n","OutputType":"error"}
+{"Action":"output","Package":"example.com/mixed/bad","Test":"TestAdd","Output":"--- FAIL: TestAdd (0.00s)\n","OutputType":"frame"}
+{"Action":"fail","Package":"example.com/mixed/bad","Test":"TestAdd","Elapsed":0}
+{"Action":"run","Package":"example.com/mixed/bad","Test":"TestOK"}
+{"Action":"output","Package":"example.com/mixed/bad","Test":"TestOK","Output":"=== RUN   TestOK\n","OutputType":"frame"}
+{"Action":"output","Package":"example.com/mixed/bad","Test":"TestOK","Output":"--- PASS: TestOK (0.00s)\n","OutputType":"frame"}
+{"Action":"pass","Package":"example.com/mixed/bad","Test":"TestOK","Elapsed":0}
+{"Action":"output","Package":"example.com/mixed/bad","Output":"FAIL\n","OutputType":"frame"}
+{"Action":"output","Package":"example.com/mixed/bad","Output":"FAIL\texample.com/mixed/bad\t0.013s\n","OutputType":"frame"}
+{"Action":"fail","Package":"example.com/mixed/bad","Elapsed":0.014}
+{"Action":"run","Package":"example.com/mixed/ok","Test":"TestAdd"}
+{"Action":"output","Package":"example.com/mixed/ok","Test":"TestAdd","Output":"=== RUN   TestAdd\n","OutputType":"frame"}
+{"Action":"output","Package":"example.com/mixed/ok","Test":"TestAdd","Output":"--- PASS: TestAdd (0.00s)\n","OutputType":"frame"}
+{"Action":"pass","Package":"example.com/mixed/ok","Test":"TestAdd","Elapsed":0}
+{"Action":"output","Package":"example.com/mixed/ok","Output":"PASS\n","OutputType":"frame"}
+{"Action":"output","Package":"example.com/mixed/ok","Output":"ok  \texample.com/mixed/ok\t1.022s\n"}
+{"Action":"pass","Package":"example.com/mixed/ok","Elapsed":1.022}

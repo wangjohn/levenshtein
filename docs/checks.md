@@ -197,6 +197,7 @@ Runs select checks by name; existing CI still owns triggers and schedules.
 | `go-lint` | The whole default set above: Staticcheck `SA*`/`S1*`/`ST1*`/`QF1*`/`U1000`, the curated upstream and modernize analyzers, and LV1001–LV1006 | Branch and pre-merge |
 | `go-vet` | The pinned Go toolchain's default vet checks | Branch and pre-merge |
 | `go-mod` | `go mod tidy -diff` and `go mod verify`: manifests tidy, downloads matching `go.sum` ([details](#module-manifests)) | Branch and pre-merge |
+| `go-test` | `go test -race ./...` on the pinned toolchain: a failing test or a detected data race fails, a test that does not build is an error ([details](#tests)) | Its own run, for self-contained unit tests |
 | `go-http` | bodyclose alone, for a repo that wants the resource check without the rest | HTTP clients/services |
 | `go-sql` | sqlclosecheck alone, for a repo that wants the resource check without the rest | Database users |
 | `workflow-lint` | actionlint: GitHub Actions syntax and expressions | Repos with GitHub Actions |
@@ -244,6 +245,25 @@ Go vet and standalone tool failures retain native output, including file/line de
 - **Caching.** `go mod verify` checks the module cache as it is now, which no input fingerprint covers, so like `go-vuln` a `go-mod` result is never reused, on either executor, and each Dagger call gets a fresh nonce; a direct Dagger `sharedCheck` call for `go-mod` without one is refused. With the modules already downloaded it takes a few seconds.
 
 Without a `levenshtein.json`, `go-mod` is part of the default `branch`, `pre-merge`, and `main` runs over the root module.
+
+### Tests
+
+`go-test` runs `go test -race -json -vet=off -timeout=10m ./...` in the target module, on the pinned Go toolchain with cgo on, because the race detector needs it. It is not in the default `branch`, `pre-merge`, or `main` gates: a repository without `levenshtein.json` can run it by name (`verify go-test`), and a configured one adds it to a run of its own.
+
+- **Findings and errors.** `go test` exits 1 both when a test fails and when a package does not build, so the check reads `go test -json`'s events rather than the exit code or text that a test's own output could imitate. A package that fails after its tests ran is a finding carrying that package's `go test` output, less the tests in it that passed: a failing or panicking test, a data race the race detector reported (`WARNING: DATA RACE` and `race detected during execution of test`), or a test that hit the timeout. A package whose test binary could not be built or set up (`[build failed]`, `[setup failed]`) is an error, since its tests never ran, even if another package's tests failed; so is a target without a `go.mod` or without packages, an exit 1 with no failed package, any other exit code, and a module where not a single test ran. The report keeps `go test`'s text output.
+- **Vet.** `go test` normally runs a subset of `go vet` first and reports its diagnostics as a build failure. The check turns that off with `-vet=off`: those diagnostics are [`go-vet`](#named-checks-and-suggested-runs)'s job, and here they would make the check an error instead of a finding.
+- **Timeouts.** `-timeout=10m` is named on the command line, so `GOFLAGS` cannot lift it. A test binary still running after ten minutes panics with every goroutine's stack, which fails its package as a finding. The whole `go test` invocation is bounded by thirty minutes on either executor, the limit the other shared Go checks share; reaching it is an error, and a native check's processes are stopped.
+- **cgo.** The Dagger path runs in the pinned `golang` Debian image, which ships `gcc`, with `CGO_ENABLED=1`. The native path sets `CGO_ENABLED=1` whatever the environment says and first looks up the C compiler `go env CC` names (`gcc` on Linux, `clang` on macOS, unless `CC` is set) on the check's `PATH`; without one the check is an error that says so, rather than a pass or a build failure in every package.
+- **Caching.** A `go-test` verdict is reused like `go-vet`'s: its key covers the target's declared inputs, the toolchain, and the shared implementation, and only a passing result is stored. A fresh run (`rerun_checks`) passes `-count=1`, so neither Levenshtein's cache nor `go test`'s own reuses anything; any other run lets `go test` reuse the packages whose inputs it can see did not change. That is the right trade-off only for tests whose outcome depends on the declared inputs alone, so declare everything the tests read, including testdata and golden files outside the target directory, in the target's `inputs`. A test that reads the network, the clock, or state outside the repository can pass once and be reused; such tests belong in a `command` check, below.
+- **Workspaces.** The check sees the same `go.work` as `go-vet` does, following the target's declared inputs.
+
+`go-test` is for self-contained unit tests: it runs every package's tests in one invocation with nothing but the source, the module cache, and the Go toolchain. Use a [`command` check](configuration.md#native-commands) instead when the tests need anything else:
+
+- **Services.** Tests that need a database, a message queue, or another service need that service started, seeded, and torn down around them, which a `command` check's own script (with a [preparation](configuration.md#native-commands) for any shared setup) can do on a native worker and `go-test` cannot.
+- **Flags and scope.** Build tags, `-short`, `-run` filters, a subset of packages, coverage profiles, or `-count` for flake hunting are all `command` arguments; `go-test` takes no options.
+- **Live state.** A `command` check leaves result caching off unless it opts in with `cache: true`, so tests that reach the network or other external state are re-executed on every run; give `go test` `-count=1` there so its own cache does not answer either.
+
+A repository whose CI already runs `go test -race` over the same modules gains nothing from also adding `go-test` to that job's run. Levenshtein itself is one: its CI `tests` job runs `go test -race ./...` over the root module and `runner/lint` on every event, so its `levenshtein.json` defines a native `go-test` run over the whole repository and `runner/lint` for local use and leaves it out of `branch`, `pre-merge`, and `main`. `runner`, whose tests need a Dagger session, is not a target.
 
 ### Workflow security
 

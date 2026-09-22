@@ -8,7 +8,7 @@ import (
 
 func TestSharedChecksPlanFromVersionedConfiguration(t *testing.T) {
 	for _, data := range []string{
-		`{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"lint":{"kind":"go-lint","target":"app","environment":"go"},"vet":{"kind":"go-vet","target":"app","environment":"go"},"mod":{"kind":"go-mod","target":"app","environment":"go"},"http":{"kind":"go-http","target":"app","environment":"go"},"sql":{"kind":"go-sql","target":"app","environment":"go"},"audit":{"kind":"go-vuln","target":"app","environment":"go"},"workflows":{"kind":"workflow-lint","target":"app","environment":"go"},"security":{"kind":"workflow-security","target":"app","environment":"go"}},"runs":{"custom":{"checks":["lint","vet","mod","http","sql","audit","workflows","security"]}}}`,
+		`{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"lint":{"kind":"go-lint","target":"app","environment":"go"},"vet":{"kind":"go-vet","target":"app","environment":"go"},"mod":{"kind":"go-mod","target":"app","environment":"go"},"test":{"kind":"go-test","target":"app","environment":"go"},"http":{"kind":"go-http","target":"app","environment":"go"},"sql":{"kind":"go-sql","target":"app","environment":"go"},"audit":{"kind":"go-vuln","target":"app","environment":"go"},"workflows":{"kind":"workflow-lint","target":"app","environment":"go"},"security":{"kind":"workflow-security","target":"app","environment":"go"}},"runs":{"custom":{"checks":["lint","vet","mod","test","http","sql","audit","workflows","security"]}}}`,
 		`{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"audit":{"kind":"go-vuln","target":"app","environment":"go"}},"runs":{"custom":{"checks":["audit"]}}}`,
 	} {
 		cfg, err := Parse([]byte(data))
@@ -95,6 +95,44 @@ func TestModuleChecksNeverReuseAVerdict(t *testing.T) {
 	}
 }
 
+// go-test's verdict is reused like go-vet's: tests that reach beyond their
+// declared inputs belong in a command check. A failure is never cached, and a
+// fresh run gets a nonce so Dagger re-executes it.
+func TestTestResultsAreReusedUntilAFreshRun(t *testing.T) {
+	for _, kind := range []ExecutorKind{ExecutorDagger, ExecutorNative} {
+		req := cacheRequest(t)
+		req.Check.Kind = CheckGoTest
+		req.Environment.Executor = kind
+		executor := &countingExecutor{status: StatusFailed}
+		runner := CachedExecutor{Cache: &Cache{Dir: t.TempDir()}, Executor: executor}
+
+		for range 2 {
+			if result := runner.Execute(context.Background(), req); result.Status != StatusFailed {
+				t.Fatalf("%s: unexpected go-test result: %+v", kind, result)
+			}
+		}
+		executor.status = StatusPassed
+		for range 2 {
+			if result := runner.Execute(context.Background(), req); result.Status != StatusPassed {
+				t.Fatalf("%s: unexpected go-test result: %+v", kind, result)
+			}
+		}
+		if executor.calls != 3 {
+			t.Fatalf("%s: want two failures run and one pass reused, got %d calls", kind, executor.calls)
+		}
+	}
+
+	req := cacheRequest(t)
+	req.Check.Kind = CheckGoTest
+	if executionNonce(req) != "" {
+		t.Fatal("an ordinary go-test run should keep Dagger's cache")
+	}
+	req.RerunChecks = true
+	if executionNonce(req) == "" {
+		t.Fatal("a fresh go-test run must get unique Dagger execution inputs")
+	}
+}
+
 func TestWorkflowKindsRequireRootTarget(t *testing.T) {
 	for _, kind := range []CheckKind{CheckWorkflowLint, CheckWorkflowSecurity} {
 		cfg, err := Parse([]byte(`{"version":1,"targets":{"app":{"dir":"nested","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"workflow":{"kind":"` + string(kind) + `","target":"app","environment":"go"}},"runs":{"branch":{"checks":["workflow"]}}}`))
@@ -113,7 +151,7 @@ func TestUnconfiguredRepoGetsSharedCheckDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, count := range map[string]int{"branch": 3, "pre-merge": 3, "main": 4, "go-lint": 1, "go-vet": 1, "go-mod": 1, "go-vuln": 1, "go-http": 1, "go-sql": 1, "workflow-lint": 1, "workflow-security": 1} {
+	for name, count := range map[string]int{"branch": 3, "pre-merge": 3, "main": 4, "go-lint": 1, "go-vet": 1, "go-mod": 1, "go-test": 1, "go-vuln": 1, "go-http": 1, "go-sql": 1, "workflow-lint": 1, "workflow-security": 1} {
 		plan, err := cfg.Plan(source, name)
 		if err != nil || len(plan.Checks) != count {
 			t.Fatalf("%s: %+v %v", name, plan, err)
