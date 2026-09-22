@@ -125,6 +125,9 @@ func (d *Dagger) executeTests(parent context.Context, req Request) Result {
 	// Connect with the run's context, as executeMutation does, so the shared
 	// session outlives this check's bound.
 	if err := d.connect(parent, req.Shared); err != nil {
+		if parent.Err() != nil {
+			return Result{Status: StatusCancelled, Error: parent.Err().Error()}
+		}
 		return Result{Status: StatusError, Error: err.Error()}
 	}
 	ctx, cancel := context.WithTimeout(parent, goCheckTimeout)
