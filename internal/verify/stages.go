@@ -77,7 +77,7 @@ func (n *Native) stage(ctx context.Context, req Request, kind StageKind, stage *
 	}
 
 	for _, out := range stage.Outputs {
-		if _, err := outputPath(req.Source, out); err != nil {
+		if err := checkOutputPath(req.Source, out); err != nil {
 			r := Result{Status: StatusError, Error: err.Error()}
 			return info, &r
 		}

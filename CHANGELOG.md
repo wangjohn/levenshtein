@@ -26,6 +26,13 @@ Consumers pin a release tag, or its commit SHA, as described in
   a run of your own. The zizmor release archive is pinned by SHA-256 per
   platform and verified before it runs; audits that query GitHub stay with
   zizmor's own action ([details](docs/checks.md#workflow-security)).
+- `go-lint` runs three more upstream analyzers: `unparam` (unused parameters
+  and results of unexported functions), `musttag` (untagged fields in structs
+  passed to JSON, XML, YAML, and TOML encoders and decoders), and `recvcheck`
+  (types whose hand-written methods mix pointer and value receivers).
+  Consumers see their findings when they bump their Levenshtein pin.
+- [docs/checks.md](docs/checks.md#considered-and-off) lists the analyzers that
+  were measured and left out, with the reason for each.
 
 ### Changed
 

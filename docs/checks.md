@@ -15,6 +15,9 @@ Every shared check kind runs the same pinned tools locally and in any CI provide
 | `exhaustive` | Require enum switches to cover declared values |
 | `bodyclose`, `sqlclosecheck`, `rowserrcheck`, `noctx` | Resources a program opens and never closes, and calls that drop the context |
 | `nilness`, `unusedwrite`, `errorlint`, `nilerr`, `durationcheck`, `reassign`, `wastedassign` | Behavior that is wrong rather than unidiomatic |
+| `musttag` | Tag every exported field of a struct passed to a JSON, XML, YAML, or TOML encoder or decoder, so renaming a Go field cannot silently change the format ([settings](#upstream-analyzer-settings)) |
+| `recvcheck` | Give a type all pointer or all value receivers; a mix means a value and a pointer have different method sets, and value methods work on a copy |
+| `unparam` | Unexported functions with a parameter no caller needs, a parameter that always receives the same value, or a result no caller uses |
 | `intrange`, `usestdlibvars`, `perfsprint`, `predeclared`, `errname` | Modern, consistent standard-library usage |
 | `minmax`, `mapsloop`, `slicescontains`, `stringscutprefix`, `stringsseq` | Hand-written loops and comparisons that one standard-library call replaces; `go fix` applies the fix |
 | `thelper`, `tparallel`, `testifylint` | Mistakes that only appear in `_test.go` files |
@@ -75,6 +78,37 @@ The rest of the suite stays off:
 - `importcomment`, `reflecttypeassert`, `slicesbackward`, `slicesclip`, and `unsafefuncs` are in the suite but unexported at this release, so the linter cannot register them on their own. `go fix` still applies them.
 
 To revisit the selection after a `golang.org/x/tools` upgrade, run `go fix -diff ./...` in the repository and compare what changed against this list.
+
+## Upstream analyzer settings
+
+Three of the upstream analyzers above need a word about scope:
+
+- `unparam` skips exported functions, its own default. The linter checks one package at a time, so it cannot see callers in other packages, and changing an exported signature would break them. Functions in a `main` package are checked either way, since nothing can import them. A package is also checked without its tests, so a parameter that receives the same value at four or more call sites in non-test code is reported even when a test passes other values.
+- `musttag` checks the calls it knows: `encoding/json`, `encoding/xml`, `gopkg.in/yaml.v3`, `github.com/BurntSushi/toml`, `github.com/mitchellh/mapstructure`, and `github.com/jmoiron/sqlx`. It skips named struct types declared outside the module that contains the package, found from the nearest `go.mod`, and types that implement the matching marshaler interface. A field tagged with the name it already had, such as `json:"Checksum"`, is the fix that keeps existing data readable. The analyzer skips an argument that is a bare variable name, because Staticcheck's loader parses without the object resolution it uses to tell a variable from `nil`, so `json.Marshal(value)` is not checked while `json.Marshal(&value)`, `json.Unmarshal(data, &value)`, and a composite literal are.
+- `recvcheck` keeps its built-in exclusions for `UnmarshalText`, `UnmarshalJSON`, `UnmarshalYAML`, `UnmarshalXML`, `UnmarshalBinary`, and `GobDecode`, which need a pointer receiver even on a type whose other methods take values. Methods declared in generated files do not count: code generators such as Dagger's add a value-receiver `MarshalJSON` to a type whose hand-written methods take pointers, and nobody can change the generated receiver.
+
+## Considered and off
+
+These analyzers were measured against this repository and left out. Counts are findings on Levenshtein's own modules.
+
+| Analyzer | Why it is off |
+| --- | --- |
+| `noinlineerr` | 175 findings on the idiomatic `if err := f(); err != nil` form; house taste, not a bug |
+| `paralleltest` | 122 findings asking every test to call `t.Parallel()`; whether a test can run in parallel is the author's call, and `tparallel` already reports the inconsistent case |
+| `err113` | 100 findings asking for package-level sentinel errors instead of errors built in place; house taste |
+| `goconst` | 90 findings on repeated string literals; a constant does not make a repeated message or test input clearer |
+| `wrapcheck` | 85 findings asking for every error returned from another package to be wrapped; house taste |
+| `cyclop` | 50 findings on cyclomatic complexity, a threshold with no bug behind it |
+| `testpackage` | 25 findings asking for external `_test` packages; white-box tests are a legitimate choice |
+| `gochecknoglobals` | 33 findings, all read-only lookup tables and fixed configuration such as check-kind lists |
+| `govet` `shadow` | 13 findings, every one an `err` declared again in a nested scope |
+| `gosec` | Its findings were file-permission and `exec` noise, and its taint findings were false alarms |
+| `nilnil` | Flags the idiomatic `return nil, nil` in `go/analysis` run functions |
+| `forcetypeassert` | Only hit `sync.Map` loads whose type is fixed by construction |
+| `unconvert` | A false alarm on a syscall conversion that another OS needs |
+| `dupword` | Its findings were intended repeated words |
+| `copyloopvar` | Obsolete since Go 1.22 gave each loop iteration its own variable |
+| `nolintlint` | Staticcheck already reports a `//lint:ignore` directive that matches nothing |
 
 ## Typed choices: LV1001
 

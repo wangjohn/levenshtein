@@ -25,9 +25,13 @@ const defaultMutationTimeout = 20 * time.Minute
 
 // mutationSelection is what the host decides before Dagger runs: the files to
 // mutate, relative to the target's module directory, and a note saying where
-// they came from.
+// they came from. Lines holds the changed ranges of each diffed file; a
+// survivor elsewhere in the file is reported but does not fail the check. A
+// nil Lines, as in module scope, makes every line count, and so does a file
+// without an entry, such as an untracked one.
 type mutationSelection struct {
 	Files []string
+	Lines map[string][]gitchange.Range
 	Note  string
 }
 
@@ -42,6 +46,7 @@ func mutationFiles(ctx context.Context, req Request) (mutationSelection, error) 
 	}
 
 	var candidates []string
+	var changedLines map[string][]gitchange.Range
 	var note string
 	switch options.Scope {
 	case MutationScopeModule:
@@ -62,12 +67,17 @@ func mutationFiles(ctx context.Context, req Request) (mutationSelection, error) 
 		for _, path := range changed.Paths {
 			candidates = append(candidates, filepath.FromSlash(path))
 		}
+		changedLines = changed.Lines
 		note = "Go files changed since " + changed.BaseRef
 	default:
 		return mutationSelection{}, fmt.Errorf("unsupported go-mutation scope %q", options.Scope)
 	}
 
 	var files []string
+	var lines map[string][]gitchange.Range
+	if changedLines != nil {
+		lines = map[string][]gitchange.Range{}
+	}
 	for _, path := range candidates {
 		if !mutable(req, moduleDir, path) {
 			continue
@@ -76,10 +86,14 @@ func mutationFiles(ctx context.Context, req Request) (mutationSelection, error) 
 		if err != nil {
 			return mutationSelection{}, err
 		}
-		files = append(files, filepath.ToSlash(rel))
+		file := filepath.ToSlash(rel)
+		files = append(files, file)
+		if ranges, ok := changedLines[filepath.ToSlash(path)]; ok {
+			lines[file] = ranges
+		}
 	}
 	slices.Sort(files)
-	return mutationSelection{Files: files, Note: note}, nil
+	return mutationSelection{Files: files, Lines: lines, Note: note}, nil
 }
 
 // acceptedReachable rejects an accepted-survivors file that exists but that the
@@ -186,15 +200,18 @@ func moduleGoFiles(source, dir string) ([]string, error) {
 // mutationSummary is what the runner reports for a completed run, whether it
 // passed or not, so an uncovered line is visible even when nothing failed.
 type mutationSummary struct {
-	Killed     int              `json:"killed"`
-	Lived      int              `json:"lived"`
-	Accepted   int              `json:"accepted"`
-	NotCovered int              `json:"not_covered"`
-	TimedOut   int              `json:"timed_out"`
-	NotViable  int              `json:"not_viable"`
-	Skipped    int              `json:"skipped"`
-	Uncovered  []mutationMutant `json:"uncovered,omitempty"`
-	Files      []string         `json:"files"`
+	Killed          int              `json:"killed"`
+	Lived           int              `json:"lived"`
+	Unchanged       int              `json:"unchanged_survivors"`
+	Accepted        int              `json:"accepted"`
+	NotCovered      int              `json:"not_covered"`
+	TimedOut        int              `json:"timed_out"`
+	NotViable       int              `json:"not_viable"`
+	Skipped         int              `json:"skipped"`
+	Uncovered       []mutationMutant `json:"uncovered,omitempty"`
+	UnchangedList   []mutationMutant `json:"unchanged,omitempty"`
+	TimedOutMutants []mutationMutant `json:"timed_out_mutants,omitempty"`
+	Files           []string         `json:"files"`
 }
 
 type mutationMutant struct {
@@ -231,8 +248,8 @@ func mutationStdout(raw, note string, details json.RawMessage) (string, json.Raw
 			Summary json.RawMessage `json:"summary"`
 		}{json.RawMessage(raw)})
 	}
-	line := fmt.Sprintf("%s: %d files mutated; %d killed, %d survived, %d accepted, %d not covered, %d timed out",
-		note, len(summary.Files), summary.Killed, summary.Lived, summary.Accepted, summary.NotCovered, summary.TimedOut)
+	line := fmt.Sprintf("%s: %d files mutated; %d killed, %d timed out, %d survived on changed lines, %d survived elsewhere, %d accepted, %d not covered",
+		note, len(summary.Files), summary.Killed, summary.TimedOut, summary.Lived, summary.Unchanged, summary.Accepted, summary.NotCovered)
 	return line, details
 }
 

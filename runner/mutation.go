@@ -28,6 +28,10 @@ const (
 	gremlinsReportPath  = gremlinsReportDir + "/out.json"
 	gremlinsNoResults   = "No results to report."
 
+	// minTimeoutsForIncomplete is how many covered mutants have to time out,
+	// with none killed or surviving, before the run is blamed on the machine.
+	minTimeoutsForIncomplete = 3
+
 	// defaultAcceptedPath matches the CLI default and the +default below.
 	defaultAcceptedPath = ".levenshtein/mutation-accepted.json"
 )
@@ -91,15 +95,24 @@ type mutationRun struct {
 // mutationSummary is returned on every completed run, so a person sees the
 // counts and uncovered lines whether or not the check failed.
 type mutationSummary struct {
-	Killed     int              `json:"killed"`
-	Lived      int              `json:"lived"`
-	Accepted   int              `json:"accepted"`
-	NotCovered int              `json:"not_covered"`
-	TimedOut   int              `json:"timed_out"`
-	NotViable  int              `json:"not_viable"`
-	Skipped    int              `json:"skipped"`
-	Uncovered  []mutationMutant `json:"uncovered,omitempty"`
-	Files      []string         `json:"files"`
+	Killed          int              `json:"killed"`
+	Lived           int              `json:"lived"`
+	Unchanged       int              `json:"unchanged_survivors"`
+	Accepted        int              `json:"accepted"`
+	NotCovered      int              `json:"not_covered"`
+	TimedOut        int              `json:"timed_out"`
+	NotViable       int              `json:"not_viable"`
+	Skipped         int              `json:"skipped"`
+	Uncovered       []mutationMutant `json:"uncovered,omitempty"`
+	UnchangedList   []mutationMutant `json:"unchanged,omitempty"`
+	TimedOutMutants []mutationMutant `json:"timed_out_mutants,omitempty"`
+	Files           []string         `json:"files"`
+}
+
+// lineRange is an inclusive run of changed lines, as the CLI sends them.
+type lineRange struct {
+	Start int `json:"start"`
+	End   int `json:"end"`
 }
 
 type mutationMutant struct {
@@ -109,8 +122,8 @@ type mutationMutant struct {
 	Mutator string `json:"mutator"`
 }
 
-// mutationVerdict is the outcome of one run: findings to report, whether any
-// mutant could not be judged, and the counts.
+// mutationVerdict is the outcome of one run: findings to report, whether the
+// run could not be judged at all, and the counts.
 type mutationVerdict struct {
 	Findings   []diagnostic
 	Incomplete bool
@@ -121,6 +134,7 @@ type mutationVerdict struct {
 type mutationInput struct {
 	Module       string
 	Files        []string
+	Lines        map[string][]lineRange
 	Sources      map[string][]string
 	Accepted     []acceptedEntry
 	AcceptedPath string
@@ -198,6 +212,14 @@ func exclusions(all, selected []string) []string {
 // decideMutation turns one gremlins run into a verdict. It is the only place
 // outcomes are decided, and it never relies on gremlins' own thresholds: they
 // are ignored as flags and off by one in configuration.
+//
+// A survivor fails the check only on a line the change wrote, so a pull request
+// is not failed for gaps it inherited; other survivors are listed in the
+// summary. A timed-out mutant counts as caught, the way PIT and Stryker count
+// it: a mutation that makes the code hang is one the tests noticed. A run is
+// incomplete only when every covered mutant timed out, and there were enough of
+// them that deliberate hangs are an unlikely explanation; that points at the
+// machine rather than the code.
 func decideMutation(run mutationRun, in mutationInput) (mutationVerdict, error) {
 	summary := mutationSummary{Files: in.Files}
 	if run.ExitCode != 0 || strings.Contains(run.Stderr, "ERROR:") {
@@ -240,6 +262,7 @@ func decideMutation(run mutationRun, in mutationInput) (mutationVerdict, error) 
 			case mutationTimedOut:
 				summary.TimedOut++
 				timedOut = append(timedOut, mutant)
+				summary.TimedOutMutants = append(summary.TimedOutMutants, mutant)
 			case mutationNotViable:
 				summary.NotViable++
 			case mutationSkipped:
@@ -263,6 +286,11 @@ func decideMutation(run mutationRun, in mutationInput) (mutationVerdict, error) 
 			summary.Accepted++
 			continue
 		}
+		if !onChangedLine(in.Lines, mutant) {
+			summary.Unchanged++
+			summary.UnchangedList = append(summary.UnchangedList, mutant)
+			continue
+		}
 		summary.Lived++
 		findings = append(findings, diagnostic{
 			Code:     "go-mutation",
@@ -280,15 +308,65 @@ func decideMutation(run mutationRun, in mutationInput) (mutationVerdict, error) 
 			Location: location{File: in.AcceptedPath, Line: entryLine(in.AcceptedText, entry.Line)},
 		})
 	}
-	for _, mutant := range sortedMutants(timedOut) {
-		findings = append(findings, diagnostic{
-			Code:     "go-mutation-timeout",
-			Message:  fmt.Sprintf("%s mutant timed out, so its tests gave no verdict: %s", mutant.Mutator, sourceLine(in.Sources, mutant)),
-			Location: location{File: moduleFile(in.Module, mutant.File), Line: mutant.Line, Column: mutant.Column},
-		})
+	// Hangs are deterministic, so a few mutants that all hang is a result, not
+	// an environment failure; incomplete would fail that change on every run,
+	// with nothing the accepted file could clear.
+	survivors := summary.Lived + summary.Unchanged + summary.Accepted
+	incomplete := summary.TimedOut >= minTimeoutsForIncomplete && summary.Killed == 0 && survivors == 0
+	if incomplete {
+		for _, mutant := range sortedMutants(timedOut) {
+			findings = append(findings, diagnostic{
+				Code:     "go-mutation-timeout",
+				Message:  fmt.Sprintf("%s mutant timed out, like every other covered mutant, so the run gave no verdict: %s", mutant.Mutator, sourceLine(in.Sources, mutant)),
+				Location: location{File: moduleFile(in.Module, mutant.File), Line: mutant.Line, Column: mutant.Column},
+			})
+		}
 	}
 	summary.Uncovered = sortedMutants(summary.Uncovered)
-	return mutationVerdict{Findings: findings, Incomplete: summary.TimedOut > 0, Summary: summary}, nil
+	summary.UnchangedList = sortedMutants(summary.UnchangedList)
+	summary.TimedOutMutants = sortedMutants(summary.TimedOutMutants)
+	return mutationVerdict{Findings: findings, Incomplete: incomplete, Summary: summary}, nil
+}
+
+// onChangedLine reports whether a mutant sits on a line the change wrote. Nil
+// lines, as in module scope, count every line, and so does a file without an
+// entry, such as an untracked one whose every line is new.
+func onChangedLine(lines map[string][]lineRange, mutant mutationMutant) bool {
+	if lines == nil {
+		return true
+	}
+	ranges, ok := lines[mutant.File]
+	if !ok {
+		return true
+	}
+	return slices.ContainsFunc(ranges, func(r lineRange) bool { return r.Start <= mutant.Line && mutant.Line <= r.End })
+}
+
+// parseLines reads the CLI's changed-line map. An empty argument makes every
+// line count; a key the selection does not name is an error, so a mismatch
+// between the two cannot silently widen or narrow the check.
+func parseLines(raw string, files []string) (map[string][]lineRange, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	var lines map[string][]lineRange
+	if err := json.Unmarshal([]byte(raw), &lines); err != nil {
+		return nil, fmt.Errorf("invalid go-mutation lines: %w", err)
+	}
+	if lines == nil {
+		return nil, fmt.Errorf("go-mutation lines must be an object, or empty to count every line")
+	}
+	for file, ranges := range lines {
+		if !slices.Contains(files, file) {
+			return nil, fmt.Errorf("go-mutation lines name %q, which is not a selected file", file)
+		}
+		for _, r := range ranges {
+			if r.Start < 1 || r.End < r.Start {
+				return nil, fmt.Errorf("invalid changed-line range %d-%d for %q", r.Start, r.End, file)
+			}
+		}
+	}
+	return lines, nil
 }
 
 // sortedMutants orders mutants by position, because gremlins' own output order
@@ -381,6 +459,9 @@ func (m *Levenshtein) GoMutation(ctx context.Context,
 	// +default="."
 	module string,
 	files []string,
+	// Changed-line ranges per file as JSON; empty counts every line.
+	// +optional
+	lines string,
 	// +default=".levenshtein/mutation-accepted.json"
 	accepted string,
 	// +optional
@@ -397,6 +478,10 @@ func (m *Levenshtein) GoMutation(ctx context.Context,
 	if err := validMutationFiles(files); err != nil {
 		return "", err
 	}
+	changed, err := parseLines(lines, files)
+	if err != nil {
+		return "", err
+	}
 	if strings.ContainsAny(tags, " \t\n\x00") {
 		return "", fmt.Errorf("invalid go-mutation tags %q", tags)
 	}
@@ -405,7 +490,7 @@ func (m *Levenshtein) GoMutation(ctx context.Context,
 	if err := json.Unmarshal(toolchainJSON, &tools); err != nil {
 		return "", err
 	}
-	verdict, err := mutate(ctx, source, module, tools, files, accepted, tags, nonce)
+	verdict, err := mutate(ctx, source, module, tools, files, changed, accepted, tags, nonce)
 	if err != nil {
 		return "", err
 	}
@@ -425,11 +510,12 @@ func (m *Levenshtein) GoMutation(ctx context.Context,
 
 // mutate runs gremlins over the selected files and decides the verdict. The
 // self-test calls it directly on its fixtures.
-func mutate(ctx context.Context, source *dagger.Directory, module string, tools toolchain, files []string, accepted, tags, nonce string) (mutationVerdict, error) {
+func mutate(ctx context.Context, source *dagger.Directory, module string, tools toolchain, files []string, lines map[string][]lineRange, accepted, tags, nonce string) (mutationVerdict, error) {
 	in, all, err := mutationSources(ctx, source, module, files, accepted)
 	if err != nil {
 		return mutationVerdict{}, err
 	}
+	in.Lines = lines
 	run, err := runGremlins(ctx, source, module, tools, exclusions(all, files), tags, nonce)
 	if err != nil {
 		return mutationVerdict{}, err
