@@ -13,3 +13,15 @@ func TestTypedValues(t *testing.T) {
 func TestRecords(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), Records, "records", "consumer")
 }
+
+func TestFields(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), Fields, "fields")
+}
+
+func TestSpacing(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), Spacing, "spacing")
+}
+
+func TestFormatting(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), Formatting, "formatting")
+}
