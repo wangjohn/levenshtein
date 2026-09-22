@@ -154,7 +154,7 @@ process exit code described above.
   Staticcheck-based lint binary (`levenshtein-lint`), so its analyzer
   dependencies (Staticcheck's whole analyzer set, the curated upstream
   analyzers listed in [Go lint rules](go-lint.md), and the house rules
-  `LV1001`-`LV1005` in `runner/lint/policy`) do not leak into the Dagger
+  `LV1001`-`LV1006` in `runner/lint/policy`) do not leak into the Dagger
   module's own dependency resolution.
 - **`runner/tools/`** (`runner/tools/go.mod`): pins `actionlint` and
   `govulncheck` via Go's `tool` directive, so their versions are locked

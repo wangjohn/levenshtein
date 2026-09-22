@@ -116,7 +116,7 @@ func tests() []*analysis.Analyzer {
 	}
 }
 
-// house analyzers encode the conventions in AGENTS.md.
+// house analyzers are Levenshtein's own rules, documented in docs/go-lint.md.
 func house() []*analysis.Analyzer {
 	return []*analysis.Analyzer{
 		policy.TypedValues,
@@ -124,6 +124,7 @@ func house() []*analysis.Analyzer {
 		policy.Fields,
 		policy.Spacing,
 		policy.Formatting,
+		policy.Assertions,
 	}
 }
 

@@ -25,3 +25,7 @@ func TestSpacing(t *testing.T) {
 func TestFormatting(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), Formatting, "formatting")
 }
+
+func TestAssertions(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), Assertions, "assertions")
+}

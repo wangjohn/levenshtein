@@ -175,7 +175,7 @@ var expectedBadCodes = []string{
 	"errcheck", "exhaustive", "nilness", "unusedwrite", "errorlint", "nilerr", "durationcheck", "reassign", "wastedassign",
 	"intrange", "usestdlibvars", "perfsprint", "predeclared", "errname",
 	"thelper", "tparallel", "testifylint",
-	"LV1001", "LV1002", "LV1003", "LV1004", "LV1005",
+	"LV1001", "LV1002", "LV1003", "LV1004", "LV1005", "LV1006",
 }
 
 func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce string) error {
