@@ -11,8 +11,9 @@ checks='all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022'
 # One triggering case per default rule. This list mirrors expectedBadCodes in
 # runner/main.go, so a rule that stops running fails here without Dagger too.
 expected='SA5001 SA5003 SA9001 S1002 ST1005 QF1011 U1000
-bodyclose sqlclosecheck rowserrcheck noctx
+bodyclose sqlclosecheck rowserrcheck noctx contextcheck
 errcheck exhaustive nilness unusedwrite errorlint nilerr durationcheck reassign wastedassign musttag recvcheck
+appendAssign argOrder badCall badCond badRegexp codegenComment deprecatedComment dupArg dupBranchBody dupCase exitAfterDefer filepathJoin flagDeref flagName mapKey offBy1
 unparam
 intrange usestdlibvars perfsprint predeclared errname
 minmax mapsloop slicescontains stringscutprefix stringsseq

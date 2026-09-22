@@ -13,10 +13,11 @@ Every shared check kind runs the same pinned tools locally and in any CI provide
 | `U1000` | Unused unexported code |
 | `errcheck` | Report implicitly discarded errors; explicit `_ =` remains allowed |
 | `exhaustive` | Require enum switches to cover declared values |
-| `bodyclose`, `sqlclosecheck`, `rowserrcheck`, `noctx` | Resources a program opens and never closes, and calls that drop the context |
+| `bodyclose`, `sqlclosecheck`, `rowserrcheck`, `noctx`, `contextcheck` | Resources a program opens and never closes, and calls that drop the context ([settings](#upstream-analyzer-settings)) |
 | `nilness`, `unusedwrite`, `errorlint`, `nilerr`, `durationcheck`, `reassign`, `wastedassign` | Behavior that is wrong rather than unidiomatic |
 | `musttag` | Tag every exported field of a struct passed to a JSON, XML, YAML, or TOML encoder or decoder, so renaming a Go field cannot silently change the format ([settings](#upstream-analyzer-settings)) |
 | `recvcheck` | Give a type all pointer or all value receivers; a mix means a value and a pointer have different method sets, and value methods work on a copy |
+| `appendAssign`, `argOrder`, `badCall`, `badCond`, `badRegexp`, `codegenComment`, `deprecatedComment`, `dupArg`, `dupBranchBody`, `dupCase`, `exitAfterDefer`, `filepathJoin`, `flagDeref`, `flagName`, `mapKey`, `offBy1` | go-critic's likely-bug checks that no rule above already reports ([selection](#the-go-critic-selection)) |
 | `unparam` | Unexported functions with a parameter no caller needs, a parameter that always receives the same value, or a result no caller uses |
 | `intrange`, `usestdlibvars`, `perfsprint`, `predeclared`, `errname` | Modern, consistent standard-library usage |
 | `minmax`, `mapsloop`, `slicescontains`, `stringscutprefix`, `stringsseq` | Hand-written loops and comparisons that one standard-library call replaces; `go fix` applies the fix |
@@ -79,12 +80,61 @@ The rest of the suite stays off:
 
 To revisit the selection after a `golang.org/x/tools` upgrade, run `go fix -diff ./...` in the repository and compare what changed against this list.
 
+## The go-critic selection
+
+[go-critic](https://go-critic.com/overview.html) tags each of its checkers. The `diagnostic` tag marks likely bugs; `style`, `performance`, and `opinionated` are advice, and `experimental` marks checkers upstream has not settled. The linter runs the stable `diagnostic` checkers, minus four that repeat a rule already on, plus two experimental ones that nothing else covers.
+
+Each checker is registered as its own analyzer, so a finding's code is the checker's name, as with the modernize rules. `//lint:ignore offBy1 reason` silences one checker on one line, and `-checks='all,...,-offBy1'` turns one off; there is no single `gocritic` code or glob that covers them all.
+
+| Checker | Reports |
+| --- | --- |
+| `appendAssign` | `x = append(y, ...)` where `y` is not `x`, usually a copy-paste slip |
+| `argOrder` | Arguments that look swapped, such as `strings.HasPrefix("#", line)` |
+| `badCall` | A call that does nothing useful, such as `strings.SplitN(s, sep, 0)` or `filepath.Join` of one element |
+| `badCond` | A condition that is always true or false, or a loop condition that points the wrong way |
+| `badRegexp` | A valid regular expression with a likely mistake, such as a repeated character in a class; experimental upstream |
+| `codegenComment` | A generated-file comment tools do not recognize, so the file is linted and reviewed as hand-written |
+| `deprecatedComment` | A deprecation notice not written as `Deprecated: `, which tools and pkg.go.dev then miss |
+| `dupArg` | The same argument twice where that is a no-op, such as `copy(dst, dst)` |
+| `dupBranchBody` | An `if` whose two branches are identical |
+| `dupCase` | A `switch` case listed twice, which can never match the second time |
+| `exitAfterDefer` | `log.Fatal` or `os.Exit` in a function with deferred calls that will not run |
+| `filepathJoin` | A path separator inside one `filepath.Join` element; experimental upstream, and it found two in Levenshtein's own tests |
+| `flagDeref` | Dereferencing a `flag` pointer at definition, which reads the default instead of the parsed value |
+| `flagName` | A flag name with whitespace that no command line can pass |
+| `mapKey` | A map literal key with stray whitespace next to keys without it |
+| `offBy1` | Indexing a slice at its length, which always panics |
+
+These stable diagnostic checkers are off because a rule already on reports the same line. Each was confirmed on a sample where both fire:
+
+| Checker | Already reported by |
+| --- | --- |
+| `caseOrder` | `SA4020`, an unreachable case in a type switch |
+| `dupSubExpr` | `SA4000`, identical operands on both sides of `==`, `-`, `&&`, and the other binary operators |
+| `sloppyLen` | `SA4024` for `len(x) < 0`; its other finding, `len(x) <= 0`, is a spelling preference |
+| `sloppyTypeAssert` | `S1040`, a type assertion to the type the value already has |
+
+`badCall` overlaps in part: `SA1018` also reports `strings.Replace` with a count of zero, and `SA4021` a single-argument `append`, so those two lines get a finding from each. It stays on because nothing else reports its `SplitN` and one-element `filepath.Join` cases.
+
+The other experimental checkers stay off. Five of them looked like candidates and were checked one by one: four repeat a rule already on, confirmed on a sample where both fire, and one is taste.
+
+| Checker | Why it is off |
+| --- | --- |
+| `builtinShadowDecl` | `predeclared` reports the same declaration |
+| `externalErrorReassign` | `reassign` reports the same assignment |
+| `nilValReturn` | `nilerr` reports the same `return err` inside `if err == nil` |
+| `dynamicFmtString` | `SA1006` reports the same call, and `go vet`'s printf check does too |
+| `sloppyReassign` | Taste: it asks for `err :=` in place of `err =`, which can introduce shadowing |
+
+To revisit the selection after a go-critic upgrade, run the linter test in `runner/lint` (`TestCriticSelection` pins the list) and compare the new checkers against this page.
+
 ## Upstream analyzer settings
 
-Three of the upstream analyzers above need a word about scope:
+Four of the upstream analyzers above need a word about scope:
 
 - `unparam` skips exported functions, its own default. The linter checks one package at a time, so it cannot see callers in other packages, and changing an exported signature would break them. Functions in a `main` package are checked either way, since nothing can import them. A package is also checked without its tests, so a parameter that receives the same value at four or more call sites in non-test code is reported even when a test passes other values.
 - `musttag` checks the calls it knows: `encoding/json`, `encoding/xml`, `gopkg.in/yaml.v3`, `github.com/BurntSushi/toml`, `github.com/mitchellh/mapstructure`, and `github.com/jmoiron/sqlx`. It skips named struct types declared outside the module that contains the package, found from the nearest `go.mod`, and types that implement the matching marshaler interface. A field tagged with the name it already had, such as `json:"Checksum"`, is the fix that keeps existing data readable. The analyzer skips an argument that is a bare variable name, because Staticcheck's loader parses without the object resolution it uses to tell a variable from `nil`, so `json.Marshal(value)` is not checked while `json.Marshal(&value)`, `json.Unmarshal(data, &value)`, and a composite literal are.
+- `contextcheck` reports a function that has a context but calls something that starts its own, directly or through a chain of calls, so cancelling the caller does not stop the work. It follows those chains within one package only: Staticcheck's runner hands every package fact to its own analyzers regardless of type, and they panic on the facts contextcheck exports, so it runs with facts off. A call into another package that makes its own context is missed rather than misreported. Its known false alarms are work that is meant to outlive the caller, such as a cleanup after cancellation or a goroutine that finishes a request's side effects: derive that context with `context.WithoutCancel(ctx)`, which the check accepts and which keeps the caller's values, or use `//lint:ignore contextcheck reason` on the call. A function that returns a context is treated as a constructor and not reported, and an HTTP handler is treated as having the request's context.
 - `recvcheck` keeps its built-in exclusions for `UnmarshalText`, `UnmarshalJSON`, `UnmarshalYAML`, `UnmarshalXML`, `UnmarshalBinary`, and `GobDecode`, which need a pointer receiver even on a type whose other methods take values. Methods declared in generated files do not count: code generators such as Dagger's add a value-receiver `MarshalJSON` to a type whose hand-written methods take pointers, and nobody can change the generated receiver.
 
 ## Considered and off

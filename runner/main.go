@@ -173,8 +173,9 @@ func parseFindings(exitCode int, stdout, stderr string, checks []string) ([]diag
 // scripts/test-checks asserts the same list without Dagger.
 var expectedBadCodes = []string{
 	"SA5001", "SA5003", "SA9001", "S1002", "ST1005", "QF1011", "U1000",
-	"bodyclose", "sqlclosecheck", "rowserrcheck", "noctx",
+	"bodyclose", "sqlclosecheck", "rowserrcheck", "noctx", "contextcheck",
 	"errcheck", "exhaustive", "nilness", "unusedwrite", "errorlint", "nilerr", "durationcheck", "reassign", "wastedassign", "musttag", "recvcheck",
+	"appendAssign", "argOrder", "badCall", "badCond", "badRegexp", "codegenComment", "deprecatedComment", "dupArg", "dupBranchBody", "dupCase", "exitAfterDefer", "filepathJoin", "flagDeref", "flagName", "mapKey", "offBy1",
 	"unparam",
 	"intrange", "usestdlibvars", "perfsprint", "predeclared", "errname",
 	"minmax", "mapsloop", "slicescontains", "stringscutprefix", "stringsseq",
