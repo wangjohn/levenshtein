@@ -86,8 +86,9 @@ instead.
 
 ### Native executor
 
-`internal/verify/native.go` runs `command` and `semantic-lint` checks as
-trusted host processes (macOS or Linux only). There is no sandbox, so native
+`internal/verify/native.go` runs `command`, `semantic-lint`, and the shared Go
+kinds `go-lint`, `go-vet`, `workflow-lint` and `go-vuln` as trusted host
+processes (macOS or Linux only). There is no sandbox, so native
 commands have full host access. Before running, `validateTools` executes each
 `Environment.Tool`'s version command and compares its trimmed stdout against
 the pinned `Tool.Version`. For `command` checks, `internal/verify/stages.go`
@@ -96,6 +97,31 @@ with its own cache key derived from its inputs, environment, and (for build)
 the preparation it depends on. A stage is skipped when its declared outputs
 still match a recorded run, which requires the environment to declare an
 `identity`. `semantic-lint` checks accept no stages.
+
+#### Shared Go kinds on the native executor
+
+`internal/verify/kinds.go` registers `go-lint`, `go-vet`, `workflow-lint` and
+`go-vuln` for the native executor as well as the Dagger one; `self-test`,
+`go-http` and `go-sql` stay Dagger-only. `internal/verify/gotools.go` builds the
+helper binaries (`levenshtein-lint` from `runner/lint`, `actionlint` and
+`govulncheck` from `runner/tools`) out of the pinned shared checkout into
+`cache.Dir/tools/` with `GOWORK=off GOTOOLCHAIN=local go build -trimpath`,
+serialized by a lock in `cache.Dir/locks`; Go's own build cache makes a repeat
+build cheap, so there is no staleness logic. `internal/verify/gochecks.go` then
+runs each check in the target directory with the same preflight the container
+does (`go list ./...`, refusing a module with no packages), points Staticcheck
+at `cache.Dir/staticcheck` — or a throwaway directory on a fresh run, mirroring
+the runner's nonce — and reads the rule list from the shared checkout's
+`runner/toolchain.json` rather than repeating it.
+
+`internal/verify/findings.go` is a deliberate copy of the runner's
+`parseFindings`/`commandFindings`, since `runner` is a separate `package main`
+module that cannot be imported. It produces the same `{"findings": [...]}`
+`Details` envelope as `daggerResult`, with locations relative to the source
+root, so a report does not say which executor produced it. Because the host's
+Go is not covered by any snapshot, `fingerprint` adds its
+`go env GOVERSION GOOS GOARCH` to the cache key for these kinds only; every
+other check's key is unchanged.
 
 `internal/verify/command.go` builds the actual `os/exec.Cmd` with a minimal
 inherited environment (`PATH`, `HOME`, `TMPDIR`, `TMP`, `TEMP`, `SystemRoot`,
@@ -109,14 +135,16 @@ outlive a killed check.
 ## Result cache
 
 `internal/verify/cache.go` wraps an `Executor` in `CachedExecutor`. For an
-eligible check (Dagger checks, or native checks with `cache: true`), it:
+eligible check (Dagger checks, the shared Go kinds on either executor, or
+native `command` checks with `cache: true`), it:
 
 1. Computes a fingerprint (`internal/verify/fingerprint.go`): a content hash
    over the target's declared inputs plus any stage inputs, the shared
    implementation (root `go.mod`/`go.sum`/`cmd`/`internal`, and for Dagger
    checks also `.dagger-version`, `dagger.json`, `runner`, `sdk`), the check
-   definition itself, `runtime.GOOS`/`GOARCH`, and (for native checks) the
-   resolved environment variables.
+   definition itself, `runtime.GOOS`/`GOARCH`, (for native checks) the
+   resolved environment variables, and (for native shared Go checks only) the
+   host toolchain's `go env GOVERSION GOOS GOARCH`.
 2. Takes a per-key file lock (`internal/verify/lock.go`, backed by
    `gofrs/flock`) so concurrent processes do not race the same cache entry.
    Native checks take an advisory per-source workspace lock first, whether or
