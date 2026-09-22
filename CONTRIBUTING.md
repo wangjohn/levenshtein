@@ -5,21 +5,23 @@
 Root module:
 
 ```sh
-go build ./... && go test ./...
+GOTOOLCHAIN=local go build ./... && GOTOOLCHAIN=local go test ./...
 ```
 
 Go lint policy analyzers:
 
 ```sh
-cd runner/lint && go test ./...
+(cd runner/lint && GOTOOLCHAIN=local go test ./...)
 ```
 
 The runner's Dagger module needs its generated SDK before its own tests run. Run `dagger develop` from the repository root, where `dagger.json` lives:
 
 ```sh
 dagger develop --compat=skip
-(cd runner && dagger run go test ./...)
+(cd runner && GOTOOLCHAIN=local dagger run go test ./...)
 ```
+
+`GOTOOLCHAIN=local` keeps Go from downloading another toolchain when the host version differs from `.go-version`; the launcher enforces the exact version.
 
 Repo self-checks, matching what CI runs:
 

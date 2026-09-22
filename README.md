@@ -32,6 +32,7 @@ To check another Go repo: `./verify go-lint --source /path/to/repo`. [Use it fro
 
 - [Setup and usage](docs/setup.md): run the Go checks locally and in CI.
 - [Contributing](CONTRIBUTING.md): how to build, test, and send changes.
+- [Security policy](SECURITY.md): how to report a vulnerability privately.
 - [Configuration](docs/configuration.md): standalone planning, targets, and runs.
 - [Semantic lint](docs/semantic-lint.md): advisory Jev questions about Go, docs, and pull request shape.
 - [Language fixtures](docs/language-fixtures.md): Rust/Python compatibility checks.
