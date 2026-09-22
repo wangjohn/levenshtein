@@ -117,6 +117,6 @@ Use the same arrangement in an existing job: check out the application and pinne
 
 Start with Family Books' Go API using explicit product inputs, then wrap a small Benchplan check on its existing macOS worker. Keep Postgres tests and simulator checks in their existing jobs until their wrappers are verified.
 
-For each pilot, record cold, unchanged warm, source-edit, unrelated-file-edit, and fresh-audit timings. Introduce one deliberate lint/test failure to prove the existing CI gate receives a nonzero exit. Confirm a fresh run executes checks while keeping compatible build caches. Start native commands without result caching; enable it only with complete inputs, a provisioned environment identity, and an explicit `rerun_command`.
+For each pilot, record cold, unchanged warm, source-edit, unrelated-file-edit, and fresh-audit timings. Introduce one deliberate lint/test failure to prove the existing CI gate receives a nonzero exit. Confirm a fresh run executes checks while keeping compatible build caches. Start native commands without result caching; enable it only with complete inputs, a provisioned environment identity, and explicit `command.rerun_args`.
 
 Local caches work today. Cross-worker cache transport and multi-job result aggregation are not implemented; keep required platform jobs individually required. Do not share writable result caches with untrusted PRs.

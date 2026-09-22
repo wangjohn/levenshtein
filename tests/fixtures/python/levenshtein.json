@@ -64,38 +64,42 @@
       "kind": "command",
       "target": "package",
       "environment": "python",
-      "command": [
-        ".venv/bin/python",
-        "scripts/lint.py"
-      ],
-      "rerun_command": [
-        ".venv/bin/python",
-        "scripts/lint.py"
-      ],
-      "cache": true,
-      "preparation": "dependencies"
+      "command": {
+        "args": [
+          ".venv/bin/python",
+          "scripts/lint.py"
+        ],
+        "rerun_args": [
+          ".venv/bin/python",
+          "scripts/lint.py"
+        ],
+        "preparation": "dependencies",
+        "cache": true
+      }
     },
     "tests": {
       "kind": "command",
       "target": "package",
       "environment": "python",
-      "command": [
-        ".venv/bin/python",
-        "-m",
-        "pytest",
-        "-q"
-      ],
-      "rerun_command": [
-        ".venv/bin/python",
-        "-m",
-        "pytest",
-        "-q"
-      ],
-      "cache": true,
-      "preparation": "dependencies",
-      "artifacts": [
-        "test-executions.txt"
-      ]
+      "command": {
+        "args": [
+          ".venv/bin/python",
+          "-m",
+          "pytest",
+          "-q"
+        ],
+        "rerun_args": [
+          ".venv/bin/python",
+          "-m",
+          "pytest",
+          "-q"
+        ],
+        "preparation": "dependencies",
+        "artifacts": [
+          "test-executions.txt"
+        ],
+        "cache": true
+      }
     }
   },
   "runs": {
