@@ -1,0 +1,59 @@
+version: 2
+updates:
+  # Workflows and the composite actions under .github/actions. Every action is
+  # SHA-pinned; Dependabot updates pinned SHAs and their version comments.
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/*
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      go-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  # runner/go.mod is managed by `dagger develop`, which rewrites it on every
+  # regeneration, and its OpenTelemetry replace directives are pinned on
+  # purpose (scripts/test-sdk-security fails on any other version). Its
+  # generated sources are gitignored, so Dependabot could not resolve the module
+  # anyway. Bump it by changing .dagger-version and regenerating.
+
+  - package-ecosystem: gomod
+    directory: /runner/lint
+    schedule:
+      interval: weekly
+    groups:
+      go-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: gomod
+    directory: /runner/tools
+    schedule:
+      interval: weekly
+    groups:
+      go-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch

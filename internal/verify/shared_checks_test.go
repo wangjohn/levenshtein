@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-func TestSharedChecksPlanFromBothConfigFormats(t *testing.T) {
+func TestSharedChecksPlanFromVersionedConfiguration(t *testing.T) {
 	for _, data := range []string{
-		`{"modules":["."],"runs":{"custom":["go-lint","go-vet","go-http","go-sql","go-vuln","workflow-lint"]}}`,
+		`{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"lint":{"kind":"go-lint","target":"app","environment":"go"},"vet":{"kind":"go-vet","target":"app","environment":"go"},"http":{"kind":"go-http","target":"app","environment":"go"},"sql":{"kind":"go-sql","target":"app","environment":"go"},"audit":{"kind":"go-vuln","target":"app","environment":"go"},"workflows":{"kind":"workflow-lint","target":"app","environment":"go"}},"runs":{"custom":{"checks":["lint","vet","http","sql","audit","workflows"]}}}`,
 		`{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"audit":{"kind":"go-vuln","target":"app","environment":"go","cache":true}},"runs":{"custom":{"checks":["audit"]}}}`,
 	} {
 		cfg, err := Parse([]byte(data))
@@ -77,10 +77,20 @@ func TestUnconfiguredRepoGetsSharedCheckDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, count := range map[string]int{"branch": 2, "pre-merge": 2, "main": 3, "go-vuln": 1, "go-http": 1, "go-sql": 1, "workflow-lint": 1} {
+	for name, count := range map[string]int{"branch": 2, "pre-merge": 2, "main": 3, "go-lint": 1, "go-vet": 1, "go-vuln": 1, "go-http": 1, "go-sql": 1, "workflow-lint": 1} {
 		plan, err := cfg.Plan(source, name)
 		if err != nil || len(plan.Checks) != count {
 			t.Fatalf("%s: %+v %v", name, plan, err)
+		}
+		// Only the daily audit is fresh; every check is a Dagger check on the
+		// whole-tree target and is named after its kind.
+		if plan.RerunChecks != (name == "main") {
+			t.Fatalf("%s: rerun_checks=%v", name, plan.RerunChecks)
+		}
+		for _, check := range plan.Checks {
+			if check.ID != string(check.Check.Kind) || check.Environment.Executor != ExecutorDagger || check.Target.Dir != "." || len(check.Target.Inputs) != 1 || check.Target.Inputs[0] != "." {
+				t.Fatalf("%s: unexpected default check %+v", name, check)
+			}
 		}
 	}
 }

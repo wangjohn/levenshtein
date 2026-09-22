@@ -60,11 +60,11 @@ These are selected Staticcheck rules, not a complete resource-leak analysis. The
 
 ## Configure a repo
 
-A single Go module at the source root works without configuration. For multiple modules or custom runs, add `levenshtein.json` to that repo.
+A single Go module at the source root works without configuration. For multiple modules or custom runs, add a version 1 `levenshtein.json` to that repo.
 
 Use the [version 1 consumer example](consumer-ci.md#the-same-command-locally-and-in-ci) for explicit product targets, checks, and run selections. `inputs` restricts Dagger's imported source as well as its cache scope; include required manifests, local dependencies, and fixtures. Native command inputs only describe cache scope and do not restrict host access. See [source boundaries](configuration.md#source-boundaries).
 
-A configuration file replaces defaults. Paths are relative to the source root. Every selected check runs or reuses an eligible result; change-based selection is not implemented. Available shared kinds are listed in [Go lint rules](go-lint.md). Legacy `modules` configuration remains supported, but new consumers should use version 1.
+A configuration file replaces defaults. Paths are relative to the source root. Every selected check runs or reuses an eligible result; change-based selection is not implemented. Available shared kinds are listed in [Go lint rules](go-lint.md). Every configuration file declares `"version": 1`.
 
 Version 1 runs use explicit `rerun_checks: true` for fresh audits, regardless of their name. Levenshtein's own `main` is configured that way. Audits bypass passing-verdict reuse while retaining compatible downloads and compiler caches. Vulnerability scans always execute against current advisory data. Add new checks explicitly to your configured full run during this pilot.
 

@@ -29,6 +29,8 @@ To check another Go repo: `./verify go-lint --source /path/to/repo`. [Use it fro
 ## Documentation
 
 - [Setup and usage](docs/setup.md): run the Go checks locally and in CI.
+- [Contributing](CONTRIBUTING.md): how to build, test, and send changes.
+- [Security policy](SECURITY.md): how to report a vulnerability privately.
 - [Configuration](docs/configuration.md): standalone planning, targets, and runs.
 - [Semantic lint](docs/semantic-lint.md): advisory Jev questions about Go, docs, and pull request shape.
 - [Use from your existing CI](docs/consumer-ci.md): local and CI examples for application repos.
@@ -40,3 +42,7 @@ To check another Go repo: `./verify go-lint --source /path/to/repo`. [Use it fro
 - [Roadmap](docs/roadmap.md): planned work beyond the current release.
 
 See [Go lint rules](docs/go-lint.md) for the shared defer/close, typed-choice, and value-record policies.
+
+## License
+
+[MIT](LICENSE)
