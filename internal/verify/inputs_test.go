@@ -7,8 +7,9 @@ import (
 )
 
 // The root target must list its Go inputs explicitly so documentation edits do
-// not invalidate cached Go analysis. The fingerprint is taken over a scratch
-// copy of the declared inputs so the test never edits the checkout.
+// not invalidate cached Go analysis, on the native branch check and the Dagger
+// audit alike. The fingerprint is taken over a scratch copy of the declared
+// inputs so the test never edits the checkout.
 func TestSelfConfigRootInputsIgnoreDocs(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	if err != nil {
@@ -18,20 +19,30 @@ func TestSelfConfigRootInputsIgnoreDocs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := cfg.Plan(root, "branch")
+
+	for run, id := range map[string]string{"branch": "native-go-lint/root", "main": "go-lint/root"} {
+		t.Run(id, func(t *testing.T) {
+			rootInputsIgnoreDocs(t, cfg, root, run, id)
+		})
+	}
+}
+
+func rootInputsIgnoreDocs(t *testing.T, cfg Config, root, run, id string) {
+	t.Helper()
+	plan, err := cfg.Plan(root, run)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var rootLint PlannedCheck
 	for _, check := range plan.Checks {
-		if check.ID == "go-lint/root" {
+		if check.ID == id {
 			rootLint = check
 			break
 		}
 	}
 	if rootLint.ID == "" {
-		t.Fatal("go-lint/root missing from branch plan")
+		t.Fatalf("%s missing from %s plan", id, run)
 	}
 	for _, path := range rootLint.Target.Inputs {
 		if path == "." {
@@ -78,7 +89,7 @@ func TestSelfConfigRootInputsIgnoreDocs(t *testing.T) {
 		t.Fatal(err)
 	}
 	if before != after {
-		t.Fatal("doc-only edit invalidated root go-lint fingerprint")
+		t.Fatalf("doc-only edit invalidated the %s fingerprint", id)
 	}
 
 	// A declared input must still change the fingerprint.
@@ -90,6 +101,6 @@ func TestSelfConfigRootInputsIgnoreDocs(t *testing.T) {
 		t.Fatal(err)
 	}
 	if changed == before {
-		t.Fatal("declared input edit did not change root go-lint fingerprint")
+		t.Fatalf("declared input edit did not change the %s fingerprint", id)
 	}
 }
