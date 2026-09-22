@@ -184,21 +184,21 @@ func TestParallelExecuteSharedPreparationPreservesPlanOrder(t *testing.T) {
 		Checks: []PlannedCheck{
 			{
 				ID:          "lint",
-				Check:       Check{Kind: CheckCommand, Command: []string{"/bin/sh", "-c", "test -f .venv/ok"}},
+				Check:       Check{Kind: CheckCommand, Command: &CommandCheck{Args: []string{"/bin/sh", "-c", "test -f .venv/ok"}}},
 				Target:      Target{Dir: ".", Workspace: ".", Inputs: []string{"."}},
 				Environment: env,
 				Preparation: prep,
 			},
 			{
 				ID:          "tests",
-				Check:       Check{Kind: CheckCommand, Command: []string{"/bin/sh", "-c", "test -f .venv/ok"}},
+				Check:       Check{Kind: CheckCommand, Command: &CommandCheck{Args: []string{"/bin/sh", "-c", "test -f .venv/ok"}}},
 				Target:      Target{Dir: ".", Workspace: ".", Inputs: []string{"."}},
 				Environment: env,
 				Preparation: prep,
 			},
 			{
 				ID:          "other",
-				Check:       Check{Kind: CheckCommand, Command: []string{"true"}},
+				Check:       Check{Kind: CheckCommand, Command: &CommandCheck{Args: []string{"true"}}},
 				Target:      Target{Dir: ".", Workspace: ".", Inputs: []string{"."}},
 				Environment: Environment{Executor: ExecutorNative},
 			},
@@ -234,5 +234,28 @@ func TestParallelExecuteSharedPreparationPreservesPlanOrder(t *testing.T) {
 	}
 	if lintAt < 0 || testsAt < 0 || lintAt > testsAt {
 		t.Fatalf("shared-prep checks ran out of plan order: %v", order)
+	}
+}
+
+// A file written for the earlier version 1 layout gets a migration pointer,
+// not just the decoder's field error.
+func TestRetiredCheckFieldsGetAMigrationHint(t *testing.T) {
+	for name, tc := range map[string]struct {
+		check  string
+		object string
+	}{
+		"command array":    {`{"kind":"command","target":"app","environment":"host","command":["go","test"]}`, `"command"`},
+		"rerun_command":    {`{"kind":"command","target":"app","environment":"host","command":{"args":["go","test"]},"rerun_command":["go","test","-count=1"]}`, `"command"`},
+		"semantic model":   {`{"kind":"semantic-lint","target":"app","environment":"host","model":"jev-1.13.0"}`, `"semantic"`},
+		"semantic timeout": {`{"kind":"semantic-lint","target":"app","environment":"host","timeout":"2m"}`, `"semantic"`},
+		"command timeout":  {`{"kind":"command","target":"app","environment":"host","command":{"args":["go","test"]},"timeout":"2m"}`, `"command"`},
+		"dagger cache":     {`{"kind":"go-vuln","target":"app","environment":"host","cache":true}`, `always cached`},
+		"semantic env":     {`{"kind":"semantic-lint","target":"app","environment":"host","env":{"FOO":"bar"}}`, `environment's "env"`},
+	} {
+		data := `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"host":{"executor":"native"}},"checks":{"c":` + tc.check + `},"runs":{"branch":{"checks":["c"]}}}`
+		_, err := Parse([]byte(data))
+		if err == nil || !strings.Contains(err.Error(), "docs/configuration.md") || !strings.Contains(err.Error(), tc.object) {
+			t.Fatalf("%s: %v", name, err)
+		}
 	}
 }
