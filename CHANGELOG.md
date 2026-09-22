@@ -51,6 +51,11 @@ Consumers pin a release tag, or its commit SHA, as described in
   check.
 - [docs/checks.md](docs/checks.md#considered-and-off) lists the analyzers that
   were measured and left out, with the reason for each.
+- `levenshtein-lint` includes `gocognit`, which reports a function whose
+  cognitive complexity is over 30. It is off in the shipped selection, so
+  `go-lint` does not report it and no consumer sees new findings; running the
+  linter directly with `gocognit` selected turns it on
+  ([opt in](docs/checks.md#opt-in-complexity-gocognit)).
 
 ### Changed
 
