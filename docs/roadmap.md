@@ -163,7 +163,7 @@ and fresh-audit timings. Introduce one deliberate lint/test failure to prove
 the existing CI gate receives a nonzero exit. Confirm a fresh run executes
 checks while keeping compatible build caches. Start native commands without
 result caching; enable it only with complete inputs, a provisioned
-environment identity, and an explicit `rerun_command`.
+environment identity, and an explicit `command.rerun_args`.
 
 Local caches work today. Cross-worker cache transport and multi-job result
 aggregation are not implemented; keep required platform jobs individually
