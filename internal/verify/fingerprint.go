@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 )
 
 func digest(value any) string {
@@ -127,12 +128,42 @@ func outputPaths(req Request) []string {
 	return out
 }
 
+// implementationKey separates memoized snapshots per shared checkout so
+// independent roots, including each test's own temporary directory, never share
+// an entry. The executor kind selects which paths the snapshot covers.
+type implementationKey struct {
+	Shared   string
+	Executor ExecutorKind
+}
+
+// implementations memoizes the shared checkout's snapshot for the life of the
+// process. A run pins one Levenshtein checkout, and that checkout does not
+// change while the run executes, but fingerprint is called up to four times per
+// check and every preparation stage hashes it again; walking go.mod, go.sum,
+// cmd, internal and the Dagger runtime each time dominated cache lookups.
+//
+// The trade-off this records: editing the shared checkout while a run is in
+// flight does not change its fingerprints. Start a new run after changing the
+// pinned checkout.
+var implementations sync.Map
+
 func implementation(req Request) (string, error) {
+	key := implementationKey{Shared: req.Shared, Executor: req.Environment.Executor}
+	if memoized, ok := implementations.Load(key); ok {
+		return memoized.(string), nil
+	}
+
 	paths := []string{"go.mod", "go.sum", "cmd", "internal"}
 	if req.Environment.Executor == ExecutorDagger {
 		paths = append(paths, ".dagger-version", "dagger.json", "runner", "sdk")
 	}
-	return snapshot(req.Shared, paths, nil, false)
+	impl, err := snapshot(req.Shared, paths, nil, false)
+	if err != nil {
+		return "", err
+	}
+
+	implementations.Store(key, impl)
+	return impl, nil
 }
 
 func fingerprint(req Request) (string, error) {

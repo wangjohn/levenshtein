@@ -13,7 +13,7 @@ func TestReviewConflictingPreparation(t *testing.T) {
 	prepA := &Preparation{Command: []string{"/bin/sh", "-c", "printf A > ready"}, Inputs: []string{"lock"}, Outputs: []string{"ready"}}
 	prepB := &Preparation{Command: []string{"/bin/sh", "-c", "printf B > ready"}, Inputs: []string{"lock"}, Outputs: []string{"ready"}}
 	req.Check.Command = []string{"/bin/sh", "-c", "cat ready"}
-	n := &Native{}
+	n := &Native{Cache: &Cache{Dir: t.TempDir()}}
 	for i, prep := range []*Preparation{prepA, prepB, prepA} {
 		req.Preparation = prep
 		got := n.Execute(context.Background(), req)

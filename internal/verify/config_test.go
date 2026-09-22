@@ -2,6 +2,7 @@ package verify
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,24 +10,6 @@ import (
 	"testing"
 	"time"
 )
-
-func TestLegacyTranslation(t *testing.T) {
-	cfg, err := Parse([]byte(`{"modules":["."],"runs":{"custom":["go-lint","self-test"],"main":["go-lint"]}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	plan, err := cfg.Plan(t.TempDir(), "custom")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(plan.Checks) != 2 || plan.RerunChecks {
-		t.Fatalf("incorrect plan: %+v", plan)
-	}
-	plan, err = cfg.Plan(t.TempDir(), "main")
-	if err != nil || !plan.RerunChecks {
-		t.Fatalf("lost main freshness: %+v %v", plan, err)
-	}
-}
 
 func TestVersionedPlanningNeedsNoTools(t *testing.T) {
 	t.Setenv("PATH", "")
@@ -44,12 +27,19 @@ func TestVersionedPlanningNeedsNoTools(t *testing.T) {
 	}
 }
 
+// Every rejected shape names a configuration mistake: no version, the retired
+// module-list format, an unsupported version, a typo, an unknown or repeated
+// check, an escaping target, an empty run, and trailing JSON.
 func TestRejectInvalidConfiguration(t *testing.T) {
+	const versioned = `{"version":1,"targets":{"app":{"dir":%q,"inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"lint":{"kind":"go-lint","target":"app","environment":"go"}},"runs":{"branch":{"checks":%s}}}`
 	for _, input := range []string{
-		`null`, `{}`, `{"version":2}`, `{"version":1,"typo":true}`, `{"modules":["."],"runs":{"branch":["typo"]}}`,
-		`{"modules":[".."],"runs":{"branch":["go-lint"]}}`, `{"modules":[".","."],"runs":{"branch":["go-lint"]}}`,
-		`{"modules":["."],"runs":{"branch":["go-lint","go-lint"]}}`, `{"modules":["."],"runs":{"branch":[]}}`,
-		`{"modules":["."],"runs":{"branch":["go-lint"]}} {}`,
+		`null`, `{}`, `{"version":2}`, `{"version":1,"typo":true}`,
+		`{"modules":["."],"runs":{"branch":["go-lint"]}}`,
+		fmt.Sprintf(versioned, ".", `["typo"]`),
+		fmt.Sprintf(versioned, "..", `["lint"]`),
+		fmt.Sprintf(versioned, ".", `["lint","lint"]`),
+		fmt.Sprintf(versioned, ".", `[]`),
+		fmt.Sprintf(versioned, ".", `["lint"]`) + ` {}`,
 	} {
 		t.Run(input, func(t *testing.T) {
 			cfg, err := Parse([]byte(input))
@@ -68,7 +58,7 @@ func TestTargetCannotEscapeRepository(t *testing.T) {
 	if err := os.Symlink(t.TempDir(), filepath.Join(source, "outside")); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := Parse([]byte(`{"modules":["outside"],"runs":{"branch":["go-lint"]}}`))
+	cfg, err := Parse([]byte(`{"version":1,"targets":{"app":{"dir":"outside","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"lint":{"kind":"go-lint","target":"app","environment":"go"}},"runs":{"branch":{"checks":["lint"]}}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +204,7 @@ func TestParallelExecuteSharedPreparationPreservesPlanOrder(t *testing.T) {
 			},
 		},
 	}
-	native := &recordingNative{}
+	native := &recordingNative{Native: Native{Cache: &Cache{Dir: t.TempDir()}}}
 	report := Execute(context.Background(), plan, t.TempDir(), map[ExecutorKind]Executor{
 		ExecutorNative: native,
 	})

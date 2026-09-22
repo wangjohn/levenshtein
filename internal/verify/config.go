@@ -80,85 +80,66 @@ func decode(data []byte, value any) error {
 	return nil
 }
 
+// defaultTarget is the single target of the no-configuration defaults. It spans
+// the whole source tree so an unconfigured repository needs no path knowledge.
+const defaultTarget = "root"
+
+// defaultEnvironment runs the no-configuration defaults through Dagger, which
+// carries its own pinned Go toolchain.
+const defaultEnvironment = "go"
+
+// defaultConfig is the configuration a repository without levenshtein.json
+// receives: every shared Dagger check over the whole source tree, the branch
+// and pre-merge gates, a fresh main run, and one named run per check.
+func defaultConfig() Config {
+	lint, vet, vuln := string(CheckGoLint), string(CheckGoVet), string(CheckGoVuln)
+	checks := map[string]Check{}
+	runs := map[string]Run{
+		"branch":    {Checks: []string{lint, vet}},
+		"pre-merge": {Checks: []string{lint, vet}},
+		"main":      {Checks: []string{lint, vet, vuln}, RerunChecks: true},
+	}
+	for _, kind := range []CheckKind{CheckGoLint, CheckGoVet, CheckGoHTTP, CheckGoSQL, CheckGoVuln, CheckWorkflowLint} {
+		checks[string(kind)] = Check{Kind: kind, Target: defaultTarget, Environment: defaultEnvironment}
+		runs[string(kind)] = Run{Checks: []string{string(kind)}}
+	}
+
+	return Config{
+		Version:      1,
+		Targets:      map[string]Target{defaultTarget: {Dir: ".", Workspace: ".", Inputs: []string{"."}}},
+		Environments: map[string]Environment{defaultEnvironment: {Executor: ExecutorDagger}},
+		Checks:       checks,
+		Runs:         runs,
+	}
+}
+
 func Load(source string) (Config, error) {
 	data, err := os.ReadFile(filepath.Join(source, "levenshtein.json"))
 	if os.IsNotExist(err) {
-		data = []byte(`{"modules":["."],"runs":{"branch":["go-lint","go-vet"],"pre-merge":["go-lint","go-vet"],"main":["go-lint","go-vet","go-vuln"],"go-lint":["go-lint"],"go-vet":["go-vet"],"go-http":["go-http"],"go-sql":["go-sql"],"go-vuln":["go-vuln"],"workflow-lint":["workflow-lint"]}}`)
-	} else if err != nil {
+		return defaultConfig(), nil
+	}
+	if err != nil {
 		return Config{}, err
 	}
 	return Parse(data)
 }
 
+// Parse reads the versioned configuration interface. Version 1 is the only
+// accepted shape; a file without it is rejected rather than guessed at.
 func Parse(data []byte) (Config, error) {
-	var header map[string]json.RawMessage
+	var header struct {
+		Version int `json:"version"`
+	}
 	if err := json.Unmarshal(data, &header); err != nil {
 		return Config{}, err
 	}
-
-	if _, ok := header["version"]; ok {
-		var cfg Config
-		if err := decode(data, &cfg); err != nil {
-			return cfg, err
-		}
-		if cfg.Version != 1 {
-			return cfg, fmt.Errorf("unsupported configuration version %d", cfg.Version)
-		}
-		return cfg, nil
+	if header.Version != 1 {
+		return Config{}, fmt.Errorf(`configuration needs "version": 1; see docs/configuration.md`)
 	}
 
-	var old struct {
-		Modules []string            `json:"modules"`
-		Runs    map[string][]string `json:"runs"`
-	}
-	if err := decode(data, &old); err != nil {
+	var cfg Config
+	if err := decode(data, &cfg); err != nil {
 		return Config{}, err
-	}
-	if len(old.Modules) == 0 {
-		return Config{}, fmt.Errorf("configure at least one Go module directory")
-	}
-
-	cfg := Config{Version: 1, Targets: map[string]Target{}, Environments: map[string]Environment{"go": {Executor: ExecutorDagger}}, Checks: map[string]Check{}, Runs: map[string]Run{}}
-	seen := map[string]bool{}
-	for i, module := range old.Modules {
-		if !relative(module) || seen[module] {
-			return Config{}, fmt.Errorf("invalid or duplicate module %q", module)
-		}
-		seen[module] = true
-		id := fmt.Sprintf("module-%d", i)
-		cfg.Targets[id] = Target{Dir: module, Workspace: ".", Inputs: []string{"."}}
-		for _, kind := range []CheckKind{CheckGoLint, CheckGoVet, CheckGoHTTP, CheckGoSQL, CheckGoVuln} {
-			cfg.Checks[string(kind)+"/"+id] = Check{Kind: kind, Target: id, Environment: "go"}
-		}
-	}
-
-	cfg.Targets["repository"] = Target{Dir: ".", Workspace: ".", Inputs: []string{"."}}
-	cfg.Checks["workflow-lint"] = Check{Kind: CheckWorkflowLint, Target: "repository", Environment: "go"}
-
-	cfg.Checks["self-test"] = Check{Kind: CheckSelfTest, Target: "module-0", Environment: "go"}
-
-	for name, checks := range old.Runs {
-		run := Run{RerunChecks: name == "main"}
-		seen := map[string]bool{}
-		for _, check := range checks {
-			if seen[check] {
-				return Config{}, fmt.Errorf("duplicate check %q", check)
-			}
-			seen[check] = true
-			switch CheckKind(check) {
-			case CheckCommand, CheckSemanticLint:
-				return Config{}, fmt.Errorf("native commands require versioned configuration")
-			case CheckSelfTest, CheckWorkflowLint:
-				run.Checks = append(run.Checks, check)
-			case CheckGoLint, CheckGoVet, CheckGoHTTP, CheckGoSQL, CheckGoVuln:
-				for i := range old.Modules {
-					run.Checks = append(run.Checks, fmt.Sprintf("%s/module-%d", check, i))
-				}
-			default:
-				return Config{}, fmt.Errorf("unknown legacy check %q", check)
-			}
-		}
-		cfg.Runs[name] = run
 	}
 	return cfg, nil
 }
