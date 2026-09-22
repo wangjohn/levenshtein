@@ -30,7 +30,10 @@ require (
 	github.com/sashamelentyev/usestdlibvars v1.29.0
 	github.com/sonatard/noctx v0.5.1
 	github.com/timakin/bodyclose v0.0.0-20260723120731-857993a2939c
+	github.com/timonwong/loggercheck v0.12.0
+	github.com/ykadowak/zerologlint v0.1.5
 	go-simpler.org/musttag v0.14.0
+	go-simpler.org/sloglint v0.12.0
 	go.augendre.info/fatcontext v0.10.1
 	golang.org/x/mod v0.41.0
 	golang.org/x/tools v0.50.0
@@ -40,6 +43,7 @@ require (
 
 require (
 	github.com/BurntSushi/toml v1.4.1-0.20240526193622-a339e1f7089c // indirect
+	github.com/ettle/strcase v0.2.0 // indirect
 	github.com/go-toolsmith/astcast v1.1.0 // indirect
 	github.com/go-toolsmith/astcopy v1.1.0 // indirect
 	github.com/go-toolsmith/astequal v1.2.0 // indirect
