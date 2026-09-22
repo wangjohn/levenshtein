@@ -241,7 +241,7 @@ Go vet and standalone tool failures retain native output, including file/line de
 
 - **Workspaces.** `go-mod` always runs with `GOWORK=off`. `go mod tidy` checks one module's own manifests whatever workspace it belongs to, and `go mod verify` then covers that module's requirements rather than every workspace member's. Give each workspace module its own target.
 - **Vendored modules.** Neither command reads `vendor/`: tidy resolves from `go.mod`, `go.sum`, and the module proxy, so `go-mod` needs the proxy (and, natively, any `GOPRIVATE`/`GOPROXY`/credential settings passed with `pass_env`) even for a module that vendors its dependencies. The Dagger container has no private-module credentials. The go command already refuses a `vendor/modules.txt` that disagrees with `go.mod` when `go-vet` or `go-lint` loads packages. A repository that must verify offline leaves `go-mod` out of its runs.
-- **Caching.** `go mod verify` checks the module cache as it is now, which no input fingerprint covers, so like `go-vuln` a `go-mod` result is never reused, on either executor, and each Dagger call gets a fresh nonce. With the modules already downloaded it takes a few seconds.
+- **Caching.** `go mod verify` checks the module cache as it is now, which no input fingerprint covers, so like `go-vuln` a `go-mod` result is never reused, on either executor, and each Dagger call gets a fresh nonce; a direct Dagger `sharedCheck` call for `go-mod` without one is refused. With the modules already downloaded it takes a few seconds.
 
 Without a `levenshtein.json`, `go-mod` is part of the default `branch`, `pre-merge`, and `main` runs over the root module.
 
@@ -262,7 +262,7 @@ Keep errcheck's upstream exclusions for operations documented never to fail. Int
 
 Dagger shares pinned tool builds, dependency downloads, and compiler caches. Staticcheck retains its own analysis cache. The default selection expands only when a pinned analyzer version changes; review new findings with dependency upgrades.
 
-Vulnerability data can change without source changes. A `go-vuln` check always bypasses the local result cache, even with `cache: true` and in custom runs. The Dagger executor generates a unique nonce before invoking `sharedCheck`; the nonce enters after tool construction, forcing a new advisory lookup and scan while reusing tool builds. Ordinary checks retain their result caches. Direct Dagger callers must supply a unique `nonce` for each vulnerability invocation.
+Vulnerability data can change without source changes. A `go-vuln` check always bypasses the local result cache, even with `cache: true` and in custom runs. The Dagger executor generates a unique nonce before invoking `sharedCheck`; the nonce enters after tool construction, forcing a new advisory lookup and scan while reusing tool builds. Ordinary checks retain their result caches. Direct Dagger callers must supply a unique `nonce` for each vulnerability or `go-mod` invocation; `sharedCheck` refuses either without one.
 
 The report does not claim an immutable vulnerability-database snapshot. Network/database failures fail verification. Levenshtein's daily `main` run includes the scan; consumer CI owns its daily and dependency-change triggers. Pinned standalone tools live in `runner/tools/go.mod`, separate from Staticcheck's analysis dependencies in `runner/lint/go.mod`.
 

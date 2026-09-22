@@ -61,6 +61,17 @@ func TestModFindingsSeparateMismatchesFromToolErrors(t *testing.T) {
 	}
 }
 
+// A direct Dagger call without a nonce could be answered with a stale verdict,
+// so the checks whose state no source input covers refuse it before running.
+func TestFreshChecksRequireANonce(t *testing.T) {
+	for _, check := range []checkName{checkVuln, checkMod} {
+		err := (&Levenshtein{}).SharedCheck(t.Context(), nil, string(check), ".", "")
+		if err == nil || !strings.Contains(err.Error(), string(check)+" requires a unique nonce") {
+			t.Fatalf("%s ran without a nonce: %v", check, err)
+		}
+	}
+}
+
 func TestStaticcheckWildcardDoesNotAcceptCompilerErrors(t *testing.T) {
 	for _, code := range []string{"SA4006", "compile"} {
 		output := `{"code":"` + code + `","message":"finding","location":{"file":"/src/a.go","line":1}}`

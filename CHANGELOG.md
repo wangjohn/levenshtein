@@ -16,7 +16,8 @@ Consumers pin a release tag, or its commit SHA, as described in
   and a download that no longer matches its recorded hash or `go.sum` fails too;
   an unreachable module proxy is an error, never a pass. It runs with
   `GOWORK=off`, needs the module proxy even for a vendored module, and its
-  result is never cached ([details](docs/checks.md#module-manifests)).
+  result is never cached; like `go-vuln`, a direct Dagger `sharedCheck` call
+  must pass a unique `nonce` ([details](docs/checks.md#module-manifests)).
 - `workflow-security`, a shared check on both executors that runs zizmor 1.30.1's
   offline audits over a repository's workflows, composite actions, and
   Dependabot configuration and fails on findings of medium severity and above,

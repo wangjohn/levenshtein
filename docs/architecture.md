@@ -213,9 +213,9 @@ native `command` checks with `cache: true`), it:
 `go-vuln` and `go-mod` are never cached: `CachedExecutor.Execute` forces
 `RerunChecks` and returns `CacheStatus: "disabled"` for them unconditionally
 (the `alwaysFresh` table in `kinds.go`), and the Dagger executor gives each
-call a nonce. Vulnerability data changes independently of source
-fingerprints, and `go mod verify` checks the module cache, which no
-fingerprint covers.
+call a nonce; `sharedCheck` refuses either kind without one. Vulnerability
+data changes independently of source fingerprints, and `go mod verify`
+checks the module cache, which no fingerprint covers.
 
 ## Report and exit codes
 
