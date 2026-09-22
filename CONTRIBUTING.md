@@ -29,7 +29,7 @@ Repo self-checks, matching what CI runs:
 ./verify pre-merge
 ```
 
-`./verify` needs a Docker-compatible container runtime (Docker Desktop or Colima) and the pinned Dagger CLI. Install the CLI with:
+`./verify branch` runs the static Go checks natively: it needs Go 1.27.1 and the generated SDK from `dagger develop`, but no container runtime. `./verify pre-merge` adds `self-test`, and `./verify main` and `./verify branch-dagger` run the checks in Dagger; those need a Docker-compatible container runtime (Docker Desktop or Colima) and the pinned Dagger CLI. Install the CLI with:
 
 ```sh
 ./scripts/install-dagger

@@ -76,7 +76,7 @@ The checked-in `Levenshtein self-checks` workflow verifies this repo's runner an
 
 | Job | Role |
 | --- | --- |
-| `lint` | Static `./verify branch` only (early signal; no host race tests or consumer regressions) |
+| `lint` | Static `./verify branch` only, on the native executor (early signal; no host race tests or consumer regressions) |
 | `tests` | Host race/fixtures, `shellcheck`, SDK restore or regen, non-lint Dagger checks, consumer regressions |
 | `language-contracts` | Rust and Python contract fixtures |
 | `release-smoke` | `goreleaser check`, then a GoReleaser snapshot + archive test (skipped on draft PRs) |
@@ -97,16 +97,14 @@ scanning on `main` and the weekly schedule, since Scorecard reads the default
 branch rather than a pull request's merge ref; and `dependency-review` on pull
 requests, failing on high severity. `dependency-review` needs the repository's
 **Dependency graph**, which is a repository setting (Settings → Code security)
-and not something a workflow can enable. The job checks for it first: without
-it the review is skipped with a note in the job summary, and with it the review
-is a real gate. This repository has it turned off today, so dependency review
-is a no-op until an admin enables the dependency graph.
+and not something a workflow can enable. It is enabled for this repository, and
+the job fails if it is ever turned off, rather than passing without a review.
 
 `release.yml` publishes the archives, their SBOMs, `checksums.txt`, and a build
 provenance attestation when a `vX.Y.Z` tag is pushed; see
 [release archives](releases.md).
 
-Event → `./verify` mapping:
+Event → `./verify` mapping. `branch` and `pre-merge` run the static Go checks on the native executor; `main` and `self-test` run in Dagger. A push to `main` therefore runs no Dagger lint, and the scheduled `main` audit is the daily hermetic pass over every Go check.
 
 - Draft PR / push to `main`: `lint` runs `branch`; `tests` skips Dagger verify (lint already covered static checks).
 - Ready PR / merge queue: `lint` runs `branch`; `tests` runs `self-test` (together equivalent to former `pre-merge`).
@@ -119,6 +117,7 @@ Event → `./verify` mapping:
 | --- | --- |
 | Early PR progress (including drafts) | **`lint`** |
 | Merge / ready-for-review / merge queue / `main` | **`lint`**, **`tests`**, **`language-contracts`**, **`release-smoke`** |
+| Pull requests | **`dependency-review`** (fails on a high-severity dependency added by the pull request, or if the dependency graph is off) |
 | Pull requests | `semantic-lint` (advisory; not required to pass; the job passes with no findings when `TYPESAFE_API_KEY` is absent) |
 
 Do **not** make draft progress wait on `release-smoke` or full `tests`. When adopting this workflow, replace any required check named `verify` with `lint` and `tests` the same day.
@@ -130,7 +129,8 @@ Treat warm lint wall time creeping toward warm tests as a CI performance regress
 - Restore `verification-v1-lint` / `verification-v1-tests` on every event, and save on every event too. A pull request run saves into its own merge-ref scope, which only reruns of that PR can restore and `main` never reads, so a fork run cannot seed `main`'s entries.
 - Lint and tests use **separate** verification keys so they cannot race one entry. The generated SDK still uses an exact key with no `restore-keys`.
 - `merge_group` is not one of the events that writes the default-branch cache scope, so its saves are invisible to `main`; the tests scope on `main` is seeded by schedule and `workflow_dispatch` runs. The other direction is open: a pull request, including one from a fork, can restore `main`'s entries. They hold verification results and generated code, never secrets.
-- Entries are small JSON records, and the SDK entry is touched on every run, so result entries do not push it out of the repository's 10 GB Actions cache budget.
+- Entries are small JSON records, and the SDK entry is touched on every run, so result entries do not push it out of the repository's 10 GB Actions cache budget. The native checks' `staticcheck/` and `tools/` directories live inside the verification cache directory but are excluded from these entries.
+- The `lint` job keeps a separate Staticcheck cache, `staticcheck-v1-<os>-<hash of .go-version, runner/lint/go.sum, runner/toolchain.json>-<sha>`, restored by prefix. Only a push to `main` and the schedule save it; pull requests, including forks, restore `main`'s entry and never write one. Staticcheck keys its data by package content and analyzer version, and a fresh run (`rerun_checks`) uses a throwaway directory, so a restored cache can only save work. The job summary lists each check's status, cache status, duration, and the Staticcheck cache size.
 - Scheduled `main` keeps `rerun_checks: true`; `go-vuln` always re-executes.
 
 ### Caches and self-config notes
@@ -141,15 +141,15 @@ Generated SDK (`runner/dagger.gen.go`, `runner/internal/dagger`, `runner/interna
 
 Completed verification results are restored into `$RUNNER_TEMP/levenshtein-verification-v1` and passed to `./verify --cache-dir` on `lint` / `tests` with per-job keys (`verification-v1-lint-${{ runner.os }}-<sha>`, `verification-v1-tests-${{ runner.os }}-<sha>`). The key is deliberately per-commit with a prefix `restore-keys` fallback: the CLI already fingerprints each target, so handing it the newest earlier directory lets it reuse the entries that are still valid instead of missing the whole cache on any source edit. Save runs on every event and on failed runs, since results are keyed by content and a pull request's cache is scoped by GitHub to that PR and its base branch. Warm check: a rerun of the same commit hits the exact key and skips Save; a new commit reports a `restore-keys` match.
 
-In-engine Go module/build and Staticcheck `CacheVolume`s remain version-keyed in `runner/` but are **session-local** on ephemeral GitHub-hosted runners. Persisting those volumes across VMs is **blocked** for Dagger **0.21.9** (no supported CI export/restore API without experimental hacks).
+In-engine Go module/build and Staticcheck `CacheVolume`s remain version-keyed in `runner/` but are **session-local** on ephemeral GitHub-hosted runners. Persisting those volumes across VMs is **blocked** for Dagger **0.21.9** (no supported CI export/restore API without experimental hacks). This is why `branch` and `pre-merge` run natively: the host's Go build cache (through setup-go) and the Staticcheck cache above do persist.
 
-Self-config targets use narrow literal `inputs` (not `"."`): root Go module paths, `runner` / `runner/lint`, and `.github/workflows` for workflow-lint. Doc-only edits therefore do not invalidate Go analysis result fingerprints. The one exception is the `repository` target, which keeps `"."` so `semantic-lint` still judges Markdown and workflow changes. Independent checks in a run execute concurrently (bounded workers) inside `./verify`.
+Self-config targets use narrow literal `inputs` (not `"."`): root Go module paths, `runner` / `runner/lint`, and `.github/workflows` for workflow-lint. The `runner` target declares `"discovery": "filesystem"` because it compiles against the gitignored generated SDK, which git discovery would leave out of its fingerprint. Doc-only edits therefore do not invalidate Go analysis result fingerprints. The one exception is the `repository` target, which keeps `"."` so `semantic-lint` still judges Markdown and workflow changes. Independent checks in a run execute concurrently (bounded workers) inside `./verify`.
 
 ### Success criteria and gaps
 
 | Criterion | Status |
 | --- | --- |
-| Lint ≪ tests (warm lint well under 1 min) | In progress — needs warm SDK and result-cache hits; in-engine build/cache volumes cannot yet persist across ephemeral runners |
+| Lint ≪ tests (warm lint well under 1 min) | In progress — `branch` now runs natively with a persisted Staticcheck cache; measure warm runs on `main` |
 | Coverage preserved on ready/merge/`main`/schedule | Met by job split + event mapping |
 | Result-cache isolation between untrusted PRs and `main` | Met (PR-written caches stay in the PR's merge-ref scope, which `main` never reads) |
 | Freshness (`rerun_checks` / `go-vuln`) | Met |
@@ -186,6 +186,8 @@ GOTOOLCHAIN=local go test -race ./...
 ./verify pre-merge
 ./scripts/test-consumers
 ```
+
+In this repository `./verify branch` and the per-kind runs (`go-lint`, `go-vet`, `workflow-lint`) run natively and need no container runtime, only Go 1.27.1 and the generated SDK from `dagger develop`, since the `runner` module compiles against it. `pre-merge` adds `self-test`, which runs in Dagger. `./verify branch-dagger` runs the same static checks in Dagger, and `./verify main` is the full hermetic audit.
 
 The generated Go SDK needs a Dagger session, including during unit tests. The deliberately broken Go module lives under `runner/testdata`, outside ordinary test discovery. The self-test requires good code, vendored dependencies, and embedded templates to pass, bad code to emit each intended rule, and broken/empty modules to fail verification. A compiler failure cannot substitute for an expected lint finding.
 
