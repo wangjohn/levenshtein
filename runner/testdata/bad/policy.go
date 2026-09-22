@@ -33,3 +33,16 @@ func incomplete(value choice) bool {
 	}
 	return false
 }
+
+// LV1003: two fields share one declaration.
+type pair struct {
+	left, right string
+}
+
+// LV1004: the next declaration has no blank line before it.
+type adjacent struct {
+	Value int
+}
+type follower struct {
+	Value int
+}
