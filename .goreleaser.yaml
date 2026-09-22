@@ -23,6 +23,7 @@ archives:
       - runner/main.go
       - runner/checks.go
       - runner/mutation.go
+      - runner/zizmor.go
       - runner/go.mod
       - runner/go.sum
       - runner/toolchain.json
