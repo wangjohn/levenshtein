@@ -97,7 +97,7 @@ func installZizmor(ctx context.Context, shared, root, releases string) (string, 
 	data, err := os.ReadFile(cached)
 	if err != nil || !matchesSHA256(data, archive.SHA256) {
 		url := fmt.Sprintf("%s/v%s/%s", releases, pin.Version, archive.Name)
-		data, err = download(ctx, url)
+		data, err = download(ctx, url, zizmorArchiveLimit)
 		if err != nil {
 			return "", fmt.Errorf("downloading zizmor %s, which workflow-security needs network access to fetch once per cache directory: %w", pin.Version, err)
 		}
@@ -125,7 +125,8 @@ func matchesSHA256(data []byte, want string) bool {
 	return hex.EncodeToString(sum[:]) == strings.ToLower(want)
 }
 
-func download(ctx context.Context, url string) ([]byte, error) {
+// download reads at most limit bytes and refuses a larger body.
+func download(ctx context.Context, url string, limit int) ([]byte, error) {
 	child, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	req, err := http.NewRequestWithContext(child, http.MethodGet, url, nil)
@@ -141,12 +142,12 @@ func download(ctx context.Context, url string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s returned %s", url, resp.Status)
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, zizmorArchiveLimit+1))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, int64(limit)+1))
 	if err != nil {
 		return nil, err
 	}
-	if len(data) > zizmorArchiveLimit {
-		return nil, fmt.Errorf("%s is larger than %d bytes", url, zizmorArchiveLimit)
+	if len(data) > limit {
+		return nil, fmt.Errorf("%s is larger than %d bytes", url, limit)
 	}
 	return data, nil
 }

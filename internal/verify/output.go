@@ -6,14 +6,15 @@ import (
 	"path/filepath"
 )
 
-// Mutable output paths must not alias another preparation through a symlink.
-func outputPath(root, path string) (string, error) {
+// checkOutputPath rejects a mutable output path that could alias another
+// preparation through a symlink.
+func checkOutputPath(root, path string) error {
 	if !relative(path) || path == "." {
-		return "", fmt.Errorf("invalid output path %q", path)
+		return fmt.Errorf("invalid output path %q", path)
 	}
 	dir, err := os.OpenRoot(root)
 	if err != nil {
-		return "", err
+		return err
 	}
 	defer func() { _ = dir.Close() }() // Directory handle cleanup; writes are closed separately.
 
@@ -23,18 +24,18 @@ func outputPath(root, path string) (string, error) {
 			continue
 		}
 		if err != nil {
-			return "", err
+			return err
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			return "", fmt.Errorf("output path %q contains a symlink", path)
+			return fmt.Errorf("output path %q contains a symlink", path)
 		}
 	}
-	return filepath.Join(root, path), nil
+	return nil
 }
 
 func outputsExist(source string, paths []string) bool {
 	for _, path := range paths {
-		if _, err := outputPath(source, path); err != nil {
+		if err := checkOutputPath(source, path); err != nil {
 			return false
 		}
 		if _, err := contained(source, path); err != nil {

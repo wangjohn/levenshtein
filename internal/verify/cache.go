@@ -68,9 +68,11 @@ type entry struct {
 	Artifacts []artifact
 }
 
+// envelope is the on-disk record layout. The tags spell the field names that
+// untagged records already used, so existing cache files still decode.
 type envelope struct {
-	Checksum string
-	Data     json.RawMessage
+	Checksum string          `json:"Checksum"`
+	Data     json.RawMessage `json:"Data"`
 }
 
 func writeRecord(path string, value any) error {
@@ -121,7 +123,7 @@ func (c *Cache) load(req Request, key string) (Result, error) {
 		if a.Path != req.Check.artifacts()[i] {
 			return Result{}, fmt.Errorf("artifact scope mismatch")
 		}
-		if _, err := outputPath(req.Source, a.Path); err != nil {
+		if err := checkOutputPath(req.Source, a.Path); err != nil {
 			return Result{}, err
 		}
 	}
@@ -149,8 +151,7 @@ func (c *Cache) save(req Request, key string, result Result) error {
 	}
 	defer func() { _ = root.Close() }() // Directory handle cleanup; writes are closed separately.
 	for _, path := range req.Check.artifacts() {
-		_, err := outputPath(req.Source, path)
-		if err != nil {
+		if err := checkOutputPath(req.Source, path); err != nil {
 			return err
 		}
 		info, err := root.Stat(path)
@@ -219,7 +220,7 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 		result := c.Executor.Execute(ctx, req)
 		return result.withCache(CacheInfo{Status: CacheUnavailable, Reason: err.Error()})
 	}
-	status, reason := CacheMiss, discoveryNote(req.Source, req.Target.Discovery)
+	status, reason := CacheMiss, discoveryNote(ctx, req.Source, req.Target.Discovery)
 	defer unlock()
 	retryPath := filepath.Join(c.Cache.Dir, "results", key+".retry")
 	if _, err := os.Stat(retryPath); err == nil {
@@ -229,7 +230,7 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 
 	if !req.RerunChecks {
 		if result, err := c.Cache.load(req, key); err == nil {
-			after, changedErr := fingerprint(req)
+			after, changedErr := fingerprint(ctx, req)
 			if changedErr == nil && after == key {
 				return result.withCache(CacheInfo{Status: CacheHit, Key: key, Reason: reason, LookupMS: time.Since(start).Milliseconds()})
 			}
@@ -265,7 +266,7 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 	if result.Status == StatusPassed {
 		// Execution may have created files the run's memoized listing predates.
 		relist(req.Source)
-		after, err := fingerprint(req)
+		after, err := fingerprint(ctx, req)
 		if err != nil || after != key {
 			return result.withCache(CacheInfo{Status: status, Key: key, Reason: notes(reason, "inputs changed during execution; result was not cached"), LookupMS: lookupMS})
 		}
@@ -282,7 +283,7 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 
 func (c *Cache) lockedFingerprint(ctx context.Context, req Request) (string, func(), error) {
 	for range 3 {
-		key, err := fingerprint(req)
+		key, err := fingerprint(ctx, req)
 		if err != nil {
 			return "", nil, err
 		}
@@ -290,7 +291,7 @@ func (c *Cache) lockedFingerprint(ctx context.Context, req Request) (string, fun
 		if err != nil {
 			return "", nil, err
 		}
-		current, err := fingerprint(req)
+		current, err := fingerprint(ctx, req)
 		if err == nil && current == key {
 			return key, unlock, nil
 		}

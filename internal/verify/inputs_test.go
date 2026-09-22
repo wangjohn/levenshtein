@@ -76,7 +76,7 @@ func rootInputsIgnoreDocs(t *testing.T, cfg Config, root, run, id string) {
 	}
 
 	req := Request{Source: source, Shared: root, PlannedCheck: rootLint}
-	before, err := fingerprint(req)
+	before, err := fingerprint(t.Context(), req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func rootInputsIgnoreDocs(t *testing.T, cfg Config, root, run, id string) {
 	if err := os.WriteFile(docs, []byte("# Setup\n\nedited\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	after, err := fingerprint(req)
+	after, err := fingerprint(t.Context(), req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func rootInputsIgnoreDocs(t *testing.T, cfg Config, root, run, id string) {
 	if err := os.WriteFile(filepath.Join(source, "go.mod"), []byte("changed\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	changed, err := fingerprint(req)
+	changed, err := fingerprint(t.Context(), req)
 	if err != nil {
 		t.Fatal(err)
 	}

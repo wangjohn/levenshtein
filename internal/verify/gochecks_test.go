@@ -117,7 +117,7 @@ func keyWithToolchain(t *testing.T, req Request, toolchain string) string {
 		paths = append(paths, stage.definition.Inputs...)
 	}
 	slices.Sort(paths)
-	source, err := snapshot(snapshotRequest{
+	source, err := snapshot(t.Context(), snapshotRequest{
 		Root:      req.Source,
 		Paths:     paths,
 		Excludes:  append(outputPaths(req), req.Target.Exclude...),
@@ -126,7 +126,7 @@ func keyWithToolchain(t *testing.T, req Request, toolchain string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	impl, err := implementation(req)
+	impl, err := implementation(t.Context(), req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,10 +153,10 @@ func keyWithToolchain(t *testing.T, req Request, toolchain string) string {
 func TestNativeGoFingerprintIncludesTheHostToolchain(t *testing.T) {
 	command := nativeRequest(t)
 
-	if toolchain, err := hostToolchain(command, nativeEnv(command, nil)); err != nil || toolchain != "" {
+	if toolchain, err := hostToolchain(t.Context(), command, nativeEnv(command, nil)); err != nil || toolchain != "" {
 		t.Fatalf("a command check derived a host toolchain: %q, %v", toolchain, err)
 	}
-	key, err := fingerprint(command)
+	key, err := fingerprint(t.Context(), command)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestNativeGoFingerprintIncludesTheHostToolchain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lintKey, err := fingerprint(lint)
+	lintKey, err := fingerprint(t.Context(), lint)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,6 +293,13 @@ func TestWorkspaceMatchesWhatTheContainerImports(t *testing.T) {
 			}
 		})
 	}
+
+	// A directory outside the source never reaches a workspace, even one a
+	// whole-tree input would otherwise declare.
+	req := Request{Source: source, PlannedCheck: PlannedCheck{Target: Target{Dir: ".", Inputs: []string{"."}}}}
+	if got := workspace(req, parent); got != "off" {
+		t.Fatalf("workspace outside the source = %q, want off", got)
+	}
 }
 
 // A shared Go check runs the shared checkout's linter, rule list and pinned
@@ -317,7 +324,7 @@ func TestSharedGoCheckKeyCoversTheRunner(t *testing.T) {
 				req.Check.Command = &CommandCheck{Args: []string{"true"}}
 			}
 			req.Environment.Executor = executor
-			key, err := fingerprint(req)
+			key, err := fingerprint(t.Context(), req)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -420,5 +427,41 @@ func writeTestFile(t *testing.T, path, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// go vet's findings fail the check, and a module with nothing to vet is an
+// error rather than an empty pass.
+func TestNativeGoVetReportsFindingsAndRefusesAnEmptyModule(t *testing.T) {
+	req := nativeRequest(t)
+	req.Check = Check{Kind: CheckGoVet, Target: "app", Environment: "host"}
+	writeTestFile(t, filepath.Join(req.Source, "go.mod"), "module example.com/tiny\n\ngo 1.27\n")
+
+	result := (&Native{}).Execute(t.Context(), req)
+	if result.Status != StatusError || !strings.Contains(result.Error, "no Go packages") {
+		t.Fatalf("an empty module must be an error: %+v", result)
+	}
+
+	writeTestFile(t, filepath.Join(req.Source, "tiny.go"), "package tiny\n\nimport \"fmt\"\n\nfunc Print() { fmt.Printf(\"%d\\n\", \"text\") }\n")
+	result = (&Native{}).Execute(t.Context(), req)
+	if result.Status != StatusFailed || !strings.Contains(result.Stdout+result.Stderr, "Printf") {
+		t.Fatalf("a go vet finding must fail the check: %+v", result)
+	}
+}
+
+// With a result cache configured, native Go checks keep their tools in it; the
+// temporary directory is only for a run without one.
+func TestNativeToolsLiveInTheConfiguredCache(t *testing.T) {
+	dir := t.TempDir()
+	root, release, err := (&Native{Cache: &Cache{Dir: dir}}).cacheRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+	if root != dir {
+		t.Fatalf("cacheRoot = %q, want the configured cache %q", root, dir)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("releasing the configured cache removed it: %v", err)
 	}
 }

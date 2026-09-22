@@ -58,7 +58,9 @@
     "native-go-mod": {"kind": "go-mod", "targets": ["root", "lint", "tools"], "environment": "host-go"},
     "native-go-test": {"kind": "go-test", "targets": ["repository", "lint"], "environment": "host-go"},
     "native-workflow-lint": {"kind": "workflow-lint", "target": "workflows", "environment": "host-go"},
-    "native-workflow-security": {"kind": "workflow-security", "target": "actions", "environment": "host-go"}
+    "native-workflow-security": {"kind": "workflow-security", "target": "actions", "environment": "host-go"},
+    "go-mutation": {"kind": "go-mutation", "target": "repository", "environment": "go"},
+    "go-mutation-lint": {"kind": "go-mutation", "target": "lint", "environment": "go", "mutation": {"accepted": "runner/lint/.levenshtein/mutation-accepted.json"}}
   },
   "runs": {
     "go-lint": {"checks": ["native-go-lint"]},
@@ -72,6 +74,7 @@
     "workflow-security": {"checks": ["native-workflow-security"]},
     "self-test": {"checks": ["self-test"]},
     "semantic-lint": {"checks": ["semantic-lint"]},
+    "mutation": {"checks": ["go-mutation", "go-mutation-lint"]},
     "branch": {"checks": ["native-go-lint", "native-go-vet", "native-go-mod", "native-workflow-lint", "native-workflow-security"]},
     "pre-merge": {"checks": ["native-go-lint", "native-go-vet", "native-go-mod", "native-workflow-lint", "native-workflow-security", "self-test"]},
     "branch-dagger": {"checks": ["go-lint", "go-vet", "go-mod", "workflow-lint", "workflow-security"]},

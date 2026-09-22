@@ -67,7 +67,7 @@ type hashTarget struct {
 
 // Snapshot hashes content, names and modes, including untracked files and missing
 // paths. Source symlinks disable result reuse; output snapshots retain link text.
-func snapshot(req snapshotRequest) (string, error) {
+func snapshot(ctx context.Context, req snapshotRequest) (string, error) {
 	dir, err := os.OpenRoot(req.Root)
 	if err != nil {
 		return "", err
@@ -79,7 +79,7 @@ func snapshot(req snapshotRequest) (string, error) {
 	var listed []string
 	tracked := false
 	if req.Discovery == DiscoveryGit && !req.Outputs {
-		listed, tracked = gitFiles(req.Root)
+		listed, tracked = gitFiles(ctx, req.Root)
 	}
 
 	entries := map[string]string{}
@@ -291,7 +291,7 @@ type implementationKey struct {
 // pinned checkout.
 var implementations sync.Map
 
-func implementation(req Request) (string, error) {
+func implementation(ctx context.Context, req Request) (string, error) {
 	// A shared Go check runs the shared checkout's linter and house rules
 	// (runner/lint), reads its rule list (runner/toolchain.json) and builds its
 	// pinned tools (runner/tools) on either executor, so all of runner/ decides
@@ -312,7 +312,7 @@ func implementation(req Request) (string, error) {
 	}
 	// The shared checkout is also shipped as a release archive with no work
 	// tree, so it is always enumerated the same way wherever it came from.
-	impl, err := snapshot(snapshotRequest{Root: req.Shared, Paths: paths, Discovery: DiscoveryFilesystem})
+	impl, err := snapshot(ctx, snapshotRequest{Root: req.Shared, Paths: paths, Discovery: DiscoveryFilesystem})
 	if err != nil {
 		return "", err
 	}
@@ -321,13 +321,13 @@ func implementation(req Request) (string, error) {
 	return impl, nil
 }
 
-func fingerprint(req Request) (string, error) {
+func fingerprint(ctx context.Context, req Request) (string, error) {
 	paths := append([]string{}, req.Target.Inputs...)
 	for _, stage := range req.stages() {
 		paths = append(paths, stage.definition.Inputs...)
 	}
 	sort.Strings(paths)
-	source, err := snapshot(snapshotRequest{
+	source, err := snapshot(ctx, snapshotRequest{
 		Root:      req.Source,
 		Paths:     paths,
 		Excludes:  append(outputPaths(req), req.Target.Exclude...),
@@ -336,7 +336,7 @@ func fingerprint(req Request) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	impl, err := implementation(req)
+	impl, err := implementation(ctx, req)
 	if err != nil {
 		return "", err
 	}
@@ -346,7 +346,7 @@ func fingerprint(req Request) (string, error) {
 	toolchain := ""
 	if req.Environment.Executor == ExecutorNative {
 		env = nativeEnv(req, req.Check.env())
-		toolchain, err = hostToolchain(req, env)
+		toolchain, err = hostToolchain(ctx, req, env)
 		if err != nil {
 			return "", err
 		}
@@ -367,7 +367,7 @@ func fingerprint(req Request) (string, error) {
 // snapshot; the native path has nothing equivalent, so the host's own version,
 // OS and architecture join the key. Other native kinds contribute nothing, so
 // their existing cache entries keep their identity.
-func hostToolchain(req Request, env []string) (string, error) {
+func hostToolchain(ctx context.Context, req Request, env []string) (string, error) {
 	if !sharedGoChecks[req.Check.Kind] {
 		return "", nil
 	}
@@ -376,7 +376,7 @@ func hostToolchain(req Request, env []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	identity, err := toolchainIdentity(context.Background(), dir, env)
+	identity, err := toolchainIdentity(ctx, dir, env)
 	if err != nil {
 		return "", err
 	}

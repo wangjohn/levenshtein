@@ -251,3 +251,20 @@ func tarGz(t *testing.T, name string, content []byte) []byte {
 	}
 	return out.Bytes()
 }
+
+// A download may be exactly as large as its limit; one more byte is refused.
+func TestDownloadRefusesABodyOverItsLimit(t *testing.T) {
+	body := []byte("0123456789")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+
+	got, err := download(t.Context(), server.URL, len(body))
+	if err != nil || !bytes.Equal(got, body) {
+		t.Fatalf("a body at the limit must be returned whole: %q, %v", got, err)
+	}
+	if _, err := download(t.Context(), server.URL, len(body)-1); err == nil || !strings.Contains(err.Error(), "is larger than 9 bytes") {
+		t.Fatalf("a body over the limit must be refused: %v", err)
+	}
+}

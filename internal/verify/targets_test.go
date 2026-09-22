@@ -20,6 +20,7 @@ func TestRepositoryRunsPlanTheSameCheckIDs(t *testing.T) {
 	for name, want := range map[string][]string{
 		"branch":        native,
 		"pre-merge":     append(slices.Clone(native), "self-test"),
+		"mutation":      {"go-mutation", "go-mutation-lint"},
 		"branch-dagger": dagger,
 		"main":          append(slices.Clone(dagger), "self-test", "go-vuln/root", "go-vuln/runner", "go-vuln/lint"),
 	} {

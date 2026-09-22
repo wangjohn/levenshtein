@@ -35,6 +35,44 @@ Consumers pin a release tag, or its commit SHA, as described in
   apart, leaves vet to `go-vet`, reuses its result like `go-vet` does, and is
   not in any default gate: add it to a run of your own, and keep tests that
   need services in a `command` check ([details](docs/checks.md#tests)).
+- `go-lint` runs three more upstream analyzers: `unparam` (unused parameters
+  and results of unexported functions), `musttag` (untagged fields in structs
+  passed to JSON, XML, YAML, and TOML encoders and decoders), and `recvcheck`
+  (types whose hand-written methods mix pointer and value receivers).
+  Consumers see their findings when they bump their Levenshtein pin.
+- `go-lint` runs go-critic's likely-bug (`diagnostic`) checkers, minus the ones
+  a rule already on repeats, plus `filepathJoin` and `badRegexp`. Each finding's
+  code is the checker's name, such as `offBy1`, so one checker can be ignored or
+  deselected on its own ([selection](docs/checks.md#the-go-critic-selection)).
+- `go-lint` runs `contextcheck`, which reports a function that has a context but
+  calls something that starts its own, so cancelling the caller does not stop
+  the work.
+- `go-lint` runs six analyzers for known bug patterns: `nilnesserr` (returning
+  an error already known to be nil), `fatcontext` (a context that wraps itself
+  in a loop), `bidichk` (Unicode bidirectional controls that make code display
+  differently than it compiles), `gocheckcompilerdirectives` (misspelled
+  `//go:` directives), `exptostd` (`golang.org/x/exp` calls the standard
+  library replaces), and `usetesting` (tests that leave the environment,
+  working directory, or temporary files changed). None fired on Levenshtein;
+  [docs/checks.md](docs/checks.md#known-bug-patterns) explains why each is on
+  anyway.
+- `go-lint` runs two logging analyzers: `zerologlint` (a zerolog event never
+  sent with `Msg` or `Send`) and `loggercheck` (a key without a value for logr,
+  klog, zap's sugared logger, or go-kit log). A missing value in a `log/slog`
+  call stays with go vet's `slog` check, so it is reported once. Neither fired
+  on Levenshtein, which uses none of these loggers;
+  [docs/checks.md](docs/checks.md#known-bug-patterns) explains why each is on.
+  OpenTelemetry's `spancheck` was tried and left out, because it cannot tell
+  an ended span from an open one under Staticcheck's loader, and `sloglint` was
+  left out because its mixed-argument check is a consistency rule, not a bug
+  check.
+- [docs/checks.md](docs/checks.md#considered-and-off) lists the analyzers that
+  were measured and left out, with the reason for each.
+- `levenshtein-lint` includes `gocognit`, which reports a function whose
+  cognitive complexity is over 30. It is off in the shipped selection, so
+  `go-lint` does not report it and no consumer sees new findings; running the
+  linter directly with `gocognit` selected turns it on
+  ([opt in](docs/checks.md#opt-in-complexity-gocognit)).
 
 ### Changed
 
@@ -53,6 +91,16 @@ Consumers pin a release tag, or its commit SHA, as described in
   repository and `runner/lint` for local use. It is not part of `branch`,
   `pre-merge`, or `main`, because CI's `tests` job already runs
   `go test -race` over the same modules.
+
+### Fixed
+
+- Input discovery passes the run's context to the `git ls-files` it starts, so
+  cancelling `verify` stops it too, and a cancelled or failed listing is no
+  longer remembered for the rest of the run.
+- `go-lint` in a package that imports `"C"` judges each file by its original
+  source instead of cgo's generated rewrite of it. Upstream findings in
+  hand-written cgo files, which were all silently dropped, are now reported,
+  and LV1005 no longer reports cgo's build-cache output as unformatted.
 
 ## [0.1.0] - 2026-09-22
 

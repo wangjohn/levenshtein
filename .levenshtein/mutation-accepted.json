@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "accepted": [
+    {
+      "file": "internal/gitchange/gitchange.go",
+      "mutator": "CONDITIONALS_BOUNDARY",
+      "line": "if len(fields) < 2 {",
+      "reason": "git always closes a hunk header with @@, so a header has at least three fields and never exactly two"
+    },
+    {
+      "file": "internal/verify/fingerprint.go",
+      "mutator": "CONDITIONALS_NEGATION",
+      "line": "if entry != nil && entry.IsDir() {",
+      "reason": "without SkipDir the walk descends into the excluded directory, but every entry below it is excluded too; skipping only saves the walk"
+    },
+    {
+      "file": "internal/verify/findings.go",
+      "mutator": "CONDITIONALS_BOUNDARY",
+      "line": "if len(pattern) > 1 && pattern[0] == '-' {",
+      "reason": "a lone \"-\" selects no code whether it is read as the pattern \"-\" or as turning off the empty pattern"
+    },
+    {
+      "file": "internal/verify/gotools.go",
+      "mutator": "ARITHMETIC_BASE",
+      "line": "out := make([]string, 0, len(env)+len(pinned))",
+      "reason": "the capacity is only a preallocation hint; append grows the slice either way"
+    },
+    {
+      "file": "internal/verify/plan.go",
+      "mutator": "CONDITIONALS_BOUNDARY",
+      "line": "if slash := strings.LastIndex(reference, \"/\"); slash > 0 {",
+      "reason": "a reference starting with a slash names no check whether it is split or not, and the error quotes the whole reference either way"
+    },
+    {
+      "file": "internal/verify/mutation.go",
+      "mutator": "CONDITIONALS_NEGATION",
+      "line": "if path != root && (entry.Name() == \".git\" || entry.Name() == \"testdata\" || entry.Name() == \"vendor\") {",
+      "reason": "mutable drops testdata and vendor paths itself and .git holds no Go files, so skipping these directories only saves the walk"
+    },
+    {
+      "file": "internal/verify/statcache.go",
+      "mutator": "CONDITIONALS_BOUNDARY",
+      "line": "return e.Stat.ModNS < e.HashedAt-int64(racyWindow)",
+      "reason": "only a modification time exactly racyWindow before the hash, to the nanosecond, tells < from <=; no test can arrange that"
+    }
+  ]
+}

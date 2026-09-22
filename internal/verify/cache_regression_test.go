@@ -36,7 +36,7 @@ func TestReviewDaggerImplementationFilesAreInputs(t *testing.T) {
 		t.Run(file, func(t *testing.T) {
 			req := cacheRequest(t)
 			req.Environment.Executor = ExecutorDagger
-			before, err := fingerprint(req)
+			before, err := fingerprint(t.Context(), req)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -50,7 +50,7 @@ func TestReviewDaggerImplementationFilesAreInputs(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			after, err := fingerprint(req)
+			after, err := fingerprint(t.Context(), req)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -67,7 +67,7 @@ func TestReviewDaggerImplementationFilesAreInputs(t *testing.T) {
 func TestSharedImplementationIsSnapshotOncePerCheckout(t *testing.T) {
 	req := cacheRequest(t)
 	req.Environment.Executor = ExecutorDagger
-	before, err := fingerprint(req)
+	before, err := fingerprint(t.Context(), req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestSharedImplementationIsSnapshotOncePerCheckout(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(req.Shared, "go.mod"), []byte("module later\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	again, err := fingerprint(req)
+	again, err := fingerprint(t.Context(), req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestSharedImplementationIsSnapshotOncePerCheckout(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(req.Shared, "go.mod"), []byte("module later\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	other, err := fingerprint(req)
+	other, err := fingerprint(t.Context(), req)
 	if err != nil {
 		t.Fatal(err)
 	}
