@@ -230,6 +230,7 @@ Runs select checks by name; existing CI still owns triggers and schedules.
 | --- | --- | --- |
 | `go-lint` | The whole default set above: Staticcheck `SA*`/`S1*`/`ST1*`/`QF1*`/`U1000`, the curated upstream and modernize analyzers, and LV1001–LV1006 | Branch and pre-merge |
 | `go-vet` | The pinned Go toolchain's default vet checks | Branch and pre-merge |
+| `go-mod` | `go mod tidy -diff` and `go mod verify`: manifests tidy, downloads matching `go.sum` ([details](#module-manifests)) | Branch and pre-merge |
 | `go-http` | bodyclose alone, for a repo that wants the resource check without the rest | HTTP clients/services |
 | `go-sql` | sqlclosecheck alone, for a repo that wants the resource check without the rest | Database users |
 | `workflow-lint` | actionlint: GitHub Actions syntax and expressions | Repos with GitHub Actions |
@@ -261,11 +262,21 @@ For example, an HTTP service can compose checks using the current versioned inte
 }
 ```
 
-Levenshtein's own `levenshtein.json` is a worked example of splitting executors: `branch` and `pre-merge` bind `go-lint`, `go-vet`, and `workflow-lint` to a [native environment](configuration.md#native-go-checks) for speed, and `main` keeps the same kinds in Dagger as the daily hermetic audit.
+Levenshtein's own `levenshtein.json` is a worked example of splitting executors: `branch` and `pre-merge` bind `go-lint`, `go-vet`, `go-mod`, and `workflow-lint` to a [native environment](configuration.md#native-go-checks) for speed, and `main` keeps the same kinds in Dagger as the daily hermetic audit. Its `go-mod` check covers the root module, `runner/lint`, and `runner/tools`, but not `runner`, whose `go.mod` `dagger develop` rewrites on every regeneration.
 
 A check with [`targets`](configuration.md#one-check-several-targets) plans one check per target: `lint` becomes `lint/api` and `lint/worker`, while `http/api` selects a single target. Each Go check runs for its selected target. Use a repository-root target (`dir: "."`) for `workflow-lint`; a workflow-less repo should omit it. A repository without `levenshtein.json` gets these checks over a single whole-tree target. HTTP and SQL checks do not replace application tests. ShellCheck and Pyflakes integration is explicitly disabled so results do not depend on optional host tools.
 
 Go vet and standalone tool failures retain native output, including file/line details, inside the report's diagnostic message. Their outer location identifies the module/root rather than pretending the message was parsed into individual source diagnostics. Tool errors never pass; govulncheck's vulnerability exit code is distinguished from network or tool failures.
+
+### Module manifests
+
+`go-mod` runs `go mod tidy -diff`, then `go mod verify`, in the target module. A module whose `go.mod` or `go.sum` differs from what `go mod tidy` would write fails with tidy's own diff as the finding; so does a downloaded dependency that no longer matches the hash recorded when it was fetched, or a download that disagrees with `go.sum` (Go's `SECURITY ERROR`). Both commands exit 1 for a finding and for a failure alike, so the output decides: anything else, such as an unreachable module proxy or a private module the check cannot fetch, is an error, never a pass. The check loads no packages, so a module that only pins tools is still checked; a target without a `go.mod` is an error.
+
+- **Workspaces.** `go-mod` always runs with `GOWORK=off`. `go mod tidy` checks one module's own manifests whatever workspace it belongs to, and `go mod verify` then covers that module's requirements rather than every workspace member's. Give each workspace module its own target.
+- **Vendored modules.** Neither command reads `vendor/`: tidy resolves from `go.mod`, `go.sum`, and the module proxy, so `go-mod` needs the proxy (and, natively, any `GOPRIVATE`/`GOPROXY`/credential settings passed with `pass_env`) even for a module that vendors its dependencies. The Dagger container has no private-module credentials. The go command already refuses a `vendor/modules.txt` that disagrees with `go.mod` when `go-vet` or `go-lint` loads packages. A repository that must verify offline leaves `go-mod` out of its runs.
+- **Caching.** `go mod verify` checks the module cache as it is now, which no input fingerprint covers, so like `go-vuln` a `go-mod` result is never reused, on either executor, and each Dagger call gets a fresh nonce; a direct Dagger `sharedCheck` call for `go-mod` without one is refused. With the modules already downloaded it takes a few seconds.
+
+Without a `levenshtein.json`, `go-mod` is part of the default `branch`, `pre-merge`, and `main` runs over the root module.
 
 ### Errors and enum switches
 
@@ -275,7 +286,7 @@ Keep errcheck's upstream exclusions for operations documented never to fail. Int
 
 Dagger shares pinned tool builds, dependency downloads, and compiler caches. Staticcheck retains its own analysis cache. The default selection expands only when a pinned analyzer version changes; review new findings with dependency upgrades.
 
-Vulnerability data can change without source changes. A `go-vuln` check always bypasses the local result cache, even with `cache: true` and in custom runs. The Dagger executor generates a unique nonce before invoking `sharedCheck`; the nonce enters after tool construction, forcing a new advisory lookup and scan while reusing tool builds. Ordinary checks retain their result caches. Direct Dagger callers must supply a unique `nonce` for each vulnerability invocation.
+Vulnerability data can change without source changes. A `go-vuln` check always bypasses the local result cache, even with `cache: true` and in custom runs. The Dagger executor generates a unique nonce before invoking `sharedCheck`; the nonce enters after tool construction, forcing a new advisory lookup and scan while reusing tool builds. Ordinary checks retain their result caches. Direct Dagger callers must supply a unique `nonce` for each vulnerability or `go-mod` invocation; `sharedCheck` refuses either without one.
 
 The report does not claim an immutable vulnerability-database snapshot. Network/database failures fail verification. Levenshtein's daily `main` run includes the scan; consumer CI owns its daily and dependency-change triggers. Pinned standalone tools live in `runner/tools/go.mod`, separate from Staticcheck's analysis dependencies in `runner/lint/go.mod`.
 
