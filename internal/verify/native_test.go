@@ -94,7 +94,7 @@ func TestShareCompatiblePreparation(t *testing.T) {
 	req.Environment.Identity = "shared-preparation-fixture"
 	req.Preparation = &Preparation{Command: []string{"/bin/sh", "-c", "echo prepare >> count; touch ready"}, Inputs: []string{"lock"}, Outputs: []string{"ready"}}
 	req.Check.Command = []string{"/bin/sh", "-c", "test -f ready"}
-	native := &Native{}
+	native := &Native{Cache: &Cache{Dir: t.TempDir()}}
 	for i := 0; i < 2; i++ {
 		result := native.Execute(context.Background(), req)
 		if result.Status != StatusPassed {
