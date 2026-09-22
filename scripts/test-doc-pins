@@ -11,7 +11,7 @@ if [[ -z $latest ]]; then
   exit 1
 fi
 
-pins=$(cd "$root" && git grep -noE \
+pins=$(git -C "$root" grep -noE \
   -e 'wangjohn/levenshtein@[^[:space:]`]+' \
   -e '--branch [^[:space:]]+ https://github\.com/wangjohn/levenshtein' \
   -- '*.md' ':!CHANGELOG.md' ':!docs/releases.md' || true)
