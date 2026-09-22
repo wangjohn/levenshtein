@@ -4,11 +4,39 @@
 
 | Rule | Policy |
 | --- | --- |
-| `SA*` | All correctness checks in the pinned Staticcheck release |
+| `SA*` | Correctness checks in the pinned Staticcheck release |
+| `S1*` | Simplifications whose result is objectively simpler code |
+| `ST1*` | Style rules, minus the six naming and documentation rules listed below |
+| `QF1*` | Refactorings Staticcheck ships as quick fixes |
+| `U1000` | Unused unexported code |
 | `errcheck` | Report implicitly discarded errors; explicit `_ =` remains allowed |
 | `exhaustive` | Require enum switches to cover declared values |
+| `bodyclose`, `sqlclosecheck`, `rowserrcheck`, `noctx` | Resources a program opens and never closes, and calls that drop the context |
+| `nilness`, `unusedwrite`, `errorlint`, `nilerr`, `durationcheck`, `reassign`, `wastedassign` | Behavior that is wrong rather than unidiomatic |
+| `intrange`, `usestdlibvars`, `perfsprint`, `predeclared`, `errname` | Modern, consistent standard-library usage |
+| `thelper`, `tparallel`, `testifylint` | Mistakes that only appear in `_test.go` files |
 | LV1001 | Give enum-like strings defined types and typed constants |
 | LV1002 | Construct new structs together with literals, without opt-in markers |
+| LV1003 | Declare each struct field on its own line |
+| LV1004 | Separate top-level declarations with a blank line |
+| LV1005 | Keep every file formatted the way `gofmt` writes it |
+
+## The Staticcheck selection
+
+`runner/toolchain.json` selects `all` and then turns off six style rules that impose naming and documentation conventions a shared runner should not decide for its consumers:
+
+| Rule | Why it is off |
+| --- | --- |
+| [ST1000](https://staticcheck.dev/docs/checks/#ST1000) | Requires a package comment in a fixed form |
+| [ST1003](https://staticcheck.dev/docs/checks/#ST1003) | Imposes an initialism list on every identifier |
+| [ST1016](https://staticcheck.dev/docs/checks/#ST1016) | Requires one receiver name per type |
+| [ST1020](https://staticcheck.dev/docs/checks/#ST1020) | Requires a comment on every exported function |
+| [ST1021](https://staticcheck.dev/docs/checks/#ST1021) | Requires a comment on every exported type |
+| [ST1022](https://staticcheck.dev/docs/checks/#ST1022) | Requires a comment on every exported variable |
+
+`all` also selects the bare analyzers compiled into the binary, so `errcheck`, `exhaustive`, the resource and correctness analyzers, and the `LV*` rules are part of it. A consumer that wants less can pass its own selection; the same `-checks` syntax applies, and a `-` prefix removes a rule a wider pattern selected.
+
+Upstream analyzers run over generated files, so the facts they export stay correct, but their diagnostics there are dropped: nobody edits generated code for style. Staticcheck's own `//lint:ignore` directives keep working for everything else.
 
 ## Typed choices: LV1001
 
@@ -60,9 +88,32 @@ A read, alias, address escape, call using the value, or compound update ends tha
 
 The rule promotes clear initialization, not immutability. Whole-value assignments remain allowed. It does not require listing zero-valued fields or force construction to the end of a function. For unavoidable staged setup, put `//lint:ignore LV1002 <reason>` immediately before the reported declaration.
 
+## One field per line: LV1003
+
+LV1003 reports a struct field declaration that carries more than one name, so `Left, Right string` becomes two lines. The rule covers named, anonymous, local, and embedded struct types. Function parameters and results are untouched; only struct fields have to stand alone. Generated files are skipped.
+
+```go
+type Pair struct {
+    Left  string
+    Right string
+}
+```
+
+Sharing a type is what makes the shorthand tempting and what makes a later type change easy to miss. Spelling the type twice costs one line and makes each field greppable on its own.
+
+## A blank line between declarations: LV1004
+
+LV1004 reports two adjacent top-level declarations with no blank line between them. A declaration begins at its doc comment, so a comment attached to the second declaration does not satisfy the rule; the blank line goes above the comment. Members of a parenthesized `const`, `var`, or `type` group are one declaration and need no spacing. The import block is exempt because `gofmt` already separates it. Generated files are skipped.
+
+The rule does not ask for more than one blank line, and it says nothing about spacing inside a function body, which stays a judgment call described in [AGENTS.md](../AGENTS.md).
+
+## Formatted files: LV1005
+
+LV1005 compares a file's bytes with what `go/format` produces and reports once per file when they differ. It exists so a consumer gets formatting enforcement from `./verify go-lint` without a separate `gofmt` step in CI. The fix is always plain `gofmt -w`, never a suppression. Generated files are skipped.
+
 ## Development and exceptions
 
-The analyzers use Go's `go/analysis` framework and Staticcheck's runner for package loading, caching, diagnostics, and suppression. LV1001 and LV1002 skip generated Go files; upstream analyzers retain their own generated-code behavior. Analyzer regression fixtures live in `runner/lint/policy/testdata` and run with `cd runner/lint && go test ./...`.
+The analyzers use Go's `go/analysis` framework and Staticcheck's runner for package loading, caching, diagnostics, and suppression. Every rule skips generated Go files, the house rules on their own and the upstream analyzers through a shared wrapper that also restores each analyzer's name as the reported code. Analyzer regression fixtures live in `runner/lint/policy/testdata` and run with `cd runner/lint && go test ./...`.
 
 For an exceptional interop requirement, use Staticcheck's normal directive with a reason, for example `//lint:ignore LV1001 external schema requires this field`. Prefer a proper type or record literal when possible.
 
@@ -71,7 +122,7 @@ You can run the same linter directly without Dagger:
 ```sh
 (cd /path/to/levenshtein/runner/lint && go build -o /tmp/levenshtein-lint ./cmd/levenshtein-lint)
 cd /path/to/consumer
-/tmp/levenshtein-lint -checks=all ./...
+/tmp/levenshtein-lint -checks='all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022' ./...
 ```
 
 ## Named checks and suggested runs
@@ -80,10 +131,10 @@ Runs select checks by name; existing CI still owns triggers and schedules.
 
 | Check | Scope | Suggested use |
 | --- | --- | --- |
-| `go-lint` | Staticcheck `SA*`, errcheck, exhaustive, LV1001/LV1002 | Branch and pre-merge |
+| `go-lint` | The whole default set above: Staticcheck `SA*`/`S1*`/`ST1*`/`QF1*`/`U1000`, the curated upstream analyzers, and LV1001–LV1005 | Branch and pre-merge |
 | `go-vet` | The pinned Go toolchain's default vet checks | Branch and pre-merge |
-| `go-http` | bodyclose: HTTP response-body closure | HTTP clients/services |
-| `go-sql` | sqlclosecheck: deferred SQL rows and statement closure | Database users |
+| `go-http` | bodyclose alone, for a repo that wants the resource check without the rest | HTTP clients/services |
+| `go-sql` | sqlclosecheck alone, for a repo that wants the resource check without the rest | Database users |
 | `workflow-lint` | actionlint: GitHub Actions syntax and expressions | Repos with GitHub Actions |
 | `go-vuln` | govulncheck: reachable known vulnerabilities | Dependency updates and daily |
 | `self-test` | Levenshtein's own good/bad fixtures | Shared-check development |
@@ -119,7 +170,7 @@ Keep errcheck's upstream exclusions for operations documented never to fail. Int
 
 ### Cache and freshness
 
-Dagger shares pinned tool builds, dependency downloads, and compiler caches. Staticcheck retains its own analysis cache. Its `SA*` selection expands only when the pinned analyzer version changes; review new findings with dependency upgrades.
+Dagger shares pinned tool builds, dependency downloads, and compiler caches. Staticcheck retains its own analysis cache. The default selection expands only when a pinned analyzer version changes; review new findings with dependency upgrades.
 
 Vulnerability data can change without source changes. A `go-vuln` check always bypasses the local result cache, even with `cache: true` and in custom runs. The Dagger executor generates a unique nonce before invoking `sharedCheck`; the nonce enters after tool construction, forcing a new advisory lookup and scan while reusing tool builds. Ordinary checks retain their result caches. Direct Dagger callers must supply a unique `nonce` for each vulnerability invocation.
 
