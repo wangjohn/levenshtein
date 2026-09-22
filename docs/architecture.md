@@ -17,9 +17,10 @@ builds a `Dagger` executor and a `Native` executor, wraps both in
 
 - `0`: every selected check passed.
 - `1`: planning succeeded but a check failed, errored, or was cancelled/incomplete.
-- `2`: argument parsing, configuration loading, or planning failed, and
-  also a missing `--shared`, a `--cache-dir` inside the source or shared
-  checkout, or a failure to write the report. `--help` exits `0`.
+- `2`: argument parsing, configuration loading, or planning failed. Also no
+  shared checkout (neither `--shared` nor `LEVENSHTEIN_SHARED_ROOT`), a
+  `--cache-dir` inside the source or shared checkout, or a failure to write
+  the plan or report. `--help` exits `0`.
 
 ## Configuration concepts
 
@@ -49,8 +50,8 @@ defaults (`Load` in `config.go`).
 checks executor-specific option rules, confirms target directories exist
 under the source tree, and (for Dagger checks) validates the declared inputs
 can be imported (`daggerIncludes`). None of this starts Docker, Dagger, or any
-executor, so `--dry-run` needs neither running containers nor any native
-toolchain.
+executor, so `--dry-run` needs no container runtime and none of the tools
+the checks themselves use. The launcher still needs the pinned Go.
 
 ## Executors
 
@@ -98,7 +99,8 @@ still match a recorded run, which requires the environment to declare an
 
 `internal/verify/command.go` builds the actual `os/exec.Cmd` with a minimal
 inherited environment (`PATH`, `HOME`, `TMPDIR`, `TMP`, `TEMP`, `SystemRoot`,
-plus explicit `pass_env`/`env` entries), sets `LANG=C`, and adds `LEVENSHTEIN_SOURCE`,
+plus explicit `pass_env`/`env` entries), defaults `LANG` to `C` unless
+configuration overrides it, and adds `LEVENSHTEIN_SOURCE`,
 `LEVENSHTEIN_WORKSPACE`, and `LEVENSHTEIN_RERUN_CHECKS`. `process_unix.go`
 puts the child in its own process group and kills the whole group
 (`SIGKILL` to `-pid`) on timeout or cancellation, so subprocesses cannot
@@ -117,8 +119,9 @@ eligible check (Dagger checks, or native checks with `cache: true`), it:
    resolved environment variables.
 2. Takes a per-key file lock (`internal/verify/lock.go`, backed by
    `gofrs/flock`) so concurrent processes do not race the same cache entry.
-   Native checks first take a per-source workspace lock, so two processes
-   never mutate one checkout at once.
+   Native checks take an advisory per-source workspace lock first, whether or
+   not the check is cacheable, so processes sharing a cache directory do not
+   mutate one checkout at the same time.
 3. On a hit, restores the recorded result and any declared `Artifacts` from
    `cache.Dir/results/<key>.json` (atomic, rejects symlinked destinations).
 4. On a miss or `rerun_checks`, executes the check, and on success saves the

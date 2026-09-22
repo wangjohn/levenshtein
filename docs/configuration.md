@@ -36,7 +36,7 @@ Recommended run policy:
 | --- | --- | --- |
 | `branch` | Fast lint and core/focused tests | Aggressive reuse of setup, artifacts, and eligible results |
 | `pre-merge` | Critical regression and policy checks for the final candidate | The same aggressive reuse, keyed to the actual selected inputs and scope |
-| `main` | Complete applicable suite, scheduled daily by the consumer's CI | Fresh verification (`rerun_checks: true`) with dependency/build reuse |
+| `main` | Complete applicable suite, scheduled daily by the consumer's CI | Fresh verification (configure `rerun_checks: true`) with dependency/build reuse |
 | Custom | Consumer-defined check selection | Explicit choice of normal reuse or fresh verification |
 
 Legacy `modules` and array-valued `runs` remain supported. They translate into Go targets/checks, and legacy `main` retains fresh behavior. A source without configuration still receives the original single-module Go defaults.
