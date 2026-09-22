@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 # Install only fixture tooling. The normal Go runner does not require these tools.
+#
+# Every version is read from the fixture file that owns it, so each pin has one
+# home: tests/fixtures/rust/rust-toolchain.toml (rustup channel),
+# tests/fixtures/python/.python-version (uv python install) and
+# tests/fixtures/python/.uv-version (the uv release downloaded below). Refresh
+# scripts/fixture-checksums.txt whenever .uv-version changes.
 set -euo pipefail
-root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 destination=${1:-"$HOME/.local/bin"}
 case "$(uname -s)-$(uname -m)" in
   Darwin-x86_64) triple=x86_64-apple-darwin ;;
@@ -9,23 +15,46 @@ case "$(uname -s)-$(uname -m)" in
   Linux-x86_64) triple=x86_64-unknown-linux-gnu ;;
   *) echo 'Fixture installer supports macOS Intel/Apple Silicon and Linux amd64.' >&2; exit 2 ;;
 esac
+
+read_pin() {
+  local path=$1 value
+  value=$(tr -d '[:space:]' <"$root/$path")
+  if [[ -z $value ]]; then
+    echo "Empty version pin in $path" >&2
+    return 2
+  fi
+  printf '%s' "$value"
+}
+
+rust_version=$(sed -n 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
+  "$root/tests/fixtures/rust/rust-toolchain.toml")
+if [[ -z $rust_version ]]; then
+  echo 'No channel found in tests/fixtures/rust/rust-toolchain.toml' >&2
+  exit 2
+fi
+python_version=$(read_pin tests/fixtures/python/.python-version) || exit 2
+uv_version=$(read_pin tests/fixtures/python/.uv-version) || exit 2
+
 command -v rustup >/dev/null || { echo 'Install rustup first: https://rustup.rs' >&2; exit 2; }
 mkdir -p "$destination"
 temporary=$(mktemp -d)
 trap 'rm -rf "$temporary"' EXIT
 archive="uv-$triple.tar.gz"
-curl --fail --location --silent --show-error "https://releases.astral.sh/github/uv/releases/download/0.12.15/$archive" -o "$temporary/$archive"
+curl --fail --location --silent --show-error "https://releases.astral.sh/github/uv/releases/download/$uv_version/$archive" -o "$temporary/$archive"
 python3 - "$root/scripts/fixture-checksums.txt" "$temporary/$archive" <<'PY'
 import hashlib
 import sys
 from pathlib import Path
 checksums = dict(line.split()[::-1] for line in Path(sys.argv[1]).read_text().splitlines() if line.strip())
 archive = Path(sys.argv[2])
-if hashlib.sha256(archive.read_bytes()).hexdigest() != checksums[archive.name]:
+expected = checksums.get(archive.name)
+if expected is None:
+    sys.exit(f"No reviewed checksum for {archive.name} in scripts/fixture-checksums.txt")
+if hashlib.sha256(archive.read_bytes()).hexdigest() != expected:
     raise SystemExit("uv archive checksum mismatch")
 PY
 tar -xzf "$temporary/$archive" -C "$temporary"
 install -m 0755 "$temporary/uv-$triple/uv" "$destination/uv"
-rustup toolchain install 1.98.1 --profile minimal
-"$destination/uv" python install 3.14.7
+rustup toolchain install "$rust_version" --profile minimal
+"$destination/uv" python install "$python_version"
 echo "Fixture tools installed. Add $destination and the rustup proxy directory to PATH."

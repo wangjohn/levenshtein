@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 temporary=$(mktemp -d)
 trap 'rm -rf "$temporary"' EXIT
 (cd "$root/runner/tools" && go build -o "$temporary/actionlint" github.com/rhysd/actionlint/cmd/actionlint && go build -o "$temporary/govulncheck" golang.org/x/vuln/cmd/govulncheck)
@@ -9,6 +9,8 @@ trap 'rm -rf "$temporary"' EXIT
 mkdir -p "$temporary/source/.github/workflows"
 cp "$root/.github/workflows/verify.yml" "$temporary/source/.github/workflows/verify.yml"
 (cd "$temporary/source" && "$temporary/actionlint" -shellcheck= -pyflakes= .github/workflows/*.yml)
+# The expression must reach the file verbatim; actionlint is what rejects it.
+# shellcheck disable=SC2016
 printf 'name: bad\non: push\njobs:\n  example:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "${{ nonexistent.value }}"\n' > "$temporary/source/.github/workflows/bad.yml"
 if (cd "$temporary/source" && "$temporary/actionlint" -shellcheck= -pyflakes= .github/workflows/*.yml) > "$temporary/workflow.log" 2>&1; then
   echo 'Invalid workflow unexpectedly passed' >&2

@@ -1,4 +1,5 @@
 {
+  "comment": "goImage is duplicated as GO_IMAGE in sdk/patched-go/src/patched_go/__init__.py, which cannot read this file from its own module context; change both together.",
   "go": "1.27.1",
   "goImage": "golang:1.27.1-trixie@sha256:9baa6b4187bbb98d240372a8a235ac0bb6b5ddd52bba1431dc2f7c0705862728",
   "staticcheck": "v0.8.1",

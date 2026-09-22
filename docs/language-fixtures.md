@@ -14,7 +14,7 @@ export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 
 The harness builds the standalone CLI once, copies fixtures into temporary repositories, and starts a new CLI process for each verification. It cleans up the temporary repositories and result caches. Package/tool downloads remain in the native tools' caches. The normal Go verification path does not require these extra tools.
 
-Pins verified September 16, 2026: [Rust 1.98.1](https://rust-lang.org/), [uv 0.12.15](https://github.com/astral-sh/uv/releases/tag/0.12.15), [Python 3.14.7](https://www.python.org/downloads/release/python-3147/), and [pytest 9.1.1](https://pypi.org/project/pytest/9.1.1/). Cargo and uv lockfiles are committed. Rust uses its checked-in toolchain file; Python uses `.python-version` and validates the runtime in an actual assertion.
+Pins verified September 16, 2026. Each one lives in the fixture that owns it and the installer reads it from there, so there is a single place to change: `tests/fixtures/rust/rust-toolchain.toml` (Rust channel), `tests/fixtures/python/.python-version` (CPython), `tests/fixtures/python/.uv-version` (uv) and `tests/fixtures/python/pyproject.toml` (pytest). Cargo and uv lockfiles are committed, and `scripts/fixture-checksums.txt` holds the reviewed uv archive hashes — refresh it with `.uv-version`. The Python fixture asserts the running interpreter against `.python-version` itself; the `identity` strings in `tests/fixtures/*/levenshtein.json` repeat the versions because JSON has nowhere to reference them from, so update those with the pin.
 
 ## What is exercised
 

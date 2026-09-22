@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # Build through Go's incremental cache. Keep the binary outside source inputs.
 cache_root=${XDG_CACHE_HOME:-${HOME}/.cache}
 key=$(printf '%s' "$root" | cksum | awk '{print $1}')

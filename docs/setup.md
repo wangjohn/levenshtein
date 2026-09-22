@@ -14,7 +14,7 @@ export PATH="$HOME/.local/bin:$PATH"
 dagger version
 ```
 
-The installer supports macOS Intel/Apple Silicon and Linux amd64. On macOS, one option for the container runtime is Colima:
+The installer supports macOS Intel/Apple Silicon and Linux amd64/arm64. On macOS, one option for the container runtime is Colima:
 
 ```sh
 brew install colima docker
@@ -76,8 +76,8 @@ The checked-in `Levenshtein self-checks` workflow verifies this repo's runner an
 
 | Job | Role |
 | --- | --- |
-| `lint` | Static `./verify branch` only (fast; no host race tests or consumer regressions) |
-| `tests` | Host race/fixtures, SDK restore or regen, non-lint Dagger checks, consumer regressions |
+| `lint` | Static `./verify branch` only (early signal; no host race tests or consumer regressions) |
+| `tests` | Host race/fixtures, `shellcheck`, SDK restore or regen, non-lint Dagger checks, consumer regressions |
 | `language-contracts` | Rust and Python contract fixtures |
 | `release-smoke` | GoReleaser snapshot + archive test (skipped on draft PRs) |
 | `semantic-lint` | Advisory Jev review of the pull request; runs only on `pull_request` events; without the `TYPESAFE_API_KEY` secret the review step is skipped and the job passes with no findings |
@@ -99,20 +99,21 @@ Event → `./verify` mapping:
 
 Do **not** make draft progress wait on `release-smoke` or full `tests`. When adopting this workflow, replace any required check named `verify` with `lint` and `tests` the same day.
 
+Treat warm lint wall time creeping toward warm tests as a CI performance regression. Read step and job durations from the Actions run view and compare medians across warm `ubuntu-24.04` runs.
+
 ### Result-cache trust
 
-- Restore `verification-v1-lint` / `verification-v1-tests` on every event (forks may restore read-only).
-- Save writable result entries only from trusted refs: non-`pull_request` events, or PRs whose `head.repo.full_name` equals `github.repository`.
-- Exact Actions cache keys only (no `restore-keys`) for generated SDK and verification results. Lint and tests use **separate** verification keys so they cannot race one entry.
+- Restore `verification-v1-lint` / `verification-v1-tests` on every event, and save on every event too. A pull request run saves into its own merge-ref scope, which only reruns of that PR can restore and `main` never reads, so a fork run cannot seed `main`'s entries.
+- Lint and tests use **separate** verification keys so they cannot race one entry. The generated SDK still uses an exact key with no `restore-keys`.
 - Scheduled `main` keeps `rerun_checks: true`; `go-vuln` always re-executes.
 
 ### Caches and self-config notes
 
-The `lint` and `tests` jobs (and `vulnerabilities`) restore a pinned Dagger CLI from the Actions cache when `.dagger-version` / `scripts/dagger-checksums.txt` are unchanged; install falls back to download on miss. `language-contracts` uses the setup-go module cache over root `go.sum`.
+The `lint` and `tests` jobs (and `vulnerabilities`) restore a pinned Dagger CLI from the Actions cache when `.dagger-version` / `scripts/dagger-checksums.txt` are unchanged; install falls back to download on miss. That block and the generated-SDK restore/generate/save block each live in one composite action (`.github/actions/setup-dagger`, `.github/actions/dagger-sdk`) rather than being repeated per job. `language-contracts` uses the setup-go module cache over root `go.sum`.
 
-Generated SDK (`runner/dagger.gen.go`, `runner/internal/dagger`, `runner/internal/telemetry`) uses **exact** key `dagger-sdk-v2-…` (no `restore-keys`). Restore + save are separate steps; save runs only when `scripts/ci-dagger-sdk` reports `ready=true` after a miss. Readiness matches real develop output (~7KiB gen, `internal/dagger` sources, ≥200KiB total) and does not require `internal/telemetry` sources (often absent; the script `mkdir`s the path for cache save). That still rejects the stuck ~59KiB Actions blob. Incomplete hits regenerate and log a poison warning — bump the `vN` prefix to abandon a stuck key. Warm check: Generate logs `dagger-develop-cache-hit`. Invalidate when any of these change: `dagger.json`, `.dagger-version`, `scripts/dagger-checksums.txt`, `runner/go.mod`, `runner/go.sum`, `runner/toolchain.json`, `runner/*.go`, `sdk/patched-go/**`. `vulnerabilities.yml` still always runs `scripts/test-sdk-security`.
+Generated SDK (`runner/dagger.gen.go`, `runner/internal/dagger`, `runner/internal/telemetry`) uses **exact** key `dagger-sdk-v2-…` (no `restore-keys`). Restore + save are separate steps; save runs only when `scripts/ci-dagger-sdk` reports `ready=true` after a miss. Readiness is decided by compiling: a restored SDK is usable exactly when `go build ./...` succeeds in `runner`, which needs no Dagger session. Anything that fails to compile — including a truncated or poisoned entry — is regenerated, and the script `mkdir`s `internal/telemetry` so the cache save still finds every path when codegen emits no sources there. Bump the `vN` prefix to abandon a stuck key. Warm check: Generate reports a reused SDK instead of running `dagger develop`. Invalidate when any of these change: `dagger.json`, `.dagger-version`, `scripts/dagger-checksums.txt`, `runner/go.mod`, `runner/go.sum`, `runner/toolchain.json`, `runner/*.go`, `sdk/patched-go/**`. `vulnerabilities.yml` still always runs `scripts/test-sdk-security`.
 
-Completed verification results are restored into a temp directory (`$RUNNER_TEMP/levenshtein-verification-v1`) and passed to `./verify` via `--cache-dir` on `lint` / `tests`; cache keys are partitioned per job (`verification-v1-lint-…`, `verification-v1-tests-…`) so the two jobs cannot race one entry. Warm check: both Restore steps hit and Save steps skip.
+Completed verification results are restored into `$RUNNER_TEMP/levenshtein-verification-v1` and passed to `./verify --cache-dir` on `lint` / `tests` with per-job keys (`verification-v1-lint-${{ runner.os }}-<sha>`, `verification-v1-tests-${{ runner.os }}-<sha>`). The key is deliberately per-commit with a prefix `restore-keys` fallback: the CLI already fingerprints each target, so handing it the newest earlier directory lets it reuse the entries that are still valid instead of missing the whole cache on any source edit. Save runs on every event and on failed runs, since results are keyed by content and a pull request's cache is scoped by GitHub to that PR and its base branch. Warm check: a rerun of the same commit hits the exact key and skips Save; a new commit reports a `restore-keys` match.
 
 In-engine Go module/build and Staticcheck `CacheVolume`s remain version-keyed in `runner/` but are **session-local** on ephemeral GitHub-hosted runners. Persisting those volumes across VMs is **blocked** for Dagger **0.21.9** (no supported CI export/restore API without experimental hacks).
 
@@ -124,7 +125,7 @@ Self-config targets use narrow literal `inputs` (not `"."`): root Go module path
 | --- | --- |
 | Lint ≪ tests (warm lint well under 1 min) | In progress — needs warm SDK and result-cache hits; in-engine build/cache volumes cannot yet persist across ephemeral runners |
 | Coverage preserved on ready/merge/`main`/schedule | Met by job split + event mapping |
-| Trust partitioning for result caches | Met (trusted save only) |
+| Result-cache isolation between untrusted PRs and `main` | Met (PR-written caches stay in the PR's merge-ref scope, which `main` never reads) |
 | Freshness (`rerun_checks` / `go-vuln`) | Met |
 | Self-CI scope (not consumer packaging) | Met |
 
@@ -140,14 +141,13 @@ Stable versions checked on September 15, 2026:
 
 | Dependency | Version | Pin |
 | --- | --- | --- |
-| Go for lint and local development | 1.27.1 | `.go-version`, fixture modules, `runner/toolchain.json` |
-| Go language version of the Dagger wrapper | 1.26.7 | `runner/go.mod` |
+| Go for lint and local development | 1.27.1 | `.go-version`, root and `runner` `go.mod`, fixture modules, `runner/toolchain.json` |
 | Go container | 1.27.1 on Debian Trixie | Tag and immutable image digest in `runner/toolchain.json` |
 | Dagger CLI / engine / SDK | 0.21.9 | `.dagger-version`, `dagger.json`, root `go.mod`, generated module dependencies |
 | Staticcheck | 2026.2.1 (`honnef.co/go/tools` v0.8.1) | `runner/toolchain.json` |
 | Actions checkout / setup-go / cache | 7.0.1 / 7.0.0 / 4.2.3 | Full commit hashes in the workflows |
 
-The host Go version is needed by the source launcher, runner development, and unit tests. The actual lint runs on Linux with default build tags, using the pinned container toolchain with automatic Go toolchain switching disabled. A temporary SDK adapter fixes Dagger 0.21.9’s forced logging dependency overrides for both generation and execution; see [dependency security](dependencies.md#dagger-wrapper-dependency-security). The wrapper’s Go language version does not restrict the Go version of repositories being checked. `go.sum` records checksums. Upgrade pins together and validate the fixtures before adoption.
+The host Go version is needed by the source launcher, runner development, and unit tests. The actual lint runs on Linux with default build tags, using the pinned container toolchain with automatic Go toolchain switching disabled. A temporary SDK adapter fixes Dagger 0.21.9’s forced logging dependency overrides for both generation and execution; see [dependency security](dependencies.md#dagger-wrapper-dependency-security). The wrapper’s Go language version must stay at or below the Go version of the codegen container (`goImage`), which Dagger’s module generator refuses to exceed; it does not restrict the Go version of repositories being checked. `go.sum` records checksums. Upgrade pins together and validate the fixtures before adoption.
 
 ## Develop the shared checks
 
