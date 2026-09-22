@@ -670,7 +670,7 @@ func truncateValue(value any, limit int) any {
 	return value
 }
 
-func (r request) size() int {
+func (r *request) size() int {
 	data, _ := json.Marshal(r.state)
 	return len(data)
 }
