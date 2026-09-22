@@ -16,3 +16,8 @@ func TestParallelSubtests(t *testing.T) {
 		expectZero(t, 0)
 	})
 }
+
+// LV1006: nothing in the test can fail, whatever the code under test returns.
+func TestNoAssertion(t *testing.T) {
+	t.Log(len("zero"))
+}

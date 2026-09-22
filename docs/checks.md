@@ -23,6 +23,7 @@ Every shared check kind runs the same pinned tools locally and in any CI provide
 | LV1003 | Declare each struct field on its own line |
 | LV1004 | Separate top-level declarations with a blank line |
 | LV1005 | Keep every file formatted the way `gofmt` writes it |
+| LV1006 | Give every test a way to fail, and do not skip a test unconditionally |
 
 ## The Staticcheck selection
 
@@ -148,6 +149,31 @@ The rule does not ask for more than one blank line, and it says nothing about sp
 
 LV1005 compares a file's bytes with what `go/format` produces and reports once per file when they differ. It exists so a consumer gets formatting enforcement from `./verify go-lint` without a separate `gofmt` step in CI. The fix is always plain `gofmt -w`, never a suppression. Generated files are skipped.
 
+## Tests that can fail: LV1006
+
+LV1006 reports a test that passes whatever the code under test does. It looks at each `TestXxx(t *testing.T)` in a `_test.go` file and reports two shapes:
+
+- **No assertion.** Nothing in the body, including subtest literals and cleanup callbacks, can fail the test. A test value counts as a way to fail when it is used as anything other than the receiver of a method that cannot report a failure (`Log`, `Parallel`, `Helper`, `Cleanup`, `TempDir`, `Setenv`, `Skip`, and similar). So `t.Errorf`, `t.Fatal`, `require.Equal(t, ...)`, a helper that receives `t`, a struct that stores `t`, and `t.Run` with a named function all count. An explicit `panic`, `log.Fatal`, `log.Panic`, `os.Exit`, or `runtime.Goexit` counts too. A panic or exit inside code the test calls, such as `regexp.MustCompile`, a third-party logger's `Fatal`, or a local wrapper around `os.Exit`, does not: state what the test expects with an assertion.
+- **An unconditional skip.** A `t.Skip`, `t.Skipf`, or `t.SkipNow` statement directly in the test body, with nothing before it that can fail the test or return, runs on every invocation, so nothing is ever checked. A skip inside a branch, such as `if testing.Short()`, is a condition and is allowed, and so is a skip after checks that already ran.
+
+```go
+// Reported: the result is computed and logged, never checked.
+func TestDouble(t *testing.T) {
+    t.Log(Double(2))
+}
+
+// Accepted.
+func TestDouble(t *testing.T) {
+    if got := Double(2); got != 4 {
+        t.Errorf("Double(2) = %d, want 4", got)
+    }
+}
+```
+
+The rule is conservative on purpose: any use of `t` the analysis cannot see into counts as a way to fail, so a helper that receives `t` and never uses it is not reported. Benchmarks, fuzz targets, examples, and `TestMain` are out of scope. Generated files are skipped.
+
+LV1006 only proves that a test can fail. It does not prove the test fails when behavior is wrong. The pinned upstream checks catch assertions that compare a value with itself or a constant with a constant: Staticcheck's `SA4000` for identical operands, and testifylint's `useless-assert` for calls such as `assert.Equal(t, x, x)`.
+
 ## Development and exceptions
 
 The analyzers use Go's `go/analysis` framework and Staticcheck's runner for package loading, caching, diagnostics, and suppression. Every rule skips generated Go files, the house rules on their own and the upstream analyzers through a shared wrapper that also restores each analyzer's name as the reported code. Analyzer regression fixtures live in `runner/lint/policy/testdata` and run with `cd runner/lint && go test ./...`.
@@ -168,7 +194,7 @@ Runs select checks by name; existing CI still owns triggers and schedules.
 
 | Check | Scope | Suggested use |
 | --- | --- | --- |
-| `go-lint` | The whole default set above: Staticcheck `SA*`/`S1*`/`ST1*`/`QF1*`/`U1000`, the curated upstream and modernize analyzers, and LV1001–LV1005 | Branch and pre-merge |
+| `go-lint` | The whole default set above: Staticcheck `SA*`/`S1*`/`ST1*`/`QF1*`/`U1000`, the curated upstream and modernize analyzers, and LV1001–LV1006 | Branch and pre-merge |
 | `go-vet` | The pinned Go toolchain's default vet checks | Branch and pre-merge |
 | `go-http` | bodyclose alone, for a repo that wants the resource check without the rest | HTTP clients/services |
 | `go-sql` | sqlclosecheck alone, for a repo that wants the resource check without the rest | Database users |
