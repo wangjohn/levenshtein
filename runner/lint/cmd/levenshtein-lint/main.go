@@ -25,6 +25,7 @@ import (
 	"github.com/timakin/bodyclose/passes/bodyclose"
 	"github.com/wangjohn/levenshtein/runner/lint/policy"
 	"golang.org/x/tools/go/analysis"
+	"golang.org/x/tools/go/analysis/passes/modernize"
 	"golang.org/x/tools/go/analysis/passes/nilness"
 	"golang.org/x/tools/go/analysis/passes/unusedwrite"
 	"honnef.co/go/tools/analysis/lint"
@@ -107,6 +108,21 @@ func formatting() *analysis.Analyzer {
 	return sprint
 }
 
+// modernizers replace hand-written loops and comparisons with the standard
+// library call that says the same thing. Go 1.26+ `go fix` applies the whole
+// modernize suite; this is the subset measured to fire on real code, with a
+// result that reads better, and that no rule above already reports (rangeint
+// repeats intrange). The fix is always `go fix ./...`.
+func modernizers() []*analysis.Analyzer {
+	return []*analysis.Analyzer{
+		modernize.MinMaxAnalyzer,
+		modernize.MapsLoopAnalyzer,
+		modernize.SlicesContainsAnalyzer,
+		modernize.StringsCutPrefixAnalyzer,
+		modernize.StringsSeqAnalyzer,
+	}
+}
+
 // tests analyzers cover mistakes that only appear in _test.go files.
 func tests() []*analysis.Analyzer {
 	return []*analysis.Analyzer{
@@ -134,6 +150,7 @@ func main() {
 	command.AddBareAnalyzers(policy.Adapt(resources()...)...)
 	command.AddBareAnalyzers(policy.Adapt(correctness()...)...)
 	command.AddBareAnalyzers(policy.Adapt(hygiene()...)...)
+	command.AddBareAnalyzers(policy.Adapt(modernizers()...)...)
 	command.AddBareAnalyzers(policy.Adapt(tests()...)...)
 	command.AddBareAnalyzers(house()...)
 
