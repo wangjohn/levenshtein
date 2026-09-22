@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+
+	"golang.org/x/exp/slices"
 )
 
 // errname: a sentinel error has to be named after the error it reports.
@@ -36,4 +38,10 @@ func Perfsprint(count int) string {
 // predeclared: shadowing a builtin hides it for the whole function.
 func Predeclared(len int) int {
 	return len
+}
+
+// exptostd: x/exp/slices has a standard-library replacement, and x/exp makes
+// no compatibility promise.
+func Exptostd(names []string) bool {
+	return slices.Contains(names, "main")
 }

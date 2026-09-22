@@ -10,8 +10,11 @@ import (
 	"os"
 	"path/filepath"
 
+	directives "4d63.com/gocheckcompilerdirectives/checkcompilerdirectives"
 	errname "github.com/Antonboom/errname/pkg/analyzer"
 	testifylint "github.com/Antonboom/testifylint/analyzer"
+	"github.com/alingse/nilnesserr"
+	"github.com/breml/bidichk/pkg/bidichk"
 	perfsprint "github.com/catenacyber/perfsprint/analyzer"
 	"github.com/charithe/durationcheck"
 	"github.com/ckaznocha/intrange"
@@ -21,6 +24,8 @@ import (
 	"github.com/kisielk/errcheck/errcheck"
 	"github.com/kkHAIKE/contextcheck"
 	thelper "github.com/kulti/thelper/pkg/analyzer"
+	"github.com/ldez/exptostd"
+	"github.com/ldez/usetesting"
 	"github.com/moricho/tparallel"
 	"github.com/nishanths/exhaustive"
 	"github.com/nishanths/predeclared/passes/predeclared"
@@ -33,6 +38,7 @@ import (
 	"github.com/timakin/bodyclose/passes/bodyclose"
 	"github.com/wangjohn/levenshtein/runner/lint/policy"
 	"go-simpler.org/musttag"
+	fatcontext "go.augendre.info/fatcontext/pkg/analyzer"
 	"golang.org/x/mod/modfile"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/buildssa"
@@ -106,6 +112,11 @@ func correctness() []*analysis.Analyzer {
 		// The built-in exclusions keep Unmarshal* and GobDecode, which need a
 		// pointer receiver on an otherwise value-receiver type.
 		receivers(),
+		checkedNil(),
+		// Nesting through struct pointers stays off: upstream marks it a
+		// potential finding, and it cannot tell a context stored for later
+		// from one that grows.
+		fatcontext.NewAnalyzer(),
 	}
 }
 
@@ -182,6 +193,26 @@ func receivers() *analysis.Analyzer {
 	return analyzer
 }
 
+// checkedNil runs nilnesserr, whose constructor returns an error although it
+// has no settings to reject.
+func checkedNil() *analysis.Analyzer {
+	analyzer, err := nilnesserr.NewAnalyzer(nilnesserr.LinterSetting{})
+	if err != nil {
+		panic(err)
+	}
+	return analyzer
+}
+
+// source analyzers report text that runs differently than it reads: Unicode
+// bidirectional controls that reorder how a line displays, and //go:
+// directives that the toolchain ignores because it does not know them.
+func source() []*analysis.Analyzer {
+	return []*analysis.Analyzer{
+		bidichk.NewAnalyzer(),
+		directives.Analyzer(),
+	}
+}
+
 // signatures analyzers report parameters and results that no caller needs.
 func signatures() []*analysis.Analyzer {
 	return []*analysis.Analyzer{
@@ -234,6 +265,7 @@ func hygiene() []*analysis.Analyzer {
 		formatting(),
 		predeclared.Analyzer,
 		errname.New(),
+		exptostd.NewAnalyzer(),
 	}
 }
 
@@ -273,7 +305,22 @@ func tests() []*analysis.Analyzer {
 		thelper.NewAnalyzer(),
 		tparallel.Analyzer,
 		testifylint.New(),
+		testingHelpers(),
 	}
+}
+
+// testingHelpers keeps usetesting on the calls whose testing replacement
+// undoes what the test changed. os.Chdir and os.Setenv change process state
+// the tests after it see, and os.MkdirTemp and os.CreateTemp in the default
+// directory leave files behind; os.Setenv is off upstream and on here.
+// os.TempDir, context.Background, and context.TODO stay allowed, since they
+// change nothing outside the test.
+func testingHelpers() *analysis.Analyzer {
+	analyzer := usetesting.NewAnalyzer()
+	if err := analyzer.Flags.Set("ossetenv", "true"); err != nil {
+		panic(err)
+	}
+	return analyzer
 }
 
 // house analyzers are Levenshtein's own rules, documented in docs/checks.md.
@@ -295,6 +342,7 @@ func main() {
 	command.AddBareAnalyzers(policy.Adapt(resources()...)...)
 	command.AddBareAnalyzers(policy.Adapt(correctness()...)...)
 	command.AddBareAnalyzers(policy.Adapt(critics()...)...)
+	command.AddBareAnalyzers(policy.Adapt(source()...)...)
 	command.AddBareAnalyzers(policy.Adapt(signatures()...)...)
 	command.AddBareAnalyzers(policy.Adapt(hygiene()...)...)
 	command.AddBareAnalyzers(policy.Adapt(modernizers()...)...)

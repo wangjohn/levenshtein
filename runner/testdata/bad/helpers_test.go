@@ -1,6 +1,9 @@
 package bad
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 // thelper: a helper has to announce itself with t.Helper().
 func expectZero(t *testing.T, value int) {
@@ -20,4 +23,11 @@ func TestParallelSubtests(t *testing.T) {
 // LV1006: nothing in the test can fail, whatever the code under test returns.
 func TestNoAssertion(t *testing.T) {
 	t.Log(len("zero"))
+}
+
+// usetesting: the variable stays set for every test that runs after this one.
+func TestSetenv(t *testing.T) {
+	if err := os.Setenv("LEVENSHTEIN_FIXTURE", "1"); err != nil {
+		t.Fatal(err)
+	}
 }
