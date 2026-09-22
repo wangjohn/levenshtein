@@ -38,6 +38,19 @@ export PATH="$HOME/.local/bin:$PATH"
 
 See ["Develop the shared checks"](docs/setup.md#develop-the-shared-checks) for the full local development recipe, including the broader `dagger develop` / `go test -race` / `./scripts/test-consumers` sequence CI runs.
 
+## Optional local hooks
+
+`lefthook.yml` describes a `pre-commit` that runs `gofmt` over staged Go files
+and `go build ./...`, and a `pre-push` that runs `go test ./...`. Nothing
+installs them for you:
+
+```sh
+brew install lefthook
+lefthook install     # lefthook uninstall to stop
+```
+
+They are a convenience, not a gate: CI runs the same checks either way.
+
 ## Code style
 
 Follow the conventions in [AGENTS.md](AGENTS.md) (spacing, struct literals, typed choices for finite values). Run the shared [Go lint rules](docs/go-lint.md) (`./verify go-lint`) when changing Go code.

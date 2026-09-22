@@ -1,0 +1,29 @@
+# Optional local hooks. Nothing installs them for you: run
+# `brew install lefthook && lefthook install` if you want them, and
+# `lefthook uninstall` to stop. CI runs the same checks either way.
+pre-commit:
+  parallel: true
+  jobs:
+    - name: gofmt
+      glob: '*.go'
+      run: |
+        unformatted=$(gofmt -l {staged_files})
+        if [ -n "$unformatted" ]; then
+          echo "gofmt would rewrite:"
+          echo "$unformatted"
+          exit 1
+        fi
+    - name: build
+      glob: '*.go'
+      env:
+        GOTOOLCHAIN: local
+        GOWORK: 'off'
+      run: go build ./...
+
+pre-push:
+  jobs:
+    - name: tests
+      env:
+        GOTOOLCHAIN: local
+        GOWORK: 'off'
+      run: go test ./...
