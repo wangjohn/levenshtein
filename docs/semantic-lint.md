@@ -49,7 +49,7 @@ The check passes whenever every question received an answer. It is `incomplete` 
 }
 ```
 
-`semantic-lint` is a native check without a command. Its optional `semantic` object accepts `base`, `model` (a pinned release; aliases such as `jev-latest` are rejected), and `timeout` (default five minutes); the environment still supplies `env`, `pass_env`, and `tools`. The base branch is `base` when set, otherwise `GITHUB_BASE_REF` when GitHub Actions provides it for a pull request, otherwise `main`. A `semantic-lint` check cannot carry a `command` object, so args, rerun args, artifacts, preparation, build, and caching are not expressible for it. A run with `rerun_checks: true` needs no rerun args, because the check always executes.
+`semantic-lint` is a native check without a command. Its optional `semantic` object accepts `base`, `model` (a pinned release; aliases such as `jev-latest` are rejected), and `timeout` (default five minutes); the environment still supplies `env`, `pass_env`, and `tools`, except for the entries named under [API keys](#api-keys). The base branch is `base` when set, otherwise `GITHUB_BASE_REF` when GitHub Actions provides it for a pull request, otherwise `main`. A `semantic-lint` check cannot carry a `command` object, so args, rerun args, artifacts, preparation, build, and caching are not expressible for it. A run with `rerun_checks: true` needs no rerun args, because the check always executes.
 
 The target's `dir` and `inputs` limit which changed files are judged. Paths under a `testdata` directory and private `.env` files are skipped. Keep the check in its own run while piloting, so ordinary runs stay offline and deterministic.
 
@@ -61,7 +61,9 @@ TYPESAFE_API_KEY=... ./verify semantic-lint
 
 ## API keys
 
-The check reads `TYPESAFE_API_KEY` from the host environment. Unlike `command` checks, it needs no `pass_env` entry: the kind itself defines which variables it consumes, so a consumer only exports the variable locally or adds a CI secret. A value declared through the environment's `env` or `pass_env` still takes precedence. Never put the key in `levenshtein.json`; configuration is committed and fingerprinted.
+The check reads `TYPESAFE_API_KEY` from the host process environment only. Unlike `command` checks, it needs no `pass_env` entry: the kind itself defines which variables it consumes, so a consumer only exports the variable locally or adds a CI secret.
+
+Keeping the key out of `levenshtein.json` is enforced, not just advised. Configuration is committed, so a pull request that could declare these variables would choose where the branch's CI secret is sent. Validation rejects a check `env` or environment `env` that declares `TYPESAFE_API_KEY` or `TYPESAFE_BASE_URL`, and a `pass_env` entry naming `TYPESAFE_API_KEY`. Neither variable is ever read from configuration at run time. A `pass_env` entry for `TYPESAFE_BASE_URL` is accepted but only re-exports the host value to subprocesses; the check itself still reads the host. Committed `PATH` and `GIT_*` entries are rejected as well, because they would decide which `git` produces the diff.
 
 In GitHub Actions, supply it from a repository secret and skip the step when the secret is absent, which is the case for pull requests from forks:
 
@@ -79,7 +81,7 @@ In GitHub Actions, supply it from a repository secret and skip the step when the
 
 `fetch-depth: 0` makes the base branch available for the merge base; on a shallow checkout the check fails with a message that says so. Levenshtein's own workflow does this in its `semantic-lint` job and writes the summary to the job's step summary.
 
-`TYPESAFE_BASE_URL` overrides the API origin for a proxy or a recording server and is read the same way.
+`TYPESAFE_BASE_URL` overrides the API origin for a proxy or a recording server and is read from the host process the same way. It must use `https`, so the bearer token is not sent in the clear; plain `http` is accepted only for the loopback hosts `127.0.0.1`, `::1`, and `localhost`, which keeps local test servers and recorders usable.
 
 What leaves the machine: the diff hunks, the enclosing declarations or sections, package function signatures, commit subjects, and file paths. Treat this as sending source to a third party and review TypeSafe's data terms before enabling it on a private repository.
 
@@ -108,3 +110,9 @@ Candidate extensions, in rough priority order. None are scheduled; each becomes 
 - **Per-question gating.** A `gate` flag that lets one question fail the check once its precision is known, while the rest stay advisory.
 - **Defaults for unconfigured repositories.** The no-configuration defaults are Dagger-only, so a repository without `levenshtein.json` cannot run the check today.
 - **A first-party skip when the key is absent.** Today the CI conditional is the consumer's job; a documented skip outcome would let the check sit in a shared run without failing forks.
+
+## Future: separate module
+
+Everything else in the CLI is offline and deterministic; this check is neither. It reaches a third-party API over the network, its answers vary between runs, and it carries a vendor's wire format into a repository that otherwise depends on nothing. Moving `internal/semantic` into its own module would let the vendor coupling version separately and keep the core free of it.
+
+The adapter surface is already small: the `native.go` dispatch on the check kind, `validateSemanticLint`, and the `base`, `model`, and `timeout` options on `Check`. The split is deferred until calibration settles, because the catalog, the thresholds, and the state shape are still moving and a module boundary would make each change a two-repository edit.

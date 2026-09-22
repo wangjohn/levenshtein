@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // Item lists are what code preselects for the model. Each carries the line it
@@ -42,6 +43,7 @@ type goUnit struct {
 
 const (
 	maxAfterChars = 30000
+	maxDiffChars  = 30000
 	maxItemChars  = 6000
 	maxCodeLines  = 12
 	maxNeighbours = 80
@@ -95,7 +97,7 @@ func goUnits(path string, src []byte, hunks []Hunk) []goUnit {
 			Symbol:     symbol(decl),
 			Line:       start,
 			After:      truncate(f.text(start, end), maxAfterChars),
-			Diff:       unitDiff(hunks, start, end),
+			Diff:       truncate(unitDiff(hunks, start, end), maxDiffChars),
 			AddedLines: count,
 			Comments:   f.comments(decl, start, end),
 			Errors:     f.errors(decl),
@@ -415,9 +417,26 @@ func packageFunctions(dir, current string, isTest bool, exclude map[string]bool)
 	return signatures
 }
 
+// truncate cuts on a rune boundary so a shortened state never carries half a
+// multi-byte character.
+const truncationMarker = "\n... [truncated]"
+
+// truncate never grows its input: text that would not get shorter with the
+// marker attached is returned as is.
 func truncate(text string, limit int) string {
-	if len(text) <= limit {
+	if len(text) <= limit+len(truncationMarker) {
 		return text
 	}
-	return text[:limit] + "\n... [truncated]"
+	return text[:runeBoundary(text, limit)] + truncationMarker
+}
+
+// runeBoundary trims an index back to the start of the rune it lands inside.
+func runeBoundary(text string, index int) int {
+	if index >= len(text) {
+		return len(text)
+	}
+	for index > 0 && !utf8.RuneStart(text[index]) {
+		index--
+	}
+	return index
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestParseDiffZeroContext(t *testing.T) {
@@ -44,8 +46,8 @@ func TestParseDiffZeroContext(t *testing.T) {
 		"-package gone",
 	}, "\n")
 
-	files := parseDiff(raw, func(string) bool { return true })
-	if len(files) != 3 {
+	files, err := parseDiff(raw, func(string) bool { return true })
+	if err != nil || len(files) != 3 {
 		t.Fatalf("files: %+v", files)
 	}
 
@@ -155,6 +157,62 @@ func TestDocUnitsFindAbsoluteSentencesOutsideCode(t *testing.T) {
 	}
 	if !strings.HasPrefix(units[0].After, "## Cache") || strings.Contains(units[0].After, "Intro text") {
 		t.Fatalf("section: %q", units[0].After)
+	}
+}
+
+func TestTruncationCutsOnRuneBoundaries(t *testing.T) {
+	text := strings.Repeat("é", 50) // Two bytes per rune, so an odd limit splits one.
+	for _, limit := range []int{1, 7, 31, 99} {
+		short := truncate(text, limit)
+		if !utf8.ValidString(short) || len(short) > limit+len("\n... [truncated]") {
+			t.Fatalf("limit %d: %q", limit, short)
+		}
+	}
+
+	body := []byte(strings.Repeat("€", 200)) // Three bytes per rune, so byte 400 lands inside one.
+	if short := summary(body); !utf8.ValidString(short) || !strings.HasSuffix(short, "...") {
+		t.Fatalf("error body: %q", short)
+	}
+	if short := truncate("plain", 99); short != "plain" {
+		t.Fatalf("text within the limit must be untouched: %q", short)
+	}
+}
+
+// TestFitShrinksAnOversizedDeclaration covers the state no earlier step could
+// shrink: one new declaration whose diff and comments together dwarf the cap.
+func TestFitShrinksAnOversizedDeclaration(t *testing.T) {
+	var src strings.Builder
+	src.WriteString("package sample\n\n// Huge is one declaration larger than the whole state cap.\nfunc Huge() {\n")
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&src, "\t// %s\n\t_ = %d\n", strings.Repeat("the retry window stays short ", 200), i)
+	}
+	for i := 0; i < 4000; i++ {
+		fmt.Fprintf(&src, "\t_ = %d\n", i)
+	}
+	src.WriteString("}\n")
+
+	text := src.String()
+	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+	diff := fmt.Sprintf("@@ -0,0 +1,%d @@\n+%s\n", len(lines), strings.Join(lines, "\n+"))
+	units := goUnits("pkg/huge.go", []byte(text), []Hunk{{NewStart: 1, NewLines: len(lines), Added: lines, Diff: diff}})
+	if len(units) != 1 || len(units[0].Comments) != 40 {
+		t.Fatalf("units: %+v", units)
+	}
+
+	r, ok := goRequest(units[0], false, nil)
+	if !ok || len(r.questions) != len(r.pending) || len(r.questions) < 40 {
+		t.Fatalf("questions: %d pending %d", len(r.questions), len(r.pending))
+	}
+	if size := r.size(); size > maxStateChars {
+		t.Fatalf("state stayed oversized: %d chars", size)
+	}
+
+	encoded, err := json.Marshal(r.state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), "[truncated]") {
+		t.Fatal("shortened fields must carry a visible marker")
 	}
 }
 
@@ -372,6 +430,62 @@ func TestRunWithoutChangesNeedsNoModel(t *testing.T) {
 	_, err = Run(context.Background(), Options{Source: r.dir, Include: func(string) bool { return true }, Git: r.git, Env: r.env, Base: "nonexistent", Client: Client{BaseURL: server.URL, APIKey: "test-key", Model: DefaultModel}})
 	if err == nil || !strings.Contains(err.Error(), "nonexistent") {
 		t.Fatalf("missing base must be explicit: %v", err)
+	}
+}
+
+func TestLoadChangePinsDiffPrefixes(t *testing.T) {
+	r := changedRepo(t)
+	// Mnemonic prefixes would label the sides c/ and w/ instead of a/ and b/.
+	r.run(t, "config", "diff.mnemonicPrefix", "true")
+
+	change, err := loadChange(context.Background(), gitRunner{Git: r.git, Dir: r.dir, Env: r.env}, "main", func(string) bool { return true })
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	paths := map[string]bool{}
+	for _, file := range change.Files {
+		paths[file.Path] = true
+	}
+	for _, commit := range change.Commits {
+		for _, path := range commit.Files {
+			paths[path] = true
+		}
+	}
+	for _, want := range []string{"pkg/sample.go", "docs/guide.md"} {
+		if !paths[want] {
+			t.Fatalf("prefixes leaked into paths: %v", paths)
+		}
+	}
+}
+
+func TestCommitsReadEveryCommitInOnePass(t *testing.T) {
+	r := changedRepo(t)
+	r.write(t, "pkg/extra.go", "package sample\n\n// Extra is a second commit.\nfunc Extra() {}\n")
+	r.run(t, "add", "pkg/extra.go")
+	r.run(t, "commit", "--quiet", "-m", "Add an extra helper")
+
+	g := gitRunner{Git: r.git, Dir: r.dir, Env: r.env}
+	_, mergeBase, err := g.resolveBase(context.Background(), "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	commits, err := g.commits(context.Background(), mergeBase)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(commits) != 2 || commits[0].Subject != "Add an extra helper" || commits[1].Subject != "Add strict path validation" {
+		t.Fatalf("subjects, newest first: %+v", commits)
+	}
+	if len(commits[0].SHA) != 12 || len(commits[0].Files) != 1 || commits[0].Files[0] != "pkg/extra.go" {
+		t.Fatalf("files of the newest commit: %+v", commits[0])
+	}
+	if len(commits[0].HunkHeaders) != 1 || !strings.HasPrefix(commits[0].HunkHeaders[0], "pkg/extra.go @@ -0,0 +1,4 @@") {
+		t.Fatalf("hunk headers: %+v", commits[0].HunkHeaders)
+	}
+	if len(commits[1].Files) != 2 || len(commits[1].HunkHeaders) == 0 {
+		t.Fatalf("older commit: %+v", commits[1])
 	}
 }
 
