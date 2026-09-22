@@ -112,7 +112,7 @@ func TestCacheArtifactsCorruptionAndFailedResults(t *testing.T) {
 
 	req.Check.Command.Args = []string{"different"}
 	executor.status = StatusFailed
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		if result := runner.Execute(context.Background(), req); result.Status != StatusFailed || result.Cache.Status == CacheHit {
 			t.Fatalf("cached failure: %+v", result)
 		}
@@ -128,7 +128,7 @@ func TestPersistentPreparationAcrossExecutors(t *testing.T) {
 	req.Check.Command.Args = []string{"/bin/sh", "-c", "test -f ready"}
 	req.Check.Command.RerunArgs = req.Check.Command.Args
 	cache := &Cache{Dir: t.TempDir()}
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		result := (&Native{Cache: cache}).Execute(context.Background(), req)
 		if result.Status != StatusPassed || len(result.Stages) != 1 || result.Stages[0].Reused != (i == 1) {
 			t.Fatalf("stage %d: %+v", i, result)
@@ -197,7 +197,7 @@ func TestUnpinnedEnvironmentDoesNotPersistPreparation(t *testing.T) {
 	req.Environment.Identity = ""
 	req.Preparation = &Preparation{Command: []string{"/bin/sh", "-c", "printf environment > ready"}, Inputs: []string{"lock"}, Outputs: []string{"ready"}}
 	cache := &Cache{Dir: t.TempDir()}
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		result := (&Native{Cache: cache}).Execute(context.Background(), req)
 		if result.Status != StatusPassed || result.Stages[0].Reused {
 			t.Fatalf("unpinned environment persisted: %+v", result)

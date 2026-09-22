@@ -183,10 +183,10 @@ func TestTruncationCutsOnRuneBoundaries(t *testing.T) {
 func TestFitShrinksAnOversizedDeclaration(t *testing.T) {
 	var src strings.Builder
 	src.WriteString("package sample\n\n// Huge is one declaration larger than the whole state cap.\nfunc Huge() {\n")
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		fmt.Fprintf(&src, "\t// %s\n\t_ = %d\n", strings.Repeat("the retry window stays short ", 200), i)
 	}
-	for i := 0; i < 4000; i++ {
+	for i := range 4000 {
 		fmt.Fprintf(&src, "\t_ = %d\n", i)
 	}
 	src.WriteString("}\n")
@@ -229,6 +229,7 @@ type fakeJev struct {
 }
 
 func (f *fakeJev) handler(t *testing.T) http.HandlerFunc {
+	t.Helper()
 	return func(w http.ResponseWriter, r *http.Request) {
 		call := int(f.calls.Add(1)) - 1
 		if r.Header.Get("Authorization") != "Bearer test-key" || r.URL.Path != "/v1/systemone" {
@@ -288,7 +289,7 @@ func newRepo(t *testing.T) repo {
 
 func (r repo) run(t *testing.T, args ...string) {
 	t.Helper()
-	cmd := exec.Command(r.git, args...)
+	cmd := exec.CommandContext(t.Context(), r.git, args...)
 	cmd.Dir = r.dir
 	cmd.Env = r.env
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -310,6 +311,7 @@ func (r repo) write(t *testing.T, path, content string) {
 // changedRepo commits a base on main, then a branch that adds a Go function,
 // edits documentation with an absolute claim, and leaves one untracked file.
 func changedRepo(t *testing.T) repo {
+	t.Helper()
 	r := newRepo(t)
 	r.write(t, "pkg/sample.go", strings.Replace(sampleSource, "// Fresh documents the new function.\nfunc Fresh(path string, strict bool) error {\n\t// Freshness concerns verification, not reusable preparation.\n\tif strict && path == \"\" {\n\t\treturn fmt.Errorf(\"path %q must not be empty\", path)\n\t}\n\treturn nil // trailing note\n}\n", "var _ = fmt.Sprint\n", 1))
 	r.write(t, "docs/guide.md", "# Guide\n\nResults are reused when inputs match.\n")

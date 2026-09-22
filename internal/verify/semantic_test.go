@@ -136,7 +136,7 @@ func gitRepo(t *testing.T) string {
 	}
 	dir := t.TempDir()
 	run := func(args ...string) {
-		cmd := exec.Command(git, args...)
+		cmd := exec.CommandContext(t.Context(), git, args...)
 		cmd.Dir = dir
 		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
 		if out, err := cmd.CombinedOutput(); err != nil {

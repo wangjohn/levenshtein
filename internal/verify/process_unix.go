@@ -3,6 +3,7 @@
 package verify
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"syscall"
@@ -15,7 +16,7 @@ func configureProcess(cmd *exec.Cmd) {
 			return os.ErrProcessDone
 		}
 		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		if err == syscall.ESRCH {
+		if errors.Is(err, syscall.ESRCH) {
 			return os.ErrProcessDone
 		}
 		return err

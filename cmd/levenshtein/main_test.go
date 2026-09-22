@@ -65,20 +65,20 @@ func (failingOutput) Write([]byte) (int, error) { return 0, errors.New("output u
 // checkout is spelled: through a symlink, and before the directory exists.
 func TestCacheDirInsideSymlinkedSharedCheckoutIsRejected(t *testing.T) {
 	base := t.TempDir()
-	real := filepath.Join(base, "real")
+	target := filepath.Join(base, "target")
 	link := filepath.Join(base, "link")
 	source := filepath.Join(base, "src")
-	for _, dir := range []string{real, source} {
+	for _, dir := range []string{target, source} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := os.Symlink(real, link); err != nil {
+	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
 
-	for _, shared := range []string{real, link} {
-		for _, cache := range []string{filepath.Join(real, "cache", "deep"), filepath.Join(link, "cache", "deep")} {
+	for _, shared := range []string{target, link} {
+		for _, cache := range []string{filepath.Join(target, "cache", "deep"), filepath.Join(link, "cache", "deep")} {
 			code, err := runCommand(context.Background(), []string{"branch", "--source", source, "--shared", shared, "--cache-dir", cache}, io.Discard)
 			if code != 2 || err == nil || !strings.Contains(err.Error(), "cache directory must be outside") {
 				t.Fatalf("shared %s cache %s: code %d err %v", shared, cache, code, err)
