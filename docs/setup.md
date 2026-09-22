@@ -70,7 +70,7 @@ Version 1 runs use explicit `rerun_checks: true` for fresh audits, regardless of
 
 ## Levenshtein's own CI
 
-The checked-in `Levenshtein self-checks` workflow verifies this repo's runner and fixtures. Its cron schedules that verification only. This section is where that CI is explained; `.github/workflows/verify.yml` points here instead of repeating it. Application repos call the shared runner from their own CI, as shown in the [consumer guide](consumer-ci.md).
+The checked-in `Levenshtein self-checks` workflow verifies this repo's runner and fixtures. Its cron schedules that verification only. Application repos call the shared runner from their own CI, as shown in the [consumer guide](consumer-ci.md).
 
 ### Jobs
 
