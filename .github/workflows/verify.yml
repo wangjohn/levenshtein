@@ -261,10 +261,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # No module cache: this job builds the same artifacts the release
+      # workflow publishes, and a restored cache entry is writable by any
+      # earlier run of this workflow.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: .go-version
-          cache-dependency-path: go.sum
+          cache: false
+      # The release workflow runs the same configuration for real; catch a
+      # broken .goreleaser.yaml here rather than on a tag.
+      - name: Validate the release configuration
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
+        with:
+          version: v2.18.1
+          args: check
+      - name: Install syft for SBOM generation
+        uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          syft-version: v1.52.0
       - name: Build complete snapshot archives
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
         with:

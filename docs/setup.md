@@ -79,7 +79,7 @@ The checked-in `Levenshtein self-checks` workflow verifies this repo's runner an
 | `lint` | Static `./verify branch` only (early signal; no host race tests or consumer regressions) |
 | `tests` | Host race/fixtures, `shellcheck`, SDK restore or regen, non-lint Dagger checks, consumer regressions |
 | `language-contracts` | Rust and Python contract fixtures |
-| `release-smoke` | GoReleaser snapshot + archive test (skipped on draft PRs) |
+| `release-smoke` | `goreleaser check`, then a GoReleaser snapshot + archive test (skipped on draft PRs) |
 | `semantic-lint` | Advisory Jev review of the pull request; runs only on `pull_request` events; without the `TYPESAFE_API_KEY` secret the review step is skipped and the job passes with no findings |
 
 The `tests` job also holds the repository hygiene gates, all of them before its
@@ -95,6 +95,10 @@ of medium severity and above; OpenSSF Scorecard with a SARIF upload to code
 scanning on `main` and the weekly schedule, since Scorecard reads the default
 branch rather than a pull request's merge ref; and `dependency-review` on pull
 requests, failing on high severity.
+
+`release.yml` publishes the archives, their SBOMs, `checksums.txt`, and a build
+provenance attestation when a `vX.Y.Z` tag is pushed; see
+[release archives](releases.md).
 
 Event → `./verify` mapping:
 

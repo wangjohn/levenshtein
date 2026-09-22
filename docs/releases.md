@@ -9,7 +9,40 @@ goreleaser check
 goreleaser release --snapshot --clean
 ```
 
-Snapshot builds create files in `dist/` and publish nothing. Release publication and tag automation are not configured yet.
+Snapshot builds create files in `dist/` and publish nothing.
+
+## Publishing a release
+
+Publication is a tag. Push an annotated `vX.Y.Z` tag on a reviewed `main`
+commit and `.github/workflows/release.yml` does the rest:
+
+```sh
+git tag -a v0.1.0 -m 'Levenshtein v0.1.0'
+git push origin v0.1.0
+```
+
+The workflow checks out the full history, builds with the pinned Go from
+`.go-version`, installs the pinned syft, and runs `goreleaser release --clean`.
+The GitHub release then holds:
+
+- the four platform archives (`linux`/`darwin` × `amd64`/`arm64`), each with the
+  CLI and the shared check sources;
+- an SPDX SBOM per archive;
+- `checksums.txt` covering every published file;
+- a build provenance attestation for the archives and the checksum file, which
+  `gh attestation verify <file> --repo wangjohn/levenshtein` checks.
+
+Nothing else is automated: the tag is created by a person, and a release is only
+as reviewed as the commit it points at. `release-smoke` in the self-checks
+workflow validates `.goreleaser.yaml` and builds the same archives as a snapshot
+on every ready pull request, so a tag is not the first time the configuration
+runs.
+
+## Pinning a release
+
+A consumer may pin a published tag instead of a commit SHA. A tag is readable in
+a diff and is what release notes name; a SHA cannot be moved. Either is a
+deliberate, reviewed update. Do not pin a branch.
 
 After extracting an archive, run the binary with explicit paths:
 
@@ -29,4 +62,4 @@ Run the same test locally with an archive matching your host architecture:
 ./scripts/test-release dist/levenshtein_VERSION_darwin_arm64.tar.gz
 ```
 
-The smoke test requires a Docker-compatible runtime. Snapshot builds and CI smoke tests do not publish a release. Until publication is configured, consumers can pin a reviewed source checkout or use an archive they build from that revision.
+The smoke test requires a Docker-compatible runtime. Snapshot builds and CI smoke tests do not publish a release; only a `v*` tag does.
