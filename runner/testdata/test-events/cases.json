@@ -10,6 +10,10 @@
     {"name": "setup", "exit": 1, "want": "error", "contains": "[setup failed]"},
     {"name": "mixed", "exit": 1, "want": "error", "contains": "go test could not build example.com/mixed/broken"},
     {"name": "no-packages", "exit": 1, "want": "error", "contains": "no packages to test"},
-    {"name": "no-tests", "exit": 0, "want": "error", "contains": "ran no tests"}
+    {"name": "no-tests", "exit": 0, "want": "error", "contains": "ran no tests"},
+    {"name": "skipped", "exit": 0, "want": "error", "contains": "skipped every one"},
+    {"name": "swallowed", "exit": 0, "want": "finding", "findings": 1, "contains": "real failure"},
+    {"name": "race-after", "exit": 1, "want": "finding", "findings": 1, "contains": "WARNING: DATA RACE", "omits": "TestOK"},
+    {"name": "killed", "exit": 1, "want": "finding", "findings": 1, "contains": "signal: killed"}
   ]
 }

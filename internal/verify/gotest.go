@@ -36,7 +36,6 @@ func testArgs(fresh bool) []string {
 type testAction string
 
 const (
-	testRun         testAction = "run"
 	testPass        testAction = "pass"
 	testSkip        testAction = "skip"
 	testFail        testAction = "fail"
@@ -107,41 +106,48 @@ func packageTranscript(events []testEvent, pkg string) string {
 // when a test fails and when a package does not build, so the events decide:
 // a package that failed with FailedBuild set ([build failed] or [setup failed])
 // is an error, since its tests never ran, and so is an exit 1 with no failed
-// package at all, such as a module with no packages. Every other failed
-// package is a finding carrying its own output, which covers a failed or
-// panicking test, a data race the race detector reported, and a test that hit
-// the timeout. A run that passes without running a single test is refused
-// rather than reported as a pass. runner/checks.go keeps a copy for the Dagger
-// path; change both together.
+// package at all, such as a module with no packages. Every other package with a
+// failed test, or that failed itself, is a finding carrying its own output,
+// which covers a failed or panicking test, a data race the race detector
+// reported, and a test that hit the timeout. That holds even when go test
+// exits 0, which it does when a TestMain drops m.Run's result and exits 0 after
+// a test failed. A run where no test passed, because none ran or every one
+// skipped, is refused rather than reported as a pass.
+// runner/checks.go keeps a copy for the Dagger path; change both together.
 func testFindings(module string, exitCode int, stdout, stderr string) ([]finding, error) {
 	events, err := testEvents(stdout)
 	if err != nil {
 		return nil, fmt.Errorf("go test exited %d without readable -json output: %w: %s", exitCode, err, strings.TrimSpace(stderr))
 	}
 	transcript := strings.TrimSpace(testTranscript(events) + "\n" + stderr)
-	if exitCode == 0 {
-		if !slices.ContainsFunc(events, func(event testEvent) bool { return event.Action == testRun }) {
-			return nil, fmt.Errorf("module %q ran no tests; refusing an empty pass: %s", module, transcript)
-		}
-		return nil, nil
+	if exitCode != 0 && exitCode != 1 {
+		return nil, fmt.Errorf("go test exited %d: %s", exitCode, transcript)
 	}
 
 	var failed, broken []string
 	for _, event := range events {
-		if event.Action != testFail || event.Test != "" {
+		if event.Action != testFail {
 			continue
 		}
 		if event.FailedBuild != "" {
-			broken = append(broken, event.Package)
-		} else {
+			if !slices.Contains(broken, event.Package) {
+				broken = append(broken, event.Package)
+			}
+		} else if !slices.Contains(failed, event.Package) {
 			failed = append(failed, event.Package)
 		}
 	}
-	if exitCode != 1 || (len(failed) == 0 && len(broken) == 0) {
-		return nil, fmt.Errorf("go test exited %d: %s", exitCode, transcript)
-	}
 	if len(broken) != 0 {
 		return nil, fmt.Errorf("go test could not build %s: %s", strings.Join(broken, ", "), transcript)
+	}
+	if len(failed) == 0 {
+		if exitCode != 0 {
+			return nil, fmt.Errorf("go test exited %d: %s", exitCode, transcript)
+		}
+		if !slices.ContainsFunc(events, func(event testEvent) bool { return event.Action == testPass && event.Test != "" }) {
+			return nil, fmt.Errorf("module %q ran no tests, or skipped every one; refusing an empty pass: %s", module, transcript)
+		}
+		return nil, nil
 	}
 
 	findings := make([]finding, 0, len(failed))

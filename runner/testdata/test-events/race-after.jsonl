@@ -1,0 +1,27 @@
+{"Action":"start","Package":"example.com/race-after"}
+{"Action":"run","Package":"example.com/race-after","Test":"TestOK"}
+{"Action":"output","Package":"example.com/race-after","Test":"TestOK","Output":"=== RUN   TestOK\n","OutputType":"frame"}
+{"Action":"output","Package":"example.com/race-after","Test":"TestOK","Output":"--- PASS: TestOK (0.00s)\n","OutputType":"frame"}
+{"Action":"pass","Package":"example.com/race-after","Test":"TestOK","Elapsed":0}
+{"Action":"output","Package":"example.com/race-after","Output":"PASS\n","OutputType":"frame"}
+{"Action":"output","Package":"example.com/race-after","Output":"==================\n"}
+{"Action":"output","Package":"example.com/race-after","Output":"WARNING: DATA RACE\n"}
+{"Action":"output","Package":"example.com/race-after","Output":"Read at 0x00000083b368 by goroutine 9:\n"}
+{"Action":"output","Package":"example.com/race-after","Output":"  example.com/race-after.TestMain.func1()\n"}
+{"Action":"output","Package":"example.com/race-after","Output":"      /src/a_test.go:5 +0x30\n"}
+{"Action":"output","Package":"example.com/race-after","Output":"\n"}
+{"Action":"output","Package":"example.com/race-after","Output":"Previous write at 0x00000083b368 by main goroutine:\n"}
+{"Action":"output","Package":"example.com/race-after","Output":"  example.com/race-after.TestMain()\n"}
+{"Action":"output","Package":"example.com/race-after","Output":"      /src/a_test.go:5 +0xdd\n"}
+{"Action":"output","Package":"example.com/race-after","Output":"  main.main()\n"}
+{"Action":"output","Package":"example.com/race-after","Output":"      _testmain.go:48 +0x171\n"}
+{"Action":"output","Package":"example.com/race-after","Output":"\n"}
+{"Action":"output","Package":"example.com/race-after","Output":"Goroutine 9 (running) created at:\n"}
+{"Action":"output","Package":"example.com/race-after","Output":"  example.com/race-after.TestMain()\n"}
+{"Action":"output","Package":"example.com/race-after","Output":"      /src/a_test.go:5 +0xb9\n"}
+{"Action":"output","Package":"example.com/race-after","Output":"  main.main()\n"}
+{"Action":"output","Package":"example.com/race-after","Output":"      _testmain.go:48 +0x171\n"}
+{"Action":"output","Package":"example.com/race-after","Output":"==================\n"}
+{"Action":"output","Package":"example.com/race-after","Output":"Found 1 data race(s)\n"}
+{"Action":"output","Package":"example.com/race-after","Output":"FAIL\texample.com/race-after\t1.016s\n","OutputType":"frame"}
+{"Action":"fail","Package":"example.com/race-after","Elapsed":1.017}

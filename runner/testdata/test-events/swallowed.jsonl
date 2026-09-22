@@ -1,0 +1,9 @@
+{"Action":"start","Package":"example.com/swallowed"}
+{"Action":"run","Package":"example.com/swallowed","Test":"TestFails"}
+{"Action":"output","Package":"example.com/swallowed","Test":"TestFails","Output":"=== RUN   TestFails\n","OutputType":"frame"}
+{"Action":"output","Package":"example.com/swallowed","Test":"TestFails","Output":"    a_test.go:3: real failure\n","OutputType":"error"}
+{"Action":"output","Package":"example.com/swallowed","Test":"TestFails","Output":"--- FAIL: TestFails (0.00s)\n","OutputType":"frame"}
+{"Action":"fail","Package":"example.com/swallowed","Test":"TestFails","Elapsed":0}
+{"Action":"output","Package":"example.com/swallowed","Output":"FAIL\n","OutputType":"frame"}
+{"Action":"output","Package":"example.com/swallowed","Output":"ok  \texample.com/swallowed\t1.013s\n"}
+{"Action":"pass","Package":"example.com/swallowed","Elapsed":1.014}

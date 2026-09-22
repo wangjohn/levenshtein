@@ -30,11 +30,11 @@ Consumers pin a release tag, or its commit SHA, as described in
   on the pinned toolchain with cgo on. A failing test, a panic, a test that
   hits the ten-minute per-package timeout, or a data race the race detector
   reports is a finding with `go test`'s own output; a package that does not
-  build or set up, a module with no tests, and a host without a C compiler are
-  errors. It reads `go test -json` to tell them apart, leaves vet to `go-vet`,
-  reuses its result like `go-vet` does, and is not in any default gate: add it
-  to a run of your own, and keep tests that need services in a `command` check
-  ([details](docs/checks.md#tests)).
+  build or set up, a module with no tests or whose every test skipped, and a
+  host without a C compiler are errors. It reads `go test -json` to tell them
+  apart, leaves vet to `go-vet`, reuses its result like `go-vet` does, and is
+  not in any default gate: add it to a run of your own, and keep tests that
+  need services in a `command` check ([details](docs/checks.md#tests)).
 
 ### Changed
 
