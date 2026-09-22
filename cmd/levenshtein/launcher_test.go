@@ -51,7 +51,7 @@ func TestLauncherNeedsOnlyAGoOnPath(t *testing.T) {
 		}
 	}
 
-	cmd := exec.Command(filepath.Join(root, "verify"), "branch", "--dry-run")
+	cmd := exec.CommandContext(t.Context(), filepath.Join(root, "verify"), "branch", "--dry-run")
 	cmd.Env = []string{"PATH=" + bin, "HOME=" + t.TempDir()}
 	out, err := cmd.CombinedOutput()
 	if err == nil {

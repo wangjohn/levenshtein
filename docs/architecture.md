@@ -160,7 +160,7 @@ process exit code described above.
 - **`runner/lint/`** (`runner/lint/go.mod`): an isolated module for the
   Staticcheck-based lint binary (`levenshtein-lint`), so its analyzer
   dependencies (Staticcheck's whole analyzer set, the curated upstream
-  analyzers listed in [Go lint rules](go-lint.md), and the house rules
+  analyzers listed in [Go lint rules](checks.md#go-lint-rules), and the house rules
   `LV1001`-`LV1005` in `runner/lint/policy`) do not leak into the Dagger
   module's own dependency resolution.
 - **`runner/tools/`** (`runner/tools/go.mod`): pins `actionlint` and
