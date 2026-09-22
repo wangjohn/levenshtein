@@ -88,6 +88,13 @@ func (d *Dagger) executeMutation(parent context.Context, req Request) Result {
 	if len(selection.Files) == 0 {
 		return Result{Status: StatusPassed, Stdout: selection.Note + ": no Go files to mutate"}
 	}
+	// The session outlives this check: every check in the run shares it, and
+	// dagger.Connect ties its lifetime to the context it is given. Connecting
+	// with the timeout context would close it for the others once this check
+	// returned, so connect with the run's context and bound only the query.
+	if err := d.connect(parent, req.Shared); err != nil {
+		return Result{Status: StatusError, Error: err.Error()}
+	}
 
 	var summary string
 	result := daggerResult(d.execute(ctx, req, &mutationArgs{files: selection.Files, accepted: options.Accepted, tags: options.Tags, summary: &summary}))
