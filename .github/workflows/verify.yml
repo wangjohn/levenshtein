@@ -171,6 +171,12 @@ jobs:
           shellcheck verify "${bash_scripts[@]}"
       - name: Documentation pins name the newest release
         run: ./scripts/test-doc-pins
+      # Reads the enforced rulesets with this run's read-only token; see
+      # docs/setup.md#required-checks-branch-protection.
+      - name: Rulesets match the workflows and GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/test-rulesets --live
       - name: Expanded check fixtures
         run: |
           ./scripts/test-checks

@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+
+# GitHub enforces branch rulesets from repository settings, never from files, so
+# .github/rulesets holds the reviewed copy. This check keeps the copy honest in
+# two directions:
+#   1. every required status check names a job in .github/workflows, so renaming
+#      a job fails here instead of leaving merges waiting on a check that never
+#      reports;
+#   2. with --live, the rulesets GitHub enforces match the committed copies.
+live=false
+if [[ ${1:-} == --live ]]; then
+  live=true
+fi
+
+# Check run names: a job's own `name:` when it declares one, otherwise its ID.
+# Workflows are formatted with two-space indentation, which this relies on.
+jobs=$(awk '
+  FNR == 1 { if (job != "") print job; in_jobs = 0; job = "" }
+  /^jobs:/ { in_jobs = 1; next }
+  /^[^ #]/ { in_jobs = 0 }
+  in_jobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ {
+    if (job != "") print job
+    job = $1; sub(/:$/, "", job); next
+  }
+  in_jobs && job != "" && /^    name:/ {
+    sub(/^    name:[[:space:]]*/, ""); gsub(/^["\047]|["\047]$/, ""); job = $0
+  }
+  END { if (job != "") print job }
+' "$root"/.github/workflows/*.yml | sort -u)
+if [[ -z $jobs ]]; then
+  echo 'No workflow jobs found; update this check' >&2
+  exit 1
+fi
+
+shopt -s nullglob
+rulesets=("$root"/.github/rulesets/*.json)
+if [[ ${#rulesets[@]} -eq 0 ]]; then
+  echo 'No committed rulesets in .github/rulesets' >&2
+  exit 1
+fi
+
+status=0
+for file in "${rulesets[@]}"; do
+  name=$(jq -r .name "$file")
+  missing=0
+  while IFS= read -r context; do
+    if ! grep -qxF -- "$context" <<< "$jobs"; then
+      echo "${file#"$root"/}: required check \"$context\" is not a job in .github/workflows" >&2
+      missing=1
+      status=1
+    fi
+  done < <(jq -r '.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context' "$file")
+  if [[ $missing -eq 0 ]]; then
+    echo "Required checks in \"$name\" name workflow jobs"
+  fi
+done
+if [[ $live == false || $status -ne 0 ]]; then
+  exit "$status"
+fi
+
+# Compare what a read-only token can see. GitHub returns bypass_actors only to
+# repository admins, so they are compared when present and skipped otherwise.
+repository=${GITHUB_REPOSITORY:-wangjohn/levenshtein}
+normalize='{name, target, enforcement, conditions, bypass_actors, rules: (.rules | sort_by(.type))}'
+committed_names=$(jq -r .name "${rulesets[@]}" | sort)
+live_ids=$(gh api "repos/$repository/rulesets" --jq '.[] | select(.source_type == "Repository") | .id')
+live_names=""
+for id in $live_ids; do
+  current=$(gh api "repos/$repository/rulesets/$id")
+  name=$(jq -r .name <<< "$current")
+  live_names+="$name"$'\n'
+  file=""
+  for candidate in "${rulesets[@]}"; do
+    if [[ $(jq -r .name "$candidate") == "$name" ]]; then
+      file=$candidate
+    fi
+  done
+  if [[ -z $file ]]; then
+    echo "Ruleset \"$name\" is enforced on GitHub but not committed; export it into .github/rulesets" >&2
+    status=1
+    continue
+  fi
+  expected=$(jq -S "$normalize" "$file")
+  actual=$(jq -S "$normalize" <<< "$current")
+  if [[ $(jq '.bypass_actors' <<< "$actual") == null ]]; then
+    expected=$(jq -S 'del(.bypass_actors)' <<< "$expected")
+    actual=$(jq -S 'del(.bypass_actors)' <<< "$actual")
+  fi
+  if [[ $expected != "$actual" ]]; then
+    echo "Ruleset \"$name\" on GitHub differs from ${file#"$root"/} (committed < > live):" >&2
+    diff <(echo "$expected") <(echo "$actual") >&2 || true
+    status=1
+  else
+    echo "Ruleset \"$name\" on GitHub matches ${file#"$root"/}"
+  fi
+done
+while IFS= read -r name; do
+  if ! grep -qxF -- "$name" <<< "$live_names"; then
+    echo "Ruleset \"$name\" is committed but not enforced on GitHub" >&2
+    status=1
+  fi
+done <<< "$committed_names"
+exit "$status"
