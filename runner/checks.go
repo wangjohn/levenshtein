@@ -261,8 +261,10 @@ func (m *Levenshtein) SharedCheck(ctx context.Context,
 	if kind == checkWorkflow && module != "." {
 		return fmt.Errorf("workflow-lint requires a repository-root target")
 	}
-	if kind == checkVuln && nonce == "" {
-		return fmt.Errorf("go-vuln requires a unique nonce; use the Levenshtein CLI")
+	// Their verdicts depend on state no source input covers, so Dagger must
+	// never answer them from its own cache.
+	if (kind == checkVuln || kind == checkMod) && nonce == "" {
+		return fmt.Errorf("%s requires a unique nonce; use the Levenshtein CLI", kind)
 	}
 
 	var tools toolchain
