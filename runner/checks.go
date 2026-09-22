@@ -316,13 +316,14 @@ const (
 
 // testEvent is the part of a go test -json event the check reads. A package
 // whose test binary could not be built or set up fails with FailedBuild set;
-// its compiler output arrives as build-output events.
+// its compiler output arrives as build-output events. The tags are
+// test2json's field names.
 type testEvent struct {
-	Action      testAction
-	Package     string
-	Test        string
-	Output      string
-	FailedBuild string
+	Action      testAction `json:"Action"`
+	Package     string     `json:"Package"`
+	Test        string     `json:"Test"`
+	Output      string     `json:"Output"`
+	FailedBuild string     `json:"FailedBuild"`
 }
 
 func testEvents(stdout string) ([]testEvent, error) {
