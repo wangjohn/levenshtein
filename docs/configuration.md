@@ -4,6 +4,8 @@
 
 `./verify branch --dry-run` reads configuration and returns the selected plan without starting execution tools. Relative target and input paths are resolved from the source repository. Inputs are literal files/directories, not glob patterns. Workspace context can differ from the check's working directory. Target/workspace directories must exist inside the source repository.
 
+`--jobs N` caps how many checks run at once. The default, `0`, keeps the built-in cap (the smaller of four and `GOMAXPROCS`); an explicit value replaces it in either direction, so a large worker can raise it and a shared one can lower it to `1`.
+
 ## Version 1
 
 ```json
@@ -47,6 +49,33 @@ Only declared paths are imported. Within them, `.git`, `.env`, and `.env.*` are 
 
 Native inputs only define cache identity. Native commands are trusted host processes with normal filesystem access; they are not sandboxed by the input list. Native relative symlinks may stay inside the repository, but disable completed-result reuse. Dagger's stricter rule prevents importing undeclared source through aliases.
 
+### Input discovery
+
+A target's `discovery` says how the files under its `inputs` are enumerated for fingerprinting.
+
+| Mode | Enumerates |
+| --- | --- |
+| `git` (default) | The work tree's own files: everything `git ls-files --cached --others --exclude-standard` reports under the source, which is tracked files plus untracked files that are not ignored |
+| `filesystem` | Every path under each declared input, as a directory walk finds it |
+
+Git discovery keeps build output, dependency directories, and editor scratch files out of the fingerprint without naming them, so a target can keep `inputs: ["."]` and still fingerprint only the repository. It runs `git` from `PATH` once per run with the source as its working directory and nothing but `PATH` and `HOME` in its environment. A source that is not a work tree, or a `git` that fails, falls back to the filesystem walk; a failure is reported in the result's cache `Reason`.
+
+Two consequences are worth stating. A file the work tree ignores is not part of the fingerprint, so a target whose real inputs are **generated and gitignored** must set `"discovery": "filesystem"`. And in git mode directories have no entries of their own and a tracked path that is absent from disk is skipped rather than recorded as `missing`, so a working tree and a fresh clone of the same content fingerprint identically. A declared input that exists neither in the work tree's list nor on disk is still recorded as `missing`, exactly as the filesystem walk records it.
+
+### Excluding paths
+
+A target's `exclude` lists literal repository-relative paths to drop from an otherwise broad input. Excluded paths leave the fingerprint, and for Dagger checks they are also excluded from the imported source, so a declared directory can be imported without its dependency or build output:
+
+```json
+{
+  "targets": {
+    "web": {"dir": "services/web", "inputs": ["services/web"], "exclude": ["services/web/node_modules", "services/web/build"], "discovery": "filesystem"}
+  }
+}
+```
+
+Exclude entries are validated like inputs: clean, relative, and free of pattern or negation characters. `.` is rejected. Symlinks inside an excluded path are not inspected, so excluding a dependency directory also excludes it from the Dagger alias check.
+
 ## Results
 
 The CLI emits a versioned JSON report with the resolved plan and a result for every selected check. Results distinguish `passed`, `failed`, `error`, `cancelled`, and `incomplete`, with timing and native output/details. A run succeeds only when every selected check passes. Planning/configuration errors exit 2; unsuccessful verification exits 1.
@@ -85,7 +114,9 @@ A command check may reference an entry in top-level `preparations` by its `comma
 
 Successful Dagger checks reuse completed results by default, except `go-vuln`: vulnerability scans always execute against current advisory data, even with `cache: true` or in custom runs. A native command opts in with `command.cache: true`, an environment `identity` identifying a provisioned toolchain/system setup, and an explicit `command.rerun_args` argument array. The fresh command must actually execute verification, bypassing any test runner verdict cache (for example `go test -count=1`). Every native `command` check selected by a fresh run must declare `rerun_args`, including checks with result caching disabled; `semantic-lint` always executes and needs none. It may equal `args` for tools that already execute their tests on each invocation. `LEVENSHTEIN_RERUN_CHECKS` also tells scripts the run policy.
 
-Declare every relevant source, test, script, configuration, local dependency, and lockfile in target inputs. Command options, declared environment values, platform, selected preparation/build definitions, and effective shared implementation also identify results. The pinned shared checkout is snapshotted once per CLI process; edit it between runs, not during one. Declared outputs are excluded from source fingerprints. Undeclared external state cannot be cached safely: leave `cache` off for live-service checks. A native worker's `identity` is a provisioning contract; an eligible cached result can satisfy it without starting tools on the current host. Use fresh audits to obtain new observations.
+Declare every relevant source, test, script, configuration, local dependency, and lockfile in target inputs. Command options, declared environment values, platform, selected preparation/build definitions, target `discovery`/`exclude`, and effective shared implementation also identify results. The pinned shared checkout is snapshotted once per CLI process; edit it between runs, not during one. Declared outputs are excluded from source fingerprints. Undeclared external state cannot be cached safely: leave `cache` off for live-service checks. A native worker's `identity` is a provisioning contract; an eligible cached result can satisfy it without starting tools on the current host. Use fresh audits to obtain new observations.
+
+Fingerprinting hashes file content, so it is memoized. Within a process a file whose size, modification time, inode, and permissions are all unchanged reuses its recorded hash instead of being read again, and every target in the run shares those records. The memo is persisted under `<cache-dir>/stat/` at the end of a run and reloaded at the start of the next one. A persisted record is only a hint: every lookup revalidates the file's current stat, a corrupt or unreadable record is ignored rather than fatal, and an entry whose modification time is within two seconds of the moment the record was written is never trusted from disk, because the filesystem may not have been able to distinguish a later write in the same timestamp tick. Within one process, an edit that preserves a file's size, permissions, inode, **and** modification time is not detected; on a filesystem with nanosecond timestamps two different writes cannot share a modification time. Content hashing runs concurrently, bounded by `GOMAXPROCS`.
 
 By default, cache records live under the user's cache directory in `levenshtein/verification-v1`. Override with `--cache-dir /absolute/path/outside/source`. This is private local storage; do not share writable caches between trusted jobs and untrusted PRs. Levenshtein's own `verify.yml` restores that directory across GitHub Actions workers with an exact cache key and saves only from trusted (non-fork) refs; see [Levenshtein's own CI](setup.md#levenshteins-own-ci). Consumer cross-worker templates remain separate.
 
