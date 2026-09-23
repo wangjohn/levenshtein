@@ -173,7 +173,9 @@ required. Do not share writable result caches with untrusted PRs.
 
 Advanced static test impact analysis, distributed sharding, a dedicated cache
 service, automated fleet rollout, dashboards, formal agent evaluations, LLM
-grading, and public plugin protocols remain optional expansions. Cache
+grading, and public plugin protocols remain optional expansions; see
+[community lint rules](community-rules.md) for a proposed plugin and catalog
+design and when each phase is justified. Cache
 integration/persistence and bounded parallel execution are part of the pilot.
 Deployment orchestration, artifact promotion, and rollback management remain
 with existing delivery workflows.
