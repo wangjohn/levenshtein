@@ -1,0 +1,6 @@
+{"ImportPath":"example.com/test-build [example.com/test-build.test]","Action":"build-output","Output":"# example.com/test-build [example.com/test-build.test]\n"}
+{"ImportPath":"example.com/test-build [example.com/test-build.test]","Action":"build-output","Output":"./sum_test.go:6:21: cannot use Add(1, 2) (value of type int) as string value in variable declaration\n"}
+{"ImportPath":"example.com/test-build [example.com/test-build.test]","Action":"build-fail"}
+{"Action":"start","Package":"example.com/test-build"}
+{"Action":"output","Package":"example.com/test-build","Output":"FAIL\texample.com/test-build [build failed]\n","OutputType":"frame"}
+{"Action":"fail","Package":"example.com/test-build","Elapsed":0,"FailedBuild":"example.com/test-build [example.com/test-build.test]"}

@@ -194,6 +194,47 @@ func TestNativeGoChecksAgreeWithTheFixtures(t *testing.T) {
 		}
 	})
 
+	t.Run("go-test passes test-pass under the race detector", func(t *testing.T) {
+		result := native.Execute(ctx, fixtureRequest(t, shared, "test-pass", CheckGoTest))
+		if result.Status != StatusPassed {
+			t.Fatalf("test-pass fixture must pass go-test: %+v", result)
+		}
+	})
+
+	for _, fixture := range []struct {
+		name    string
+		message string
+	}{
+		{"test-fail", "Add(2, 2) = 4, want 5"},
+		{"test-race", "WARNING: DATA RACE"},
+	} {
+		t.Run("go-test fails "+fixture.name+" with go test's output", func(t *testing.T) {
+			result := native.Execute(ctx, fixtureRequest(t, shared, fixture.name, CheckGoTest))
+			if result.Status != StatusFailed {
+				t.Fatalf("%s fixture must fail for its test, not a tool error: %+v", fixture.name, result)
+			}
+
+			findings := fixtureFindings(t, result)
+			if len(findings) != 1 || findings[0].Code != string(CheckGoTest) || !strings.Contains(findings[0].Message, fixture.message) {
+				t.Fatalf("lost go test's output: %+v", findings)
+			}
+		})
+	}
+
+	t.Run("go-test refuses test-build, whose tests never ran", func(t *testing.T) {
+		result := native.Execute(ctx, fixtureRequest(t, shared, "test-build", CheckGoTest))
+		if result.Status != StatusError || !strings.Contains(result.Error, "go test could not build example.com/test-build") || !strings.Contains(result.Error, "cannot use Add(1, 2)") {
+			t.Fatalf("a test that does not compile must error rather than fail or pass: %+v", result)
+		}
+	})
+
+	t.Run("go-test refuses a module without tests", func(t *testing.T) {
+		result := native.Execute(ctx, fixtureRequest(t, shared, "mod-tidy", CheckGoTest))
+		if result.Status != StatusError || !strings.Contains(result.Error, "ran no tests") {
+			t.Fatalf("a module with no tests must error rather than pass: %+v", result)
+		}
+	})
+
 	// workflow-security downloads the pinned zizmor release, so these need
 	// github.com, as the Dagger self-test does.
 	t.Run("workflow-security passes workflow-secure", func(t *testing.T) {

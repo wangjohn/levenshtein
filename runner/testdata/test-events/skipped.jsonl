@@ -1,0 +1,9 @@
+{"Action":"start","Package":"example.com/skipped"}
+{"Action":"run","Package":"example.com/skipped","Test":"TestSkip"}
+{"Action":"output","Package":"example.com/skipped","Test":"TestSkip","Output":"=== RUN   TestSkip\n","OutputType":"frame"}
+{"Action":"output","Package":"example.com/skipped","Test":"TestSkip","Output":"    a_test.go:3: nope\n"}
+{"Action":"output","Package":"example.com/skipped","Test":"TestSkip","Output":"--- SKIP: TestSkip (0.00s)\n","OutputType":"frame"}
+{"Action":"skip","Package":"example.com/skipped","Test":"TestSkip","Elapsed":0}
+{"Action":"output","Package":"example.com/skipped","Output":"PASS\n","OutputType":"frame"}
+{"Action":"output","Package":"example.com/skipped","Output":"ok  \texample.com/skipped\t1.014s\n"}
+{"Action":"pass","Package":"example.com/skipped","Elapsed":1.014}

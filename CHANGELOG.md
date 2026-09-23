@@ -26,6 +26,15 @@ Consumers pin a release tag, or its commit SHA, as described in
   a run of your own. The zizmor release archive is pinned by SHA-256 per
   platform and verified before it runs; audits that query GitHub stay with
   zizmor's own action ([details](docs/checks.md#workflow-security)).
+- `go-test`, a shared check on both executors that runs `go test -race ./...`
+  on the pinned toolchain with cgo on. A failing test, a panic, a test that
+  hits the ten-minute per-package timeout, or a data race the race detector
+  reports is a finding with `go test`'s own output; a package that does not
+  build or set up, a module with no tests or whose every test skipped, and a
+  host without a C compiler are errors. It reads `go test -json` to tell them
+  apart, leaves vet to `go-vet`, reuses its result like `go-vet` does, and is
+  not in any default gate: add it to a run of your own, and keep tests that
+  need services in a `command` check ([details](docs/checks.md#tests)).
 - `go-lint` runs three more upstream analyzers: `unparam` (unused parameters
   and results of unexported functions), `musttag` (untagged fields in structs
   passed to JSON, XML, YAML, and TOML encoders and decoders), and `recvcheck`
@@ -87,6 +96,10 @@ Consumers pin a release tag, or its commit SHA, as described in
 - Levenshtein's own `branch`, `pre-merge`, `branch-dagger`, and `main` runs
   include `workflow-security`. `security.yml` keeps zizmor's GitHub Action for
   the online audits and now names the same inputs as the shared check.
+- Levenshtein's own `levenshtein.json` has a native `go-test` run over the
+  repository and `runner/lint` for local use. It is not part of `branch`,
+  `pre-merge`, or `main`, because CI's `tests` job already runs
+  `go test -race` over the same modules.
 
 ### Fixed
 

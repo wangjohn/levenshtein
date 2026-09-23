@@ -301,6 +301,9 @@ func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce strin
 	if err := workflowSecuritySelfTest(ctx, fixtures, tools, nonce); err != nil {
 		return err
 	}
+	if err := goTestSelfTest(ctx, fixtures, tools, nonce); err != nil {
+		return err
+	}
 	return mutationSelfTest(ctx, fixtures.Directory("mutation"), tools, nonce)
 }
 
@@ -338,6 +341,38 @@ func workflowSecuritySelfTest(ctx context.Context, fixtures *dagger.Directory, t
 	}
 	if len(insecure) != 1 || insecure[0].Code != string(checkWorkflowSecurity) || !strings.Contains(insecure[0].Message, "template-injection") {
 		return fmt.Errorf("workflow-insecure fixture must report zizmor's template-injection finding: %v", insecure)
+	}
+	return nil
+}
+
+// goTestSelfTest proves the pinned image can run go test -race, that a failing
+// test and a data race are findings with go test's own output, and that a test
+// that does not compile is an error rather than a finding.
+func goTestSelfTest(ctx context.Context, fixtures *dagger.Directory, tools toolchain, nonce string) error {
+	passing, err := goTest(ctx, fixtures.Directory("test-pass"), ".", tools, nonce)
+	if err != nil || len(passing) != 0 {
+		return fmt.Errorf("test-pass fixture must pass go-test: findings=%v error=%v", passing, err)
+	}
+
+	for _, fixture := range []struct {
+		name    string
+		message string
+	}{
+		{"test-fail", "Add(2, 2) = 4, want 5"},
+		{"test-race", "WARNING: DATA RACE"},
+	} {
+		findings, err := goTest(ctx, fixtures.Directory(fixture.name), ".", tools, nonce)
+		if err != nil {
+			return fmt.Errorf("%s fixture must fail for its test, not a tool error: %w", fixture.name, err)
+		}
+		if len(findings) != 1 || findings[0].Code != string(checkTest) || !strings.Contains(findings[0].Message, fixture.message) {
+			return fmt.Errorf("%s fixture must report go test's output: %v", fixture.name, findings)
+		}
+	}
+
+	broken, err := goTest(ctx, fixtures.Directory("test-build"), ".", tools, nonce)
+	if err == nil || !strings.Contains(err.Error(), "go test could not build example.com/test-build") {
+		return fmt.Errorf("test-build fixture must be an error, not a finding: findings=%v error=%v", broken, err)
 	}
 	return nil
 }

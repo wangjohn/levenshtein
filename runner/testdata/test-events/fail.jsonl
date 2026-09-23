@@ -1,0 +1,13 @@
+{"Action":"start","Package":"example.com/test-fail"}
+{"Action":"run","Package":"example.com/test-fail","Test":"TestAdd"}
+{"Action":"output","Package":"example.com/test-fail","Test":"TestAdd","Output":"=== RUN   TestAdd\n","OutputType":"frame"}
+{"Action":"output","Package":"example.com/test-fail","Test":"TestAdd","Output":"    sum_test.go:7: Add(2, 2) = 4, want 5\n","OutputType":"error"}
+{"Action":"output","Package":"example.com/test-fail","Test":"TestAdd","Output":"--- FAIL: TestAdd (0.00s)\n","OutputType":"frame"}
+{"Action":"fail","Package":"example.com/test-fail","Test":"TestAdd","Elapsed":0}
+{"Action":"run","Package":"example.com/test-fail","Test":"TestPasses"}
+{"Action":"output","Package":"example.com/test-fail","Test":"TestPasses","Output":"=== RUN   TestPasses\n","OutputType":"frame"}
+{"Action":"output","Package":"example.com/test-fail","Test":"TestPasses","Output":"--- PASS: TestPasses (0.00s)\n","OutputType":"frame"}
+{"Action":"pass","Package":"example.com/test-fail","Test":"TestPasses","Elapsed":0}
+{"Action":"output","Package":"example.com/test-fail","Output":"FAIL\n","OutputType":"frame"}
+{"Action":"output","Package":"example.com/test-fail","Output":"FAIL\texample.com/test-fail\t0.014s\n","OutputType":"frame"}
+{"Action":"fail","Package":"example.com/test-fail","Elapsed":0.014}

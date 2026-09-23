@@ -1,0 +1,6 @@
+{"Action":"start","Package":"example.com/killed"}
+{"Action":"run","Package":"example.com/killed","Test":"TestKill"}
+{"Action":"output","Package":"example.com/killed","Test":"TestKill","Output":"=== RUN   TestKill\n","OutputType":"frame"}
+{"Action":"output","Package":"example.com/killed","Test":"TestKill","Output":"signal: killed\n"}
+{"Action":"output","Package":"example.com/killed","Output":"FAIL\texample.com/killed\t0.015s\n","OutputType":"frame"}
+{"Action":"fail","Package":"example.com/killed","Elapsed":0.015}

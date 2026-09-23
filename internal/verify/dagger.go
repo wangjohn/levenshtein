@@ -45,6 +45,7 @@ var daggerFunctions = map[CheckKind]string{
 	CheckSelfTest:         "selfTest",
 	CheckGoVet:            "sharedCheck",
 	CheckGoMod:            "sharedCheck",
+	CheckGoTest:           "sharedCheck",
 	CheckGoHTTP:           "sharedCheck",
 	CheckGoSQL:            "sharedCheck",
 	CheckGoVuln:           "sharedCheck",
@@ -56,6 +57,9 @@ var daggerFunctions = map[CheckKind]string{
 func (d *Dagger) Execute(ctx context.Context, req Request) Result {
 	if req.Check.Kind == CheckGoMutation {
 		return d.executeMutation(ctx, req)
+	}
+	if req.Check.Kind == CheckGoTest {
+		return d.executeTests(ctx, req)
 	}
 	result := daggerResult(d.execute(ctx, req, nil))
 
@@ -117,6 +121,32 @@ func (d *Dagger) executeMutation(parent context.Context, req Request) Result {
 	}
 	if ctx.Err() != nil {
 		return Result{Status: StatusError, Error: fmt.Sprintf("go-mutation exceeded its %s timeout", timeout), Stdout: result.Stdout, Stderr: result.Stderr, Details: result.Details}
+	}
+	return result
+}
+
+// executeTests bounds a go-test query by goCheckTimeout, as the native executor
+// bounds its go test process. go test's own -timeout stops a hung test first
+// and reports it as a finding; this bound catches whatever outlives that, such
+// as a build that never finishes, and makes it an error.
+func (d *Dagger) executeTests(parent context.Context, req Request) Result {
+	// Connect with the run's context, as executeMutation does, so the shared
+	// session outlives this check's bound.
+	if err := d.connect(parent, req.Shared); err != nil {
+		if parent.Err() != nil {
+			return Result{Status: StatusCancelled, Error: parent.Err().Error()}
+		}
+		return Result{Status: StatusError, Error: err.Error()}
+	}
+	ctx, cancel := context.WithTimeout(parent, goCheckTimeout)
+	defer cancel()
+
+	result := daggerResult(d.execute(ctx, req, nil))
+	if err := parent.Err(); err != nil {
+		return Result{Status: StatusCancelled, Error: err.Error(), Stdout: result.Stdout, Stderr: result.Stderr, Details: result.Details}
+	}
+	if ctx.Err() != nil {
+		return Result{Status: StatusError, Error: fmt.Sprintf("go-test exceeded its %s timeout", goCheckTimeout), Stdout: result.Stdout, Stderr: result.Stderr}
 	}
 	return result
 }

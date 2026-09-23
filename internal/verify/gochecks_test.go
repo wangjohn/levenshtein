@@ -514,6 +514,29 @@ func TestNativeGoModIgnoresAWorkspace(t *testing.T) {
 	}
 }
 
+// go-test needs cgo for the race detector, so it turns cgo on whatever the
+// environment says, and a host without the C compiler go would use is an error
+// that names the compiler rather than a pass or a wall of runtime/cgo build
+// failures.
+func TestNativeGoTestNeedsACCompiler(t *testing.T) {
+	req := nativeRequest(t)
+	req.Check = Check{Kind: CheckGoTest, Target: "app", Environment: "host"}
+	writeTestFile(t, filepath.Join(req.Source, "go.mod"), "module example.com/tiny\n\ngo 1.27\n")
+	writeTestFile(t, filepath.Join(req.Source, "tiny.go"), "package tiny\n")
+	writeTestFile(t, filepath.Join(req.Source, "tiny_test.go"), "package tiny\n\nimport \"testing\"\n\nfunc TestTiny(t *testing.T) {}\n")
+
+	req.Environment.Env = map[string]string{"CGO_ENABLED": "0"}
+	if result := (&Native{}).Execute(t.Context(), req); result.Status != StatusPassed || !strings.Contains(result.Stdout, "--- PASS: TestTiny") {
+		t.Fatalf("go-test must turn cgo on for -race and report go test's text: %+v", result)
+	}
+
+	req.Environment.Env = map[string]string{"CC": "levenshtein-missing-cc"}
+	result := (&Native{}).Execute(t.Context(), req)
+	if result.Status != StatusError || !strings.Contains(result.Error, "needs cgo and a C compiler") || !strings.Contains(result.Error, "levenshtein-missing-cc") {
+		t.Fatalf("a missing C compiler must be an error that names it: %+v", result)
+	}
+}
+
 func writeTestFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {

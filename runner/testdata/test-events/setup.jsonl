@@ -1,0 +1,7 @@
+{"ImportPath":"example.com/setup/missing","Action":"build-output","Output":"# example.com/setup\n"}
+{"ImportPath":"example.com/setup/missing","Action":"build-output","Output":"a_test.go:4:2: no required module provides package example.com/setup/missing; to add it:\n"}
+{"ImportPath":"example.com/setup/missing","Action":"build-output","Output":"\tgo get example.com/setup/missing\n"}
+{"ImportPath":"example.com/setup/missing","Action":"build-fail"}
+{"Action":"start","Package":"example.com/setup"}
+{"Action":"output","Package":"example.com/setup","Output":"FAIL\texample.com/setup [setup failed]\n","OutputType":"frame"}
+{"Action":"fail","Package":"example.com/setup","Elapsed":0,"FailedBuild":"example.com/setup/missing"}

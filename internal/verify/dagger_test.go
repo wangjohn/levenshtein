@@ -3,6 +3,7 @@ package verify
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/vektah/gqlparser/v2/gqlerror"
@@ -41,7 +42,7 @@ func TestDaggerRejectsUnknownCheckBeforeStartingEngine(t *testing.T) {
 	runner := &Dagger{}
 
 	result := runner.Execute(context.Background(), Request{PlannedCheck: PlannedCheck{Check: Check{Kind: invalidCheckKind}}})
-	if result.Status != StatusError || runner.client != nil {
+	if result.Status != StatusError || runner.client != nil || !strings.Contains(result.Error, "unsupported Dagger check") {
 		t.Fatalf("%+v", result)
 	}
 }

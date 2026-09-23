@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -21,6 +24,7 @@ const (
 	checkLint             checkName = "go-lint"
 	checkVet              checkName = "go-vet"
 	checkMod              checkName = "go-mod"
+	checkTest             checkName = "go-test"
 	checkHTTP             checkName = "go-http"
 	checkSQL              checkName = "go-sql"
 	checkVuln             checkName = "go-vuln"
@@ -31,7 +35,7 @@ const (
 
 func knownCheck(check checkName) bool {
 	switch check {
-	case checkLint, checkVet, checkMod, checkHTTP, checkSQL, checkVuln, checkWorkflow, checkWorkflowSecurity, checkSelfTest:
+	case checkLint, checkVet, checkMod, checkTest, checkHTTP, checkSQL, checkVuln, checkWorkflow, checkWorkflowSecurity, checkSelfTest:
 		return true
 	}
 	return false
@@ -55,6 +59,8 @@ func executeCheck(ctx context.Context, source *dagger.Directory, module string, 
 		return lint(ctx, source, module, tools, nonce)
 	case checkMod:
 		return goMod(ctx, source, module, tools, nonce)
+	case checkTest:
+		return goTest(ctx, source, module, tools, nonce)
 	case checkWorkflowSecurity:
 		return workflowSecurity(ctx, source, module, tools, nonce)
 	}
@@ -241,6 +247,190 @@ func modFindings(step modStep, module string, exitCode int, stdout, stderr strin
 		Message:  message,
 		Location: location{File: module, Line: 1},
 	}}, nil
+}
+
+// testTimeout is go test's own per-package limit, named on the command line so
+// nothing can lift it. A test that hangs past it panics with a goroutine dump
+// and fails its package, which is a finding; the CLI bounds the whole call.
+const testTimeout = "10m"
+
+// testArgs is the go-test invocation. -json lets the check tell a failing test
+// from a package that did not build, which the exit code cannot. go test's
+// built-in vet subset is off because go-vet owns those diagnostics, and go test
+// would otherwise report them as a build failure. A fresh run bypasses go
+// test's own result cache, which lives in the shared build cache volume.
+// internal/verify keeps a copy for the native executor; change both together.
+func testArgs(fresh bool) []string {
+	args := []string{"go", "test", "-race", "-json", "-vet=off", "-timeout=" + testTimeout}
+	if fresh {
+		args = append(args, "-count=1")
+	}
+	return append(args, "./...")
+}
+
+// goTest runs the module's tests with the race detector, which needs cgo; the
+// pinned golang image carries gcc for it.
+func goTest(ctx context.Context, source *dagger.Directory, module string, tools toolchain, nonce string) ([]diagnostic, error) {
+	if _, err := source.File(path.Join(module, "go.mod")).Contents(ctx); err != nil {
+		return nil, fmt.Errorf("module %q needs a readable go.mod: %w", module, err)
+	}
+	ctr := goContainer(tools).
+		WithEnvVariable("CGO_ENABLED", "1").
+		WithDirectory("/src", source).
+		WithWorkdir(path.Join("/src", module))
+	if nonce != "" {
+		ctr = ctr.WithEnvVariable("LEVENSHTEIN_RUN_NONCE", nonce)
+	}
+	packages, err := ctr.WithExec([]string{"go", "list", "./..."}).Stdout(ctx)
+	if err != nil || strings.TrimSpace(packages) == "" {
+		return nil, fmt.Errorf("module %q package discovery failed or found no packages: %v", module, err)
+	}
+
+	checked := ctr.WithExec(testArgs(nonce != ""), dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
+	exitCode, err := checked.ExitCode(ctx)
+	if err != nil {
+		return nil, err
+	}
+	stdout, err := checked.Stdout(ctx)
+	if err != nil {
+		return nil, err
+	}
+	stderr, err := checked.Stderr(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return testFindings(module, exitCode, stdout, stderr)
+}
+
+// testAction is the kind of one go test -json event, as test2json names it.
+// Only the actions the check reads are listed.
+type testAction string
+
+const (
+	testPass        testAction = "pass"
+	testSkip        testAction = "skip"
+	testFail        testAction = "fail"
+	testOutput      testAction = "output"
+	testBuildOutput testAction = "build-output"
+)
+
+// testEvent is the part of a go test -json event the check reads. A package
+// whose test binary could not be built or set up fails with FailedBuild set;
+// its compiler output arrives as build-output events. The tags are
+// test2json's field names.
+type testEvent struct {
+	Action      testAction `json:"Action"`
+	Package     string     `json:"Package"`
+	Test        string     `json:"Test"`
+	Output      string     `json:"Output"`
+	FailedBuild string     `json:"FailedBuild"`
+}
+
+func testEvents(stdout string) ([]testEvent, error) {
+	var events []testEvent
+	decoder := json.NewDecoder(strings.NewReader(stdout))
+	for {
+		var event testEvent
+		err := decoder.Decode(&event)
+		if errors.Is(err, io.EOF) {
+			return events, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("go test -json printed something other than events: %w", err)
+		}
+		events = append(events, event)
+	}
+}
+
+// testTranscript is the text go test prints without -json, rebuilt from the
+// events.
+func testTranscript(events []testEvent) string {
+	var text strings.Builder
+	for _, event := range events {
+		if event.Action == testOutput || event.Action == testBuildOutput {
+			text.WriteString(event.Output)
+		}
+	}
+	return text.String()
+}
+
+// packageTranscript is one failed package's output without the tests in it
+// that passed or were skipped. Output from a test that never reported a result,
+// such as the one running when the package timed out, is kept.
+func packageTranscript(events []testEvent, pkg string) string {
+	finished := map[string]bool{}
+	for _, event := range events {
+		if event.Package == pkg && event.Test != "" && (event.Action == testPass || event.Action == testSkip) {
+			finished[event.Test] = true
+		}
+	}
+
+	var text strings.Builder
+	for _, event := range events {
+		if event.Package == pkg && event.Action == testOutput && !finished[event.Test] {
+			text.WriteString(event.Output)
+		}
+	}
+	return strings.TrimSpace(text.String())
+}
+
+// testFindings tells failing tests from everything else. go test exits 1 both
+// when a test fails and when a package does not build, so the events decide:
+// a package that failed with FailedBuild set ([build failed] or [setup failed])
+// is an error, since its tests never ran, and so is an exit 1 with no failed
+// package at all, such as a module with no packages. Every other package with a
+// failed test, or that failed itself, is a finding carrying its own output,
+// which covers a failed or panicking test, a data race the race detector
+// reported, and a test that hit the timeout. That holds even when go test
+// exits 0, which it does when a TestMain drops m.Run's result and exits 0 after
+// a test failed. A run where no test passed, because none ran or every one
+// skipped, is refused rather than reported as a pass.
+// internal/verify keeps a copy for the native executor; change both together.
+func testFindings(module string, exitCode int, stdout, stderr string) ([]diagnostic, error) {
+	events, err := testEvents(stdout)
+	if err != nil {
+		return nil, fmt.Errorf("go test exited %d without readable -json output: %w: %s", exitCode, err, strings.TrimSpace(stderr))
+	}
+	transcript := strings.TrimSpace(testTranscript(events) + "\n" + stderr)
+	if exitCode != 0 && exitCode != 1 {
+		return nil, fmt.Errorf("go test exited %d: %s", exitCode, transcript)
+	}
+
+	var failed, broken []string
+	for _, event := range events {
+		if event.Action != testFail {
+			continue
+		}
+		if event.FailedBuild != "" {
+			if !slices.Contains(broken, event.Package) {
+				broken = append(broken, event.Package)
+			}
+		} else if !slices.Contains(failed, event.Package) {
+			failed = append(failed, event.Package)
+		}
+	}
+	if len(broken) != 0 {
+		return nil, fmt.Errorf("go test could not build %s: %s", strings.Join(broken, ", "), transcript)
+	}
+	if len(failed) == 0 {
+		if exitCode != 0 {
+			return nil, fmt.Errorf("go test exited %d: %s", exitCode, transcript)
+		}
+		if !slices.ContainsFunc(events, func(event testEvent) bool { return event.Action == testPass && event.Test != "" }) {
+			return nil, fmt.Errorf("module %q ran no tests, or skipped every one; refusing an empty pass: %s", module, transcript)
+		}
+		return nil, nil
+	}
+
+	findings := make([]diagnostic, 0, len(failed))
+	for _, pkg := range failed {
+		findings = append(findings, diagnostic{
+			Code:     string(checkTest),
+			Message:  packageTranscript(events, pkg),
+			Location: location{File: module, Line: 1},
+		})
+	}
+	return findings, nil
 }
 
 // SharedCheck runs one pinned upstream check for a target.
