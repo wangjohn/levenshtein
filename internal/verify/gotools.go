@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -208,4 +209,48 @@ func sharedChecks(shared string) ([]string, error) {
 		return nil, fmt.Errorf("runner/toolchain.json declares no checks")
 	}
 	return tools.Checks, nil
+}
+
+// lintSelection is the rule list a go-lint check runs: the shipped selection
+// followed by the patterns the check adds, so the added ones win where they
+// overlap. An added pattern that matches no rule the pinned linter registers
+// is almost always a misspelling that would leave the rule silently off, so it
+// is an error rather than a no-op. runner/main.go applies the same rule on the
+// Dagger path.
+func lintSelection(ctx context.Context, work goRun, binary string, shipped, added []string) ([]string, error) {
+	if len(added) == 0 {
+		return shipped, nil
+	}
+
+	run, err := runTool(ctx, work.Dir, []string{binary, "-list-checks"}, work.Env, time.Minute)
+	if err != nil {
+		return nil, err
+	}
+	if run.ExitCode != 0 {
+		return nil, fmt.Errorf("listing the linter's rules failed: %s", strings.TrimSpace(run.Stderr))
+	}
+	if err := registered(added, run.Stdout); err != nil {
+		return nil, err
+	}
+	return append(slices.Clone(shipped), added...), nil
+}
+
+// registered checks every pattern against the linter's -list-checks output,
+// one rule per line with its name first. runner/main.go has a copy; both tests
+// load runner/testdata/registered.json.
+func registered(patterns []string, listing string) error {
+	var names []string
+	for line := range strings.Lines(listing) {
+		if fields := strings.Fields(line); len(fields) > 0 {
+			names = append(names, fields[0])
+		}
+	}
+
+	for _, pattern := range patterns {
+		name := strings.TrimPrefix(pattern, "-")
+		if !slices.ContainsFunc(names, func(rule string) bool { return selects(name, rule) }) {
+			return fmt.Errorf("go-lint check %q matches no rule levenshtein-lint registers", pattern)
+		}
+	}
+	return nil
 }

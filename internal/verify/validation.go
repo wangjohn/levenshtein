@@ -14,6 +14,14 @@ func validateCheck(check Check, env Environment) error {
 	if check.Mutation != nil && check.Kind != CheckGoMutation {
 		return fmt.Errorf("mutation options apply only to go-mutation checks")
 	}
+	if check.Lint != nil {
+		if check.Kind != CheckGoLint {
+			return fmt.Errorf("lint options apply only to go-lint checks")
+		}
+		if err := validateLintChecks(check.Lint.Checks); err != nil {
+			return err
+		}
+	}
 	if env.Executor == ExecutorDagger {
 		return validateDaggerCheck(check, env)
 	}
@@ -71,6 +79,29 @@ func validateGoMutation(check Check) error {
 		return fmt.Errorf("go-mutation tags %q must be one comma-separated list without spaces", options.Tags)
 	}
 	return validateDuration(options.Timeout)
+}
+
+// lintPattern is one entry of Staticcheck's -checks list: an optional "-",
+// then "*", or a rule name or category with an optional trailing "*". Every
+// rule levenshtein-lint registers is a plain letters-and-digits name.
+// runner/main.go has a copy that guards a direct Dagger call.
+var lintPattern = regexp.MustCompile(`^-?(\*|[A-Za-z][A-Za-z0-9]*\*?)$`)
+
+// validateLintChecks accepts the patterns a go-lint check adds to the shipped
+// selection. They are joined with commas into one -checks flag, so an entry
+// that is not a single pattern would change what the others mean. Whether a
+// pattern names a rule the pinned linter registers is checked when the check
+// runs, because only the linter knows its rules.
+func validateLintChecks(checks []string) error {
+	if len(checks) == 0 {
+		return fmt.Errorf("go-lint lint options need a nonempty checks list")
+	}
+	for _, check := range checks {
+		if !lintPattern.MatchString(check) {
+			return fmt.Errorf("go-lint check %q must be one Staticcheck pattern such as \"gocognit\", \"-unparam\", or \"SA5*\"", check)
+		}
+	}
+	return nil
 }
 
 // gitRef accepts a branch name that git cannot read as an option.
