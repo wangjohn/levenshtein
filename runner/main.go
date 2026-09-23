@@ -10,6 +10,7 @@ import (
 	"io"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"unicode"
@@ -45,15 +46,20 @@ type location struct {
 	Column int    `json:"column"`
 }
 
+// linter is the pinned Go image with levenshtein-lint built from this module.
+func linter(tools toolchain) *dagger.Container {
+	return goContainer(tools).
+		WithDirectory("/policy", dag.CurrentModule().Source().Directory("lint")).
+		WithWorkdir("/policy").
+		WithExec([]string{"go", "build", "-trimpath", "-o", "/go/bin/levenshtein-lint", "./cmd/levenshtein-lint"})
+}
+
 func lint(ctx context.Context, source *dagger.Directory, module string, tools toolchain, nonce string) ([]diagnostic, error) {
 	if _, err := source.File(path.Join(module, "go.mod")).Contents(ctx); err != nil {
 		return nil, fmt.Errorf("module %q needs a readable go.mod: %w", module, err)
 	}
 
-	ctr := goContainer(tools).
-		WithDirectory("/policy", dag.CurrentModule().Source().Directory("lint")).
-		WithWorkdir("/policy").
-		WithExec([]string{"go", "build", "-trimpath", "-o", "/go/bin/levenshtein-lint", "./cmd/levenshtein-lint"}).
+	ctr := linter(tools).
 		WithDirectory("/src", source).
 		WithWorkdir(path.Join("/src", module))
 
@@ -87,6 +93,60 @@ func lint(ctx context.Context, source *dagger.Directory, module string, tools to
 		return nil, err
 	}
 	return parseFindings(exitCode, stdout, stderr, tools.Checks)
+}
+
+// lintPattern is one entry of Staticcheck's -checks list: an optional "-",
+// then "*", or a rule name or category with an optional trailing "*". The CLI
+// validates levenshtein.json with a copy (internal/verify/validation.go); this
+// one guards a direct call.
+var lintPattern = regexp.MustCompile(`^-?(\*|[A-Za-z][A-Za-z0-9]*\*?)$`)
+
+// selection returns tools with the rule list a go-lint call runs: the shipped
+// selection followed by the patterns the caller adds, so the added ones win
+// where they overlap. Each added pattern must be well formed, since all of
+// them are joined into one -checks flag, and must match a rule the pinned
+// linter registers, since a misspelled name would otherwise leave its rule
+// silently off. The native executor applies the same rule
+// (internal/verify/gotools.go).
+func selection(ctx context.Context, tools toolchain, added []string) (toolchain, error) {
+	if len(added) == 0 {
+		return tools, nil
+	}
+	for _, check := range added {
+		if !lintPattern.MatchString(check) {
+			return toolchain{}, fmt.Errorf("go-lint check %q must be one Staticcheck pattern such as \"gocognit\", \"-unparam\", or \"SA5*\"", check)
+		}
+	}
+
+	listing, err := linter(tools).WithExec([]string{"/go/bin/levenshtein-lint", "-list-checks"}).Stdout(ctx)
+	if err != nil {
+		return toolchain{}, fmt.Errorf("listing the linter's rules: %w", err)
+	}
+	if err := registered(added, listing); err != nil {
+		return toolchain{}, err
+	}
+	tools.Checks = append(slices.Clone(tools.Checks), added...)
+	return tools, nil
+}
+
+// registered checks every pattern against the linter's -list-checks output,
+// one rule per line with its name first. internal/verify/gotools.go has a
+// copy; both tests load testdata/registered.json.
+func registered(patterns []string, listing string) error {
+	var names []string
+	for line := range strings.Lines(listing) {
+		if fields := strings.Fields(line); len(fields) > 0 {
+			names = append(names, fields[0])
+		}
+	}
+
+	for _, pattern := range patterns {
+		name := strings.TrimPrefix(pattern, "-")
+		if !slices.ContainsFunc(names, func(rule string) bool { return selects(name, rule) }) {
+			return fmt.Errorf("go-lint check %q matches no rule levenshtein-lint registers", pattern)
+		}
+	}
+	return nil
 }
 
 // allowed reproduces Staticcheck's filterAnalyzerNames (lintcmd/lint.go in
@@ -192,6 +252,20 @@ func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce strin
 		if err != nil || len(findings) != 0 {
 			return fmt.Errorf("%s fixture must pass: findings=%v error=%v", name, findings, err)
 		}
+	}
+
+	// A check that adds gocognit to the shipped selection reports the fixture
+	// the default passes, and a misspelled rule is refused rather than ignored.
+	opted, err := selection(ctx, tools, []string{"gocognit"})
+	if err != nil {
+		return fmt.Errorf("adding gocognit to the selection: %w", err)
+	}
+	complexity, err := lint(ctx, fixtures.Directory("complexity"), ".", opted, nonce)
+	if err != nil || len(complexity) != 1 || complexity[0].Code != "gocognit" {
+		return fmt.Errorf("complexity fixture must fail for one gocognit finding when a check adds it: findings=%v error=%v", complexity, err)
+	}
+	if _, err := selection(ctx, tools, []string{"gocogint"}); err == nil || !strings.Contains(err.Error(), "matches no rule") {
+		return fmt.Errorf("a misspelled added rule must be refused; got %v", err)
 	}
 
 	bad, err := lint(ctx, fixtures.Directory("bad"), ".", tools, nonce)
@@ -352,6 +426,10 @@ func (m *Levenshtein) GoLint(ctx context.Context,
 	module string,
 	// +optional
 	nonce string,
+	// Staticcheck -checks patterns applied after the shipped selection, such as
+	// "gocognit" to turn an opt-in rule on or "-unparam" to turn one off.
+	// +optional
+	checks []string,
 ) error {
 	if !filepath.IsLocal(module) || path.Clean(module) != module || strings.Contains(module, "\\") {
 		return fmt.Errorf("invalid module path %q", module)
@@ -359,6 +437,10 @@ func (m *Levenshtein) GoLint(ctx context.Context,
 
 	var tools toolchain
 	if err := json.Unmarshal(toolchainJSON, &tools); err != nil {
+		return err
+	}
+	tools, err := selection(ctx, tools, checks)
+	if err != nil {
 		return err
 	}
 

@@ -116,3 +116,53 @@ func TestLinterDependencyMatchesToolchain(t *testing.T) {
 		t.Fatal("lint module and toolchain.json must pin the same Staticcheck version")
 	}
 }
+
+// registeredCase is one row of testdata/registered.json.
+type registeredCase struct {
+	Name    string   `json:"name"`
+	Checks  []string `json:"checks"`
+	Matches bool     `json:"matches"`
+}
+
+// A pattern a go-lint call adds must match a rule the linter lists. The
+// standalone CLI's copy (internal/verify/gotools.go) loads the same table.
+func TestAddedChecksMustMatchARegisteredRule(t *testing.T) {
+	data, err := os.ReadFile("testdata/registered.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var shared struct {
+		Listing string           `json:"listing"`
+		Cases   []registeredCase `json:"cases"`
+	}
+	if err := json.Unmarshal(data, &shared); err != nil {
+		t.Fatal(err)
+	}
+	if len(shared.Cases) == 0 {
+		t.Fatal("testdata/registered.json has no cases")
+	}
+
+	for _, tc := range shared.Cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			if err := registered(tc.Checks, shared.Listing); (err == nil) != tc.Matches {
+				t.Fatalf("registered(%v) = %v, want matches=%v", tc.Checks, err, tc.Matches)
+			}
+		})
+	}
+}
+
+// An added pattern is joined into one -checks flag, so anything but a single
+// pattern is refused before the linter runs. The CLI validates levenshtein.json
+// with a copy of the same expression.
+func TestAddedCheckPatternSyntax(t *testing.T) {
+	for _, check := range []string{"gocognit", "-unparam", "SA5*", "S*", "all", "*", "-ST1000", "appendAssign"} {
+		if !lintPattern.MatchString(check) {
+			t.Errorf("rejected %q", check)
+		}
+	}
+	for _, check := range []string{"", "-", "--unparam", "gocognit,unparam", "SA 5001", " gocognit", "SA*5", "**", "go-cognit", "1000"} {
+		if lintPattern.MatchString(check) {
+			t.Errorf("accepted %q", check)
+		}
+	}
+}

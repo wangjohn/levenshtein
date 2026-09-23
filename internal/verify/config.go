@@ -54,8 +54,8 @@ type Preparation struct {
 
 // A Check carries only the options its kind accepts. Most Dagger kinds take no
 // object, a command check requires Command, semantic-lint may carry Semantic,
-// and go-mutation may carry Mutation. The other combinations cannot be written
-// down.
+// go-mutation may carry Mutation, and go-lint may carry Lint on either
+// executor. The other combinations cannot be written down.
 //
 // A check names one target, either with Target or as a Targets list that
 // expands to one planned check per entry. Exactly one of the two is set; see
@@ -68,6 +68,7 @@ type Check struct {
 	Command     *CommandCheck  `json:"command,omitempty"`
 	Semantic    *SemanticCheck `json:"semantic,omitempty"`
 	Mutation    *MutationCheck `json:"mutation,omitempty"`
+	Lint        *LintCheck     `json:"lint,omitempty"`
 }
 
 // at binds a multi-target check to one of its targets, so every planned check
@@ -116,6 +117,14 @@ type MutationCheck struct {
 	Timeout  string        `json:"timeout,omitempty"`
 }
 
+// LintCheck tunes the go-lint kind. Checks are Staticcheck -checks patterns
+// applied after the shipped selection in runner/toolchain.json, where the last
+// matching pattern wins, so "gocognit" turns an opt-in rule on and "-unparam"
+// turns a default rule off without restating the rest.
+type LintCheck struct {
+	Checks []string `json:"checks"`
+}
+
 // artifacts, env and cacheable read options that only a command check has, so
 // every other kind reports the zero value instead of needing a nil test.
 func (check Check) artifacts() []string {
@@ -143,6 +152,15 @@ func (check Check) semanticOptions() SemanticCheck {
 		return SemanticCheck{}
 	}
 	return *check.Semantic
+}
+
+// lintChecks is what a go-lint check adds to the shipped selection, or
+// nothing when it declares no lint options.
+func (check Check) lintChecks() []string {
+	if check.Lint == nil {
+		return nil
+	}
+	return check.Lint.Checks
 }
 
 // defaultAccepted is where a go-mutation check looks for accepted survivors
