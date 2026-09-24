@@ -53,6 +53,28 @@ const (
 // executor. Add new kinds here as well as to the executor that runs them.
 var checkKinds = []CheckKind{CheckGoLint, CheckGoVet, CheckGoMod, CheckGoTest, CheckGoHTTP, CheckGoSQL, CheckGoVuln, CheckWorkflowLint, CheckWorkflowSecurity, CheckSelfTest, CheckCommand, CheckSemanticLint, CheckGoMutation}
 
+// WarningKind names a problem a check result reports without failing. The
+// community linter reports the rule-* kinds; runner/community keeps copies of
+// those.
+type WarningKind string
+
+const (
+	// WarningRuleModulesSkipped: a go-lint check ran its core rules only,
+	// because its executor does not run community rules.
+	WarningRuleModulesSkipped WarningKind = "rule-modules-skipped"
+	// WarningRuleModuleDeprecated: this release lists the pinned version as
+	// deprecated.
+	WarningRuleModuleDeprecated WarningKind = "rule-module-deprecated"
+	// WarningRuleModuleRetracted: the module's author retracted the pinned
+	// version.
+	WarningRuleModuleRetracted WarningKind = "rule-module-retracted"
+	// WarningRuleRenamed: a pattern, advisory entry, or setting uses a rule's
+	// old name.
+	WarningRuleRenamed WarningKind = "rule-renamed"
+	// WarningRuleDeprecated: a selected rule is deprecated.
+	WarningRuleDeprecated WarningKind = "rule-deprecated"
+)
+
 // CacheStatus describes reuse without conflating it with verification outcomes.
 type CacheStatus string
 

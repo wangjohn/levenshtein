@@ -56,9 +56,31 @@ A `go-lint` check may carry a `lint` object whose `checks` list is appended to t
 "cleanup": {"kind": "go-lint", "targets": ["api", "worker"], "environment": "go", "lint": {"checks": ["gocognit", "-unparam"]}}
 ```
 
-Entries use Staticcheck's `-checks` syntax and the last pattern that matches a rule wins, so `gocognit` turns on a rule the default leaves off and `-unparam` turns off one it runs. `checks` must be nonempty, and each entry must be a single pattern: an optional `-`, then `all`, `*`, a rule name, or a name ending in `*`. The `lint` object is accepted only on `go-lint`, on either executor; `go-http` and `go-sql` keep their fixed rule. A pattern that matches no rule the pinned linter registers makes the check an error when it runs. The added patterns are part of the check's result key, so changing them re-runs it. See [changing the selection](checks.md#changing-the-selection-for-one-repository) for when to prefer `//lint:ignore`.
+Entries use Staticcheck's `-checks` syntax and the last pattern that matches a rule wins, so `gocognit` turns on a rule the default leaves off and `-unparam` turns off one it runs. Each entry must be a single pattern: an optional `-`, then `all`, `*`, a rule name, or a name ending in `*`. A pattern containing `_`, such as `errs_nopanic`, selects [community rules](#community-rule-modules) instead. The `lint` object needs a nonempty `checks` list, a `rule_modules` setting, or both. The `lint` object is accepted only on `go-lint`, on either executor; `go-http` and `go-sql` keep their fixed rule. A pattern that matches no rule the pinned linter registers makes the check an error when it runs. The added patterns are part of the check's result key, so changing them re-runs it. See [changing the selection](checks.md#changing-the-selection-for-one-repository) for when to prefer `//lint:ignore`.
 
 `lint` is an additive, optional field of version 1: a file without it means what it did before and keeps its cached results, so `version` stays `1`. A Levenshtein release older than the field rejects a file that uses it as an unknown field.
+
+### Community rule modules
+
+A top-level `rule_modules` object pins lint rules published as Go modules, which run beside the shipped rules in every `go-lint` check. The key is the module path:
+
+```json
+"rule_modules": {
+  "github.com/acme/lvrules-errors": {
+    "version": "v1.4.0",
+    "namespace": "errs",
+    "select": ["errs_*", "-errs_wrapf"],
+    "advisory": ["errs_sentinel"],
+    "settings": {"errs_nopanic": {"allow": "Must,Should"}}
+  }
+}
+```
+
+`version` must be an exact tag or pseudo-version, and `namespace` repeats the module's own, so a rule reports as `errs_nopanic`. `select` turns rules on for every `go-lint` check; a check's own `lint.checks` can add or remove community rules after it, as in `"lint": {"checks": ["errs_wrapf"]}`, and `"lint": {"rule_modules": false}` keeps one check out entirely. `advisory` rules report without failing the check. `settings` sets an analyzer's flags by rule code. `go-http` and `go-sql` never run community rules.
+
+Community rules run only on the Dagger executor: a native `go-lint` check runs the shipped rules and adds a `rule-modules-skipped` warning to its result. The planned modules are part of each check's result key, so moving a pin re-runs the check. A community rule runs code that can read your source; read the [security note](community-rules.md#security) before enabling one on a private repository. [Community lint rules](community-rules.md) has the full contract, pattern rules, warnings, and errors.
+
+`rule_modules` is an additive, optional field of version 1, like `lint`.
 
 A run selects check IDs, optionally per target as described in [one check, several targets](#one-check-several-targets). `rerun_checks: true` forces verification execution while retaining compatible dependency/build caches. It replaces the earlier `fresh` setting; use `rerun_checks` in configuration and `LEVENSHTEIN_RERUN_CHECKS` in scripts. Any run name can use it; versioned configuration gives `main` no special behavior. Unknown checks, executors, references, and configuration fields fail explicitly.
 
@@ -110,7 +132,7 @@ Exclude entries are validated like inputs: clean, relative, and free of pattern 
 
 ## Results
 
-The CLI emits a versioned JSON report with the resolved plan and a result for every selected check. Results distinguish `passed`, `failed`, `error`, `cancelled`, and `incomplete`, with timing and native output/details. A run succeeds only when every selected check passes. Planning/configuration errors exit 2; unsuccessful verification exits 1.
+The CLI emits a versioned JSON report with the resolved plan and a result for every selected check. Results distinguish `passed`, `failed`, `error`, `cancelled`, and `incomplete`, with timing and native output/details. A result may also carry `warnings`, problems that did not change its verdict, each with a `kind` and a `message`; they are kept with a cached result. Each lint finding carries `advisory`, and a `url` for its rule's documentation where there is one; a community finding also names its `source` module. A `go-lint` check can pass with advisory findings in its details. A run succeeds only when every selected check passes. Planning/configuration errors exit 2; unsuccessful verification exits 1.
 
 Application repos retain their own CI triggers, workers, schedules, and merge gates. Pin the shared checkout as described in [consumer CI](consumer-ci.md).
 
@@ -159,9 +181,9 @@ A command check may reference an entry in top-level `preparations` by its `comma
 }
 ```
 
-These kinds take no options of their own on either executor except `go-lint`'s [`lint` object](#lint-selection), which works the same way here; a `command` or `semantic` object is rejected. The environment may still declare `identity`, `env`, `pass_env`, and pinned `tools`. `go-http`, `go-sql`, and Levenshtein's own `self-test` remain Dagger-only, and Dagger stays the default for a repository with no configuration file.
+These kinds take no options of their own on either executor except `go-lint`'s [`lint` object](#lint-selection), which works the same way here except that [community rules](#community-rule-modules) are skipped with a warning; a `command` or `semantic` object is rejected. The environment may still declare `identity`, `env`, `pass_env`, and pinned `tools`. `go-http`, `go-sql`, and Levenshtein's own `self-test` remain Dagger-only, and Dagger stays the default for a repository with no configuration file.
 
-The host must supply the Go in the shared checkout's `.go-version`; toolchain switching is disabled, so a different host Go is used as-is rather than silently replaced. Levenshtein builds the helper tools (`levenshtein-lint`, `actionlint`, `govulncheck`) from the pinned shared checkout into `<cache-dir>/tools/` on first use, serialized by a file lock, and relies on Go's own build cache for repeat builds. `workflow-security` instead downloads the pinned zizmor release archive for the host into `<cache-dir>/tools/zizmor-<version>/` and verifies its SHA-256 before extracting it, on every run; macOS and Linux on amd64 and arm64 are pinned. `go-test` builds no helper but runs `go test -race`, which needs cgo: it sets `CGO_ENABLED=1` and is an error when the C compiler `go env CC` names is not on the check's `PATH`. Staticcheck's analysis cache lives in `<cache-dir>/staticcheck`; a fresh run points it at a throwaway directory instead. Without a cache directory, each check builds into a temporary directory it removes afterwards.
+The host must supply the Go in the shared checkout's `.go-version`; toolchain switching is disabled, so a different host Go is used as-is rather than silently replaced. Levenshtein builds the helper tools (`levenshtein-lint`, `actionlint`, `govulncheck`) from the pinned shared checkout into `<cache-dir>/tools/` on first use, serialized by a file lock, and relies on Go's own build cache for repeat builds. `workflow-security` instead downloads the pinned zizmor release archive for the host into `<cache-dir>/tools/zizmor-<version>/` and verifies its SHA-256 before extracting it, on every run; macOS and Linux on amd64 and arm64 are pinned. `go-test` builds no helper but runs `go test -race`, which needs cgo: it sets `CGO_ENABLED=1` and is an error when the C compiler `go env CC` names is not on the check's `PATH`. Staticcheck's analysis cache lives in `<cache-dir>/staticcheck`; a fresh run points it at a throwaway directory instead. An analyzer that fails stops the run before its package is cached, so a failed run's results are never reused. Without a cache directory, each check builds into a temporary directory it removes afterwards.
 
 Workspace selection matches what the container would see. The container imports only declared inputs less the target's `exclude`, so the host runs with `GOWORK` set to the nearest `go.work` between the target directory and the source root that an input covers and no exclude drops, and `GOWORK=off` when there is none; a `go.work` above the source, or one the target does not declare, is never used. Declare `go.work` (and `go.work.sum`) in the target's `inputs` to analyze the module in workspace mode. `go-mod` is the exception on both executors: it always runs with `GOWORK=off`, because `go mod tidy` checks one module's own manifests whatever workspace it belongs to, and `go mod verify` then covers that module's requirements rather than every workspace member's. Give each workspace module its own target.
 

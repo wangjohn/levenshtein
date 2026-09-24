@@ -238,3 +238,25 @@ func TestFindingsDetailsMatchTheDaggerEnvelope(t *testing.T) {
 		}
 	}
 }
+
+func TestCoreURLsMatchTheSharedTable(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "runner", "testdata", "core-urls.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table struct {
+		Cases []struct {
+			Code string `json:"code"`
+			URL  string `json:"url"`
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(data, &table); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range table.Cases {
+		if got := coreURL(test.Code); got != test.URL {
+			t.Errorf("coreURL(%q) = %q, want %q", test.Code, got, test.URL)
+		}
+	}
+}

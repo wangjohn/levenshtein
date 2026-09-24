@@ -41,7 +41,7 @@ func goCheckExecutor(run goRunner, message string) func(*Native, context.Context
 
 		work := goRun{Dir: dir, Env: analysisEnv(env, workspace(req, dir)), Root: root}
 		findings, invocation, err := run(n, ctx, req, work)
-		result := Result{Stdout: invocation.Stdout, Stderr: invocation.Stderr}
+		result := Result{Stdout: invocation.Stdout, Stderr: invocation.Stderr, Warnings: skippedRuleModules(req)}
 
 		if ctx.Err() != nil {
 			return result.withOutcome(StatusCancelled, ctx.Err().Error())
@@ -59,6 +59,27 @@ func goCheckExecutor(run goRunner, message string) func(*Native, context.Context
 		result.Details = findingsDetails(findings)
 		return result
 	}
+}
+
+// skippedRuleModules says what a go-lint check left out. Community rules run
+// only on the Dagger executor, where the lint step is isolated from the host;
+// a native go-lint check runs its core rules and says it skipped the rest, so
+// one configuration can still mix executors. Until the Dagger runner builds
+// the community linter, a Dagger check skips them the same way rather than
+// passing as though they had run.
+func skippedRuleModules(req Request) []Warning {
+	if len(req.RuleModules) == 0 {
+		return nil
+	}
+
+	reason := "run only on the Dagger executor; this native check ran the core rules"
+	if req.Environment.Executor == ExecutorDagger {
+		reason = "are not built by this release's Dagger runner yet; this check ran the core rules"
+	}
+	return []Warning{{
+		Kind:    WarningRuleModulesSkipped,
+		Message: fmt.Sprintf("community rules from %d rule module(s) %s", len(req.RuleModules), reason),
+	}}
 }
 
 // validateSharedGoCheck accepts a shared Go kind on a native environment. Only
@@ -153,7 +174,7 @@ func (n *Native) goLint(ctx context.Context, req Request, work goRun) ([]finding
 	if err != nil {
 		return nil, toolRun{}, err
 	}
-	checks, err := lintSelection(ctx, work, binary, shipped, req.Check.lintChecks())
+	checks, err := lintSelection(ctx, work, binary, shipped, req.Check.coreLintChecks())
 	if err != nil {
 		return nil, toolRun{}, err
 	}
