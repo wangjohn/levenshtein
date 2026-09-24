@@ -2,15 +2,20 @@
 
 **Status: proposal.** Only the example module and its CI check exist today.
 
-Today a rule Levenshtein does not ship can only run as a native `command`
-check, which loses shared selection, `//lint:ignore`, JSON findings, and result
-caching. With this proposal, anyone can publish Go lint rules as an ordinary Go
-module. A Levenshtein consumer pins that module in `levenshtein.json`, and the
-rules run beside the core rules without ever entering `runner/lint`. A
-separate catalog repository lists modules that build and have an owner, and
-good rules graduate into the core selection from there. The design follows
-golangci-lint's module plugins, TFLint's exact pins, and ESLint's plugin-owned
-rule names.
+**Problem.** A rule Levenshtein does not ship can only run as a native
+`command` check, which loses shared selection, `//lint:ignore`, JSON findings,
+and result caching.
+
+**Proposal.**
+
+- Anyone publishes lint rules as an ordinary Go module.
+- A consumer pins that module in `levenshtein.json`.
+- The rules run beside the core rules without entering `runner/lint`.
+- A separate catalog lists modules that build and have an owner, and good
+  rules graduate into core from there.
+
+The design borrows golangci-lint's module plugins, TFLint's exact pins, and
+ESLint's plugin-owned rule names.
 
 ```text
 levenshtein.json ──> build community linter ──> run beside core linter ──> one report
@@ -75,6 +80,9 @@ appears in findings, patterns, and `//lint:ignore errs_nopanic <reason>`.
   would fall into that category. With letters only, plus a `_` that no core
   code uses, no core pattern can match a community code.
 - **Reserved:** `lvrules`, `example`, `levenshtein`, and `lv`.
+- **One module per namespace in a configuration.** Two modules that claim the
+  same namespace cannot be used together. The catalog prevents this for listed
+  modules.
 
 ### Renames, deprecation, and graduation
 
@@ -105,15 +113,15 @@ appears in findings, patterns, and `//lint:ignore errs_nopanic <reason>`.
    add the `levenshtein-lint-rules` topic.
 6. From phase 2, open a pull request to the catalog.
 
-[`examples/rule-module`](../examples/rule-module) is the working template. Its
-namespace is `example` and its one rule, `example_nopanic`, reports `panic` in
-library code; its README documents the rule. Levenshtein's own CI keeps the
-template working. The `example` target in `levenshtein.json` runs lint, vet,
-mod, and tests on it. `scripts/test-example-rules` checks that its `go`
-directive is not newer than `.go-version`, builds it into a community linter on
-the pinned Staticcheck, and runs that linter on a sample package, including a
-`//lint:ignore`. That script uses a plain rename for now, and switches to
-`runner/community` once that exists.
+[`examples/rule-module`](../examples/rule-module) is the working template:
+one rule, `example_nopanic`, documented in its README. This repository's CI
+keeps it working:
+
+- The `example` target in `levenshtein.json` gets lint, vet, mod, and tests.
+- `scripts/test-example-rules` checks its `go` directive against
+  `.go-version`, builds it into a community linter on the pinned Staticcheck,
+  and runs that linter on a sample package, including a `//lint:ignore`. It
+  uses a plain rename until `runner/community` exists.
 
 ## For consumers
 
@@ -138,7 +146,6 @@ the pinned Staticcheck, and runs that linter on a sample package, including a
 | `select` | Required, nonempty. Patterns for the rules every `go-lint` check runs from this module; only this module's namespace |
 | `advisory` | Patterns for selected rules that report without failing the check; naming a rule no check selects is an error |
 | `settings` | String flag values for each rule, set through the analyzer's `Flags` |
-| `alias` | Replaces `namespace` in this repository when two modules collide |
 
 To stop using a module, remove its entry. A single check opts out with
 `"lint": {"rule_modules": false}`. `rule_modules` is optional and additive to
@@ -175,9 +182,7 @@ check:
   [advisory] store/store.go:7:3 errs_sentinel: compare errors with errors.Is (https://pkg.go.dev/github.com/acme/lvrules-errors/sentinel)
 ```
 
-A stale `//lint:ignore` is advisory only if every code it names is advisory. The
-README's `jq` recipe for reading reports gains an `[advisory]` prefix and the
-`url`.
+A stale `//lint:ignore` is advisory only if every code it names is advisory.
 
 ### Ignore directives
 
@@ -281,9 +286,9 @@ containers:
    sources as plain directories, `GOPROXY=off`, `GOFLAGS=-mod=readonly`, a fresh
    `GOCACHE`, and its own Staticcheck cache volume.
 
-The generated `main` imports each module under a positional alias and lists
-only the rules that some check selects. Staticcheck runs every registered
-analyzer, selected or not.
+The generated `main` imports each module under a positional alias (`m0`, `m1`,
+...) and lists only the rules some check selects, because Staticcheck runs every
+registered analyzer whether or not it is selected.
 
 ```go
 // Code generated by levenshtein from levenshtein.json; DO NOT EDIT.
@@ -311,12 +316,9 @@ var modules = []community.Module{{
 - hands everything to `lintcmd`, calling `Execute` rather than `Run` so it can
   write a completion marker.
 
-The community linter runs with `-fail` naming only non-advisory rules, so
-advisory findings come back as warnings with exit code 0. `GoLint` returns
-findings for passing results too, as `go-mutation` does, and today's rule that
-exit 0 means no findings changes to match. The runner reports `compile`
-diagnostics once, and accepts the `staticcheck` and `compile` codes from both
-linters.
+The runner starts the community linter with `-fail` naming only the
+non-advisory rules. Advisory findings then come back as warnings with exit code
+0.
 
 ### Errors
 
@@ -327,12 +329,9 @@ linters.
 | Running a rule | The rule returns an error or panics, including in a dependency | Written to a failure file; check error such as "errs_nopanic (…@v1.4.0) failed on 3 packages", exit 1 |
 | After the run | No completion marker, for example because a rule called `os.Exit(0)` | Check error, exit 1 |
 
-Core findings are reported in every case. Messages state only what is known,
-for example: "github.com/acme/lvrules-errors@v1.5.0 requires honnef.co/go/tools
-v0.9.0 (through example.com/helper@v0.3.0), but this release pins v0.8.1. Use a
-version of the module that supports v0.8.1, or a Levenshtein release that pins
-v0.9.0 or later." Staticcheck's runner also swallows errors from core
-analyzers, and the core linter needs the same fix.
+Core findings are reported in every case. Messages state what is known and
+never guess a fix, for example: "…@v1.5.0 requires honnef.co/go/tools v0.9.0
+(through example.com/helper@v0.3.0), but this release pins v0.8.1."
 
 ### Result keys
 
@@ -357,10 +356,22 @@ versions.
   offers one, the private-repository [warning](#security) stands.
 - **Native execution (phase 3) is trusted-only**, like native `command` checks.
 
-`SECURITY.md` will say that vulnerabilities in a rule go to its module's
-maintainers, and a malicious module goes to the catalog. Private rule modules
-wait for phase 3: the build would receive a token as a Dagger secret, and the
-entry would carry an `h1:` `sum`.
+Private rule modules wait for phase 3: the build would receive a token as a
+Dagger secret, and the entry would carry an `h1:` `sum`.
+
+### Changes to existing code
+
+| Where | Change |
+| --- | --- |
+| `internal/verify/config.go`, `validation.go` | `rule_modules` and `lint.rule_modules`, with the load-time checks above |
+| `runner/main.go`, `internal/verify/validation.go` | `lintPattern` accepts `_`; patterns split between the linters, and community globs expand |
+| `runner/main.go` `GoLint` | A `rule_modules` argument and the three containers; passing results carry findings, as `go-mutation`'s do, so exit 0 may now come with advisory findings |
+| `runner/main.go` `parseFindings` | Accepts `staticcheck` and `compile` codes from both linters, and reports `compile` diagnostics once |
+| `runner/main.go` diagnostic, report schema | `source`, `url`, and `advisory` on findings; `warnings` on results, kept in the result cache |
+| `runner/lint/cmd/levenshtein-lint` | The same failure wrapper, since Staticcheck's runner also swallows errors from core analyzers |
+| New `runner/community`, `runner/rule-modules.json` | The community linter's registration, and the shipped withdrawn/deprecated list |
+| `action.yml` job summary, README `jq` recipe | Show advisory findings and `url` |
+| `SECURITY.md` | Community rules: vulnerabilities go to the module's maintainers, a malicious module to the catalog, and native runs are trusted-only |
 
 ## The catalog
 
