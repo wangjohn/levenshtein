@@ -32,9 +32,14 @@ source=$(git -C "${cwd:-$project}" rev-parse --show-toplevel 2> /dev/null) || so
 levenshtein=${LEVENSHTEIN:-$project/../levenshtein}
 run=${LEVENSHTEIN_RUN:-branch}
 
-# Nothing Go-related changed since the last commit: nothing to check. Outside
-# a git work tree the change is unknown, so the run goes ahead.
-if changes=$(git -C "$source" status --porcelain -- '*.go' '*go.mod' '*go.sum' '*go.work' 'levenshtein.json' '.levenshtein' 2> /dev/null) && [[ -z $changes ]]; then
+# Nothing Go-related changed since the last commit, and no commit the branch
+# has not pushed to its upstream touches Go: nothing to check. Agents often
+# commit before they stop, so committing alone must not skip the run. A branch
+# without an upstream is judged on uncommitted changes only. Outside a git work
+# tree the change is unknown, so the run goes ahead.
+paths=('*.go' '*go.mod' '*go.sum' '*go.work' 'levenshtein.json' '.levenshtein')
+unpushed=$(git -C "$source" diff --name-only '@{upstream}...HEAD' -- "${paths[@]}" 2> /dev/null) || unpushed=''
+if changes=$(git -C "$source" status --porcelain -- "${paths[@]}" 2> /dev/null) && [[ -z $changes && -z $unpushed ]]; then
   exit 0
 fi
 

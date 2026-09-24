@@ -45,7 +45,7 @@ Claude Code runs [hooks](https://code.claude.com/docs/en/hooks) at points in a s
 
 When the agent tries to end its turn, `levenshtein-stop.sh`:
 
-1. Does nothing and lets the agent stop when `git status` shows no uncommitted change to a `.go` file, a `go.mod`, `go.sum`, or `go.work`, `levenshtein.json`, or `.levenshtein/`. A turn that did not touch Go costs nothing. Outside a git work tree it cannot tell, so it runs.
+1. Does nothing and lets the agent stop when `git status` shows no uncommitted change to a `.go` file, a `go.mod`, `go.sum`, or `go.work`, `levenshtein.json`, or `.levenshtein/`, and no commit the branch has not yet pushed to its upstream touches one. A turn that did not touch Go costs nothing, and an agent that commits before it stops is still checked. A branch without an upstream is judged on uncommitted changes only. Outside a git work tree it cannot tell, so it runs.
 2. Otherwise runs `$LEVENSHTEIN/verify $LEVENSHTEIN_RUN --source <repository> --format text`.
 3. Exits 0 when the run passes, so the agent stops.
 4. Exits 2 when the run fails, with the text report on standard error. Claude Code's contract for a `Stop` hook is that exit 2 prevents stopping and hands stderr to the model as the reason, so the agent sees every finding and keeps working.
@@ -59,7 +59,7 @@ When the agent tries to end its turn, `levenshtein-stop.sh`:
 
 Set them in your shell, or in the `env` object of `.claude/settings.json`. The repository is the git top level of the working directory Claude Code reports in the hook's input, so a session in a git worktree checks that worktree, not the checkout it started from; without `jq` it is `$CLAUDE_PROJECT_DIR`.
 
-The hook blocks for as long as the run fails, which is the point, but an agent that cannot fix a finding keeps trying until you interrupt it. `LEVENSHTEIN_STOP_ONCE=1` trades that for a single attempt: when Claude Code reports that the turn is already continuing because of a stop hook (`stop_hook_active`), the hook lets it stop, so the agent can end with an account of what is left. The hook checks uncommitted changes only; a change the agent already committed is left to CI.
+The hook blocks for as long as the run fails, which is the point, but an agent that cannot fix a finding keeps trying until you interrupt it. `LEVENSHTEIN_STOP_ONCE=1` trades that for a single attempt: when Claude Code reports that the turn is already continuing because of a stop hook (`stop_hook_active`), the hook lets it stop, so the agent can end with an account of what is left.
 
 Use a `branch` run of native checks, such as the starter's `go-lint` and `go-vet`. The result cache makes a repeat run over unchanged files fast, but a check with findings runs in full every time, and a Dagger check needs a container runtime and starts slower. The hook's `timeout` is 600 seconds, Claude Code's default for a command hook.
 

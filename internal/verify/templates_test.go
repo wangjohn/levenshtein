@@ -166,6 +166,55 @@ func TestStopHookTemplate(t *testing.T) {
 	}
 }
 
+func TestStopHookChecksUnpushedCommits(t *testing.T) {
+	hookTools(t, "bash", "git", "jq")
+	remote := t.TempDir()
+	project := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", project, "-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	if out, err := exec.CommandContext(t.Context(), "git", "init", "-q", "--bare", remote).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v %s", err, out)
+	}
+	git("init", "-q", "-b", "main")
+	git("commit", "-q", "--allow-empty", "-m", "start")
+	git("remote", "add", "origin", remote)
+	git("push", "-q", "-u", "origin", "main")
+
+	levenshtein := t.TempDir()
+	marker := filepath.Join(t.TempDir(), "ran")
+	launcher := "#!/usr/bin/env bash\ntouch " + marker + "\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(levenshtein, "verify"), []byte(launcher), 0755); err != nil {
+		t.Fatal(err)
+	}
+	input := `{"hook_event_name": "Stop", "cwd": "` + project + `", "stop_hook_active": false}`
+	env := []string{"LEVENSHTEIN=" + levenshtein, "CLAUDE_PROJECT_DIR=" + project}
+
+	if code, stderr := runHook(t, "levenshtein-stop.sh", input, env...); code != 0 {
+		t.Fatalf("a pushed branch must let the agent stop: %d %s", code, stderr)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("the run must be skipped when everything is pushed")
+	}
+
+	if err := os.WriteFile(filepath.Join(project, "a.go"), []byte("package a\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "a.go")
+	git("commit", "-q", "-m", "add a")
+
+	if code, stderr := runHook(t, "levenshtein-stop.sh", input, env...); code != 0 {
+		t.Fatalf("a passing run must let the agent stop: %d %s", code, stderr)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatal("a committed Go change the branch has not pushed must run the checks")
+	}
+}
+
 func TestGofmtHookTemplate(t *testing.T) {
 	hookTools(t, "bash", "jq", "gofmt")
 	dir := t.TempDir()
