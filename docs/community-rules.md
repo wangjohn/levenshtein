@@ -8,8 +8,9 @@ caching. With this proposal, anyone can publish Go lint rules as an ordinary Go
 module. A Levenshtein consumer pins that module in `levenshtein.json`, and the
 rules run beside the core rules without ever entering `runner/lint`. A
 separate catalog repository lists modules that build and have an owner, and
-good rules graduate into the core selection from there. The design follows golangci-lint's module plugins,
-TFLint's exact pins, and ESLint's plugin-owned rule names.
+good rules graduate into the core selection from there. The design follows
+golangci-lint's module plugins, TFLint's exact pins, and ESLint's plugin-owned
+rule names.
 
 ```text
 levenshtein.json ──> build community linter ──> run beside core linter ──> one report
