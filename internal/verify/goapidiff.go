@@ -118,6 +118,17 @@ func gitPath(prefix, rel string) string {
 	return prefix + filepath.ToSlash(rel)
 }
 
+// treeMode is the mode git ls-tree prints for an entry.
+type treeMode string
+
+// regularModes are the modes of regular files, the only entries exported,
+// with the permissions each is written with. Links (120000) and submodules
+// (160000) are left out.
+var regularModes = map[treeMode]os.FileMode{
+	"100644": 0o644,
+	"100755": 0o755,
+}
+
 // committedFile is one regular file of the base tree and where it is written.
 type committedFile struct {
 	object string
@@ -151,8 +162,8 @@ func exportTree(ctx context.Context, git, top, commit, prefix string, paths, exc
 		if !ok || len(fields) != 3 {
 			return fmt.Errorf("git ls-tree printed an unexpected entry: %q", entry)
 		}
-		mode, kind, object := fields[0], fields[1], fields[2]
-		if kind != "blob" || (mode != "100644" && mode != "100755") {
+		perm, regular := regularModes[treeMode(fields[0])]
+		if !regular {
 			continue
 		}
 		name, ok := strings.CutPrefix(file, prefix)
@@ -160,12 +171,8 @@ func exportTree(ctx context.Context, git, top, commit, prefix string, paths, exc
 		if !ok || name == "" || !filepath.IsLocal(rel) || privateSourcePath(rel) || excluded(rel, excludes) {
 			continue
 		}
-		perm := os.FileMode(0o644)
-		if mode == "100755" {
-			perm = 0o755
-		}
-		files = append(files, committedFile{object: object, target: filepath.Join(dest, rel), perm: perm})
-		objects.WriteString(object + "\n")
+		files = append(files, committedFile{object: fields[2], target: filepath.Join(dest, rel), perm: perm})
+		objects.WriteString(fields[2] + "\n")
 	}
 
 	cmd := exec.CommandContext(ctx, git, "cat-file", "--batch")
