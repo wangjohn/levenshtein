@@ -26,12 +26,14 @@ type Levenshtein struct{}
 var toolchainJSON []byte
 
 type toolchain struct {
-	Go                 string    `json:"go"`
-	GoImage            string    `json:"goImage"`
-	Staticcheck        string    `json:"staticcheck"`
-	StaticcheckRelease string    `json:"staticcheckRelease"`
-	Checks             []string  `json:"checks"`
-	Zizmor             zizmorPin `json:"zizmor"`
+	Go                 string     `json:"go"`
+	GoImage            string     `json:"goImage"`
+	Staticcheck        string     `json:"staticcheck"`
+	StaticcheckRelease string     `json:"staticcheckRelease"`
+	Checks             []string   `json:"checks"`
+	Zizmor             zizmorPin  `json:"zizmor"`
+	ShellCheck         releasePin `json:"shellcheck"`
+	OSVScanner         releasePin `json:"osvScanner"`
 }
 
 type diagnostic struct {
@@ -299,6 +301,15 @@ func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce strin
 		return err
 	}
 	if err := workflowSecuritySelfTest(ctx, fixtures, tools, nonce); err != nil {
+		return err
+	}
+	if err := shellLintSelfTest(ctx, fixtures, tools, nonce); err != nil {
+		return err
+	}
+	if err := secretsSelfTest(ctx, fixtures, tools, nonce); err != nil {
+		return err
+	}
+	if err := depsVulnSelfTest(ctx, fixtures, tools, nonce); err != nil {
 		return err
 	}
 	if err := goTestSelfTest(ctx, fixtures, tools, nonce); err != nil {

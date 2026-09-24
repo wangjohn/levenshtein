@@ -1,0 +1,2 @@
+# ShellCheck configuration for the shell-good fixture.
+disable=SC2034

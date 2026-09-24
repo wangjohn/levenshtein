@@ -332,7 +332,7 @@ func TestLoadBaseline(t *testing.T) {
 	}{
 		"version":          {`{"version": 2, "findings": []}`, `"version": 1`},
 		"unknown field":    {`{"version": 1, "findings": [], "extra": 1}`, "unknown field"},
-		"unsupported kind": {`{"version": 1, "findings": [{"kind":"go-vet","dir":".","file":"a.go","code":"go-vet","message":"e","count":1}]}`, `kind "go-vet" cannot be baselined; only go-http, go-imports, go-lint, go-sql`},
+		"unsupported kind": {`{"version": 1, "findings": [{"kind":"go-vet","dir":".","file":"a.go","code":"go-vet","message":"e","count":1}]}`, `kind "go-vet" cannot be baselined; only go-http, go-imports, go-lint, go-sql, shell-lint`},
 		"duplicate":        {`{"version": 1, "findings": [` + valid + `,` + valid + `]}`, "entry 2 repeats"},
 		"escaping file":    {`{"version": 1, "findings": [{"kind":"go-lint","dir":".","file":"../a.go","code":"c","message":"e","count":1}]}`, `file "../a.go"`},
 		"zero count":       {`{"version": 1, "findings": [{"kind":"go-lint","dir":".","file":"a.go","code":"c","message":"e","count":0}]}`, "count must be at least 1"},
