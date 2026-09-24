@@ -62,6 +62,28 @@ var checkKinds = []CheckKind{
 	CheckGoImports, CheckGoGenerate, CheckGoApidiff,
 }
 
+// WarningKind names a problem a check result reports without failing. The
+// community linter reports the rule-* kinds; runner/community keeps copies of
+// those.
+type WarningKind string
+
+const (
+	// WarningRuleModulesSkipped: a native go-lint check ran its core rules
+	// only; community rules run on the Dagger executor.
+	WarningRuleModulesSkipped WarningKind = "rule-modules-skipped"
+	// WarningRuleModuleDeprecated: this release lists the pinned version as
+	// deprecated.
+	WarningRuleModuleDeprecated WarningKind = "rule-module-deprecated"
+	// WarningRuleModuleRetracted: the module's author retracted the pinned
+	// version.
+	WarningRuleModuleRetracted WarningKind = "rule-module-retracted"
+	// WarningRuleRenamed: a pattern, advisory entry, or setting uses a rule's
+	// old name.
+	WarningRuleRenamed WarningKind = "rule-renamed"
+	// WarningRuleDeprecated: a selected rule is deprecated.
+	WarningRuleDeprecated WarningKind = "rule-deprecated"
+)
+
 // CacheStatus describes reuse without conflating it with verification outcomes.
 type CacheStatus string
 

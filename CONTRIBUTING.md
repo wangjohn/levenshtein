@@ -14,6 +14,13 @@ Go lint policy analyzers:
 (cd runner/lint && GOTOOLCHAIN=local go test ./...)
 ```
 
+Community linter runtime and builder. The builder tests compile real linters, so they need the module proxy:
+
+```sh
+(cd runner/community && GOTOOLCHAIN=local go test ./...)
+./scripts/test-example-rules
+```
+
 The runner's Dagger module needs its generated SDK before its own tests run. Run `dagger develop` from the repository root, where `dagger.json` lives:
 
 ```sh

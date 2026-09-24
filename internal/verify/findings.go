@@ -20,11 +20,35 @@ import (
 // them to a finished report (see hints.go and baseline.go), after any result
 // was cached, so they never reach a cached result or the runner.
 type finding struct {
-	Code      string   `json:"code"`
-	Message   string   `json:"message"`
-	Location  location `json:"location"`
-	Hint      string   `json:"hint,omitempty"`
-	Baselined bool     `json:"baselined,omitempty"`
+	Code     string   `json:"code"`
+	Message  string   `json:"message"`
+	Location location `json:"location"`
+	// Source names the rule module a community finding came from, as
+	// path@version; core findings leave it out.
+	Source string `json:"source,omitempty"`
+	// URL documents the rule that reported the finding, when it has a page.
+	URL string `json:"url,omitempty"`
+	// Advisory findings are reported without failing the check.
+	Advisory bool `json:"advisory"`
+	// Hint is a one-line fix the CLI adds to a finished report.
+	Hint string `json:"hint,omitempty"`
+	// Baselined findings are recorded in the repository's baseline and do
+	// not fail the check.
+	Baselined bool `json:"baselined,omitempty"`
+}
+
+// staticcheckCode is a code from one of Staticcheck's own families.
+var staticcheckCode = regexp.MustCompile(`^(SA|S|ST|QF)[0-9]{4}$|^U1000$`)
+
+// coreURL is the page that documents a core lint rule: Staticcheck's own page
+// for its families, and otherwise this repository's rule list, which gives the
+// reason for every rule. runner/main.go has a copy; both tests load
+// runner/testdata/core-urls.json.
+func coreURL(code string) string {
+	if staticcheckCode.MatchString(code) {
+		return "https://staticcheck.dev/docs/checks/#" + code
+	}
+	return "https://github.com/wangjohn/levenshtein/blob/main/docs/checks.md#go-lint-rules"
 }
 
 type location struct {
@@ -35,7 +59,8 @@ type location struct {
 
 // allowed and selects are copies of the runner's (runner/main.go), which
 // reproduce Staticcheck's filterAnalyzerNames (lintcmd/lint.go in
-// honnef.co/go/tools v0.8.1) for one code. Both copies load the same table,
+// honnef.co/go/tools v0.8.1) for one code; the core linter keeps a third
+// (runner/lint/cmd/levenshtein-lint). Every copy loads the same table,
 // runner/testdata/selection.json, in their tests, so a change to one that is
 // not made to the other fails a test instead of relying on memory.
 //
@@ -110,6 +135,7 @@ func parseFindings(exitCode int, stdout, stderr string, checks []string, root st
 			return nil, fmt.Errorf("unexpected diagnostic (possibly a compile error): %s", stdout)
 		}
 		diagnostic.Location.File = repositoryPath(root, diagnostic.Location.File)
+		diagnostic.URL = coreURL(diagnostic.Code)
 		findings = append(findings, diagnostic)
 	}
 

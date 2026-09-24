@@ -21,6 +21,15 @@ type Result struct {
 	ExecutionMS int64           `json:"execution_ms"`
 	Stages      []StageResult   `json:"stages,omitempty"`
 	Details     json.RawMessage `json:"details,omitempty"`
+	// Warnings are problems that did not change the verdict. They are kept
+	// with a cached result, so a cache hit repeats them.
+	Warnings []Warning `json:"warnings,omitempty"`
+}
+
+// Warning is one problem a check result reports without failing.
+type Warning struct {
+	Kind    WarningKind `json:"kind"`
+	Message string      `json:"message"`
 }
 
 type Report struct {
@@ -131,6 +140,7 @@ func Execute(ctx context.Context, plan Plan, shared string, executors map[Execut
 				ExecutionMS: executionMS,
 				Stages:      outcome.Stages,
 				Details:     outcome.Details,
+				Warnings:    outcome.Warnings,
 			}
 		}(i, check)
 	}

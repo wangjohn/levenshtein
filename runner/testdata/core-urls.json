@@ -1,0 +1,13 @@
+{
+  "comment": "Core finding URLs shared by internal/verify/findings_test.go and runner/community_test.go; both copies of coreURL must agree with every row.",
+  "cases": [
+    {"code": "SA4006", "url": "https://staticcheck.dev/docs/checks/#SA4006"},
+    {"code": "S1002", "url": "https://staticcheck.dev/docs/checks/#S1002"},
+    {"code": "ST1005", "url": "https://staticcheck.dev/docs/checks/#ST1005"},
+    {"code": "QF1011", "url": "https://staticcheck.dev/docs/checks/#QF1011"},
+    {"code": "U1000", "url": "https://staticcheck.dev/docs/checks/#U1000"},
+    {"code": "LV1001", "url": "https://github.com/wangjohn/levenshtein/blob/main/docs/checks.md#go-lint-rules"},
+    {"code": "errcheck", "url": "https://github.com/wangjohn/levenshtein/blob/main/docs/checks.md#go-lint-rules"},
+    {"code": "staticcheck", "url": "https://github.com/wangjohn/levenshtein/blob/main/docs/checks.md#go-lint-rules"}
+  ]
+}

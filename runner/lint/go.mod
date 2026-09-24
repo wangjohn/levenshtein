@@ -6,6 +6,7 @@ require (
 	4d63.com/gocheckcompilerdirectives v1.4.0
 	github.com/Antonboom/errname v1.1.2
 	github.com/Antonboom/testifylint v1.6.4
+	github.com/alecthomas/go-check-sumtype v0.5.0
 	github.com/alingse/nilnesserr v0.2.0
 	github.com/breml/bidichk v0.3.3
 	github.com/catenacyber/perfsprint v0.10.1
@@ -20,6 +21,7 @@ require (
 	github.com/kulti/thelper v0.7.1
 	github.com/ldez/exptostd v0.4.5
 	github.com/ldez/usetesting v0.5.0
+	github.com/maratori/testableexamples v1.0.1
 	github.com/moricho/tparallel v0.3.2
 	github.com/nishanths/exhaustive v0.13.0
 	github.com/nishanths/predeclared v0.2.2
