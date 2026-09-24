@@ -12,8 +12,9 @@ import (
 )
 
 // Pattern is one community selection pattern: an optional "-", a namespace,
-// "_", and then a rule name, or a literal prefix ending in "*". Every copy of
-// it loads runner/testdata/community-patterns.json in its tests.
+// "_", and then a rule name, or a literal prefix ending in "*". The CLI checks
+// levenshtein.json with a copy (internal/verify/rulemodules.go); every copy
+// loads runner/testdata/community-patterns.json in its tests.
 var Pattern = regexp.MustCompile(`^-?[A-Za-z]+_([A-Za-z0-9_]*\*|[A-Za-z][A-Za-z0-9_]*)$`)
 
 // matches reports whether a pattern without its "-" selects a code, ignoring

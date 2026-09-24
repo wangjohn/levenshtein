@@ -19,6 +19,27 @@ type finding struct {
 	Code     string   `json:"code"`
 	Message  string   `json:"message"`
 	Location location `json:"location"`
+	// Source names the rule module a community finding came from, as
+	// path@version; core findings leave it out.
+	Source string `json:"source,omitempty"`
+	// URL documents the rule that reported the finding, when it has a page.
+	URL string `json:"url,omitempty"`
+	// Advisory findings are reported without failing the check.
+	Advisory bool `json:"advisory"`
+}
+
+// staticcheckCode is a code from one of Staticcheck's own families.
+var staticcheckCode = regexp.MustCompile(`^(SA|S|ST|QF)[0-9]{4}$|^U1000$`)
+
+// coreURL is the page that documents a core lint rule: Staticcheck's own page
+// for its families, and otherwise this repository's rule list, which gives the
+// reason for every rule. Every copy loads runner/testdata/core-urls.json in its
+// tests.
+func coreURL(code string) string {
+	if staticcheckCode.MatchString(code) {
+		return "https://staticcheck.dev/docs/checks/#" + code
+	}
+	return "https://github.com/wangjohn/levenshtein/blob/main/docs/checks.md#go-lint-rules"
 }
 
 type location struct {
@@ -104,6 +125,7 @@ func parseFindings(exitCode int, stdout, stderr string, checks []string, root st
 			return nil, fmt.Errorf("unexpected diagnostic (possibly a compile error): %s", stdout)
 		}
 		diagnostic.Location.File = repositoryPath(root, diagnostic.Location.File)
+		diagnostic.URL = coreURL(diagnostic.Code)
 		findings = append(findings, diagnostic)
 	}
 

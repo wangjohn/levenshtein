@@ -1,5 +1,5 @@
 {
-  "comment": "Community pattern cases shared by every copy of the pattern syntax and selection, starting with runner/community. Every copy of the pattern syntax and of last-match-wins selection must agree with every row; change the table, not one test.",
+  "comment": "Community pattern cases shared by every copy of the pattern syntax and selection, in runner/community and internal/verify. Every copy of the pattern syntax and of last-match-wins selection must agree with every row; change the table, not one test.",
   "syntax": [
     {"pattern": "errs_*", "valid": true},
     {"pattern": "errs_no*", "valid": true},

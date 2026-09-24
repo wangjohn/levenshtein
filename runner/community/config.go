@@ -1,8 +1,9 @@
 package community
 
 // Config is what one go-lint check asks of the community linter. The runner
-// writes it as JSON from the check's planned rule modules and passes its path
-// with -lvrules.config.
+// writes it as JSON from the check's planned rule modules, in the same shape
+// the CLI plans them (internal/verify's PlannedRuleModule), and passes its
+// path with -lvrules.config.
 type Config struct {
 	// Modules are the check's rule modules, as levenshtein.json declares them.
 	Modules []ModuleConfig `json:"modules"`

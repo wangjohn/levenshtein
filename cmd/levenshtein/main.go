@@ -82,6 +82,9 @@ func runCommand(ctx context.Context, args []string, output io.Writer) (int, erro
 	if _, err := os.Stat(shared); err != nil {
 		return 2, fmt.Errorf("--shared %q: %w", opts.shared, err)
 	}
+	if err := verify.CheckWithdrawnRuleModules(plan, shared); err != nil {
+		return 2, err
+	}
 
 	// The cache directory may not exist yet; resolve what does exist so the
 	// containment check below compares like with like.

@@ -61,6 +61,8 @@ A `go-lint` check in `levenshtein.json` can add patterns after the shipped selec
 
 Each entry is one pattern: an optional `-`, then `all`, `*`, a rule name such as `gocognit`, or a name ending in `*` such as `SA5*`. An entry with a comma or a space is a configuration error, and so is `lint` on any other kind: `go-http` and `go-sql` keep their single rule. A pattern that matches no rule the pinned linter registers fails the check with an error rather than doing nothing, so a misspelled opt-in cannot pass silently. Both executors apply the same list, and changing it re-runs the check instead of reusing an earlier result ([configuration](configuration.md#lint-selection)).
 
+The same `lint.checks` list also takes community patterns, such as `errs_nopanic` or `-errs_*`, for rules from a repository's own [rule modules](community-rules.md); a pattern containing `_` goes to the community linter, and every other one to the shipped linter.
+
 Turning a default rule off hides every finding it would report in the repository, including future ones. For one site, prefer `//lint:ignore <code> <reason>` on that line, which keeps the rule on everywhere else and records why.
 
 Upstream analyzers run over generated files, so the facts they export stay correct, but their diagnostics there are dropped: nobody edits generated code for style. In a package that imports `"C"`, the analyzers see cgo's rewrite of each file, which cgo marks generated; every rule judges such a file by the original it maps back to, so hand-written cgo files are checked and reported at their own paths, while cgo's own additions such as `_cgo_gotypes.go` count as generated. Staticcheck's own `//lint:ignore` directives keep working for everything else.
