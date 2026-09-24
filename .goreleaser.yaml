@@ -28,6 +28,7 @@ archives:
       - runner/releases.go
       - runner/shelllint.go
       - runner/secrets.go
+      - runner/depsvuln.go
       - runner/go.mod
       - runner/go.sum
       - runner/toolchain.json

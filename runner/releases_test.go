@@ -5,15 +5,15 @@ import (
 	"testing"
 )
 
-// Every platform either executor runs on has a reviewed asset for each pinned
-// release, and the engine's CPU variant does not hide the one for its
+// Every platform either executor runs on has a reviewed asset for both pinned
+// releases, and the engine's CPU variant does not hide the one for its
 // architecture.
 func TestReleasePinsCoverEveryPlatform(t *testing.T) {
 	var tools toolchain
 	if err := json.Unmarshal(toolchainJSON, &tools); err != nil {
 		t.Fatal(err)
 	}
-	for tool, pin := range map[string]releasePin{"shellcheck": tools.ShellCheck} {
+	for tool, pin := range map[string]releasePin{"shellcheck": tools.ShellCheck, "osv-scanner": tools.OSVScanner} {
 		for _, platform := range []string{"linux/amd64", "linux/arm64", "linux/arm64/v8", "darwin/amd64", "darwin/arm64"} {
 			if _, err := pin.asset(tool, platform); err != nil {
 				t.Errorf("%s %s: %v", tool, platform, err)
@@ -25,5 +25,8 @@ func TestReleasePinsCoverEveryPlatform(t *testing.T) {
 	}
 	if tools.ShellCheck.Binary == "" {
 		t.Error("ShellCheck ships in an archive")
+	}
+	if tools.OSVScanner.Binary != "" {
+		t.Error("osv-scanner ships as a bare binary")
 	}
 }

@@ -120,8 +120,16 @@ Consumers pin a release tag, or its commit SHA, as described in
   logs it, so no secret reaches the report or the cache. It honors a root
   `.gitleaks.toml` and `.gitleaksignore` and `gitleaks:allow` comments; gitleaks
   is built from `runner/tools` ([details](docs/checks.md#secrets)).
-  `shell-lint` and `secrets` require a repository-root target and are not in
-  any default gate: add them to runs of your own.
+- `deps-vuln`, a shared check on both executors that runs osv-scanner 2.6.0
+  over non-Go dependency lockfiles (npm, pnpm, yarn, Python, Cargo, Gemfile,
+  and more), skipping `testdata`, `vendor`, and `node_modules`, and reports
+  each vulnerable package version, with its advisories, at its lockfile. Go
+  modules stay with `go-vuln`. Like `go-vuln` it is never
+  cached and needs the network, and a target without a lockfile is an error. It
+  honors `osv-scanner.toml` for ignores, and the release binary is pinned by
+  SHA-256 per platform ([details](docs/checks.md#dependency-vulnerabilities)).
+  `shell-lint`, `secrets`, and `deps-vuln` require a repository-root target and
+  are not in any default gate: add them to runs of your own.
 - `go-lint` runs three more upstream analyzers: `unparam` (unused parameters
   and results of unexported functions), `musttag` (untagged fields in structs
   passed to JSON, XML, YAML, and TOML encoders and decoders), and `recvcheck`

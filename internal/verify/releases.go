@@ -27,6 +27,7 @@ type releaseTool string
 
 const (
 	releaseShellCheck releaseTool = "shellcheck"
+	releaseOSVScanner releaseTool = "osvScanner"
 )
 
 // releasePin is one upstream release a shared check runs on either executor:

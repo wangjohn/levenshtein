@@ -148,7 +148,7 @@ func TestUntarEntryRefusesAnEntryOverTheLimit(t *testing.T) {
 
 // The shared checkout pins every platform the native executor runs on.
 func TestReleasePinsCoverNativePlatforms(t *testing.T) {
-	for _, tool := range []releaseTool{releaseShellCheck} {
+	for _, tool := range []releaseTool{releaseShellCheck, releaseOSVScanner} {
 		pin, err := readReleasePin("../..", tool)
 		if err != nil {
 			t.Fatal(err)

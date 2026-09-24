@@ -42,8 +42,8 @@ described under [report and exit codes](#report-and-exit-codes).
   options such as `identity`, `env`, `pass_env`, and pinned `tools`.
 - **Check**: a `kind` (`go-lint`, `go-vet`, `go-mod`, `go-test`, `go-imports`,
   `go-generate`, `go-apidiff`, `go-http`, `go-sql`, `go-vuln`, `workflow-lint`,
-  `workflow-security`, `shell-lint`, `secrets`, `self-test`, `command`,
-  `semantic-lint`) bound to an
+  `workflow-security`, `shell-lint`, `secrets`, `deps-vuln`, `self-test`,
+  `command`, `semantic-lint`) bound to an
   environment and to either one `target` or a list of `targets`, plus
   kind-specific options for `command` and `semantic-lint` checks (see
   [configuration](configuration.md)). `internal/verify/validation.go` enforces
@@ -86,7 +86,7 @@ a preparation stage.
 per CLI invocation and serves the pinned module in `runner/` once
 (`client.ModuleSource(shared).AsModule().Serve`). Each check calls a
 function on that session (`goLint`, `selfTest`, `goImports`, `goGenerate`, `goApidiff`, or `sharedCheck` for
-vet/mod/test/HTTP/SQL/vuln/workflow-lint/workflow-security/shell-lint/secrets) with a freshness nonce, plus the consumer
+vet/mod/test/HTTP/SQL/vuln/workflow-lint/workflow-security/shell-lint/secrets/deps-vuln) with a freshness nonce, plus the consumer
 source directory and module path for every kind except `selfTest`;
 `sharedCheck` also receives the check kind. Consumer inputs travel as
 arguments, so they never become part of the module's own identity or cache
@@ -107,7 +107,7 @@ instead.
 
 `internal/verify/native.go` runs `command`, `semantic-lint`, and the shared Go
 kinds `go-lint`, `go-vet`, `go-mod`, `go-test`, `go-imports`, `go-generate`,
-`go-apidiff`, `workflow-lint`, `workflow-security`, `shell-lint`, `secrets` and `go-vuln` as trusted host
+`go-apidiff`, `workflow-lint`, `workflow-security`, `shell-lint`, `secrets`, `deps-vuln` and `go-vuln` as trusted host
 processes (macOS or Linux only). There is no sandbox, so native
 commands have full host access. Before running, `validateTools` executes each
 `Environment.Tool`'s version command and compares its trimmed stdout against
@@ -121,7 +121,7 @@ still match a recorded run, which requires the environment to declare an
 #### Shared Go kinds on the native executor
 
 `internal/verify/kinds.go` registers `go-lint`, `go-vet`, `go-mod`, `go-test`,
-`go-imports`, `go-generate`, `go-apidiff`, `workflow-lint`, `workflow-security`, `shell-lint`, `secrets` and `go-vuln` for the native executor as well as the Dagger one; `self-test`,
+`go-imports`, `go-generate`, `go-apidiff`, `workflow-lint`, `workflow-security`, `shell-lint`, `secrets`, `deps-vuln` and `go-vuln` for the native executor as well as the Dagger one; `self-test`,
 `go-http` and `go-sql` stay Dagger-only. `internal/verify/gotools.go` builds the
 helper binaries (`levenshtein-lint` from `runner/lint`, `actionlint` and
 `govulncheck` from `runner/tools`) out of the pinned shared checkout into
@@ -164,7 +164,7 @@ exports the target's declared inputs at that commit from its objects
 (`apidiffBase` in `internal/verify/goapidiff.go`); the command's `apidiff` mode
 then drives the `apidiff` built from `runner/tools` over that tree and the
 source, natively, or in the runner's `goApidiff` function, which receives the
-exported tree as a directory argument. `shell-lint` uses `internal/verify/releases.go`, a
+exported tree as a directory argument. `shell-lint` and `deps-vuln` use `internal/verify/releases.go`, a
 general form of the zizmor download: `runner/toolchain.json` pins each release's
 download location, version, and per-platform asset with its SHA-256, and the
 binary's path when the asset is a `.tar.gz`; the runner's `runner/releases.go`
@@ -172,16 +172,17 @@ reads the same pins for `dag.HTTP`. `secrets` builds gitleaks from
 `runner/tools` like `actionlint`. `internal/verify/visible.go` lists the files
 under a target's inputs less its excludes and the private `.git`/`.env` paths,
 which is what the Dagger path imports; `shell-lint` checks the scripts among
-them in place, and `secrets`, whose tool scans a directory and discovers
-configuration in it, copies them into a temporary directory and scans that. Without a cache
+them in place, and `secrets` and `deps-vuln`, whose tools scan a directory and
+discover configuration in it, copy them into a temporary directory and scan
+that. Without a cache
 directory, a check's tools go into a temporary directory removed when it
 finishes.
 
 `internal/verify/findings.go` is a deliberate copy of the runner's
 `parseFindings`/`commandFindings`/`modFindings` (and `zizmor.go` of its
 `zizmorFindings`/`zizmorArguments`, `gotest.go` of its `testArgs`/`testFindings`,
-and `shelllint.go` and `secrets.go` of the runner's files of the same names,
-whose `shellScript` selection both sides test against
+and `shelllint.go`, `secrets.go`, and `depsvuln.go` of the runner's files of the
+same names, whose `shellScript` selection both sides test against
 `runner/testdata/shell-scripts.json`)
 and of its check-selection filter (`allowed`/`selects`), since `runner` is a
 separate `package main` module that cannot be imported. Both filters are tested
