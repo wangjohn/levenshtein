@@ -49,10 +49,7 @@ func shellScript(file string, head []byte) bool {
 		return false
 	}
 
-	if len(head) > shellHeadLimit {
-		head = head[:shellHeadLimit]
-	}
-	line, _, _ := bytes.Cut(head, []byte("\n"))
+	line, _, _ := bytes.Cut(head[:min(len(head), shellHeadLimit)], []byte("\n"))
 	return shellShebang.Match(bytes.ReplaceAll(line, []byte{0}, []byte{1}))
 }
 
