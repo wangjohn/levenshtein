@@ -281,14 +281,21 @@ func declaration(head, module, modPath, pkg, object string) Location {
 }
 
 // objectNames splits "(*T).M", "T.M" or "F" into the top-level name and the
-// member after it, if any.
+// member after it, if any. A generic receiver's type parameters, as in
+// "(*T[K]).M", are skipped.
 func objectNames(object string) (string, string) {
 	object = strings.TrimLeft(object, "(*")
 	end := strings.IndexFunc(object, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' })
 	if end < 0 {
 		return object, ""
 	}
-	name, rest := object[:end], strings.TrimLeft(object[end:], ")")
+	name, rest := object[:end], object[end:]
+	if strings.HasPrefix(rest, "[") {
+		if bracket := strings.Index(rest, "]"); bracket >= 0 {
+			rest = rest[bracket+1:]
+		}
+	}
+	rest = strings.TrimLeft(rest, ")")
 	member, _ := strings.CutPrefix(rest, ".")
 	end = strings.IndexFunc(member, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' })
 	if end >= 0 {

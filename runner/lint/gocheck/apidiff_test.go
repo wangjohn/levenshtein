@@ -123,6 +123,8 @@ func TestChangeSubjectNamesThePackageAndObject(t *testing.T) {
 		"Square.Area":                   {"Square", "Area"},
 		"Scale":                         {"Scale", ""},
 		"Square, method set of *Square": {"Square", ""},
+		"(*Box[T]).Get":                 {"Box", "Get"},
+		"Pair[K, V].Swap":               {"Pair", "Swap"},
 		"":                              {"", ""},
 	} {
 		if name, member := objectNames(object); name != want[0] || member != want[1] {
