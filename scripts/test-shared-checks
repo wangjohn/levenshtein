@@ -5,14 +5,14 @@ temporary=$(mktemp -d)
 trap 'rm -rf "$temporary"' EXIT
 
 (cd "$root" && go build -o "$temporary/verify" ./cmd/levenshtein)
-for fixture in resources-good resources-bad vet-bad mod-tidy mod-untidy test-pass test-fail workflow-secure workflow-insecure shell-good shell-bad good bad; do
+for fixture in resources-good resources-bad vet-bad mod-tidy mod-untidy test-pass test-fail workflow-secure workflow-insecure shell-good shell-bad secrets-clean secrets-leaky good bad; do
   mkdir -p "$temporary/$fixture"
   cp -R "$root/runner/testdata/$fixture/." "$temporary/$fixture/"
   cat > "$temporary/$fixture/levenshtein.json" <<'JSON'
-{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"},"host":{"executor":"native"}},"checks":{"http":{"kind":"go-http","target":"app","environment":"go"},"sql":{"kind":"go-sql","target":"app","environment":"go"},"vet":{"kind":"go-vet","target":"app","environment":"go"},"mod":{"kind":"go-mod","target":"app","environment":"go"},"test":{"kind":"go-test","target":"app","environment":"go"},"security":{"kind":"workflow-security","target":"app","environment":"go"},"shell":{"kind":"shell-lint","target":"app","environment":"go"},"native-vet":{"kind":"go-vet","target":"app","environment":"host"},"native-mod":{"kind":"go-mod","target":"app","environment":"host"},"native-test":{"kind":"go-test","target":"app","environment":"host"},"native-lint":{"kind":"go-lint","target":"app","environment":"host"},"native-security":{"kind":"workflow-security","target":"app","environment":"host"},"native-shell":{"kind":"shell-lint","target":"app","environment":"host"}},"runs":{"http":{"checks":["http"]},"sql":{"checks":["sql"]},"vet":{"checks":["vet"]},"mod":{"checks":["mod"]},"test":{"checks":["test"]},"security":{"checks":["security"]},"shell":{"checks":["shell"]},"native-vet":{"checks":["native-vet"]},"native-mod":{"checks":["native-mod"]},"native-test":{"checks":["native-test"]},"native-lint":{"checks":["native-lint"]},"native-security":{"checks":["native-security"]},"native-shell":{"checks":["native-shell"]}}}
+{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"},"host":{"executor":"native"}},"checks":{"http":{"kind":"go-http","target":"app","environment":"go"},"sql":{"kind":"go-sql","target":"app","environment":"go"},"vet":{"kind":"go-vet","target":"app","environment":"go"},"mod":{"kind":"go-mod","target":"app","environment":"go"},"test":{"kind":"go-test","target":"app","environment":"go"},"security":{"kind":"workflow-security","target":"app","environment":"go"},"shell":{"kind":"shell-lint","target":"app","environment":"go"},"secrets":{"kind":"secrets","target":"app","environment":"go"},"native-vet":{"kind":"go-vet","target":"app","environment":"host"},"native-mod":{"kind":"go-mod","target":"app","environment":"host"},"native-test":{"kind":"go-test","target":"app","environment":"host"},"native-lint":{"kind":"go-lint","target":"app","environment":"host"},"native-security":{"kind":"workflow-security","target":"app","environment":"host"},"native-shell":{"kind":"shell-lint","target":"app","environment":"host"},"native-secrets":{"kind":"secrets","target":"app","environment":"host"}},"runs":{"http":{"checks":["http"]},"sql":{"checks":["sql"]},"vet":{"checks":["vet"]},"mod":{"checks":["mod"]},"test":{"checks":["test"]},"security":{"checks":["security"]},"shell":{"checks":["shell"]},"secrets":{"checks":["secrets"]},"native-vet":{"checks":["native-vet"]},"native-mod":{"checks":["native-mod"]},"native-test":{"checks":["native-test"]},"native-lint":{"checks":["native-lint"]},"native-security":{"checks":["native-security"]},"native-shell":{"checks":["native-shell"]},"native-secrets":{"checks":["native-secrets"]}}}
 JSON
 done
-for check in http sql vet mod test security shell; do
+for check in http sql vet mod test security shell secrets; do
   clean=resources-good
   fixture=resources-bad
   case "$check" in
@@ -23,6 +23,7 @@ for check in http sql vet mod test security shell; do
     test) clean=test-pass; fixture=test-fail; code=go-test ;;
     security) clean=workflow-secure; fixture=workflow-insecure; code=workflow-security ;;
     shell) clean=shell-good; fixture=shell-bad; code=SC2164 ;;
+    secrets) clean=secrets-clean; fixture=secrets-leaky; code=generic-api-key ;;
   esac
   "$temporary/verify" "$check" --source "$temporary/$clean" --shared "$root" --cache-dir "$temporary/cache" > "$temporary/good.json"
   status=0
@@ -35,7 +36,7 @@ for check in http sql vet mod test security shell; do
 done
 # The same fixtures through the native executor, which needs no container. Only
 # the kinds a native environment runs appear here.
-for check in native-lint native-vet native-mod native-test native-security native-shell; do
+for check in native-lint native-vet native-mod native-test native-security native-shell native-secrets; do
   case "$check" in
     native-lint) clean=good; broken=bad; code=SA5001 ;;
     native-vet) clean=resources-good; broken=vet-bad; code=go-vet ;;
@@ -43,6 +44,7 @@ for check in native-lint native-vet native-mod native-test native-security nativ
     native-test) clean=test-pass; broken=test-fail; code=go-test ;;
     native-security) clean=workflow-secure; broken=workflow-insecure; code=workflow-security ;;
     native-shell) clean=shell-good; broken=shell-bad; code=SC2164 ;;
+    native-secrets) clean=secrets-clean; broken=secrets-leaky; code=generic-api-key ;;
   esac
   "$temporary/verify" "$check" --source "$temporary/$clean" --shared "$root" --cache-dir "$temporary/native-cache" > "$temporary/good.json"
   status=0

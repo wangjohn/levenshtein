@@ -41,6 +41,12 @@
       "workspace": ".",
       "inputs": ["scripts", "verify"]
     },
+    "secrets": {
+      "dir": ".",
+      "workspace": ".",
+      "inputs": ["."],
+      "exclude": ["runner/testdata/secrets-leaky"]
+    },
     "repository": {
       "dir": ".",
       "workspace": ".",
@@ -62,6 +68,7 @@
     "workflow-lint": {"kind": "workflow-lint", "target": "workflows", "environment": "go"},
     "workflow-security": {"kind": "workflow-security", "target": "actions", "environment": "go"},
     "shell-lint": {"kind": "shell-lint", "target": "scripts", "environment": "go"},
+    "secrets": {"kind": "secrets", "target": "secrets", "environment": "go"},
     "self-test": {"kind": "self-test", "target": "root", "environment": "go"},
     "semantic-lint": {"kind": "semantic-lint", "target": "repository", "environment": "host"},
     "native-go-lint": {"kind": "go-lint", "targets": ["root", "runner", "lint", "example"], "environment": "host-go"},
@@ -71,6 +78,7 @@
     "native-workflow-lint": {"kind": "workflow-lint", "target": "workflows", "environment": "host-go"},
     "native-workflow-security": {"kind": "workflow-security", "target": "actions", "environment": "host-go"},
     "native-shell-lint": {"kind": "shell-lint", "target": "scripts", "environment": "host-go"},
+    "native-secrets": {"kind": "secrets", "target": "secrets", "environment": "host-go"},
     "go-mutation": {"kind": "go-mutation", "target": "repository", "environment": "go"},
     "go-mutation-lint": {"kind": "go-mutation", "target": "lint", "environment": "go", "mutation": {"accepted": "runner/lint/.levenshtein/mutation-accepted.json"}}
   },
@@ -85,12 +93,13 @@
     "workflow-lint": {"checks": ["native-workflow-lint"]},
     "workflow-security": {"checks": ["native-workflow-security"]},
     "shell-lint": {"checks": ["native-shell-lint"]},
+    "secrets": {"checks": ["native-secrets"]},
     "self-test": {"checks": ["self-test"]},
     "semantic-lint": {"checks": ["semantic-lint"]},
     "mutation": {"checks": ["go-mutation", "go-mutation-lint"]},
-    "branch": {"checks": ["native-go-lint", "native-go-vet", "native-go-mod", "native-workflow-lint", "native-workflow-security", "native-shell-lint"]},
-    "pre-merge": {"checks": ["native-go-lint", "native-go-vet", "native-go-mod", "native-workflow-lint", "native-workflow-security", "native-shell-lint", "self-test"]},
-    "branch-dagger": {"checks": ["go-lint", "go-vet", "go-mod", "workflow-lint", "workflow-security", "shell-lint"]},
-    "main": {"checks": ["go-lint", "go-vet", "go-mod", "workflow-lint", "workflow-security", "shell-lint", "self-test", "go-vuln"], "rerun_checks": true}
+    "branch": {"checks": ["native-go-lint", "native-go-vet", "native-go-mod", "native-workflow-lint", "native-workflow-security", "native-shell-lint", "native-secrets"]},
+    "pre-merge": {"checks": ["native-go-lint", "native-go-vet", "native-go-mod", "native-workflow-lint", "native-workflow-security", "native-shell-lint", "native-secrets", "self-test"]},
+    "branch-dagger": {"checks": ["go-lint", "go-vet", "go-mod", "workflow-lint", "workflow-security", "shell-lint", "secrets"]},
+    "main": {"checks": ["go-lint", "go-vet", "go-mod", "workflow-lint", "workflow-security", "shell-lint", "secrets", "self-test", "go-vuln"], "rerun_checks": true}
   }
 }
