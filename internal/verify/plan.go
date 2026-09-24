@@ -22,6 +22,7 @@ type Plan struct {
 	Run         string         `json:"run"`
 	RerunChecks bool           `json:"rerun_checks"`
 	Source      string         `json:"source"`
+	Baseline    string         `json:"baseline,omitempty"`
 	Checks      []PlannedCheck `json:"checks"`
 }
 
@@ -47,7 +48,13 @@ func (cfg Config) Plan(source, name string) (Plan, error) {
 		return Plan{}, fmt.Errorf("run %q is missing or empty", name)
 	}
 
-	p := Plan{Version: 1, Run: name, RerunChecks: run.RerunChecks, Source: source}
+	if cfg.Baseline != "" {
+		if err := validBaselinePath(cfg.Baseline); err != nil {
+			return Plan{}, err
+		}
+	}
+
+	p := Plan{Version: 1, Run: name, RerunChecks: run.RerunChecks, Source: source, Baseline: cfg.Baseline}
 	seen := map[string]bool{}
 	for _, reference := range run.Checks {
 		selections, err := cfg.selections(reference)

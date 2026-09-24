@@ -52,8 +52,8 @@ type item struct {
 	findings []finding
 }
 
-func (it item) located() bool {
-	return locatedKinds[it.check.Check.Kind]
+func (it item) located(f finding) bool {
+	return locatedKinds[it.check.Check.Kind] || f.Code == baselineStaleCode
 }
 
 // items pairs each result with its planned check, in plan order.
@@ -110,12 +110,18 @@ func Render(w io.Writer, report Report, format Format, options RenderOptions) er
 // renderText writes every finding that fails the run, one per line as
 // file:line:col: CODE message, grouped by check in plan order and sorted by
 // location within a check, then one status line per check and a total.
+// Findings the baseline accepts are counted, not listed.
 func renderText(w io.Writer, report Report, options RenderOptions) error {
 	var out strings.Builder
+	hidden := 0
 	for _, it := range items(report) {
 		for _, f := range it.findings {
+			if f.Baselined {
+				hidden++
+				continue
+			}
 			first, rest, _ := strings.Cut(strings.TrimSpace(f.Message), "\n")
-			if it.located() {
+			if it.located(f) {
 				fmt.Fprintf(&out, "%s: %s %s\n", textPosition(options.path(f.Location.File), f.Location), f.Code, first)
 			} else {
 				fmt.Fprintf(&out, "%s: %s\n", options.path(f.Location.File), f.Code)
@@ -155,7 +161,11 @@ func renderText(w io.Writer, report Report, options RenderOptions) error {
 		}
 	}
 
-	fmt.Fprintf(&out, "\n%s: %s, %d of %d checks passed\n", report.Run, report.Status, passed, len(report.Results))
+	fmt.Fprintf(&out, "\n%s: %s, %d of %d checks passed", report.Run, report.Status, passed, len(report.Results))
+	if hidden > 0 {
+		fmt.Fprintf(&out, ", %d baselined %s not shown", hidden, plural(hidden, "finding", "findings"))
+	}
+	out.WriteString("\n")
 	_, err := io.WriteString(w, out.String())
 	return err
 }
@@ -170,11 +180,21 @@ func textPosition(file string, at location) string {
 // textStatus is the note after a check's status: what it found, or why it
 // did not reach a verdict.
 func textStatus(it item) string {
-	failing := len(it.findings)
+	failing, baselined := 0, 0
+	for _, f := range it.findings {
+		if f.Baselined {
+			baselined++
+		} else {
+			failing++
+		}
+	}
 
 	var notes []string
 	if failing > 0 {
 		notes = append(notes, fmt.Sprintf("%d %s", failing, plural(failing, "finding", "findings")))
+	}
+	if baselined > 0 {
+		notes = append(notes, fmt.Sprintf("%d baselined", baselined))
 	}
 	if it.result.Status != StatusPassed && failing == 0 && it.result.Error != "" {
 		first, _, _ := strings.Cut(strings.TrimSpace(it.result.Error), "\n")
@@ -208,13 +228,18 @@ func plural(n int, one, many string) string {
 func renderGitHub(w io.Writer, report Report, options RenderOptions) error {
 	var out strings.Builder
 	for _, it := range items(report) {
+		shown := 0
 		for _, f := range it.findings {
+			if f.Baselined {
+				continue
+			}
+			shown++
 			message := strings.TrimSpace(f.Message)
 			if f.Hint != "" {
 				message += "\n\nhint: " + f.Hint
 			}
 			properties := []string{}
-			if it.located() {
+			if it.located(f) {
 				properties = append(properties, "file="+escapeProperty(options.path(f.Location.File)), fmt.Sprintf("line=%d", f.Location.Line))
 				if f.Location.Column > 0 {
 					properties = append(properties, fmt.Sprintf("col=%d", f.Location.Column))
@@ -225,7 +250,7 @@ func renderGitHub(w io.Writer, report Report, options RenderOptions) error {
 		}
 
 		unfinished := it.result.Status != StatusPassed && it.result.Status != StatusFailed
-		if unfinished || (it.result.Status == StatusFailed && len(it.findings) == 0) {
+		if unfinished || (it.result.Status == StatusFailed && shown == 0) {
 			message := strings.TrimSpace(it.result.Error)
 			if message == "" {
 				message = string(it.result.Status)
@@ -299,12 +324,13 @@ type sarifNotification struct {
 }
 
 type sarifResult struct {
-	RuleID     string              `json:"ruleId"`
-	RuleIndex  int                 `json:"ruleIndex"`
-	Level      sarifLevel          `json:"level"`
-	Message    sarifMessage        `json:"message"`
-	Locations  []sarifLocation     `json:"locations"`
-	Properties sarifResultProperty `json:"properties"`
+	RuleID        string              `json:"ruleId"`
+	RuleIndex     int                 `json:"ruleIndex"`
+	Level         sarifLevel          `json:"level"`
+	Message       sarifMessage        `json:"message"`
+	Locations     []sarifLocation     `json:"locations"`
+	BaselineState sarifBaselineState  `json:"baselineState,omitempty"`
+	Properties    sarifResultProperty `json:"properties"`
 }
 
 type sarifResultProperty struct {
@@ -334,7 +360,15 @@ type sarifRegion struct {
 type sarifLevel string
 
 const (
-	sarifError sarifLevel = "error"
+	sarifError   sarifLevel = "error"
+	sarifWarning sarifLevel = "warning"
+)
+
+type sarifBaselineState string
+
+const (
+	sarifNew       sarifBaselineState = "new"
+	sarifUnchanged sarifBaselineState = "unchanged"
 )
 
 // staticcheckCode is the shape of Staticcheck's own rule names, which its
@@ -374,19 +408,29 @@ func renderSARIF(w io.Writer, report Report, options RenderOptions) error {
 		}
 
 		for _, f := range it.findings {
-			if !it.located() {
-				notifications = append(notifications, sarifNotification{Level: sarifError, Message: sarifMessage{Text: fmt.Sprintf("%s %s: %s", it.result.ID, f.Code, strings.TrimSpace(f.Message))}})
+			if !it.located(f) {
+				if !f.Baselined {
+					notifications = append(notifications, sarifNotification{Level: sarifError, Message: sarifMessage{Text: fmt.Sprintf("%s %s: %s", it.result.ID, f.Code, strings.TrimSpace(f.Message))}})
+				}
 				continue
 			}
 
+			level, state := sarifError, sarifBaselineState("")
+			if report.Baseline != nil {
+				state = sarifNew
+			}
+			if f.Baselined {
+				level, state = sarifWarning, sarifUnchanged
+			}
 			uri := (&url.URL{Path: options.path(f.Location.File)}).String()
 			results = append(results, sarifResult{
-				RuleID:     f.Code,
-				RuleIndex:  index[f.Code],
-				Level:      sarifError,
-				Message:    sarifMessage{Text: strings.TrimSpace(f.Message)},
-				Locations:  []sarifLocation{{PhysicalLocation: sarifPhysicalLocation{ArtifactLocation: sarifArtifactLocation{URI: uri, URIBaseID: "%SRCROOT%"}, Region: sarifRegion{StartLine: max(f.Location.Line, 1), StartColumn: f.Location.Column}}}},
-				Properties: sarifResultProperty{Check: it.result.ID, Kind: it.check.Check.Kind},
+				RuleID:        f.Code,
+				RuleIndex:     index[f.Code],
+				Level:         level,
+				Message:       sarifMessage{Text: strings.TrimSpace(f.Message)},
+				Locations:     []sarifLocation{{PhysicalLocation: sarifPhysicalLocation{ArtifactLocation: sarifArtifactLocation{URI: uri, URIBaseID: "%SRCROOT%"}, Region: sarifRegion{StartLine: max(f.Location.Line, 1), StartColumn: f.Location.Column}}}},
+				BaselineState: state,
+				Properties:    sarifResultProperty{Check: it.result.ID, Kind: it.check.Check.Kind},
 			})
 		}
 	}
@@ -411,7 +455,7 @@ func sarifRules(all []item) ([]sarifRule, map[string]int) {
 	kinds := map[string]CheckKind{}
 	for _, it := range all {
 		for _, f := range it.findings {
-			if _, seen := kinds[f.Code]; !seen && it.located() {
+			if _, seen := kinds[f.Code]; !seen && it.located(f) {
 				kinds[f.Code] = it.check.Check.Kind
 			}
 		}

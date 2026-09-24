@@ -45,6 +45,8 @@ config.go:18:9: LV1001 string choice with multiple alternatives needs a defined 
 
 To silence a finding, use Staticcheck's usual comment: `//lint:ignore CODE reason`.
 
+To turn the rules on in a repository that already has findings, name a [baseline](docs/configuration.md#baseline) file in `levenshtein.json` and record them with `verify main --write-baseline`. Recorded findings are reported but don't fail, new ones do, and fixing a recorded one means deleting its entry, so the file only shrinks.
+
 ## Quick start
 
 You need `go` (any version) and Docker or another Docker-compatible runtime, such as Colima. Levenshtein runs on Linux and macOS.

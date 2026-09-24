@@ -30,7 +30,7 @@ func TestCommandPlanningHelpAndErrorsNeedNoExecutor(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var output bytes.Buffer
-			code, err := runCommand(context.Background(), tc.args, console{out: &output})
+			code, err := runCommand(context.Background(), tc.args, console{out: &output, err: io.Discard})
 			if code != tc.code {
 				t.Fatalf("code=%d error=%v", code, err)
 			}
@@ -52,7 +52,7 @@ func TestCommandPlanningHelpAndErrorsNeedNoExecutor(t *testing.T) {
 			}
 		})
 	}
-	if code, err := runCommand(context.Background(), []string{"--source", source, "--dry-run"}, console{out: failingOutput{}}); code != 2 || err == nil {
+	if code, err := runCommand(context.Background(), []string{"--source", source, "--dry-run"}, console{out: failingOutput{}, err: io.Discard}); code != 2 || err == nil {
 		t.Fatalf("lost output error: code=%d error=%v", code, err)
 	}
 }
@@ -79,14 +79,14 @@ func TestCacheDirInsideSymlinkedSharedCheckoutIsRejected(t *testing.T) {
 
 	for _, shared := range []string{target, link} {
 		for _, cache := range []string{filepath.Join(target, "cache", "deep"), filepath.Join(link, "cache", "deep")} {
-			code, err := runCommand(context.Background(), []string{"branch", "--source", source, "--shared", shared, "--cache-dir", cache}, console{out: io.Discard})
+			code, err := runCommand(context.Background(), []string{"branch", "--source", source, "--shared", shared, "--cache-dir", cache}, console{out: io.Discard, err: io.Discard})
 			if code != 2 || err == nil || !strings.Contains(err.Error(), "cache directory must be outside") {
 				t.Fatalf("shared %s cache %s: code %d err %v", shared, cache, code, err)
 			}
 		}
 	}
 
-	code, err := runCommand(context.Background(), []string{"branch", "--source", source, "--shared", filepath.Join(base, "absent")}, console{out: io.Discard})
+	code, err := runCommand(context.Background(), []string{"branch", "--source", source, "--shared", filepath.Join(base, "absent")}, console{out: io.Discard, err: io.Discard})
 	if code != 2 || err == nil || !strings.Contains(err.Error(), "--shared") {
 		t.Fatalf("missing shared checkout: code %d err %v", code, err)
 	}

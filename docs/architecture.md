@@ -23,11 +23,11 @@ same for every format:
 - `1`: planning succeeded but a check failed, errored, or was cancelled/incomplete.
 - `2`: argument parsing, configuration loading, or planning failed. Also no
   shared checkout (neither `--shared` nor `LEVENSHTEIN_SHARED_ROOT`), a
-  `--cache-dir` inside the source or shared checkout, or a failure to write
-  the plan or report. `--help` exits `0`.
+  `--cache-dir` inside the source or shared checkout, a malformed baseline
+  file, or a failure to write the plan, report, or baseline. `--help` exits `0`.
 
-`--render` has its own meaning for `0`, described under
-[report and exit codes](#report-and-exit-codes).
+`--write-baseline` and `--render` have their own meanings for `0` and `1`,
+described under [report and exit codes](#report-and-exit-codes).
 
 ## Configuration concepts
 
@@ -50,6 +50,9 @@ same for every format:
 - **Run**: a named list of check IDs plus `rerun_checks`, which forces fresh
   verification (bypassing verdict caches) while keeping compatible
   dependency/build caches.
+- **Baseline**: an optional top-level path to a checked-in file of accepted
+  findings, which the CLI applies to the finished report (see
+  [baseline](configuration.md#baseline)).
 
 A repository without `levenshtein.json` gets built-in single-module Go
 defaults (`Load` in `config.go`).
@@ -221,6 +224,11 @@ native `command` checks with `cache: true`), it:
    the `.retry` marker left behind forces the next attempt to bypass any
    cached verdict, even if the fingerprint would otherwise hit.
 
+A failed result is never saved, and its `.retry` marker stays, so a check
+with findings executes fresh on every run. That includes a check whose
+findings the [baseline](configuration.md#baseline) accepts: the baseline is
+applied to the report after this layer, never to what it stores.
+
 `go-vuln` and `go-mod` are never cached: `CachedExecutor.Execute` forces
 `RerunChecks` and returns `CacheStatus: "disabled"` for them unconditionally
 (the `alwaysFresh` table in `kinds.go`), and the Dagger executor gives each
@@ -241,19 +249,33 @@ session with the run's context first, as `executeMutation` does.
 `internal/verify/run.go`'s `Execute` returns a `Report` with the resolved
 `Plan` and one `Result` per check (status, timing, stdout/stderr, cache info,
 stage results, and any `Details`). The CLI in `cmd/levenshtein/main.go` then
-finishes the report after every result was produced or restored, so nothing it
-adds is ever part of a cached result: `WithHints` in
-`internal/verify/hints.go` fills in each finding's `hint` from one small table.
-It rewrites only the `findings` array of a result's `Details`
+finishes the report in two steps, both after every result was produced or
+restored, so neither is ever part of a cached result:
+
+1. When the configuration names a `baseline` file and neither
+   `--no-baseline` nor `--write-baseline` is given, `Baseline.Apply` in
+   `internal/verify/baseline.go` marks recorded findings `baselined`, adds a
+   `baseline-stale` finding for each entry a covering check no longer
+   matches, recomputes the affected results' and the report's status, and
+   adds the report's `baseline` summary. The file is loaded before any check
+   runs, so a malformed one exits 2.
+2. `WithHints` in `internal/verify/hints.go` fills in each finding's `hint`
+   from one small table.
+
+Both rewrite only the `findings` array of a result's `Details`
 (`internal/verify/report.go`), keeping any other field such as
 `go-mutation`'s `summary`. `Render` in `internal/verify/render.go` writes the
 report in the `--format` chosen (`json`, `text`, `github`, or `sarif`) to
 stdout, and the CLI maps `Report.Status` to the process exit code described
-above; the format never changes it. `--render` decodes a saved JSON report,
-fills in its hints, and renders it without planning or executing anything; it
-exits 0 once the report is written and 2 when the input cannot be read.
+above; the format never changes it. With `--write-baseline`, the CLI skips
+step 1, writes the report, and then records it with `Baseline.Record` and
+`Baseline.Write`, exiting 0 once the file is written and 1 when a check did
+not reach a verdict. `--render` decodes a saved JSON report, applies step 2,
+and renders it without planning or executing anything; it exits 0 once the
+report is written and 2 when the input cannot be read.
 
-See [output formats](configuration.md#output-formats) for what each produces.
+See [output formats](configuration.md#output-formats) and
+[baseline](configuration.md#baseline) for what each produces.
 
 ## The four Go modules
 

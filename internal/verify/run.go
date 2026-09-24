@@ -24,11 +24,12 @@ type Result struct {
 }
 
 type Report struct {
-	Version int      `json:"version"`
-	Run     string   `json:"run"`
-	Status  Status   `json:"status"`
-	Plan    Plan     `json:"plan"`
-	Results []Result `json:"results"`
+	Version  int              `json:"version"`
+	Run      string           `json:"run"`
+	Status   Status           `json:"status"`
+	Plan     Plan             `json:"plan"`
+	Results  []Result         `json:"results"`
+	Baseline *BaselineSummary `json:"baseline,omitempty"`
 }
 
 type Request struct {
