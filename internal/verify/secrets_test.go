@@ -43,6 +43,12 @@ func TestSecretsFindingsSeparateFindingsFromToolErrors(t *testing.T) {
 		t.Fatalf("a clean scan is not a finding: %v %v", findings, err)
 	}
 
+	// A one-line key file puts its secret on line 1.
+	firstLine := []byte(`[{"RuleID":"private-key","Description":"Key","File":"id_ed25519","StartLine":1,"StartColumn":1,"Fingerprint":"id_ed25519:private-key:1"}]`)
+	if findings, err := secretsFindings(secretsLeakExit, firstLine, ""); err != nil || len(findings) != 1 || findings[0].Location.Line != 1 {
+		t.Fatalf("a secret on the first line is a finding there: %v %v", findings, err)
+	}
+
 	leak := []byte(`[{"RuleID":"aws-access-token","Description":"AWS","File":"a.py","StartLine":3,"StartColumn":1,"Fingerprint":"a.py:aws-access-token:3"}]`)
 	for _, tc := range []struct {
 		code   int
@@ -56,6 +62,7 @@ func TestSecretsFindingsSeparateFindingsFromToolErrors(t *testing.T) {
 		{secretsLeakExit, nil},
 		{0, []byte("not json")},
 		{secretsLeakExit, []byte(`[{"RuleID":"","File":"a.py","StartLine":3}]`)},
+		{secretsLeakExit, []byte(`[{"RuleID":"aws-access-token","File":"a.py","StartLine":0}]`)},
 	} {
 		if findings, err := secretsFindings(tc.code, tc.report, "fatal"); err == nil {
 			t.Errorf("exit %d with report %q must be an error, got %v", tc.code, tc.report, findings)
