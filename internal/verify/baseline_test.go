@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -418,5 +419,18 @@ func TestBaselinedCheckIsExecutedOnEveryRun(t *testing.T) {
 		if applied.Status != StatusPassed {
 			t.Fatalf("run %d: baselined result must pass: %+v", run, applied.Results[0])
 		}
+	}
+}
+
+// entryLines only locates entries for stale findings; a file with more
+// entries than it was asked about must not cost more than the extra lines.
+func TestEntryLinesStopsAtTheCountItWasGiven(t *testing.T) {
+	data := []byte("{\n  \"version\": 1,\n  \"findings\": [\n    {\"code\": \"a\"},\n    {\"code\": \"b\"}\n  ]\n}\n")
+
+	if got := entryLines(data, 2); !slices.Equal(got, []int{4, 5}) {
+		t.Fatalf("lines of two entries: %v", got)
+	}
+	if got := entryLines(data, 1); !slices.Equal(got, []int{4}) {
+		t.Fatalf("lines of the first entry only: %v", got)
 	}
 }
