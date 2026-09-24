@@ -1,0 +1,31 @@
+{
+  "comment": "go-imports configuration cases. runner/lint/gocheck and internal/verify both validate against this table, and the fixture rules are the ones imports-good passes and imports-bad fails.",
+  "fixture": {
+    "rules": [
+      {"packages": ["./core/..."], "deny": ["./api/...", "net/http"], "reason": "core stays independent of transport"},
+      {"packages": ["./store"], "allow": ["std", "./core/..."], "deny": ["net/..."], "tests": "exclude", "reason": "store uses the standard library and core alone"}
+    ]
+  },
+  "fixture_findings": [
+    "core/core.go:7 example.com/imports-bad/api",
+    "core/core_test.go:4 net/http",
+    "store/store.go:5 net/http"
+  ],
+  "valid": [
+    {"rules": [{"packages": ["."], "deny": ["..."], "reason": "nothing"}]},
+    {"rules": [{"packages": ["./..."], "allow": ["std"], "tests": "include", "reason": "leaf"}]},
+    {"rules": [{"packages": ["./internal/.../testutil"], "deny": ["example.com/app/internal/verify/...", "dagger.io/..."], "reason": "layering"}]}
+  ],
+  "invalid": [
+    {"config": {"rules": []}, "error": "nonempty rules"},
+    {"config": {"rules": [{"packages": [], "deny": ["x"], "reason": "r"}]}, "error": "nonempty packages"},
+    {"config": {"rules": [{"packages": ["internal/..."], "deny": ["x"], "reason": "r"}]}, "error": "must be \".\" or start with \"./\""},
+    {"config": {"rules": [{"packages": ["./a/../b"], "deny": ["x"], "reason": "r"}]}, "error": "must be \".\" or start with \"./\""},
+    {"config": {"rules": [{"packages": ["./a"], "reason": "r"}]}, "error": "deny or an allow list"},
+    {"config": {"rules": [{"packages": ["./a"], "deny": ["x y"], "reason": "r"}]}, "error": "import pattern \"x y\""},
+    {"config": {"rules": [{"packages": ["./a"], "deny": ["/abs"], "reason": "r"}]}, "error": "import pattern \"/abs\""},
+    {"config": {"rules": [{"packages": ["./a"], "allow": ["x//y"], "reason": "r"}]}, "error": "import pattern \"x//y\""},
+    {"config": {"rules": [{"packages": ["./a"], "deny": ["x"], "tests": "only", "reason": "r"}]}, "error": "tests \"only\""},
+    {"config": {"rules": [{"packages": ["./a"], "deny": ["x"], "reason": " "}]}, "error": "needs a reason"}
+  ]
+}

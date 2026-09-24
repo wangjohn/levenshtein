@@ -22,6 +22,25 @@ func validateCheck(check Check, env Environment) error {
 			return err
 		}
 	}
+	if check.Imports != nil && check.Kind != CheckGoImports {
+		return fmt.Errorf("imports options apply only to go-imports checks")
+	}
+	if check.Apidiff != nil {
+		if check.Kind != CheckGoApidiff {
+			return fmt.Errorf("apidiff options apply only to go-apidiff checks")
+		}
+		if check.Apidiff.Base != "" && !gitRef(check.Apidiff.Base) {
+			return fmt.Errorf("invalid go-apidiff base %q", check.Apidiff.Base)
+		}
+	}
+	if check.Kind == CheckGoImports {
+		if check.Imports == nil {
+			return fmt.Errorf(`go-imports needs an "imports" object with its rules`)
+		}
+		if err := validateImportRules(*check.Imports); err != nil {
+			return err
+		}
+	}
 	if env.Executor == ExecutorDagger {
 		return validateDaggerCheck(check, env)
 	}

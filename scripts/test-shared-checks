@@ -5,14 +5,14 @@ temporary=$(mktemp -d)
 trap 'rm -rf "$temporary"' EXIT
 
 (cd "$root" && go build -o "$temporary/verify" ./cmd/levenshtein)
-for fixture in resources-good resources-bad vet-bad mod-tidy mod-untidy test-pass test-fail workflow-secure workflow-insecure good bad; do
+for fixture in resources-good resources-bad vet-bad mod-tidy mod-untidy test-pass test-fail imports-good imports-bad generate-fresh generate-stale workflow-secure workflow-insecure good bad; do
   mkdir -p "$temporary/$fixture"
   cp -R "$root/runner/testdata/$fixture/." "$temporary/$fixture/"
   cat > "$temporary/$fixture/levenshtein.json" <<'JSON'
-{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"},"host":{"executor":"native"}},"checks":{"http":{"kind":"go-http","target":"app","environment":"go"},"sql":{"kind":"go-sql","target":"app","environment":"go"},"vet":{"kind":"go-vet","target":"app","environment":"go"},"mod":{"kind":"go-mod","target":"app","environment":"go"},"test":{"kind":"go-test","target":"app","environment":"go"},"security":{"kind":"workflow-security","target":"app","environment":"go"},"native-vet":{"kind":"go-vet","target":"app","environment":"host"},"native-mod":{"kind":"go-mod","target":"app","environment":"host"},"native-test":{"kind":"go-test","target":"app","environment":"host"},"native-lint":{"kind":"go-lint","target":"app","environment":"host"},"native-security":{"kind":"workflow-security","target":"app","environment":"host"}},"runs":{"http":{"checks":["http"]},"sql":{"checks":["sql"]},"vet":{"checks":["vet"]},"mod":{"checks":["mod"]},"test":{"checks":["test"]},"security":{"checks":["security"]},"native-vet":{"checks":["native-vet"]},"native-mod":{"checks":["native-mod"]},"native-test":{"checks":["native-test"]},"native-lint":{"checks":["native-lint"]},"native-security":{"checks":["native-security"]}}}
+{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"},"host":{"executor":"native"}},"checks":{"http":{"kind":"go-http","target":"app","environment":"go"},"sql":{"kind":"go-sql","target":"app","environment":"go"},"vet":{"kind":"go-vet","target":"app","environment":"go"},"mod":{"kind":"go-mod","target":"app","environment":"go"},"test":{"kind":"go-test","target":"app","environment":"go"},"imports":{"kind":"go-imports","target":"app","environment":"go","imports":{"rules":[{"packages":["./core/..."],"deny":["./api/...","net/http"],"reason":"core stays independent of transport"},{"packages":["./store"],"allow":["std","./core/..."],"deny":["net/..."],"tests":"exclude","reason":"store uses the standard library and core alone"}]}},"generate":{"kind":"go-generate","target":"app","environment":"go"},"security":{"kind":"workflow-security","target":"app","environment":"go"},"native-vet":{"kind":"go-vet","target":"app","environment":"host"},"native-mod":{"kind":"go-mod","target":"app","environment":"host"},"native-test":{"kind":"go-test","target":"app","environment":"host"},"native-imports":{"kind":"go-imports","target":"app","environment":"host","imports":{"rules":[{"packages":["./core/..."],"deny":["./api/...","net/http"],"reason":"core stays independent of transport"},{"packages":["./store"],"allow":["std","./core/..."],"deny":["net/..."],"tests":"exclude","reason":"store uses the standard library and core alone"}]}},"native-generate":{"kind":"go-generate","target":"app","environment":"host"},"native-lint":{"kind":"go-lint","target":"app","environment":"host"},"native-security":{"kind":"workflow-security","target":"app","environment":"host"}},"runs":{"http":{"checks":["http"]},"sql":{"checks":["sql"]},"vet":{"checks":["vet"]},"mod":{"checks":["mod"]},"test":{"checks":["test"]},"imports":{"checks":["imports"]},"generate":{"checks":["generate"]},"security":{"checks":["security"]},"native-vet":{"checks":["native-vet"]},"native-mod":{"checks":["native-mod"]},"native-test":{"checks":["native-test"]},"native-imports":{"checks":["native-imports"]},"native-generate":{"checks":["native-generate"]},"native-lint":{"checks":["native-lint"]},"native-security":{"checks":["native-security"]}}}
 JSON
 done
-for check in http sql vet mod test security; do
+for check in http sql vet mod test imports generate security; do
   clean=resources-good
   fixture=resources-bad
   case "$check" in
@@ -21,6 +21,8 @@ for check in http sql vet mod test security; do
     vet) fixture=vet-bad; code=go-vet ;;
     mod) clean=mod-tidy; fixture=mod-untidy; code=go-mod ;;
     test) clean=test-pass; fixture=test-fail; code=go-test ;;
+    imports) clean=imports-good; fixture=imports-bad; code=go-imports ;;
+    generate) clean=generate-fresh; fixture=generate-stale; code=go-generate ;;
     security) clean=workflow-secure; fixture=workflow-insecure; code=workflow-security ;;
   esac
   "$temporary/verify" "$check" --source "$temporary/$clean" --shared "$root" --cache-dir "$temporary/cache" > "$temporary/good.json"
@@ -34,12 +36,14 @@ for check in http sql vet mod test security; do
 done
 # The same fixtures through the native executor, which needs no container. Only
 # the kinds a native environment runs appear here.
-for check in native-lint native-vet native-mod native-test native-security; do
+for check in native-lint native-vet native-mod native-test native-imports native-generate native-security; do
   case "$check" in
     native-lint) clean=good; broken=bad; code=SA5001 ;;
     native-vet) clean=resources-good; broken=vet-bad; code=go-vet ;;
     native-mod) clean=mod-tidy; broken=mod-untidy; code=go-mod ;;
     native-test) clean=test-pass; broken=test-fail; code=go-test ;;
+    native-imports) clean=imports-good; broken=imports-bad; code=go-imports ;;
+    native-generate) clean=generate-fresh; broken=generate-stale; code=go-generate ;;
     native-security) clean=workflow-secure; broken=workflow-insecure; code=workflow-security ;;
   esac
   "$temporary/verify" "$check" --source "$temporary/$clean" --shared "$root" --cache-dir "$temporary/native-cache" > "$temporary/good.json"
@@ -48,6 +52,38 @@ for check in native-lint native-vet native-mod native-test native-security; do
   if [[ $status != 1 ]] || ! grep -q "\"code\": \"$code\"" "$temporary/bad.json"; then
     cat "$temporary/bad.json"
     echo "Expected $check finding through the native executor, got exit $status" >&2
+    exit 1
+  fi
+done
+# go-apidiff compares a branch with its merge base, so each of its fixtures
+# becomes a repository: main holds apidiff/base and the checked-out branch holds
+# the head fixture. Both executors run over the same repositories.
+apidiff_repo() {
+  local head=$1 dir="$temporary/apidiff-$1"
+  mkdir -p "$dir/lib"
+  cp -R "$root/runner/testdata/apidiff/base/." "$dir/lib/"
+  git -C "$dir" init --quiet --initial-branch=main
+  git -C "$dir" add --all
+  git -C "$dir" -c user.name=levenshtein -c user.email=levenshtein@example.com commit --quiet -m base
+  git -C "$dir" switch --quiet -c feature
+  rm -rf "$dir/lib"
+  mkdir -p "$dir/lib"
+  cp -R "$root/runner/testdata/apidiff/$head/." "$dir/lib/"
+  git -C "$dir" add --all
+  git -C "$dir" -c user.name=levenshtein -c user.email=levenshtein@example.com commit --quiet -m "$head"
+  cat > "$dir/levenshtein.json" <<'JSON'
+{"version":1,"targets":{"lib":{"dir":"lib","inputs":["lib"]}},"environments":{"go":{"executor":"dagger"},"host":{"executor":"native"}},"checks":{"api":{"kind":"go-apidiff","target":"lib","environment":"go"},"native-api":{"kind":"go-apidiff","target":"lib","environment":"host"}},"runs":{"api":{"checks":["api"]},"native-api":{"checks":["native-api"]}}}
+JSON
+}
+apidiff_repo compatible
+apidiff_repo breaking
+for check in api native-api; do
+  GITHUB_BASE_REF='' "$temporary/verify" "$check" --source "$temporary/apidiff-compatible" --shared "$root" > "$temporary/good.json"
+  status=0
+  GITHUB_BASE_REF='' "$temporary/verify" "$check" --source "$temporary/apidiff-breaking" --shared "$root" > "$temporary/bad.json" || status=$?
+  if [[ $status != 1 ]] || ! grep -q '"code": "go-apidiff"' "$temporary/bad.json"; then
+    cat "$temporary/bad.json"
+    echo "Expected $check go-apidiff finding, got exit $status" >&2
     exit 1
   fi
 done

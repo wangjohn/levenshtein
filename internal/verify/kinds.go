@@ -70,6 +70,21 @@ var nativeKinds = map[CheckKind]nativeKind{
 		rerunReady: alwaysReady,
 		execute:    goCheckExecutor((*Native).workflowSecurity, "shared check failed"),
 	},
+	CheckGoImports: {
+		validate:   validateSharedGoCheck,
+		rerunReady: alwaysReady,
+		execute:    goCheckExecutor((*Native).goImports, "shared check failed"),
+	},
+	CheckGoGenerate: {
+		validate:   validateSharedGoCheck,
+		rerunReady: alwaysReady,
+		execute:    goCheckExecutor((*Native).goGenerate, "shared check failed"),
+	},
+	CheckGoApidiff: {
+		validate:   validateSharedGoCheck,
+		rerunReady: alwaysReady,
+		execute:    (*Native).apidiff,
+	},
 }
 
 // sharedGoChecks are the kinds either executor can run. Their results are
@@ -84,6 +99,9 @@ var sharedGoChecks = map[CheckKind]bool{
 	CheckGoVuln:           true,
 	CheckWorkflowLint:     true,
 	CheckWorkflowSecurity: true,
+	CheckGoImports:        true,
+	CheckGoGenerate:       true,
+	CheckGoApidiff:        true,
 }
 
 // alwaysFresh names the kinds whose verdict depends on state no input
@@ -92,6 +110,15 @@ var sharedGoChecks = map[CheckKind]bool{
 var alwaysFresh = map[CheckKind]string{
 	CheckGoVuln: "vulnerability scans always query current advisory data",
 	CheckGoMod:  "go mod verify always checks the current module cache",
+}
+
+// baseDependent names the kinds whose input the CLI reads from git history,
+// which no input fingerprint covers, with the reason the report gives for not
+// reusing their results. The history the CLI read travels to Dagger as
+// function arguments, so Dagger can still answer an identical call.
+var baseDependent = map[CheckKind]string{
+	CheckGoMutation: "the mutated files depend on the base branch; Dagger reuses identical runs",
+	CheckGoApidiff:  "the comparison depends on where the base branch points; Dagger reuses identical runs",
 }
 
 // A kind that always executes verification needs nothing declared for a fresh

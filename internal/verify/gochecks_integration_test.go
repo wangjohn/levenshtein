@@ -5,7 +5,11 @@ package verify
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -43,6 +47,29 @@ func fixtureRequest(t *testing.T, shared, fixture string, kind CheckKind) Reques
 			Environment: Environment{Executor: ExecutorNative},
 		},
 	}
+}
+
+// fixtureFiles reads a fixture tree into the shape historyRepo takes, under
+// prefix.
+func fixtureFiles(t *testing.T, root, prefix string) map[string]*string {
+	t.Helper()
+	files := map[string]*string{}
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		files[prefix+filepath.ToSlash(rel)] = text(string(data))
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
 }
 
 func fixtureFindings(t *testing.T, result Result) []finding {
@@ -232,6 +259,118 @@ func TestNativeGoChecksAgreeWithTheFixtures(t *testing.T) {
 		result := native.Execute(ctx, fixtureRequest(t, shared, "mod-tidy", CheckGoTest))
 		if result.Status != StatusError || !strings.Contains(result.Error, "ran no tests") {
 			t.Fatalf("a module with no tests must error rather than pass: %+v", result)
+		}
+	})
+
+	t.Run("go-imports passes imports-good and fails imports-bad at each import", func(t *testing.T) {
+		table := loadImportRuleTable(t)
+		good := fixtureRequest(t, shared, "imports-good", CheckGoImports)
+		good.Check.Imports = &table.Fixture
+		if result := native.Execute(ctx, good); result.Status != StatusPassed {
+			t.Fatalf("imports-good must pass go-imports: %+v", result)
+		}
+
+		bad := fixtureRequest(t, shared, "imports-bad", CheckGoImports)
+		bad.Check.Imports = &table.Fixture
+		result := native.Execute(ctx, bad)
+		if result.Status != StatusFailed {
+			t.Fatalf("imports-bad must fail for its imports, not a tool error: %+v", result)
+		}
+		var got []string
+		for _, finding := range fixtureFindings(t, result) {
+			if finding.Code != string(CheckGoImports) {
+				t.Errorf("wrong code: %+v", finding)
+			}
+			got = append(got, fmt.Sprintf("%s:%d", finding.Location.File, finding.Location.Line))
+		}
+		if want := []string{"core/core.go:7", "core/core_test.go:4", "store/store.go:5"}; !slices.Equal(got, want) {
+			t.Fatalf("imports-bad findings = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("go-imports refuses a package pattern that matches nothing", func(t *testing.T) {
+		req := fixtureRequest(t, shared, "imports-good", CheckGoImports)
+		req.Check.Imports = &ImportsCheck{Rules: []ImportRule{{Packages: []string{"./cor/..."}, Deny: []string{"net/http"}, Reason: "typo"}}}
+		if result := native.Execute(ctx, req); result.Status != StatusError || !strings.Contains(result.Error, `"./cor/..." matches no package`) {
+			t.Fatalf("a misspelled package pattern must be an error: %+v", result)
+		}
+	})
+
+	t.Run("go-generate passes generate-fresh without touching the source", func(t *testing.T) {
+		req := fixtureRequest(t, shared, "generate-fresh", CheckGoGenerate)
+		result := native.Execute(ctx, req)
+		if result.Status != StatusPassed || !strings.Contains(result.Stdout, "ran 1 directive and changed 0 files") {
+			t.Fatalf("generate-fresh must pass go-generate after running its directive: %+v", result)
+		}
+		if _, err := os.Stat(filepath.Join(req.Source, "build")); !os.IsNotExist(err) {
+			t.Fatalf("go-generate wrote into the source instead of a copy: %v", err)
+		}
+	})
+
+	t.Run("go-generate fails generate-stale with the diff", func(t *testing.T) {
+		result := native.Execute(ctx, fixtureRequest(t, shared, "generate-stale", CheckGoGenerate))
+		if result.Status != StatusFailed {
+			t.Fatalf("generate-stale must fail for its stale file, not a tool error: %+v", result)
+		}
+		findings := fixtureFindings(t, result)
+		if len(findings) != 1 || findings[0].Code != string(CheckGoGenerate) || findings[0].Location.File != "names_gen.go" || findings[0].Location.Line != 6 || !strings.Contains(findings[0].Message, "+\t\"blue\",") {
+			t.Fatalf("lost the stale file's location or diff: %+v", findings)
+		}
+	})
+
+	// go-apidiff compares branches, so each case is a repository whose main
+	// branch holds apidiff/base and whose feature branch holds a head fixture.
+	apidiffCase := func(t *testing.T, head string) Result {
+		t.Helper()
+		fixtures := filepath.Join(shared, "runner", "testdata", "apidiff")
+		files := fixtureFiles(t, filepath.Join(fixtures, head), "lib/")
+		for name := range fixtureFiles(t, filepath.Join(fixtures, "base"), "lib/") {
+			if _, kept := files[name]; !kept {
+				files[name] = nil
+			}
+		}
+		dir := historyRepo(t, fixtureFiles(t, filepath.Join(fixtures, "base"), "lib/"), files)
+		req := apidiffRequest(dir, Target{Dir: "lib", Workspace: ".", Inputs: []string{"lib"}})
+		req.Shared = shared
+		return native.Execute(ctx, req)
+	}
+
+	t.Run("go-apidiff fails a breaking branch at each changed declaration", func(t *testing.T) {
+		result := apidiffCase(t, "breaking")
+		if result.Status != StatusFailed || !strings.HasPrefix(result.Stdout, "compared with the merge base of main, ") {
+			t.Fatalf("breaking must fail for its changes, not a tool error: %+v", result)
+		}
+		var got []string
+		for _, finding := range fixtureFindings(t, result) {
+			if finding.Code != string(CheckGoApidiff) {
+				t.Errorf("wrong code: %+v", finding)
+			}
+			got = append(got, fmt.Sprintf("%s:%d", finding.Location.File, finding.Location.Line))
+		}
+		if want := []string{"lib/shapes.go:3", "lib/shapes.go:11", "lib/units/units.go:9"}; !slices.Equal(got, want) {
+			t.Fatalf("breaking findings = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("go-apidiff passes a compatible branch and lists the addition", func(t *testing.T) {
+		result := apidiffCase(t, "compatible")
+		var details struct {
+			Summary apidiffSummary `json:"summary"`
+		}
+		if err := json.Unmarshal(result.Details, &details); err != nil {
+			t.Fatal(err)
+		}
+		if result.Status != StatusPassed || details.Summary.Base != "main" || !slices.Contains(details.Summary.Notes, "compatible: Circle: added") {
+			t.Fatalf("compatible must pass with its addition in the details: %+v", result)
+		}
+	})
+
+	t.Run("go-apidiff passes a module the base did not have", func(t *testing.T) {
+		dir := historyRepo(t, map[string]*string{"other/go.mod": text("module example.com/other\n")}, fixtureFiles(t, filepath.Join(shared, "runner", "testdata", "apidiff", "base"), "lib/"))
+		req := apidiffRequest(dir, Target{Dir: "lib", Workspace: ".", Inputs: []string{"lib"}})
+		req.Shared = shared
+		if result := native.Execute(ctx, req); result.Status != StatusPassed || !strings.Contains(result.Stdout, "did not exist at the base") {
+			t.Fatalf("a new module has no API to break: %+v", result)
 		}
 	})
 

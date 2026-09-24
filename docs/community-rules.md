@@ -48,6 +48,10 @@ grows by optional exports. A breaking change would get a new package name, with
 both supported for at least a year. The contract is unstable (`v0`) until
 phase 1 ships.
 
+A module keeps the exports it has published, too. The shared
+[`go-apidiff`](checks.md#api-compatibility) check fails a change that removes or
+alters one, and Levenshtein runs it over `examples/rule-module`.
+
 Each analyzer needs:
 
 - **`Name`**: a Go identifier, unique in the module ignoring case.

@@ -1,0 +1,324 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"path"
+	"path/filepath"
+	"slices"
+	"strings"
+
+	"dagger/levenshtein/internal/dagger"
+
+	"github.com/vektah/gqlparser/v2/gqlerror"
+)
+
+// The checks that judge a whole module run levenshtein-gocheck, built from
+// lint/cmd/levenshtein-gocheck, so the Dagger path and the CLI's native path
+// decide each verdict with the same code.
+const (
+	checkImports  checkName = "go-imports"
+	checkGenerate checkName = "go-generate"
+	checkApidiff  checkName = "go-apidiff"
+)
+
+// gochecker is the pinned Go image with levenshtein-gocheck built from this
+// module.
+func gochecker(tools toolchain) *dagger.Container {
+	return goContainer(tools).
+		WithDirectory("/policy", dag.CurrentModule().Source().Directory("lint")).
+		WithWorkdir("/policy").
+		WithExec([]string{"go", "build", "-trimpath", "-o", "/go/bin/levenshtein-gocheck", "./cmd/levenshtein-gocheck"})
+}
+
+// gocheckOutput is levenshtein-gocheck's report.
+type gocheckOutput struct {
+	Findings []diagnostic `json:"findings"`
+	Notes    []string     `json:"notes"`
+}
+
+// gocheckReport reads one levenshtein-gocheck run, refusing any result that
+// does not agree with itself: exit 0 must carry no findings and exit 1 some,
+// every one of the check's own code at a real location, with nothing on
+// stderr. Exit 2, the command's own error, and any other exit are tool errors,
+// never a pass. internal/verify/gocheck.go keeps a copy for the native
+// executor; both tests load testdata/gocheck-reports.json.
+func gocheckReport(check checkName, exitCode int, stdout, stderr string) ([]diagnostic, []string, error) {
+	if exitCode != 0 && exitCode != 1 {
+		return nil, nil, fmt.Errorf("%s could not run: %s", check, strings.TrimSpace(stderr+"\n"+stdout))
+	}
+	var output gocheckOutput
+	decoder := json.NewDecoder(strings.NewReader(stdout))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&output); err != nil {
+		return nil, nil, fmt.Errorf("%s printed an unreadable report: %w: %s", check, err, strings.TrimSpace(stdout+"\n"+stderr))
+	}
+	if (exitCode == 0) != (len(output.Findings) == 0) {
+		return nil, nil, fmt.Errorf("%s exit %d does not match its %d findings: %s", check, exitCode, len(output.Findings), stdout)
+	}
+	for _, found := range output.Findings {
+		if found.Code != string(check) || found.Message == "" || found.Location.File == "" || found.Location.Line < 1 {
+			return nil, nil, fmt.Errorf("%s reported an unexpected finding: %+v", check, found)
+		}
+	}
+	if strings.TrimSpace(stderr) != "" {
+		return nil, nil, fmt.Errorf("%s could not produce a clean result: %s", check, stderr)
+	}
+	return output.Findings, output.Notes, nil
+}
+
+// runGocheck runs one levenshtein-gocheck invocation in ctr and reads its
+// report. A nonce makes Dagger execute it again rather than answer from its
+// call cache.
+func runGocheck(ctx context.Context, ctr *dagger.Container, check checkName, args []string, nonce string) ([]diagnostic, []string, error) {
+	if nonce != "" {
+		ctr = ctr.WithEnvVariable("LEVENSHTEIN_RUN_NONCE", nonce)
+	}
+	checked := ctr.WithExec(append([]string{"/go/bin/levenshtein-gocheck"}, args...), dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
+	exitCode, err := checked.ExitCode(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	stdout, err := checked.Stdout(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	stderr, err := checked.Stderr(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	return gocheckReport(check, exitCode, stdout, stderr)
+}
+
+// validModule accepts a module directory that stays inside the source.
+func validModule(module string) error {
+	if !filepath.IsLocal(module) || path.Clean(module) != module || strings.Contains(module, "\\") {
+		return fmt.Errorf("invalid module path %q", module)
+	}
+	return nil
+}
+
+// failed turns findings into the error the CLI reads them from.
+func failed(findings []diagnostic) error {
+	if len(findings) == 0 {
+		return nil
+	}
+	return &gqlerror.Error{Message: "shared check failed", Extensions: map[string]any{"levenshteinFindings": findings}}
+}
+
+// goImports checks the module's packages against the rules. It reads what go
+// list and the files' import declarations say, so it needs neither module
+// downloads nor type checking.
+func goImports(ctx context.Context, source *dagger.Directory, module, rules string, tools toolchain, nonce string) ([]diagnostic, []string, error) {
+	if _, err := source.File(path.Join(module, "go.mod")).Contents(ctx); err != nil {
+		return nil, nil, fmt.Errorf("module %q needs a readable go.mod: %w", module, err)
+	}
+	ctr := gochecker(tools).
+		WithDirectory("/src", source).
+		WithWorkdir(path.Join("/src", module))
+	return runGocheck(ctx, ctr, checkImports, []string{"imports", "-rules=" + rules, "-prefix=" + module}, nonce)
+}
+
+// goGenerate runs go generate ./... in the container's own copy of the
+// source, which it may change, and reports every file that differs afterwards.
+// The pinned image carries git, which does the comparison, and the Go
+// toolchain; a generator that needs any other tool is an error.
+func goGenerate(ctx context.Context, source *dagger.Directory, module string, tools toolchain, nonce string) ([]diagnostic, []string, error) {
+	if _, err := source.File(path.Join(module, "go.mod")).Contents(ctx); err != nil {
+		return nil, nil, fmt.Errorf("module %q needs a readable go.mod: %w", module, err)
+	}
+	ctr := gochecker(tools).
+		WithDirectory("/src", source).
+		WithWorkdir("/src")
+	return runGocheck(ctx, ctr, checkGenerate, []string{"generate", "-root=/src", "-module=" + module}, nonce)
+}
+
+// apidiffer is gochecker with the apidiff that tools/go.mod pins.
+func apidiffer(tools toolchain) *dagger.Container {
+	return gochecker(tools).
+		WithDirectory("/tools", dag.CurrentModule().Source().Directory("tools")).
+		WithWorkdir("/tools").
+		WithExec([]string{"go", "build", "-trimpath", "-o", "/usr/local/bin/apidiff", "golang.org/x/exp/cmd/apidiff"})
+}
+
+// goApidiff compares the exported API of the module in base with the one in
+// source. The CLI exports base from the merge base on the host, since neither
+// directory carries history.
+func goApidiff(ctx context.Context, source, base *dagger.Directory, module, workspace string, tools toolchain, nonce string) ([]diagnostic, []string, error) {
+	if _, err := source.File(path.Join(module, "go.mod")).Contents(ctx); err != nil {
+		return nil, nil, fmt.Errorf("module %q needs a readable go.mod: %w", module, err)
+	}
+	ctr := apidiffer(tools).
+		WithDirectory("/src", source).
+		WithDirectory("/base", base).
+		WithWorkdir(path.Join("/src", module))
+	args := []string{"apidiff", "-tool=/usr/local/bin/apidiff", "-base=/base", "-head=/src", "-module=" + module, "-workspace=" + workspace}
+	return runGocheck(ctx, ctr, checkApidiff, args, nonce)
+}
+
+// gocheckSelfTest proves each whole-module check passes its good fixture and
+// fails its bad one for the findings the fixtures were written to produce.
+func gocheckSelfTest(ctx context.Context, fixtures *dagger.Directory, tools toolchain, nonce string) error {
+	table, err := fixtures.File("import-rules.json").Contents(ctx)
+	if err != nil {
+		return err
+	}
+	var rules struct {
+		Fixture  json.RawMessage `json:"fixture"`
+		Findings []string        `json:"fixture_findings"`
+	}
+	if err := json.Unmarshal([]byte(table), &rules); err != nil {
+		return fmt.Errorf("import-rules.json: %w", err)
+	}
+
+	good, notes, err := goImports(ctx, fixtures.Directory("imports-good"), ".", string(rules.Fixture), tools, nonce)
+	if err != nil || len(good) != 0 || !slices.ContainsFunc(notes, func(note string) bool { return strings.HasPrefix(note, "2 rules checked 2 packages") }) {
+		return fmt.Errorf("imports-good fixture must pass go-imports after checking both governed packages: findings=%v notes=%v error=%v", good, notes, err)
+	}
+	bad, _, err := goImports(ctx, fixtures.Directory("imports-bad"), ".", string(rules.Fixture), tools, nonce)
+	if err != nil {
+		return fmt.Errorf("imports-bad fixture must fail for its imports, not a tool error: %w", err)
+	}
+	if len(bad) != len(rules.Findings) {
+		return fmt.Errorf("imports-bad fixture must report %v: %v", rules.Findings, bad)
+	}
+	for i, finding := range bad {
+		file, _, _ := strings.Cut(rules.Findings[i], ":")
+		if finding.Code != string(checkImports) || finding.Location.File != file {
+			return fmt.Errorf("imports-bad fixture must report %v: %v", rules.Findings, bad)
+		}
+	}
+
+	fresh, notes, err := goGenerate(ctx, fixtures.Directory("generate-fresh"), ".", tools, nonce)
+	if err != nil || len(fresh) != 0 || !slices.ContainsFunc(notes, func(note string) bool { return strings.Contains(note, "ran 1 directive and changed 0 files") }) {
+		return fmt.Errorf("generate-fresh fixture must pass go-generate after running its directive: findings=%v notes=%v error=%v", fresh, notes, err)
+	}
+	stale, _, err := goGenerate(ctx, fixtures.Directory("generate-stale"), ".", tools, nonce)
+	if err != nil {
+		return fmt.Errorf("generate-stale fixture must fail for its stale file, not a tool error: %w", err)
+	}
+	if len(stale) != 1 || stale[0].Code != string(checkGenerate) || stale[0].Location.File != "names_gen.go" || !strings.Contains(stale[0].Message, "+\t\"blue\",") {
+		return fmt.Errorf("generate-stale fixture must report names_gen.go with its diff: %v", stale)
+	}
+
+	apidiff := fixtures.Directory("apidiff")
+	compatible, notes, err := goApidiff(ctx, apidiff.Directory("compatible"), apidiff.Directory("base"), ".", "off", tools, nonce)
+	if err != nil || len(compatible) != 0 || !slices.Contains(notes, "compatible: Circle: added") {
+		return fmt.Errorf("apidiff/compatible must pass go-apidiff and list its addition, with internal and main packages ignored: findings=%v notes=%v error=%v", compatible, notes, err)
+	}
+	breaking, _, err := goApidiff(ctx, apidiff.Directory("breaking"), apidiff.Directory("base"), ".", "off", tools, nonce)
+	if err != nil {
+		return fmt.Errorf("apidiff/breaking must fail for its changes, not a tool error: %w", err)
+	}
+	var located []string
+	for _, finding := range breaking {
+		if finding.Code != string(checkApidiff) {
+			return fmt.Errorf("apidiff/breaking reported another check's finding: %v", finding)
+		}
+		located = append(located, fmt.Sprintf("%s:%d", finding.Location.File, finding.Location.Line))
+	}
+	if want := []string{"shapes.go:3", "shapes.go:11", "units/units.go:9"}; !slices.Equal(located, want) {
+		return fmt.Errorf("apidiff/breaking must report %v, got %v: %v", want, located, breaking)
+	}
+	return nil
+}
+
+// GoGenerate runs go generate ./... in a copy of the source and reports every
+// file it adds, changes, or deletes, with the diff, so generated code cannot
+// fall behind its generator.
+func (m *Levenshtein) GoGenerate(ctx context.Context,
+	// +defaultPath="/"
+	// +ignore=["**/.env", "**/.env.*", "!**/.env.example", "**/.git"]
+	source *dagger.Directory,
+	// +default="."
+	module string,
+	// +optional
+	nonce string,
+) error {
+	if err := validModule(module); err != nil {
+		return err
+	}
+	var tools toolchain
+	if err := json.Unmarshal(toolchainJSON, &tools); err != nil {
+		return err
+	}
+
+	findings, _, err := goGenerate(ctx, source, module, tools, nonce)
+	if err != nil {
+		return err
+	}
+	return failed(findings)
+}
+
+// GoImports checks a module's packages against layering rules and reports
+// every import a rule forbids, at the import.
+func (m *Levenshtein) GoImports(ctx context.Context,
+	// +defaultPath="/"
+	// +ignore=["**/.env", "**/.env.*", "!**/.env.example", "**/.git"]
+	source *dagger.Directory,
+	// The rules as JSON, spelled like a go-imports check's "imports" object in
+	// levenshtein.json.
+	rules string,
+	// +default="."
+	module string,
+	// +optional
+	nonce string,
+) error {
+	if err := validModule(module); err != nil {
+		return err
+	}
+	var tools toolchain
+	if err := json.Unmarshal(toolchainJSON, &tools); err != nil {
+		return err
+	}
+
+	findings, _, err := goImports(ctx, source, module, rules, tools, nonce)
+	if err != nil {
+		return err
+	}
+	return failed(findings)
+}
+
+// GoApidiff compares the exported API of the module in source with the same
+// module in base, the source as it was at the branch's merge base, and fails
+// on every incompatible change. It returns the compatible changes and other
+// notes as a JSON list. Internal and main packages are not compared.
+func (m *Levenshtein) GoApidiff(ctx context.Context,
+	// +defaultPath="/"
+	// +ignore=["**/.env", "**/.env.*", "!**/.env.example", "**/.git"]
+	source *dagger.Directory,
+	// The same inputs at the merge base, as the Levenshtein CLI exports them.
+	base *dagger.Directory,
+	// +default="."
+	module string,
+	// The go.work the source is analyzed with, relative to it, or "off".
+	// +default="off"
+	workspace string,
+	// +optional
+	nonce string,
+) (string, error) {
+	if err := validModule(module); err != nil {
+		return "", err
+	}
+	if workspace != "off" && (validModule(workspace) != nil || path.Base(workspace) != "go.work") {
+		return "", fmt.Errorf("workspace %q must be off or a go.work inside the source", workspace)
+	}
+	var tools toolchain
+	if err := json.Unmarshal(toolchainJSON, &tools); err != nil {
+		return "", err
+	}
+
+	findings, notes, err := goApidiff(ctx, source, base, module, workspace, tools, nonce)
+	if err != nil {
+		return "", err
+	}
+	summary, err := json.Marshal(notes)
+	if err != nil {
+		return "", err
+	}
+	if len(findings) != 0 {
+		return "", &gqlerror.Error{Message: "shared check failed", Extensions: map[string]any{"levenshteinFindings": findings, "levenshteinSummary": string(summary)}}
+	}
+	return string(summary), nil
+}

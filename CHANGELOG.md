@@ -68,6 +68,45 @@ Consumers pin a release tag, or its commit SHA, as described in
   apart, leaves vet to `go-vet`, reuses its result like `go-vet` does, and is
   not in any default gate: add it to a run of your own, and keep tests that
   need services in a `command` check ([details](docs/checks.md#tests)).
+- `go-imports`, a shared check on both executors that enforces a repository's
+  layering rules. Each rule names packages relative to the target (`packages`,
+  such as `./internal/store/...`) and what they may not import (`deny`) or the
+  only things they may import (`allow`), with `...` wildcards, `./` entries
+  resolved against the target's import path, and `std` for the standard
+  library; `tests` says whether `_test.go` files count, and `reason` is
+  repeated in every finding. Each forbidden direct import is a finding at the
+  import's line; generated files are skipped. A package pattern that matches
+  no package is an error, so a typo cannot leave a rule checking nothing. The
+  check reads `go list -find` and the files' import declarations, so it needs
+  no downloads or type checking, and its rules are part of the result key. It
+  runs `levenshtein-gocheck`, a new program in `runner/lint` that both
+  executors build, and is in no default gate: declare the rules in an
+  `imports` object ([details](docs/checks.md#import-boundaries)).
+- `go-generate`, a shared check on both executors that runs `go generate ./...`
+  in a scratch copy of the target's declared inputs, never the working tree,
+  and reports every file it adds, changes, or deletes as a finding at the first
+  changed line with git's unified diff (capped at 200 lines). Files the copy's
+  `.gitignore` ignores do not count. A `go generate` failure is an error; one
+  caused by a tool the pinned image lacks, such as `protoc`, says to use a
+  `command` check, while `go run pkg@version` directives work. A module with no
+  `//go:generate` directive is an error rather than an empty pass. Its result is
+  reused like `go-vet`'s, and it is in no default gate
+  ([details](docs/checks.md#generated-code)).
+- `go-apidiff`, a shared check on both executors that compares a library
+  module's exported API at the merge base with a base branch (the `apidiff`
+  object's `base`, else `GITHUB_BASE_REF`, else `main`) against the working
+  tree, using `golang.org/x/exp/cmd/apidiff`, now pinned in `runner/tools`. Each
+  incompatible change is a finding at the declaration it concerns; compatible
+  changes pass and are listed in the report's summary. Internal and `main`
+  packages are not compared, and a module that is new or has a new module path
+  passes with a note. The CLI exports the base tree from git history on the
+  host, so the result is never reused by the CLI; the checkout needs the base
+  branch. It is in no default gate
+  ([details](docs/checks.md#api-compatibility)).
+- Levenshtein defines a `go-apidiff` run over `examples/rule-module`, which
+  enforces that a rule module keeps the exports it has published.
+- Levenshtein checks its own layering with `go-imports` in `branch`,
+  `pre-merge`, `branch-dagger`, and `main`.
 - `go-lint` runs three more upstream analyzers: `unparam` (unused parameters
   and results of unexported functions), `musttag` (untagged fields in structs
   passed to JSON, XML, YAML, and TOML encoders and decoders), and `recvcheck`

@@ -304,6 +304,9 @@ func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce strin
 	if err := goTestSelfTest(ctx, fixtures, tools, nonce); err != nil {
 		return err
 	}
+	if err := gocheckSelfTest(ctx, fixtures, tools, nonce); err != nil {
+		return err
+	}
 	return mutationSelfTest(ctx, fixtures.Directory("mutation"), tools, nonce)
 }
 
