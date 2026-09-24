@@ -44,9 +44,9 @@ check twice in one run.
 Each expanded check keeps its own cache identity, inputs, and result; the
 expansion is a way to write one declaration instead of one per module.
 
-Dagger checks include `go-lint`, `go-vet`, `go-mod`, `go-test`, `go-imports`, `go-http`, `go-sql`, `go-vuln`, `workflow-lint`, `workflow-security`, [`go-mutation`](mutation.md), and Levenshtein's own `self-test`; native checks use `command`, the advisory [`semantic-lint`](semantic-lint.md), or one of the [shared Go kinds a native environment can run](#native-go-checks). See the [shared checks](checks.md) for scope and examples. `go-lint` reports the shipped rule selection plus whatever its optional [`lint` object](#lint-selection) adds, and `go-imports` checks the layering rules in its required [`imports` object](#import-rules). `workflow-lint` and `workflow-security` require a repository-root target; give `workflow-security` a target whose `inputs` cover `.github` and any root `action.yml`, since that is what it audits. Go tool versions, and the zizmor release `workflow-security` downloads, remain pinned in the shared checkout. Local caching is described below.
+Dagger checks include `go-lint`, `go-vet`, `go-mod`, `go-test`, `go-imports`, `go-generate`, `go-http`, `go-sql`, `go-vuln`, `workflow-lint`, `workflow-security`, [`go-mutation`](mutation.md), and Levenshtein's own `self-test`; native checks use `command`, the advisory [`semantic-lint`](semantic-lint.md), or one of the [shared Go kinds a native environment can run](#native-go-checks). See the [shared checks](checks.md) for scope and examples. `go-lint` reports the shipped rule selection plus whatever its optional [`lint` object](#lint-selection) adds, and `go-imports` checks the layering rules in its required [`imports` object](#import-rules). `workflow-lint` and `workflow-security` require a repository-root target; give `workflow-security` a target whose `inputs` cover `.github` and any root `action.yml`, since that is what it audits. Go tool versions, and the zizmor release `workflow-security` downloads, remain pinned in the shared checkout. Local caching is described below.
 
-Without a configuration file, `branch` and `pre-merge` run `go-lint`, `go-vet`, and `go-mod`; `main` also runs `go-vuln`. Named runs for each shared check, including `go-test`, `workflow-lint`, and `workflow-security`, are available but not part of those gates. `go-imports` has no named run there, because it has nothing to check without a repository's rules. An explicit configuration replaces these defaults.
+Without a configuration file, `branch` and `pre-merge` run `go-lint`, `go-vet`, and `go-mod`; `main` also runs `go-vuln`. Named runs for each shared check, including `go-test`, `go-generate`, `workflow-lint`, and `workflow-security`, are available but not part of those gates. `go-imports` has no named run there, because it has nothing to check without a repository's rules. An explicit configuration replaces these defaults.
 
 ### Lint selection
 
@@ -160,7 +160,7 @@ A command check may reference an entry in top-level `preparations` by its `comma
 
 ## Native Go checks
 
-`go-lint`, `go-vet`, `go-mod`, `go-test`, `go-imports`, `workflow-lint`, `workflow-security`, and `go-vuln` also run on a `native` environment, on the host rather than in a container. Bind the check to a native environment; nothing else about the check changes:
+`go-lint`, `go-vet`, `go-mod`, `go-test`, `go-imports`, `go-generate`, `workflow-lint`, `workflow-security`, and `go-vuln` also run on a `native` environment, on the host rather than in a container. Bind the check to a native environment; nothing else about the check changes:
 
 ```json
 {
@@ -187,7 +187,7 @@ Workspace selection matches what the container would see. The container imports 
 
 The trade-off is the point of the choice. The container pins the Go version, the operating system, the C toolchain, and the default build tags, so its verdict is reproducible anywhere. The native executor uses the host's, which is faster and needs no Docker, but means analysis reflects the worker's platform and build tags. It is also not isolated: the host's `go list` and `go vet` may download modules and invoke cgo toolchains against the consumer's code outside any container, as trusted native commands do. Results are fingerprinted accordingly: a native shared Go check's cache key includes the host's `go env GOVERSION GOOS GOARCH` and the shared checkout's `runner/` directory (the linter, its rule list, and the pinned tools), so a worker on a different Go, or a pin that changes the rules, never reuses another's result. Reports have the same shape either way, with the same rule codes, messages, and repository-relative locations.
 
-Result caching follows the kind rather than a `command.cache` flag these checks do not have: a native `go-lint`, `go-vet`, `go-test`, `go-imports`, `workflow-lint`, or `workflow-security` result is reused exactly as a Dagger one is. `go-vuln` and `go-mod` are never cached on either executor.
+Result caching follows the kind rather than a `command.cache` flag these checks do not have: a native `go-lint`, `go-vet`, `go-test`, `go-imports`, `go-generate`, `workflow-lint`, or `workflow-security` result is reused exactly as a Dagger one is. `go-generate` runs its generators in a temporary copy of the target's declared inputs, never in the working tree ([generated code](checks.md#generated-code)). `go-vuln` and `go-mod` are never cached on either executor.
 
 ## Semantic lint
 

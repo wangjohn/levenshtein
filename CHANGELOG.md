@@ -49,6 +49,16 @@ Consumers pin a release tag, or its commit SHA, as described in
   runs `levenshtein-gocheck`, a new program in `runner/lint` that both
   executors build, and is in no default gate: declare the rules in an
   `imports` object ([details](docs/checks.md#import-boundaries)).
+- `go-generate`, a shared check on both executors that runs `go generate ./...`
+  in a scratch copy of the target's declared inputs, never the working tree,
+  and reports every file it adds, changes, or deletes as a finding at the first
+  changed line with git's unified diff (capped at 200 lines). Files the copy's
+  `.gitignore` ignores do not count. A `go generate` failure is an error; one
+  caused by a tool the pinned image lacks, such as `protoc`, says to use a
+  `command` check, while `go run pkg@version` directives work. A module with no
+  `//go:generate` directive is an error rather than an empty pass. Its result is
+  reused like `go-vet`'s, and it is in no default gate
+  ([details](docs/checks.md#generated-code)).
 - Levenshtein checks its own layering with `go-imports` in `branch`,
   `pre-merge`, `branch-dagger`, and `main`.
 - `go-lint` runs three more upstream analyzers: `unparam` (unused parameters

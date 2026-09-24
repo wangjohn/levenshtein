@@ -37,8 +37,8 @@ func knownCheck(check checkName) bool {
 	switch check {
 	case checkLint, checkVet, checkMod, checkTest, checkHTTP, checkSQL, checkVuln, checkWorkflow, checkWorkflowSecurity, checkSelfTest:
 		return true
-	case checkImports:
-		return false // It has its own function, which takes its options.
+	case checkImports, checkGenerate:
+		return false // Each has its own function.
 	}
 	return false
 }

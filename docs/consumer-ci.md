@@ -100,7 +100,7 @@ The action's outputs are `run`, the run it executed, and `report`, the path to t
 
 ## A native lint job without Docker
 
-`go-lint`, `go-vet`, `go-mod`, `go-test`, `go-imports`, `workflow-lint`, `workflow-security`, and `go-vuln` also run on a [native environment](configuration.md#native-go-checks), using the host's Go instead of a container. Declare it in the application's `levenshtein.json`:
+`go-lint`, `go-vet`, `go-mod`, `go-test`, `go-imports`, `go-generate`, `workflow-lint`, `workflow-security`, and `go-vuln` also run on a [native environment](configuration.md#native-go-checks), using the host's Go instead of a container. Declare it in the application's `levenshtein.json`:
 
 ```json
 {
