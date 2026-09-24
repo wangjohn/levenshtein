@@ -55,8 +55,9 @@ type Preparation struct {
 
 // A Check carries only the options its kind accepts. Most Dagger kinds take no
 // object, a command check requires Command, semantic-lint may carry Semantic,
-// go-mutation may carry Mutation, and go-lint may carry Lint on either
-// executor. The other combinations cannot be written down.
+// go-mutation may carry Mutation, go-lint may carry Lint, and go-imports
+// requires Imports, the last two on either executor. The other combinations
+// cannot be written down.
 //
 // A check names one target, either with Target or as a Targets list that
 // expands to one planned check per entry. Exactly one of the two is set; see
@@ -70,6 +71,7 @@ type Check struct {
 	Semantic    *SemanticCheck `json:"semantic,omitempty"`
 	Mutation    *MutationCheck `json:"mutation,omitempty"`
 	Lint        *LintCheck     `json:"lint,omitempty"`
+	Imports     *ImportsCheck  `json:"imports,omitempty"`
 }
 
 // at binds a multi-target check to one of its targets, so every planned check
@@ -124,6 +126,37 @@ type MutationCheck struct {
 // turns a default rule off without restating the rest.
 type LintCheck struct {
 	Checks []string `json:"checks"`
+}
+
+// ImportsCheck holds a go-imports check's layering rules. The check passes
+// them to levenshtein-gocheck unchanged, so this shape mirrors ImportRules in
+// runner/lint/gocheck; change both together.
+type ImportsCheck struct {
+	Rules []ImportRule `json:"rules"`
+}
+
+// ImportTests says whether an import rule also judges _test.go files.
+type ImportTests string
+
+const (
+	// ImportTestsInclude judges test files too; it is the default.
+	ImportTestsInclude ImportTests = "include"
+	// ImportTestsExclude judges only the files a build of the package compiles.
+	ImportTestsExclude ImportTests = "exclude"
+)
+
+// ImportRule restricts what the packages it names may import. Packages are
+// patterns relative to the target directory, such as "./internal/store/...".
+// Deny and Allow hold import path patterns with "..." wildcards; an entry that
+// starts with "./" is relative to the target directory's import path, and
+// "std" stands for the standard library. An import breaks the rule when a Deny
+// entry matches it, or when Allow is set and no Allow entry does.
+type ImportRule struct {
+	Packages []string    `json:"packages"`
+	Deny     []string    `json:"deny,omitempty"`
+	Allow    []string    `json:"allow,omitempty"`
+	Tests    ImportTests `json:"tests,omitempty"`
+	Reason   string      `json:"reason"`
 }
 
 // artifacts, env and cacheable read options that only a command check has, so
@@ -211,6 +244,7 @@ const defaultEnvironment = "go"
 // defaultConfig is the configuration a repository without levenshtein.json
 // receives: every shared Dagger check over the whole source tree, the branch
 // and pre-merge gates, a fresh main run, and one named run per check.
+// go-imports is left out because it has nothing to check without rules.
 func defaultConfig() Config {
 	lint, vet, mod, vuln := string(CheckGoLint), string(CheckGoVet), string(CheckGoMod), string(CheckGoVuln)
 	checks := map[string]Check{}

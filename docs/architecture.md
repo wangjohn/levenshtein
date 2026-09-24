@@ -40,9 +40,9 @@ described under [report and exit codes](#report-and-exit-codes).
   inputs are enumerated.
 - **Environment**: an `executor` (`dagger` or `native`), plus native-only
   options such as `identity`, `env`, `pass_env`, and pinned `tools`.
-- **Check**: a `kind` (`go-lint`, `go-vet`, `go-mod`, `go-test`, `go-http`,
-  `go-sql`, `go-vuln`, `workflow-lint`, `workflow-security`, `self-test`, `command`,
-  `semantic-lint`) bound to an
+- **Check**: a `kind` (`go-lint`, `go-vet`, `go-mod`, `go-test`, `go-imports`,
+  `go-http`, `go-sql`, `go-vuln`, `workflow-lint`, `workflow-security`,
+  `self-test`, `command`, `semantic-lint`) bound to an
   environment and to either one `target` or a list of `targets`, plus
   kind-specific options for `command` and `semantic-lint` checks (see
   [configuration](configuration.md)). `internal/verify/validation.go` enforces
@@ -84,7 +84,7 @@ a preparation stage.
 `internal/verify/dagger.go` holds one Dagger SDK session (`dagger.Client`)
 per CLI invocation and serves the pinned module in `runner/` once
 (`client.ModuleSource(shared).AsModule().Serve`). Each check calls a
-function on that session (`goLint`, `selfTest`, or `sharedCheck` for
+function on that session (`goLint`, `selfTest`, `goImports`, or `sharedCheck` for
 vet/mod/test/HTTP/SQL/vuln/workflow-lint/workflow-security) with a freshness nonce, plus the consumer
 source directory and module path for every kind except `selfTest`;
 `sharedCheck` also receives the check kind. Consumer inputs travel as
@@ -105,7 +105,7 @@ instead.
 ### Native executor
 
 `internal/verify/native.go` runs `command`, `semantic-lint`, and the shared Go
-kinds `go-lint`, `go-vet`, `go-mod`, `go-test`, `workflow-lint`,
+kinds `go-lint`, `go-vet`, `go-mod`, `go-test`, `go-imports`, `workflow-lint`,
 `workflow-security` and `go-vuln` as trusted host
 processes (macOS or Linux only). There is no sandbox, so native
 commands have full host access. Before running, `validateTools` executes each
@@ -120,7 +120,7 @@ still match a recorded run, which requires the environment to declare an
 #### Shared Go kinds on the native executor
 
 `internal/verify/kinds.go` registers `go-lint`, `go-vet`, `go-mod`, `go-test`,
-`workflow-lint`, `workflow-security` and `go-vuln` for the native executor as well as the Dagger one; `self-test`,
+`go-imports`, `workflow-lint`, `workflow-security` and `go-vuln` for the native executor as well as the Dagger one; `self-test`,
 `go-http` and `go-sql` stay Dagger-only. `internal/verify/gotools.go` builds the
 helper binaries (`levenshtein-lint` from `runner/lint`, `actionlint` and
 `govulncheck` from `runner/tools`) out of the pinned shared checkout into
@@ -146,7 +146,14 @@ gets the same archive through `dag.HTTP` with that checksum. `go-test` builds
 nothing either: `internal/verify/gotest.go` runs `go test -race -json` with
 `CGO_ENABLED=1` after checking that the C compiler `go env CC` names is on the
 check's `PATH`, and the runner runs the same command in the pinned image, which
-ships `gcc`. Without a cache
+ships `gcc`. `go-imports` runs `levenshtein-gocheck`, built from
+`runner/lint/cmd/levenshtein-gocheck` like `levenshtein-lint`, on both
+executors: the verdict is decided once, in `runner/lint/gocheck`, and each
+executor only reads its JSON report (`gocheckReport` in
+`internal/verify/gocheck.go` and its copy in `runner/gocheck.go`, both tested
+against `runner/testdata/gocheck-reports.json`). Its rules travel as a
+`rules` argument to the runner's `goImports` function, so they key Dagger's
+call cache as they key the CLI's fingerprint. Without a cache
 directory, a check's tools go into a temporary directory removed when it
 finishes.
 
@@ -286,7 +293,8 @@ See [output formats](configuration.md#output-formats) and
   separate module because Dagger generates and manages its own SDK code and
   dependency graph here, independent of the root CLI's dependencies.
 - **`runner/lint/`** (`runner/lint/go.mod`): an isolated module for the
-  Staticcheck-based lint binary (`levenshtein-lint`), so its analyzer
+  Staticcheck-based lint binary (`levenshtein-lint`) and for
+  `levenshtein-gocheck`, which runs the checks that judge a whole module, so its analyzer
   dependencies (Staticcheck's whole analyzer set, the curated upstream
   analyzers listed in [Go lint rules](checks.md#go-lint-rules), and the house rules
   `LV1001`-`LV1006` in `runner/lint/policy`) do not leak into the Dagger

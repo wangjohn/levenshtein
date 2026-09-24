@@ -24,6 +24,7 @@ archives:
       - runner/checks.go
       - runner/mutation.go
       - runner/zizmor.go
+      - runner/gocheck.go
       - runner/go.mod
       - runner/go.sum
       - runner/toolchain.json
