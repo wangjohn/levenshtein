@@ -154,6 +154,29 @@ func TestApidiffBaseFollowsTheSourceAndNoticesANewModule(t *testing.T) {
 	}
 }
 
+// The base is exported from the declared inputs, so inputs without the
+// target's go.mod would make an existing module look new and pass.
+func TestApidiffBaseRequiresTheModuleFileAmongTheInputs(t *testing.T) {
+	dir := historyRepo(t, map[string]*string{
+		"repo/lib/go.mod": text("module example.com/lib\n"),
+		"repo/lib/a.go":   text("package lib\n\nfunc A() {}\n"),
+	}, map[string]*string{
+		"repo/lib/a.go": text("package lib\n"),
+	})
+	source := filepath.Join(dir, "repo")
+
+	for name, target := range map[string]Target{
+		"not declared": {Dir: "lib", Inputs: []string{filepath.Join("lib", "a.go")}},
+		"excluded":     {Dir: "lib", Inputs: []string{"lib"}, Exclude: []string{filepath.Join("lib", "go.mod")}},
+	} {
+		base, release, err := apidiffBase(t.Context(), apidiffRequest(source, target))
+		release()
+		if err == nil || !strings.Contains(err.Error(), "go.mod among its inputs") {
+			t.Errorf("%s: a target without its go.mod must be an error, not a new module: %+v %v", name, base, err)
+		}
+	}
+}
+
 // Neither executor reuses a go-apidiff result, since where the base branch
 // points is outside every fingerprint; Dagger still answers an identical
 // call from its own cache unless the run is fresh.

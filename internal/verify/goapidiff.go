@@ -49,6 +49,12 @@ func (b apidiffBaseTree) note() string {
 // directory, less the target's excludes and private files. release removes it.
 func apidiffBase(ctx context.Context, req Request) (apidiffBaseTree, func(), error) {
 	release := func() {}
+	// The base is exported from the declared inputs alone, so a target whose
+	// inputs leave out its own go.mod would read as a module that did not exist
+	// at the base, and pass, while the Dagger path cannot load the head at all.
+	if mod := filepath.Join(req.Target.Dir, "go.mod"); !declared(req.Target.Inputs, mod) || excluded(mod, req.Target.Exclude) {
+		return apidiffBaseTree{}, release, fmt.Errorf("go-apidiff needs the target's %s among its inputs", filepath.ToSlash(mod))
+	}
 	git, err := exec.LookPath("git")
 	if err != nil {
 		return apidiffBaseTree{}, release, fmt.Errorf("go-apidiff needs git on PATH to find the base branch: %w", err)
