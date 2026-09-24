@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+temporary=$(mktemp -d)
+trap 'rm -rf "$temporary"' EXIT
+example="$root/examples/rule-module"
+# Read go.mod as text: the go command refuses a go.mod newer than itself.
+module=$(awk '$1 == "module" { print $2 }' "$example/go.mod")
+module_go=$(awk '$1 == "go" { print $2 }' "$example/go.mod")
+go_version=$(cat "$root/.go-version")
+staticcheck=$(jq -er .staticcheck "$root/runner/toolchain.json")
+
+# A rule module must build with the Go release Levenshtein pins, so its go
+# directive cannot be newer.
+if [[ $(printf '%s\n' "$module_go" "$go_version" | sort -V | tail -n 1) != "$go_version" ]]; then
+  echo "$module requires go $module_go, newer than the pinned go $go_version" >&2
+  exit 1
+fi
+
+# The example rule module is the template community rule authors copy, so it
+# has to keep passing its own tests. See docs/community-rules.md.
+(cd "$example" && go test -race ./...)
+
+# Build the example into a community linter the way the proposed runner would:
+# its own process on the pinned Staticcheck, with every rule renamed into the
+# module's namespace. The module may raise other shared dependencies, but not
+# Staticcheck, which decides how selection and //lint:ignore behave. Resolution
+# must come from go.mod requirements alone: "finding module for package" means
+# some module imports a package nothing requires, so the result would depend
+# on whatever is newest on the proxy that day.
+mkdir "$temporary/linter" "$temporary/consumer"
+cat > "$temporary/linter/main.go" <<GO
+package main
+
+import (
+	"os"
+
+	rules "$module/lvrules"
+	"honnef.co/go/tools/lintcmd"
+)
+
+func main() {
+	command := lintcmd.NewCommand("levenshtein-community-lint")
+	for _, analyzer := range rules.Analyzers() {
+		renamed := *analyzer
+		renamed.Name = rules.Namespace + "_" + analyzer.Name
+		command.AddBareAnalyzers(&renamed)
+	}
+	command.ParseFlags(os.Args[1:])
+	command.Run()
+}
+GO
+(
+  cd "$temporary/linter"
+  printf 'module levenshtein.local/communitylint\n\ngo %s\n' "$go_version" > go.mod
+  go mod edit -require="honnef.co/go/tools@$staticcheck" -require="$module@v0.0.0" -replace="$module=$example"
+  if ! go mod tidy 2> "$temporary/tidy.log"; then
+    cat "$temporary/tidy.log" >&2
+    exit 1
+  fi
+  if grep 'finding module for package' "$temporary/tidy.log" >&2; then
+    echo "$module or one of its dependencies has an incomplete go.mod" >&2
+    exit 1
+  fi
+  resolved=$(go list -m -f '{{.Version}}' honnef.co/go/tools)
+  if [[ $resolved != "$staticcheck" ]]; then
+    echo "$module raises Staticcheck from $staticcheck to $resolved; require the version runner/toolchain.json pins or lower" >&2
+    exit 1
+  fi
+  go build -o "$temporary/community-lint" .
+)
+
+# The built linter reports the rule under its namespaced code, and honors
+# //lint:ignore for it.
+printf 'module example.com/consumer\n\ngo %s\n' "$go_version" > "$temporary/consumer/go.mod"
+cat > "$temporary/consumer/store.go" <<'GO'
+package store
+
+func Load(key string) int {
+	if key == "" {
+		panic("empty key")
+	}
+	return len(key)
+}
+
+func Port(value int) int {
+	if value < 0 {
+		//lint:ignore example_nopanic callers validate the port first
+		panic("negative port")
+	}
+	return value
+}
+GO
+status=0
+(cd "$temporary/consumer" && "$temporary/community-lint" -checks=example_nopanic ./...) > "$temporary/findings.txt" 2>&1 || status=$?
+expected='store.go:5:3: Load panics; return an error so callers can handle the failure (example_nopanic)'
+if [[ $status -ne 1 || $(cat "$temporary/findings.txt") != "$expected" ]]; then
+  echo "The community linter built from $module reported (exit $status):" >&2
+  cat "$temporary/findings.txt" >&2
+  echo "expected exactly: $expected" >&2
+  exit 1
+fi
+echo "$module passes its tests and builds into a community linter on Staticcheck $staticcheck"
