@@ -1,0 +1,16 @@
+{
+  "comment": "levenshtein-gocheck outputs and what each executor must make of them. runner/gocheck_test.go and internal/verify/gocheck_test.go both read this table, so the two copies of gocheckReport cannot drift apart.",
+  "cases": [
+    {"name": "clean", "exit": 0, "stdout": "{\"findings\":[],\"notes\":[\"1 rule checked 2 packages in .\"]}\n", "want": "pass", "notes": 1},
+    {"name": "findings", "exit": 1, "stdout": "{\"findings\":[{\"code\":\"go-imports\",\"message\":\"./core may not import \\\"net/http\\\"\",\"location\":{\"file\":\"core/core.go\",\"line\":4,\"column\":2}}],\"notes\":[\"n\"]}\n", "want": "finding", "findings": 1},
+    {"name": "tool error", "exit": 2, "stderr": "go list failed: no Go files\n", "want": "error", "contains": "go list failed"},
+    {"name": "killed", "exit": 137, "want": "error", "contains": "could not run"},
+    {"name": "exit 1 without findings", "exit": 1, "stdout": "{\"findings\":[]}\n", "want": "error", "contains": "does not match"},
+    {"name": "exit 0 with findings", "exit": 0, "stdout": "{\"findings\":[{\"code\":\"go-imports\",\"message\":\"m\",\"location\":{\"file\":\"a.go\",\"line\":1,\"column\":1}}]}\n", "want": "error", "contains": "does not match"},
+    {"name": "another check's code", "exit": 1, "stdout": "{\"findings\":[{\"code\":\"go-lint\",\"message\":\"m\",\"location\":{\"file\":\"a.go\",\"line\":1,\"column\":1}}]}\n", "want": "error", "contains": "unexpected finding"},
+    {"name": "no location", "exit": 1, "stdout": "{\"findings\":[{\"code\":\"go-imports\",\"message\":\"m\",\"location\":{\"file\":\"a.go\",\"line\":0,\"column\":0}}]}\n", "want": "error", "contains": "unexpected finding"},
+    {"name": "stderr beside a pass", "exit": 0, "stdout": "{\"findings\":[]}\n", "stderr": "panic: boom\n", "want": "error", "contains": "clean result"},
+    {"name": "not a report", "exit": 0, "stdout": "ok\n", "want": "error", "contains": "unreadable report"},
+    {"name": "unknown field", "exit": 0, "stdout": "{\"findings\":[],\"verdict\":\"pass\"}\n", "want": "error", "contains": "unreadable report"}
+  ]
+}

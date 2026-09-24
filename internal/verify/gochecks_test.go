@@ -22,13 +22,23 @@ func nativeGoEnvironment() Environment {
 	}
 }
 
+// requiredOptions gives a check the options its kind cannot run without, so a
+// test about something else can plan it.
+func requiredOptions(check Check) Check {
+	if check.Kind == CheckGoImports && check.Imports == nil {
+		check.Imports = &ImportsCheck{Rules: []ImportRule{{Packages: []string{"./..."}, Deny: []string{"unsafe"}, Reason: "no unsafe"}}}
+	}
+	return check
+}
+
 // A native environment runs the shared Go kinds with its own options, and the
-// kinds themselves take no options. self-test stays Dagger-only.
+// kinds themselves take no options beyond their own objects. self-test stays
+// Dagger-only.
 func TestNativeEnvironmentAcceptsSharedGoChecks(t *testing.T) {
 	env := nativeGoEnvironment()
 	for kind := range sharedGoChecks {
 		t.Run(string(kind), func(t *testing.T) {
-			if err := validateCheck(Check{Kind: kind}, env); err != nil {
+			if err := validateCheck(requiredOptions(Check{Kind: kind}), env); err != nil {
 				t.Fatalf("rejected a native shared Go check: %v", err)
 			}
 			for _, check := range []Check{

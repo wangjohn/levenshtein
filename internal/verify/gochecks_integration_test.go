@@ -5,7 +5,9 @@ package verify
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -232,6 +234,40 @@ func TestNativeGoChecksAgreeWithTheFixtures(t *testing.T) {
 		result := native.Execute(ctx, fixtureRequest(t, shared, "mod-tidy", CheckGoTest))
 		if result.Status != StatusError || !strings.Contains(result.Error, "ran no tests") {
 			t.Fatalf("a module with no tests must error rather than pass: %+v", result)
+		}
+	})
+
+	t.Run("go-imports passes imports-good and fails imports-bad at each import", func(t *testing.T) {
+		table := loadImportRuleTable(t)
+		good := fixtureRequest(t, shared, "imports-good", CheckGoImports)
+		good.Check.Imports = &table.Fixture
+		if result := native.Execute(ctx, good); result.Status != StatusPassed {
+			t.Fatalf("imports-good must pass go-imports: %+v", result)
+		}
+
+		bad := fixtureRequest(t, shared, "imports-bad", CheckGoImports)
+		bad.Check.Imports = &table.Fixture
+		result := native.Execute(ctx, bad)
+		if result.Status != StatusFailed {
+			t.Fatalf("imports-bad must fail for its imports, not a tool error: %+v", result)
+		}
+		var got []string
+		for _, finding := range fixtureFindings(t, result) {
+			if finding.Code != string(CheckGoImports) {
+				t.Errorf("wrong code: %+v", finding)
+			}
+			got = append(got, fmt.Sprintf("%s:%d", finding.Location.File, finding.Location.Line))
+		}
+		if want := []string{"core/core.go:7", "core/core_test.go:4", "store/store.go:5"}; !slices.Equal(got, want) {
+			t.Fatalf("imports-bad findings = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("go-imports refuses a package pattern that matches nothing", func(t *testing.T) {
+		req := fixtureRequest(t, shared, "imports-good", CheckGoImports)
+		req.Check.Imports = &ImportsCheck{Rules: []ImportRule{{Packages: []string{"./cor/..."}, Deny: []string{"net/http"}, Reason: "typo"}}}
+		if result := native.Execute(ctx, req); result.Status != StatusError || !strings.Contains(result.Error, `"./cor/..." matches no package`) {
+			t.Fatalf("a misspelled package pattern must be an error: %+v", result)
 		}
 	})
 

@@ -35,6 +35,22 @@ Consumers pin a release tag, or its commit SHA, as described in
   apart, leaves vet to `go-vet`, reuses its result like `go-vet` does, and is
   not in any default gate: add it to a run of your own, and keep tests that
   need services in a `command` check ([details](docs/checks.md#tests)).
+- `go-imports`, a shared check on both executors that enforces a repository's
+  layering rules. Each rule names packages relative to the target (`packages`,
+  such as `./internal/store/...`) and what they may not import (`deny`) or the
+  only things they may import (`allow`), with `...` wildcards, `./` entries
+  resolved against the target's import path, and `std` for the standard
+  library; `tests` says whether `_test.go` files count, and `reason` is
+  repeated in every finding. Each forbidden direct import is a finding at the
+  import's line; generated files are skipped. A package pattern that matches
+  no package is an error, so a typo cannot leave a rule checking nothing. The
+  check reads `go list -find` and the files' import declarations, so it needs
+  no downloads or type checking, and its rules are part of the result key. It
+  runs `levenshtein-gocheck`, a new program in `runner/lint` that both
+  executors build, and is in no default gate: declare the rules in an
+  `imports` object ([details](docs/checks.md#import-boundaries)).
+- Levenshtein checks its own layering with `go-imports` in `branch`,
+  `pre-merge`, `branch-dagger`, and `main`.
 - `go-lint` runs three more upstream analyzers: `unparam` (unused parameters
   and results of unexported functions), `musttag` (untagged fields in structs
   passed to JSON, XML, YAML, and TOML encoders and decoders), and `recvcheck`
