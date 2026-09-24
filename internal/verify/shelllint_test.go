@@ -120,6 +120,12 @@ func TestShellFindingsSeparateFindingsFromToolErrors(t *testing.T) {
 		t.Fatalf("findings=%+v, want %+v", findings, want)
 	}
 
+	// ShellCheck reports a missing or unknown shebang on line 1.
+	firstLine := `{"comments":[{"file":"run","line":1,"endLine":1,"column":1,"endColumn":1,"level":"error","code":2148,"message":"Tips depend on target shell and yours is unknown.","fix":null}]}`
+	if findings, err := shellFindings(1, firstLine, ""); err != nil || len(findings) != 1 || findings[0].Location.Line != 1 {
+		t.Fatalf("a diagnostic on the first line is a finding there: %v %v", findings, err)
+	}
+
 	if findings, err := shellFindings(0, `{"comments":[]}`, ""); err != nil || len(findings) != 0 {
 		t.Fatalf("a clean run is not a finding: %v %v", findings, err)
 	}
