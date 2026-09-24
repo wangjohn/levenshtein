@@ -6,9 +6,9 @@ Today a rule Levenshtein does not ship can only run as a native `command`
 check, which loses shared selection, `//lint:ignore`, JSON findings, and result
 caching. With this proposal, anyone can publish Go lint rules as an ordinary Go
 module. A Levenshtein consumer pins that module in `levenshtein.json`, and the
-rules run beside the core rules without ever entering `runner/lint`. A separate catalog repository
-lists modules that build and have an owner, and good rules graduate into the
-core selection from there. The design follows golangci-lint's module plugins,
+rules run beside the core rules without ever entering `runner/lint`. A
+separate catalog repository lists modules that build and have an owner, and
+good rules graduate into the core selection from there. The design follows golangci-lint's module plugins,
 TFLint's exact pins, and ESLint's plugin-owned rule names.
 
 ```text
@@ -250,8 +250,8 @@ withdrawn version becomes a configuration error and a deprecated one a warning.
 
 The core linter is unchanged. Community rules run in the community linter, a
 separate process on the same pinned Staticcheck. Findings from both are merged
-into one report. Compiling community rules into the core linter, as golangci-lint does, was
-prototyped and rejected:
+into one report. Compiling community rules into the core linter, as
+golangci-lint does, was prototyped and rejected:
 
 - a rule that exports a package fact crashed the core linter;
 - a rule could hide core findings, or change them by raising a shared
