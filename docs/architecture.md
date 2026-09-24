@@ -36,8 +36,8 @@ builds a `Dagger` executor and a `Native` executor, wraps both in
 - **Environment**: an `executor` (`dagger` or `native`), plus native-only
   options such as `identity`, `env`, `pass_env`, and pinned `tools`.
 - **Check**: a `kind` (`go-lint`, `go-vet`, `go-mod`, `go-test`, `go-http`,
-  `go-sql`, `go-vuln`, `workflow-lint`, `workflow-security`, `self-test`, `command`,
-  `semantic-lint`) bound to an
+  `go-sql`, `go-vuln`, `workflow-lint`, `workflow-security`, `shell-lint`,
+  `secrets`, `deps-vuln`, `self-test`, `command`, `semantic-lint`) bound to an
   environment and to either one `target` or a list of `targets`, plus
   kind-specific options for `command` and `semantic-lint` checks (see
   [configuration](configuration.md)). `internal/verify/validation.go` enforces
@@ -77,7 +77,7 @@ a preparation stage.
 per CLI invocation and serves the pinned module in `runner/` once
 (`client.ModuleSource(shared).AsModule().Serve`). Each check calls a
 function on that session (`goLint`, `selfTest`, or `sharedCheck` for
-vet/mod/test/HTTP/SQL/vuln/workflow-lint/workflow-security) with a freshness nonce, plus the consumer
+vet/mod/test/HTTP/SQL/vuln/workflow-lint/workflow-security/shell-lint/secrets/deps-vuln) with a freshness nonce, plus the consumer
 source directory and module path for every kind except `selfTest`;
 `sharedCheck` also receives the check kind. Consumer inputs travel as
 arguments, so they never become part of the module's own identity or cache
@@ -98,7 +98,7 @@ instead.
 
 `internal/verify/native.go` runs `command`, `semantic-lint`, and the shared Go
 kinds `go-lint`, `go-vet`, `go-mod`, `go-test`, `workflow-lint`,
-`workflow-security` and `go-vuln` as trusted host
+`workflow-security`, `shell-lint`, `secrets`, `deps-vuln` and `go-vuln` as trusted host
 processes (macOS or Linux only). There is no sandbox, so native
 commands have full host access. Before running, `validateTools` executes each
 `Environment.Tool`'s version command and compares its trimmed stdout against
@@ -112,7 +112,7 @@ still match a recorded run, which requires the environment to declare an
 #### Shared Go kinds on the native executor
 
 `internal/verify/kinds.go` registers `go-lint`, `go-vet`, `go-mod`, `go-test`,
-`workflow-lint`, `workflow-security` and `go-vuln` for the native executor as well as the Dagger one; `self-test`,
+`workflow-lint`, `workflow-security`, `shell-lint`, `secrets`, `deps-vuln` and `go-vuln` for the native executor as well as the Dagger one; `self-test`,
 `go-http` and `go-sql` stay Dagger-only. `internal/verify/gotools.go` builds the
 helper binaries (`levenshtein-lint` from `runner/lint`, `actionlint` and
 `govulncheck` from `runner/tools`) out of the pinned shared checkout into
@@ -138,13 +138,26 @@ gets the same archive through `dag.HTTP` with that checksum. `go-test` builds
 nothing either: `internal/verify/gotest.go` runs `go test -race -json` with
 `CGO_ENABLED=1` after checking that the C compiler `go env CC` names is on the
 check's `PATH`, and the runner runs the same command in the pinned image, which
-ships `gcc`. Without a cache
+ships `gcc`. `shell-lint` and `deps-vuln` use `internal/verify/releases.go`, a
+general form of the zizmor download: `runner/toolchain.json` pins each release's
+download location, version, and per-platform asset with its SHA-256, and the
+binary's path when the asset is a `.tar.gz`; the runner's `runner/releases.go`
+reads the same pins for `dag.HTTP`. `secrets` builds gitleaks from
+`runner/tools` like `actionlint`. `internal/verify/visible.go` lists the files
+under a target's inputs less its excludes and the private `.git`/`.env` paths,
+which is what the Dagger path imports; `shell-lint` checks the scripts among
+them in place, and `secrets` and `deps-vuln`, whose tools scan a directory and
+discover configuration in it, copy them into a temporary directory and scan
+that. Without a cache
 directory, a check's tools go into a temporary directory removed when it
 finishes.
 
 `internal/verify/findings.go` is a deliberate copy of the runner's
 `parseFindings`/`commandFindings`/`modFindings` (and `zizmor.go` of its
-`zizmorFindings`/`zizmorArguments`, `gotest.go` of its `testArgs`/`testFindings`)
+`zizmorFindings`/`zizmorArguments`, `gotest.go` of its `testArgs`/`testFindings`,
+and `shelllint.go`, `secrets.go`, and `depsvuln.go` of the runner's files of the
+same names, whose `shellScript` selection both sides test against
+`runner/testdata/shell-scripts.json`)
 and of its check-selection filter (`allowed`/`selects`), since `runner` is a
 separate `package main` module that cannot be imported. Both filters are tested
 against one table, `runner/testdata/selection.json`, and both copies of

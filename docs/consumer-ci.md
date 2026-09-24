@@ -100,7 +100,7 @@ The action's outputs are `run`, the run it executed, and `report`, the path to t
 
 ## A native lint job without Docker
 
-`go-lint`, `go-vet`, `go-mod`, `go-test`, `workflow-lint`, `workflow-security`, and `go-vuln` also run on a [native environment](configuration.md#native-go-checks), using the host's Go instead of a container. Declare it in the application's `levenshtein.json`:
+`go-lint`, `go-vet`, `go-mod`, `go-test`, `workflow-lint`, `workflow-security`, `shell-lint`, `secrets`, `deps-vuln`, and `go-vuln` also run on a [native environment](configuration.md#native-go-checks), using the host's Go instead of a container. Declare it in the application's `levenshtein.json`:
 
 ```json
 {
@@ -123,6 +123,8 @@ The action's outputs are `run`, the run it executed, and `report`, the path to t
 The workflow is unchanged. The job needs no container runtime, and the action's caches restore the Staticcheck analysis cache and completed results across workers, which Dagger's in-engine cache volumes cannot do on ephemeral runners; setup-go's cache keeps the helper builds fast. A native check's result key includes the host's Go version, operating system, and architecture, so a job that changes runner image or Go version re-verifies rather than reusing another host's verdict.
 
 To audit the workflows too, add a [`workflow-security`](checks.md#workflow-security) check on a repository-root target whose `inputs` include `.github` (and `action.yml` for an action repository), in its own run or beside `lint`. It runs zizmor's offline audits only, so keep [zizmor's GitHub Action](https://github.com/zizmorcore/zizmor-action) with the workflow token, ideally on a weekly schedule, if you also want the audits that query GitHub, such as `impostor-commit` and `known-vulnerable-actions`. The native check downloads the pinned zizmor archive into `--cache-dir`'s `tools/` directory, so restoring that directory saves the download.
+
+The same repository-root target can carry [`shell-lint`](checks.md#shell-scripts) for its shell scripts and [`secrets`](checks.md#secrets) for committed credentials, beside `lint`: both are reused from the cache like `lint`, and the native checks keep the ShellCheck download and the gitleaks build under `--cache-dir`'s `tools/` directory. [`deps-vuln`](checks.md#dependency-vulnerabilities) scans npm, Python, Rust, Ruby, and other lockfiles with osv-scanner and, like `go-vuln`, queries current advisory data on every run, so put it where `go-vuln` goes: a run for dependency changes and a daily schedule. It leaves Go modules to `go-vuln`, and it is an error on a target without a lockfile, so a Go-only repository leaves it out.
 
 To run the unit tests through Levenshtein as well, add a [`go-test`](checks.md#tests) check, which runs `go test -race ./...` and needs a C compiler on the worker (the GitHub-hosted Ubuntu and macOS images have one). Its result is reused like `lint`'s, so give it a target whose `inputs` cover everything the tests read, and put it in a run of its own or beside `lint` only if the workflow does not already run `go test -race` over the same modules. Tests that need a database or another service stay in a [`command` check](configuration.md#native-commands) that starts it, or in the job's existing test step.
 

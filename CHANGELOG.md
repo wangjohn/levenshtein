@@ -35,6 +35,29 @@ Consumers pin a release tag, or its commit SHA, as described in
   apart, leaves vet to `go-vet`, reuses its result like `go-vet` does, and is
   not in any default gate: add it to a run of your own, and keep tests that
   need services in a `command` check ([details](docs/checks.md#tests)).
+- `shell-lint`, a shared check on both executors that runs ShellCheck 0.11.0
+  over `*.sh` and `*.bash` files and extensionless scripts with a sh, bash,
+  dash, or ksh shebang, skipping `testdata`, `vendor`, and `node_modules`. Each
+  warning or error is a finding with its `SC` code and location; `info` and
+  `style` are not reported. It honors one root `.shellcheckrc` and otherwise
+  reads none. The upstream release archive is pinned by SHA-256 per platform
+  and verified before it runs ([details](docs/checks.md#shell-scripts)).
+- `secrets`, a shared check on both executors that scans the target's files,
+  not its history, with gitleaks 8.30.1's default rules. Each leak is a finding
+  coded by its rule, and every value is redacted before gitleaks reports or
+  logs it, so no secret reaches the report or the cache. It honors a root
+  `.gitleaks.toml` and `.gitleaksignore` and `gitleaks:allow` comments; gitleaks
+  is built from `runner/tools` ([details](docs/checks.md#secrets)).
+- `deps-vuln`, a shared check on both executors that runs osv-scanner 2.6.0
+  over non-Go dependency lockfiles (npm, pnpm, yarn, Python, Cargo, Gemfile,
+  and more), skipping `testdata`, `vendor`, and `node_modules`, and reports
+  each vulnerable package version, with its advisories, at its lockfile. Go
+  modules stay with `go-vuln`. Like `go-vuln` it is never
+  cached and needs the network, and a target without a lockfile is an error. It
+  honors `osv-scanner.toml` for ignores, and the release binary is pinned by
+  SHA-256 per platform ([details](docs/checks.md#dependency-vulnerabilities)).
+  `shell-lint`, `secrets`, and `deps-vuln` require a repository-root target and
+  are not in any default gate: add them to runs of your own.
 - `go-lint` runs three more upstream analyzers: `unparam` (unused parameters
   and results of unexported functions), `musttag` (untagged fields in structs
   passed to JSON, XML, YAML, and TOML encoders and decoders), and `recvcheck`
@@ -96,6 +119,11 @@ Consumers pin a release tag, or its commit SHA, as described in
 - Levenshtein's own `branch`, `pre-merge`, `branch-dagger`, and `main` runs
   include `workflow-security`. `security.yml` keeps zizmor's GitHub Action for
   the online audits and now names the same inputs as the shared check.
+- Levenshtein's own `branch`, `pre-merge`, `branch-dagger`, and `main` runs
+  include `shell-lint` over `scripts/` and `verify`, and `secrets` over the
+  repository less its deliberately leaky fixture. Neither found a problem in
+  Levenshtein's own files; its secrets-handling tests mark their made-up key
+  with `gitleaks:allow`.
 - Levenshtein's own `levenshtein.json` has a native `go-test` run over the
   repository and `runner/lint` for local use. It is not part of `branch`,
   `pre-merge`, or `main`, because CI's `tests` job already runs
