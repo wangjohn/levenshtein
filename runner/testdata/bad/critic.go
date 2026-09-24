@@ -3,10 +3,13 @@ package bad
 import (
 	"flag"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 )
 
 // Split holds two slices that append results can mix up.
@@ -109,4 +112,42 @@ func MapKey() map[string]int {
 // offBy1: indexing at the length always panics.
 func OffBy1(values []int) int {
 	return values[len(values)]
+}
+
+// badSyncOnceFunc: the function OnceFunc returns is thrown away, so setup
+// never runs.
+func BadSyncOnceFunc(setup func()) {
+	sync.OnceFunc(setup)
+}
+
+// evalOrder: whether the first result is read before or after parse changes
+// it is not specified.
+func EvalOrder(text string) (int, error) {
+	value := 0
+	return value, parse(text, &value)
+}
+
+func parse(text string, value *int) error {
+	parsed, err := strconv.Atoi(text)
+	*value = parsed
+	return err
+}
+
+// rangeAppendAll: each pass appends the whole slice instead of one element.
+func RangeAppendAll(values []int) []int {
+	var result []int
+	for _, value := range values {
+		if value > 0 {
+			result = append(result, values...)
+		}
+	}
+	return result
+}
+
+// returnAfterHttpError: the handler writes the error and carries on.
+func ReturnAfterHttpError(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("id") == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+	}
+	_, _ = w.Write([]byte("ok"))
 }

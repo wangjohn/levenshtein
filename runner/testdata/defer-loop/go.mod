@@ -1,0 +1,3 @@
+module example.com/defer-loop
+
+go 1.27.1

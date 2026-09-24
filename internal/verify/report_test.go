@@ -14,9 +14,9 @@ func TestReplaceFindingsKeepsTheOtherFields(t *testing.T) {
 		details string
 		want    string
 	}{
-		"other fields": {`{"findings":[],"summary":{"killed":2}}`, `{"findings":[{"code":"SA4006","message":"unused","location":{"file":"a.go","line":3,"column":0}}],"summary":{"killed":2}}`},
-		"no details":   {``, `{"findings":[{"code":"SA4006","message":"unused","location":{"file":"a.go","line":3,"column":0}}]}`},
-		"null details": {`null`, `{"findings":[{"code":"SA4006","message":"unused","location":{"file":"a.go","line":3,"column":0}}]}`},
+		"other fields": {`{"findings":[],"summary":{"killed":2}}`, `{"findings":[{"code":"SA4006","message":"unused","location":{"file":"a.go","line":3,"column":0},"advisory":false}],"summary":{"killed":2}}`},
+		"no details":   {``, `{"findings":[{"code":"SA4006","message":"unused","location":{"file":"a.go","line":3,"column":0},"advisory":false}]}`},
+		"null details": {`null`, `{"findings":[{"code":"SA4006","message":"unused","location":{"file":"a.go","line":3,"column":0},"advisory":false}]}`},
 		"not a record": {`["raw"]`, `["raw"]`},
 	} {
 		got := replaceFindings(json.RawMessage(tc.details), findings)

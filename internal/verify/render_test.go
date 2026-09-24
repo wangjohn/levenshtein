@@ -113,6 +113,67 @@ func TestRenderGitHubAnnotatesFailuresWithoutFindings(t *testing.T) {
 	}
 }
 
+// advisoryFixture is a lint check whose only finding is advisory: the check
+// passed, and every renderer says so rather than reporting a failure.
+func advisoryFixture() Report {
+	lint := lintCheck("lint", ".")
+	advisory := finding{Code: "ACME001", Message: "prefer the helper", Location: location{File: "a.go", Line: 4, Column: 1}, Source: "example.com/rules@v1.0.0", URL: "https://example.com/rules#ACME001", Advisory: true}
+	result := Result{ID: "lint", Status: StatusPassed, Details: findingsDetails([]finding{advisory})}
+
+	return reportOf([]PlannedCheck{lint}, result)
+}
+
+func TestRenderTextMarksAdvisoryFindings(t *testing.T) {
+	got := render(t, advisoryFixture(), FormatText, RenderOptions{})
+
+	want := `a.go:4:1: ACME001 [advisory] prefer the helper
+
+lint  passed  1 advisory
+
+branch: passed, 1 of 1 checks passed
+`
+	if got != want {
+		t.Fatalf("text:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestRenderGitHubWarnsForAdvisoryFindings(t *testing.T) {
+	got := render(t, advisoryFixture(), FormatGitHub, RenderOptions{})
+
+	want := "::warning file=a.go,line=4,col=1,title=ACME001 (lint)::prefer the helper%0A%0Adocs: https://example.com/rules#ACME001\n"
+	if got != want {
+		t.Fatalf("github: %q", got)
+	}
+}
+
+func TestRenderSARIFWarnsForAdvisoryFindings(t *testing.T) {
+	var log struct {
+		Runs []struct {
+			Tool struct {
+				Driver struct {
+					Rules []struct {
+						HelpURI string `json:"helpUri"`
+					} `json:"rules"`
+				} `json:"driver"`
+			} `json:"tool"`
+			Results []struct {
+				Level string `json:"level"`
+			} `json:"results"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal([]byte(render(t, advisoryFixture(), FormatSARIF, RenderOptions{})), &log); err != nil {
+		t.Fatal(err)
+	}
+
+	run := log.Runs[0]
+	if len(run.Results) != 1 || run.Results[0].Level != "warning" {
+		t.Errorf("results: %+v", run.Results)
+	}
+	if len(run.Tool.Driver.Rules) != 1 || run.Tool.Driver.Rules[0].HelpURI != "https://example.com/rules#ACME001" {
+		t.Errorf("rules: %+v", run.Tool.Driver.Rules)
+	}
+}
+
 func TestGitHubEscaping(t *testing.T) {
 	if got := escapeData("100% done\r\nnext ::error::"); got != "100%25 done%0D%0Anext ::error::" {
 		t.Errorf("data: %q", got)
