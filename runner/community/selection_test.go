@@ -2,6 +2,9 @@ package community
 
 import (
 	"flag"
+	"go/types"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -239,5 +242,55 @@ func TestSettingsApplyThroughTheAnalyzerFlags(t *testing.T) {
 
 	if got := module.Analyzers[0].Flags.Lookup("allow").Value.String(); got != "Must,Should" {
 		t.Errorf("allow = %q", got)
+	}
+}
+
+// A rule that requires another selected rule must not make the guard name
+// the required rule's failure by its raw name.
+func TestAFailureInARequiredRuleIsNamedByItsCode(t *testing.T) {
+	required := testAnalyzer("sentinel", "compare errors with errors.Is")
+	required.Run = func(*analysis.Pass) (any, error) { panic("boom") }
+	requiring := testAnalyzer("nopanic", "report panics in library code")
+	requiring.Requires = []*analysis.Analyzer{required}
+	module := Module{Path: errsPath, Version: "v1.4.0", Namespace: "errs", Analyzers: []*analysis.Analyzer{requiring, required}}
+	resolved, err := resolve([]Module{module}, Config{Modules: []ModuleConfig{errsConfig("errs_*")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stopped []failure
+
+	resolved.register(func(f failure) { stopped = append(stopped, f) })
+	_, _ = required.Run(&analysis.Pass{Analyzer: required, Pkg: types.NewPackage("example.com/a", "a")})
+
+	if len(stopped) != 1 || stopped[0].Code != "errs_sentinel" || stopped[0].Source != errsPath+"@v1.4.0" {
+		t.Errorf("stopped with %+v, want errs_sentinel from %s@v1.4.0", stopped, errsPath)
+	}
+}
+
+func TestEachSetOfSettingsGetsItsOwnCache(t *testing.T) {
+	base := t.TempDir()
+	rule := &rule{Code: "errs_nopanic"}
+	allowMust := []setting{{Rule: rule, Flag: "allow", Value: "Must"}}
+	allowShould := []setting{{Rule: rule, Flag: "allow", Value: "Should"}}
+	two := []setting{{Rule: rule, Flag: "allow", Value: "Must"}, {Rule: rule, Flag: "depth", Value: "2"}}
+	twoReordered := []setting{two[1], two[0]}
+
+	if settingsDigest(allowMust) == settingsDigest(allowShould) {
+		t.Error("different values must use different caches")
+	}
+	if settingsDigest(two) != settingsDigest(twoReordered) {
+		t.Error("the order settings arrive in must not matter")
+	}
+
+	t.Setenv("STATICCHECK_CACHE", base)
+	if err := settingsCache(nil); err != nil || os.Getenv("STATICCHECK_CACHE") != base {
+		t.Errorf("no settings must keep the shared cache: %q %v", os.Getenv("STATICCHECK_CACHE"), err)
+	}
+	if err := settingsCache(allowMust); err != nil || os.Getenv("STATICCHECK_CACHE") != filepath.Join(base, "settings-"+settingsDigest(allowMust)) {
+		t.Errorf("STATICCHECK_CACHE = %q, %v", os.Getenv("STATICCHECK_CACHE"), err)
+	}
+	t.Setenv("STATICCHECK_CACHE", "off")
+	if err := settingsCache(allowMust); err != nil || os.Getenv("STATICCHECK_CACHE") != "off" {
+		t.Errorf("an explicit off must stay off: %q", os.Getenv("STATICCHECK_CACHE"))
 	}
 }

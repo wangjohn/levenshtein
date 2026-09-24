@@ -85,14 +85,12 @@ Consumers pin a release tag, or its commit SHA, as described in
 
 ### Changed
 
-- The core linter guards every analyzer: an analyzer that returns an error or
-  panics now makes the run an error instead of a silently passing package
-  (Staticcheck swallows analyzer errors and caches the pass). After a failure
-  the linter moves its Staticcheck cache to a new generation subdirectory, so
-  no later run reuses a failed run's results. Older generations are removed
-  automatically. The first run after upgrading starts from a cold Staticcheck
-  cache; the entries directly under the old cache directory are no longer
-  read and can be deleted.
+- The core linter registers only the rules a check selects and guards each
+  one: an analyzer that returns an error or panics now stops the run with an
+  error instead of leaving a silently passing package (Staticcheck swallows
+  analyzer errors and caches the pass). The run stops before Staticcheck
+  caches the failed package, so no later run reuses its results, and a rule
+  that is turned off never runs, so a broken rule can be switched off.
 - **Repositories without a `levenshtein.json` now run `go-mod` in their
   default `branch`, `pre-merge`, and `main` runs**, next to `go-lint` and
   `go-vet`. An untidy root module, or one whose dependencies the container
