@@ -69,6 +69,18 @@ branch: failed, 1 of 4 checks passed, 1 baselined finding not shown
 	}
 }
 
+// Without a baseline, or with nothing in it matching, the summary line does
+// not mention baselined findings.
+func TestRenderTextMentionsBaselinedFindingsOnlyWhenThereAreSome(t *testing.T) {
+	check := lintCheck("lint", ".")
+	report := reportOf([]PlannedCheck{check}, failedResult("lint", lintFinding("a.go", 1, "errcheck", "unchecked error")))
+
+	got := render(t, report, FormatText, RenderOptions{})
+	if strings.Contains(got, "baselined") || !strings.HasSuffix(got, "branch: failed, 0 of 1 checks passed\n") {
+		t.Fatalf("text without baselined findings:\n%s", got)
+	}
+}
+
 func TestRenderTextPrefixesPaths(t *testing.T) {
 	got := render(t, renderFixture(), FormatText, RenderOptions{PathPrefix: "app"})
 	if !strings.HasPrefix(got, "app/services/api/a.go:10:2: LV1005") || !strings.Contains(got, "\napp: go-vet\n") {
