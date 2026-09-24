@@ -64,7 +64,8 @@ func scratchWorkspace(req Request, dir, scratch string) string {
 // files such as .git and .env. With git discovery it copies only the files the
 // fingerprint covers, which leaves out the build output and dependency
 // directories the repository ignores; with filesystem discovery it copies
-// everything under each input. A relative symlink is copied as a link.
+// everything under each input. A relative symlink is copied as a link; one
+// that leads outside the copy is an error.
 func copyInputs(ctx context.Context, req Request, dest string) error {
 	root, err := os.OpenRoot(req.Source)
 	if err != nil {
@@ -131,6 +132,12 @@ func copyTree(root *os.Root, path, dest string, excludes []string, copied map[st
 			link, err := root.Readlink(rel)
 			if err != nil {
 				return err
+			}
+			// A generator writes through links in the copy, so one that leads
+			// out of it could change the working tree the check promises to
+			// leave alone.
+			if filepath.IsAbs(link) || !filepath.IsLocal(filepath.Join(filepath.Dir(rel), link)) {
+				return fmt.Errorf("%s is a symlink to %s, outside the target's inputs; declare the real path", rel, link)
 			}
 			if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 				return err

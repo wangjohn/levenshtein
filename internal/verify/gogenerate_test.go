@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -88,6 +89,27 @@ func TestCopyInputsCopiesWhatTheCheckMayRead(t *testing.T) {
 				t.Fatalf("a relative link must stay a link: %q %v", link, err)
 			}
 		})
+	}
+}
+
+// A generator writes through the links in its copy, so a link that leads out
+// of the copy could reach the working tree.
+func TestCopyInputsRefusesLinksOutOfTheCopy(t *testing.T) {
+	for name, link := range map[string]string{
+		"absolute": filepath.Join(t.TempDir(), "outside.go"),
+		"relative": filepath.Join("..", "..", "outside.go"),
+	} {
+		req := nativeRequest(t)
+		req.Target.Inputs = []string{"app"}
+		writeTestFile(t, filepath.Join(req.Source, "app", "main.go"), "package main\n")
+		if err := os.Symlink(link, filepath.Join(req.Source, "app", "link.go")); err != nil {
+			t.Fatal(err)
+		}
+
+		err := copyInputs(context.Background(), req, t.TempDir())
+		if err == nil || !strings.Contains(err.Error(), "outside the target's inputs") {
+			t.Errorf("%s: a link out of the copy must be refused: %v", name, err)
+		}
 	}
 }
 
