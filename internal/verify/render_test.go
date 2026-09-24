@@ -213,6 +213,26 @@ func TestRenderSARIFWithoutBaselineOmitsBaselineState(t *testing.T) {
 	}
 }
 
+// SARIF requires results to be an array whenever a log represents a scan, and
+// code scanning rejects an upload whose results are null, so a clean run must
+// still write an empty array.
+func TestRenderSARIFCleanRunHasEmptyResults(t *testing.T) {
+	report := reportOf([]PlannedCheck{lintCheck("lint", ".")}, Result{ID: "lint", Status: StatusPassed})
+
+	var log struct {
+		Runs []struct {
+			Results json.RawMessage `json:"results"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal([]byte(render(t, report, FormatSARIF, RenderOptions{})), &log); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(log.Runs) != 1 || string(log.Runs[0].Results) != "[]" {
+		t.Fatalf("results of a clean run: %s", log.Runs[0].Results)
+	}
+}
+
 func TestRenderJSONRoundTrips(t *testing.T) {
 	report := renderFixture()
 	var decoded Report

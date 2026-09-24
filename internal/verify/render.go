@@ -403,7 +403,8 @@ func renderSARIF(w io.Writer, report Report, options RenderOptions) error {
 	all := items(report)
 	rules, index := sarifRules(all)
 
-	var results []sarifResult
+	// A scan's results are an array even when empty; code scanning rejects null.
+	results := []sarifResult{}
 	var notifications []sarifNotification
 	successful := true
 	for _, it := range all {
