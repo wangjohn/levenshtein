@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -292,4 +293,11 @@ func CheckWithdrawnRuleModules(plan Plan, shared string) error {
 		}
 	}
 	return nil
+}
+
+// encodeRuleModules is the JSON the Dagger runner receives for a check's rule
+// modules.
+func encodeRuleModules(planned []PlannedRuleModule) (string, error) {
+	data, err := json.Marshal(planned)
+	return string(data), err
 }

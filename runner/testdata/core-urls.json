@@ -1,5 +1,5 @@
 {
-  "comment": "Core finding URLs shared by every copy of coreURL, starting with internal/verify/findings.go; every copy must agree with every row.",
+  "comment": "Core finding URLs shared by internal/verify/findings_test.go and runner/community_test.go; both copies of coreURL must agree with every row.",
   "cases": [
     {"code": "SA4006", "url": "https://staticcheck.dev/docs/checks/#SA4006"},
     {"code": "S1002", "url": "https://staticcheck.dev/docs/checks/#S1002"},

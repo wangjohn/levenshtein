@@ -33,8 +33,8 @@ var staticcheckCode = regexp.MustCompile(`^(SA|S|ST|QF)[0-9]{4}$|^U1000$`)
 
 // coreURL is the page that documents a core lint rule: Staticcheck's own page
 // for its families, and otherwise this repository's rule list, which gives the
-// reason for every rule. Every copy loads runner/testdata/core-urls.json in its
-// tests.
+// reason for every rule. runner/main.go has a copy; both tests load
+// runner/testdata/core-urls.json.
 func coreURL(code string) string {
 	if staticcheckCode.MatchString(code) {
 		return "https://staticcheck.dev/docs/checks/#" + code

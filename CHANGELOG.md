@@ -11,6 +11,24 @@ Consumers pin a release tag, or its commit SHA, as described in
 
 ### Added
 
+- Community lint rules: a top-level `rule_modules` object pins lint rules
+  published as ordinary Go modules, which run beside the shipped rules in every
+  Dagger `go-lint` check and report into the same results. Each rule reports as
+  `<namespace>_<name>`, works with `//lint:ignore`, and is selected per module
+  (`select`) and per check (`lint.checks`); `"lint": {"rule_modules": false}`
+  opts one check out. Rules can be advisory, reported without failing the
+  check, and take settings through their analyzer flags. The community linter
+  is a separate binary on the same pinned Staticcheck, built for the exact
+  pins with nothing allowed to move off them, and its lint step runs with no
+  credentials and nothing shared writable. A rule that returns an error or
+  panics makes the check an error while the core findings are still reported.
+  Native `go-lint` checks run the shipped rules and warn that they skipped
+  community rules. `runner/rule-modules.json` lists versions a release
+  refuses or warns about. See [docs/community-rules.md](docs/community-rules.md).
+- Lint findings carry `advisory` and, where the rule has one, a documentation
+  `url`; community findings also name their `source` module. Results carry
+  `warnings`, which are kept with cached results, and the GitHub Action's job
+  summary lists advisory findings and warnings.
 - `go-mod`, a shared check on both executors that runs `go mod tidy -diff` and
   `go mod verify` in the target module. Untidy manifests fail with tidy's diff,
   and a download that no longer matches its recorded hash or `go.sum` fails too;
@@ -104,8 +122,10 @@ Consumers pin a release tag, or its commit SHA, as described in
 
 ### Changed
 
-- The core linter registers only the rules a check selects and guards each
-  one: an analyzer that returns an error or panics now stops the run with an
+- The Dagger CLI path calls `goLintReport`, which returns a passing check's
+  advisory findings and warnings; `goLint` stays the Dagger check.
+- Both linters register only the rules a check selects and guard each one:
+  an analyzer that returns an error or panics now stops the run with an
   error instead of leaving a silently passing package (Staticcheck swallows
   analyzer errors and caches the pass). The run stops before Staticcheck
   caches the failed package, so no later run reuses its results, and a rule

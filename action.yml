@@ -126,9 +126,19 @@ runs:
         {
           echo "### Levenshtein \`$RUN\`"
           echo
-          echo '| Check | Status |'
-          echo '| --- | --- |'
-          jq -r '.results[]? | "| `\(.id)` | \(.status) |"' "$REPORT" || echo '| (no report) | error |'
+          echo '| Check | Status | Notes |'
+          echo '| --- | --- | --- |'
+          jq -r '.results[]? | ([.details.findings[]? | select(.advisory)] | length) as $advisory
+            | ((.warnings // []) | length) as $warnings
+            | "| `\(.id)` | \(.status) | \([if $advisory > 0 then "\($advisory) advisory" else empty end, if $warnings > 0 then "\($warnings) warning(s)" else empty end] | join(", ")) |"' "$REPORT" \
+            || echo '| (no report) | error | |'
+          # Advisory findings never fail a check, so the summary is where they
+          # are seen. Each names the page that explains its rule.
+          jq -r '[.results[]? | .id as $id | .details.findings[]? | select(.advisory)
+            | "- [advisory] `\($id)` \(.location.file):\(.location.line):\(.location.column) \(.code): \(.message | split("\n")[0])\(if .url then " ([docs](\(.url)))" else "" end)"]
+            | if length > 0 then "\n#### Advisory findings\n\n" + join("\n") else empty end' "$REPORT" || true
+          jq -r '[.results[]? | .id as $id | .warnings[]? | "- `\($id)` \(.kind): \(.message)"]
+            | if length > 0 then "\n#### Warnings\n\n" + join("\n") else empty end' "$REPORT" || true
         } >> "$GITHUB_STEP_SUMMARY"
     - name: Save Levenshtein results
       if: >-

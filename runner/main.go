@@ -34,10 +34,33 @@ type toolchain struct {
 	Zizmor             zizmorPin `json:"zizmor"`
 }
 
+// diagnostic is one finding. internal/verify's finding is a copy; change both
+// together.
 type diagnostic struct {
 	Code     string   `json:"code"`
 	Message  string   `json:"message"`
 	Location location `json:"location"`
+	// Source names the rule module a community finding came from, as
+	// path@version; core findings leave it out.
+	Source string `json:"source,omitempty"`
+	// URL documents the rule that reported the finding, when it has a page.
+	URL string `json:"url,omitempty"`
+	// Advisory findings are reported without failing the check.
+	Advisory bool `json:"advisory"`
+}
+
+// staticcheckFamily is a code from one of Staticcheck's own families.
+var staticcheckFamily = regexp.MustCompile(`^(SA|S|ST|QF)[0-9]{4}$|^U1000$`)
+
+// coreURL is the page that documents a core lint rule: Staticcheck's own page
+// for its families, and otherwise Levenshtein's rule list, which gives the
+// reason for every rule. internal/verify/findings.go has a copy; both tests
+// load testdata/core-urls.json.
+func coreURL(code string) string {
+	if staticcheckFamily.MatchString(code) {
+		return "https://staticcheck.dev/docs/checks/#" + code
+	}
+	return "https://github.com/wangjohn/levenshtein/blob/main/docs/checks.md#go-lint-rules"
 }
 
 type location struct {
@@ -215,6 +238,7 @@ func parseFindings(exitCode int, stdout, stderr string, checks []string) ([]diag
 			return nil, fmt.Errorf("unexpected diagnostic (possibly a compile error): %s", stdout)
 		}
 		finding.Location.File = strings.TrimPrefix(finding.Location.File, "/src/")
+		finding.URL = coreURL(finding.Code)
 		findings = append(findings, finding)
 	}
 
@@ -318,6 +342,9 @@ func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce strin
 		return err
 	}
 	if err := goTestSelfTest(ctx, fixtures, tools, nonce); err != nil {
+		return err
+	}
+	if err := communitySelfTest(ctx, fixtures, tools, nonce); err != nil {
 		return err
 	}
 	return mutationSelfTest(ctx, fixtures.Directory("mutation"), tools, nonce)
@@ -431,7 +458,9 @@ func mutationSelfTest(ctx context.Context, fixtures *dagger.Directory, tools too
 	return nil
 }
 
-// GoLint runs the shared Go policy and cleanup rules.
+// GoLint runs the shared Go policy and cleanup rules, and the community rules
+// of any rule modules the caller passes. Advisory findings leave it passing;
+// GoLintReport returns them.
 // +check
 func (m *Levenshtein) GoLint(ctx context.Context,
 	// +optional
@@ -443,31 +472,92 @@ func (m *Levenshtein) GoLint(ctx context.Context,
 	// +optional
 	nonce string,
 	// Staticcheck -checks patterns applied after the shipped selection, such as
-	// "gocognit" to turn an opt-in rule on or "-unparam" to turn one off.
+	// "gocognit" to turn an opt-in rule on or "-unparam" to turn one off. A
+	// pattern with "_", such as "errs_nopanic", selects community rules.
 	// +optional
 	checks []string,
+	// The rule modules to run, as the JSON list the Levenshtein CLI plans.
+	// +optional
+	ruleModules string,
 ) error {
-	if !filepath.IsLocal(module) || path.Clean(module) != module || strings.Contains(module, "\\") {
-		return fmt.Errorf("invalid module path %q", module)
-	}
+	_, err := m.GoLintReport(ctx, source, module, nonce, checks, ruleModules)
+	return err
+}
 
+// GoLintReport runs GoLint and, when the check passes, returns its advisory
+// findings and warnings as JSON. The Levenshtein CLI calls this; a failing
+// check returns the same information as error extensions.
+func (m *Levenshtein) GoLintReport(ctx context.Context,
+	// +optional
+	// +defaultPath="/"
+	// +ignore=["**/.env", "**/.env.*", "!**/.env.example", "**/.git"]
+	source *dagger.Directory,
+	// +default="."
+	module string,
+	// +optional
+	nonce string,
+	// +optional
+	checks []string,
+	// +optional
+	ruleModules string,
+) (string, error) {
+	if !filepath.IsLocal(module) || path.Clean(module) != module || strings.Contains(module, "\\") {
+		return "", fmt.Errorf("invalid module path %q", module)
+	}
 	var tools toolchain
 	if err := json.Unmarshal(toolchainJSON, &tools); err != nil {
-		return err
+		return "", err
 	}
-	tools, err := selection(ctx, tools, checks)
+
+	outcome, err := goLint(ctx, source, module, tools, checks, ruleModules, nonce)
 	if err != nil {
-		return err
+		return "", err
+	}
+	if outcome.Error != "" || outcome.failing() {
+		message := "Go policy lint failed"
+		if outcome.Error != "" {
+			message = outcome.Error
+		}
+		return "", &gqlerror.Error{Message: message, Extensions: map[string]any{
+			"levenshteinFindings": outcome.Findings,
+			"levenshteinWarnings": outcome.Warnings,
+			"levenshteinError":    outcome.Error,
+		}}
+	}
+	return outcome.report()
+}
+
+// goLint runs a go-lint check: the core linter, and the community linter when
+// the check has rule modules. A community failure is carried in the outcome,
+// not returned, so the core findings are still reported.
+func goLint(ctx context.Context, source *dagger.Directory, module string, tools toolchain, checks []string, rawModules, nonce string) (lintOutcome, error) {
+	modules, err := parseRuleModules(rawModules)
+	if err != nil {
+		return lintOutcome{}, err
+	}
+	core, community, err := splitChecks(checks, modules)
+	if err != nil {
+		return lintOutcome{}, err
+	}
+	tools, err = selection(ctx, tools, core)
+	if err != nil {
+		return lintOutcome{}, err
 	}
 
 	findings, err := lint(ctx, source, module, tools, nonce)
 	if err != nil {
-		return err
+		return lintOutcome{}, err
 	}
-	if len(findings) != 0 {
-		return &gqlerror.Error{Message: "Go policy lint failed", Extensions: map[string]any{"levenshteinFindings": findings}}
+	if len(modules) == 0 {
+		return lintOutcome{Findings: findings}, nil
 	}
-	return nil
+
+	added, warnings, failure := communityLint(ctx, source, module, tools, modules, community, nonce)
+	outcome := lintOutcome{Findings: mergeFindings(findings, added), Warnings: warnings}
+	if failure != nil {
+		outcome = lintOutcome{Findings: findings, Warnings: warnings, Error: "community rules: " + failure.Error()}
+	}
+	return outcome, nil
 }
 
 // SelfTest checks the shared lint rules against good and bad examples.

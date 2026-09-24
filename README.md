@@ -45,6 +45,8 @@ config.go:18:9: LV1001 string choice with multiple alternatives needs a defined 
 
 To silence a finding, use Staticcheck's usual comment: `//lint:ignore CODE reason`.
 
+Rules Levenshtein doesn't ship can come from [community rule modules](docs/community-rules.md): ordinary Go modules of `go/analysis` analyzers that a repo pins in `levenshtein.json`. They run in their own process beside the shipped rules and report into the same results.
+
 ## Quick start
 
 You need `go` (any version) and Docker or another Docker-compatible runtime, such as Colima. Levenshtein runs on Linux and macOS.
@@ -59,8 +61,10 @@ The first run takes a few minutes while it downloads and builds the tools. After
 `verify` prints a JSON report. It exits with `0` if everything passes, `1` if a check fails, and `2` if the command or config is wrong. To see just the findings:
 
 ```sh
-./levenshtein/verify --source ./myapp | jq -r '.results[].details.findings[]? | "\(.location.file):\(.location.line): \(.code) \(.message)"'
+./levenshtein/verify --source ./myapp | jq -r '.results[].details.findings[]? | "\(.location.file):\(.location.line): \(if .advisory then "[advisory] " else "" end)\(.code) \(.message)\(if .url then " (\(.url))" else "" end)"'
 ```
+
+Advisory findings, from [community rules](docs/community-rules.md) a repo marks advisory, are reported without failing the check.
 
 ## Runs
 
@@ -121,6 +125,7 @@ Levenshtein is new and is being tried out on a few Go repos. The config format i
 
 - [Setup](docs/setup.md): install and run locally
 - [Checks](docs/checks.md): every rule and why it's on or off
+- [Community lint rules](docs/community-rules.md): publish rules as a Go module, or run someone else's
 - [Configuration](docs/configuration.md): targets, runs, commands, and caching
 - [Using it in CI](docs/consumer-ci.md): GitHub Actions and other providers
 - [Releases](docs/releases.md): prebuilt binaries
