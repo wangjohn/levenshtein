@@ -19,7 +19,7 @@
     "community": {
       "dir": "runner/community",
       "workspace": ".",
-      "inputs": ["runner/community", "runner/testdata/community-patterns.json"]
+      "inputs": ["runner/community", "runner/toolchain.json", "runner/lint/go.mod", "runner/testdata/community-patterns.json"]
     },
     "example": {
       "dir": "examples/rule-module",
