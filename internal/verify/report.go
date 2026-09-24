@@ -30,6 +30,9 @@ func replaceFindings(details json.RawMessage, findings []finding) json.RawMessag
 	if len(details) != 0 && json.Unmarshal(details, &fields) != nil {
 		return details
 	}
+	if fields == nil { // Details that are JSON null.
+		fields = map[string]json.RawMessage{}
+	}
 	encoded, err := json.Marshal(findings)
 	if err != nil {
 		return details
