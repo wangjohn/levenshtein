@@ -45,6 +45,7 @@ config.go:18:9: LV1001 string choice with multiple alternatives needs a defined 
 
 To silence a finding, use Staticcheck's usual comment: `//lint:ignore CODE reason`.
 
+Rules Levenshtein doesn't ship can come from [community rule modules](docs/community-rules.md): ordinary Go modules of `go/analysis` analyzers that a repo pins in `levenshtein.json`. They run in their own process beside the shipped rules and report into the same results.
 To turn the rules on in a repository that already has findings, name a [baseline](docs/configuration.md#baseline) file in `levenshtein.json` and record them with `verify main --write-baseline`. Recorded findings are reported but don't fail, new ones do, and fixing a recorded one means deleting its entry, so the file only shrinks.
 
 ## Quick start
@@ -65,6 +66,8 @@ The first run takes a few minutes while it downloads and builds the tools. After
 ```
 
 `--format github` writes GitHub Actions annotations and `--format sarif` a file for GitHub code scanning; `--render report.json` turns a saved JSON report into any of them. Findings with a mechanical fix, such as `gofmt -w`, carry a hint. Levenshtein never changes your files. See [output formats](docs/configuration.md#output-formats).
+
+Advisory findings, from [community rules](docs/community-rules.md) a repo marks advisory, are reported without failing the check.
 
 ## Runs
 
@@ -125,6 +128,7 @@ Levenshtein is new and is being tried out on a few Go repos. The config format i
 
 - [Setup](docs/setup.md): install and run locally
 - [Checks](docs/checks.md): every rule and why it's on or off
+- [Community lint rules](docs/community-rules.md): publish rules as a Go module, or run someone else's
 - [Configuration](docs/configuration.md): targets, runs, commands, and caching
 - [Using it in CI](docs/consumer-ci.md): GitHub Actions and other providers
 - [Coding agents](docs/agents.md): templates for Claude Code hooks, `AGENTS.md`, a workflow, and a starter config

@@ -23,10 +23,16 @@ var offCritics = map[string]bool{
 
 // experimentalCritics are diagnostic checkers go-critic still tags
 // experimental that join the selection anyway: nothing else reports what they
-// find, and a false alarm is rare.
+// find, and a false alarm is rare. deferInLoop is registered for a repository
+// to opt in to; the shipped selection in runner/toolchain.json turns it off.
 var experimentalCritics = map[string]bool{
-	"badRegexp":    true,
-	"filepathJoin": true,
+	"badRegexp":            true,
+	"badSyncOnceFunc":      true,
+	"deferInLoop":          true,
+	"evalOrder":            true,
+	"filepathJoin":         true,
+	"rangeAppendAll":       true,
+	"returnAfterHttpError": true,
 }
 
 // embeddedRules registers the go-critic checkers written as ruleguard rules,

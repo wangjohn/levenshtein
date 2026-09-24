@@ -264,6 +264,23 @@ func TestRecordBaseline(t *testing.T) {
 	}
 }
 
+func TestBaselineLeavesAdvisoryFindingsAlone(t *testing.T) {
+	check := lintCheck("lint", ".")
+	advisory := lintFinding("a.go", 4, "ACME001", "prefer the helper")
+	advisory.Advisory = true
+	report := reportOf([]PlannedCheck{check}, Result{ID: "lint", Status: StatusPassed, Details: findingsDetails([]finding{advisory})})
+
+	recorded, change, err := Baseline{Path: testBaselinePath}.Record(report)
+	if err != nil || len(recorded.Entries) != 0 || change.Added != 0 {
+		t.Fatalf("an advisory finding must not be recorded: %+v %+v %v", recorded.Entries, change, err)
+	}
+
+	applied := recorded.Apply(report)
+	if applied.Status != StatusPassed || findingsOf(t, applied.Results[0])[0].Baselined {
+		t.Fatalf("an advisory finding must pass unmarked: %+v", applied.Results)
+	}
+}
+
 func TestRecordBaselineRefusesUnfinishedRuns(t *testing.T) {
 	lint, other := lintCheck("lint", "."), lintCheck("other", "x")
 	for _, status := range []Status{StatusError, StatusIncomplete, StatusCancelled} {

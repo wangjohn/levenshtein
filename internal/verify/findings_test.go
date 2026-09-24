@@ -80,16 +80,19 @@ func TestCheckSelectionMatchesTheRunner(t *testing.T) {
 	}
 }
 
-// gocognit is compiled into the linter but opt-in, so the shipped selection a
-// native go-lint reads must keep it off while leaving the rest on.
-func TestShippedSelectionLeavesGocognitOff(t *testing.T) {
+// gocognit and deferInLoop are compiled into the linter but opt-in, so the
+// shipped selection a native go-lint reads must keep them off while leaving
+// the rest on.
+func TestShippedSelectionLeavesOptInRulesOff(t *testing.T) {
 	checks, err := sharedChecks(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if allowed(checks, "gocognit") {
-		t.Errorf("the shipped selection %v reports gocognit", checks)
+	for _, code := range []string{"gocognit", "deferInLoop"} {
+		if allowed(checks, code) {
+			t.Errorf("the shipped selection %v reports %s", checks, code)
+		}
 	}
 	if !allowed(checks, "errcheck") {
 		t.Errorf("the shipped selection %v drops errcheck", checks)
@@ -232,6 +235,28 @@ func TestFindingsDetailsMatchTheDaggerEnvelope(t *testing.T) {
 	for _, want := range []string{`"findings"`, `"code":"SA5001"`, `"file":"a.go"`, `"line":2`} {
 		if !strings.Contains(string(details), want) {
 			t.Fatalf("details missing %s: %s", want, details)
+		}
+	}
+}
+
+func TestCoreURLsMatchTheSharedTable(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "runner", "testdata", "core-urls.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table struct {
+		Cases []struct {
+			Code string `json:"code"`
+			URL  string `json:"url"`
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(data, &table); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range table.Cases {
+		if got := coreURL(test.Code); got != test.URL {
+			t.Errorf("coreURL(%q) = %q, want %q", test.Code, got, test.URL)
 		}
 	}
 }

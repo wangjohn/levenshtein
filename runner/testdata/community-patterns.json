@@ -1,0 +1,30 @@
+{
+  "comment": "Community pattern cases shared by every copy of the pattern syntax and selection, in runner/community, internal/verify, and runner/community.go. Every copy of the pattern syntax and of last-match-wins selection must agree with every row; change the table, not one test.",
+  "syntax": [
+    {"pattern": "errs_*", "valid": true},
+    {"pattern": "errs_no*", "valid": true},
+    {"pattern": "-errs_nopanic", "valid": true},
+    {"pattern": "errs_no_panic", "valid": true},
+    {"pattern": "ERRS_NoPanic", "valid": true},
+    {"pattern": "errs_", "valid": false},
+    {"pattern": "errs*", "valid": false},
+    {"pattern": "_nopanic", "valid": false},
+    {"pattern": "errs_no-panic", "valid": false},
+    {"pattern": "errs1_nopanic", "valid": false},
+    {"pattern": "errs_*_x", "valid": false},
+    {"pattern": "errs_nopanic,errs_wrapf", "valid": false},
+    {"pattern": "--errs_nopanic", "valid": false}
+  ],
+  "selection": [
+    {"name": "a namespace glob selects its rules", "patterns": ["errs_*"], "code": "errs_nopanic", "want": true},
+    {"name": "a namespace glob leaves another namespace alone", "patterns": ["errs_*"], "code": "sql_rows", "want": false},
+    {"name": "a glob after the underscore is a literal prefix", "patterns": ["errs_no*"], "code": "errs_nopanic", "want": true},
+    {"name": "a literal prefix does not match other names", "patterns": ["errs_no*"], "code": "errs_sentinel", "want": false},
+    {"name": "a literal name selects its rule", "patterns": ["errs_nopanic"], "code": "errs_nopanic", "want": true},
+    {"name": "matching ignores case", "patterns": ["ERRS_NoPanic"], "code": "errs_nopanic", "want": true},
+    {"name": "a later negation turns a rule off", "patterns": ["errs_*", "-errs_nopanic"], "code": "errs_nopanic", "want": false},
+    {"name": "a later name turns a negated rule back on", "patterns": ["errs_*", "-errs_nopanic", "errs_nopanic"], "code": "errs_nopanic", "want": true},
+    {"name": "a later glob turns a negated rule back on", "patterns": ["-errs_nopanic", "errs_*"], "code": "errs_nopanic", "want": true},
+    {"name": "nothing is on by default", "patterns": [], "code": "errs_nopanic", "want": false}
+  ]
+}
