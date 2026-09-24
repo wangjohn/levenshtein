@@ -3,12 +3,15 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"go/ast"
 	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	directives "4d63.com/gocheckcompilerdirectives/checkcompilerdirectives"
 	errname "github.com/Antonboom/errname/pkg/analyzer"
@@ -139,12 +142,17 @@ func switches() *analysis.Analyzer {
 // one, musttag runs `go mod edit -json` in the working directory for every
 // package, which names a parent module, or fails, when the linter runs outside
 // the package's own module; a wrong module makes musttag skip every named type
-// and pass silently.
+// and pass silently. The test main go test generates for a package with
+// tests lives in the build cache, outside any module, and marshals nothing,
+// so it is skipped.
 func tagged() *analysis.Analyzer {
 	analyzer := musttag.New()
 	run := analyzer.Run
 	analyzer.Run = func(pass *analysis.Pass) (any, error) {
 		module, err := modulePath(pass)
+		if err != nil && testMain(pass) {
+			return nil, nil
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -153,6 +161,12 @@ func tagged() *analysis.Analyzer {
 		return run(&withModule)
 	}
 	return analyzer
+}
+
+// testMain reports whether a package is the test main go test generates for
+// a package with tests: package main at the package's path plus ".test".
+func testMain(pass *analysis.Pass) bool {
+	return pass.Pkg.Name() == "main" && strings.HasSuffix(pass.Pkg.Path(), ".test")
 }
 
 // modulePath reads the module path from the go.mod nearest a source file of
@@ -434,21 +448,70 @@ func house() []*analysis.Analyzer {
 }
 
 func main() {
+	os.Exit(run(os.Args[1:]))
+}
+
+// modeFlags select a Staticcheck mode that lists or explains rules instead
+// of linting (lintcmd's Command.Execute).
+var modeFlags = []string{"list-checks", "explain", "version", "debug.version", "merge"}
+
+// linting reports whether the parsed flags ask for a lint run, the only mode
+// that runs analyzers or touches the Staticcheck cache.
+func linting(flags *flag.FlagSet) bool {
+	for _, name := range modeFlags {
+		if value := flags.Lookup(name).Value.String(); value != "" && value != "false" {
+			return false
+		}
+	}
+	return true
+}
+
+// run lints with every analyzer guarded, so an analyzer that returns an error
+// or panics makes the run an error instead of a silent or cached pass. The
+// runner treats exit 2 and anything on stderr as a tool error.
+func run(args []string) int {
 	command := lintcmd.NewCommand("levenshtein-lint")
-	command.AddAnalyzers(staticcheckFamilies()...)
+	families := staticcheckFamilies()
+	command.AddAnalyzers(families...)
+	bare := slices.Concat(
+		policy.Adapt(resources()...),
+		policy.Adapt(correctness()...),
+		policy.Adapt(critics()...),
+		policy.Adapt(logging()...),
+		policy.Adapt(source()...),
+		policy.Adapt(signatures()...),
+		policy.Adapt(hygiene()...),
+		policy.Adapt(modernizers()...),
+		policy.Adapt(tests()...),
+		policy.Adapt(complexity()...),
+		house(),
+	)
+	command.AddBareAnalyzers(bare...)
+	command.ParseFlags(args)
+	if !linting(command.FlagSet()) {
+		return command.Execute()
+	}
 
-	command.AddBareAnalyzers(policy.Adapt(resources()...)...)
-	command.AddBareAnalyzers(policy.Adapt(correctness()...)...)
-	command.AddBareAnalyzers(policy.Adapt(critics()...)...)
-	command.AddBareAnalyzers(policy.Adapt(logging()...)...)
-	command.AddBareAnalyzers(policy.Adapt(source()...)...)
-	command.AddBareAnalyzers(policy.Adapt(signatures()...)...)
-	command.AddBareAnalyzers(policy.Adapt(hygiene()...)...)
-	command.AddBareAnalyzers(policy.Adapt(modernizers()...)...)
-	command.AddBareAnalyzers(policy.Adapt(tests()...)...)
-	command.AddBareAnalyzers(policy.Adapt(complexity()...)...)
-	command.AddBareAnalyzers(house()...)
+	retire, err := cacheGeneration()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "levenshtein-lint: %v\n", err)
+		return 2
+	}
+	guard := newGuard(retire)
+	for _, family := range families {
+		guard.wrap(family.Analyzer, owner{Code: family.Analyzer.Name})
+	}
+	for _, analyzer := range bare {
+		guard.wrap(analyzer, owner{Code: analyzer.Name})
+	}
 
-	command.ParseFlags(os.Args[1:])
-	command.Run()
+	exit := command.Execute()
+	failures := guard.report()
+	for _, failed := range failures {
+		fmt.Fprintf(os.Stderr, "levenshtein-lint: %s failed on %d package(s), first: %s\n", failed.Code, len(failed.Packages), failed.Error)
+	}
+	if len(failures) > 0 {
+		return 2
+	}
+	return exit
 }
