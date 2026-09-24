@@ -29,7 +29,8 @@ type location struct {
 
 // allowed and selects are copies of the runner's (runner/main.go), which
 // reproduce Staticcheck's filterAnalyzerNames (lintcmd/lint.go in
-// honnef.co/go/tools v0.8.1) for one code. Both copies load the same table,
+// honnef.co/go/tools v0.8.1) for one code; the core linter keeps a third
+// (runner/lint/cmd/levenshtein-lint). Every copy loads the same table,
 // runner/testdata/selection.json, in their tests, so a change to one that is
 // not made to the other fails a test instead of relying on memory.
 //

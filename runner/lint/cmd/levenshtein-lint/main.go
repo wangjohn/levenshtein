@@ -466,13 +466,13 @@ func linting(flags *flag.FlagSet) bool {
 	return true
 }
 
-// run lints with every analyzer guarded, so an analyzer that returns an error
-// or panics makes the run an error instead of a silent or cached pass. The
-// runner treats exit 2 and anything on stderr as a tool error.
+// run lints with every selected analyzer guarded, so an analyzer that returns
+// an error or panics stops the run with exit 2 before its package is cached.
+// The runner treats exit 2 and anything on stderr as a tool error.
 func run(args []string) int {
 	command := lintcmd.NewCommand("levenshtein-lint")
+	command.ParseFlags(args)
 	families := staticcheckFamilies()
-	command.AddAnalyzers(families...)
 	bare := slices.Concat(
 		policy.Adapt(resources()...),
 		policy.Adapt(correctness()...),
@@ -486,32 +486,35 @@ func run(args []string) int {
 		policy.Adapt(complexity()...),
 		house(),
 	)
-	command.AddBareAnalyzers(bare...)
-	command.ParseFlags(args)
 	if !linting(command.FlagSet()) {
+		command.AddAnalyzers(families...)
+		command.AddBareAnalyzers(bare...)
 		return command.Execute()
 	}
 
-	retire, err := cacheGeneration()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "levenshtein-lint: %v\n", err)
-		return 2
-	}
-	guard := newGuard(retire)
+	// Staticcheck runs every registered analyzer, whatever -checks selects,
+	// and keys its cache on the registered names. Registering only the
+	// selected rules keeps a rule that is turned off from running at all, so
+	// it cannot fail the run, and gives each selection its own cache entries.
+	checks := checkList(command.FlagSet())
+	guard := newGuard(stop)
 	for _, family := range families {
-		guard.wrap(family.Analyzer, owner{Code: family.Analyzer.Name})
+		if checks == nil || allowed(checks, family.Analyzer.Name) {
+			command.AddAnalyzers(family)
+			guard.wrap(family.Analyzer, owner{Code: family.Analyzer.Name})
+		}
 	}
 	for _, analyzer := range bare {
-		guard.wrap(analyzer, owner{Code: analyzer.Name})
+		if checks == nil || allowed(checks, analyzer.Name) {
+			command.AddBareAnalyzers(analyzer)
+			guard.wrap(analyzer, owner{Code: analyzer.Name})
+		}
 	}
+	return command.Execute()
+}
 
-	exit := command.Execute()
-	failures := guard.report()
-	for _, failed := range failures {
-		fmt.Fprintf(os.Stderr, "levenshtein-lint: %s failed on %d package(s), first: %s\n", failed.Code, len(failed.Packages), failed.Error)
-	}
-	if len(failures) > 0 {
-		return 2
-	}
-	return exit
+// stop ends the run on the first analyzer failure.
+func stop(failed failure) {
+	fmt.Fprintf(os.Stderr, "levenshtein-lint: %s failed on %s: %s\n", failed.Code, failed.Package, failed.Error)
+	os.Exit(2)
 }
