@@ -245,3 +245,15 @@ func TestImportRulesParseAndKeyTheResult(t *testing.T) {
 		}
 	}
 }
+
+// A configuration can hold many rules, so an error names the rule, counting
+// from one, that it is about.
+func TestValidateImportRulesNamesTheRule(t *testing.T) {
+	valid := ImportRule{Packages: []string{"./core/..."}, Deny: []string{"net/http"}, Reason: "core stays transport-free"}
+	invalid := ImportRule{Packages: []string{"core"}, Deny: []string{"net/http"}, Reason: "not relative"}
+
+	err := validateImportRules(ImportsCheck{Rules: []ImportRule{valid, invalid}})
+	if err == nil || !strings.Contains(err.Error(), "go-imports rule 2:") {
+		t.Fatalf("the second rule's error must name rule 2: %v", err)
+	}
+}
