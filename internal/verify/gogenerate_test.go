@@ -92,6 +92,43 @@ func TestCopyInputsCopiesWhatTheCheckMayRead(t *testing.T) {
 	}
 }
 
+// The copy is where generators run, so each file must arrive with its bytes
+// and its mode, and a file that cannot be copied must fail the copy.
+func TestCopyFileKeepsContentAndReportsFailures(t *testing.T) {
+	source := t.TempDir()
+	writeTestFile(t, filepath.Join(source, "gen.sh"), "#!/bin/sh\necho generated\n")
+	if err := os.Chmod(filepath.Join(source, "gen.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(source, "dir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.OpenRoot(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }() // Directory handle cleanup.
+	dest := t.TempDir()
+
+	if err := copyFile(root, "gen.sh", filepath.Join(dest, "gen.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dest, "gen.sh"))
+	if err != nil || string(data) != "#!/bin/sh\necho generated\n" {
+		t.Fatalf("the copy must keep the file's bytes: %q %v", data, err)
+	}
+	if info, err := os.Stat(filepath.Join(dest, "gen.sh")); err != nil || info.Mode().Perm()&0o100 == 0 {
+		t.Fatalf("the copy must keep an executable generator executable: %v %v", info, err)
+	}
+
+	if err := copyFile(root, "gen.sh", filepath.Join(dest, "gen.sh"), 0o755); err == nil {
+		t.Error("copying over a file already in the copy must fail")
+	}
+	if err := copyFile(root, "dir", filepath.Join(dest, "dir"), 0o755); err == nil {
+		t.Error("a file whose content cannot be read must fail the copy")
+	}
+}
+
 // A generator writes through the links in its copy, so a link that leads out
 // of the copy could reach the working tree.
 func TestCopyInputsRefusesLinksOutOfTheCopy(t *testing.T) {
