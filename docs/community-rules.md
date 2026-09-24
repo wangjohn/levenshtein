@@ -283,6 +283,29 @@ example is not tagged, so it is a shape to copy rather than a working pin:
 That gives up the JSON findings, the shared selection syntax, and
 `//lint:ignore`, which is what phase 1 adds.
 
+### How this repository keeps the example working
+
+The example is part of Levenshtein's own CI, so the template cannot rot while
+the core toolchain moves:
+
+- `levenshtein.json` declares it as the `example` target, so `go-lint`,
+  `go-vet`, and `go-mod` (on both executors) and `native-go-test` cover it
+  like the other modules.
+- The `tests` job in `.github/workflows/verify.yml` runs
+  `scripts/test-example-rules`. That script runs the module's tests with `-race`,
+  then copies `runner/lint`'s `go.mod` and `go.sum`, requires the example, and
+  fails if `go list -m all` then lists any other module at a different
+  version. This is the conflict check the runner would apply to every
+  consumer's modules, run here on the one module the project controls.
+
+The conflict check is also the reason for one rule authors must follow:
+**require the lowest version of each dependency your rules need, not the
+newest.** Minimum version selection takes the highest requirement anywhere in
+the graph, so a module that requires a newer `golang.org/x/tools` than the
+pinned linter cannot be compiled in without changing the core rules.
+Dependabot therefore watches `runner/lint` but not the example: when the core
+moves ahead, the example's lower requirement stays valid.
+
 ## What the runner adds
 
 These pieces were prototyped against a scratch copy of `runner/lint` and are

@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+temporary=$(mktemp -d)
+trap 'rm -rf "$temporary"' EXIT
+example="$root/examples/rule-module"
+module=$(cd "$example" && go list -m)
+
+# The example rule module is the template community rule authors copy, so it
+# has to keep passing its own tests. See docs/community-rules.md.
+(cd "$example" && go test -race ./...)
+
+# Requiring the example from the linter's module must leave every other module
+# version where runner/lint pins it. Minimum version selection would otherwise
+# upgrade a dependency such as golang.org/x/tools under the core rules, which is
+# the conflict the proposed runner refuses; an author whose module needs a newer
+# version than the pinned linter finds out here, not in a consumer's build.
+cp "$root/runner/lint/go.mod" "$root/runner/lint/go.sum" "$temporary/"
+(cd "$temporary" && go list -m all) > "$temporary/before.txt"
+(cd "$temporary" && go mod edit -require="$module@v0.0.0" -replace="$module=$example" && go list -mod=mod -m all) \
+  | grep -vF "$module " > "$temporary/after.txt" || true
+if ! diff -u "$temporary/before.txt" "$temporary/after.txt" > "$temporary/conflict.diff"; then
+  echo "$module changes module versions runner/lint pins; require the lowest versions the rules need:" >&2
+  cat "$temporary/conflict.diff" >&2
+  exit 1
+fi
+echo "$module passes its tests and leaves runner/lint's module versions unchanged"
