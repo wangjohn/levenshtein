@@ -341,6 +341,8 @@ The analyzers use Go's `go/analysis` framework and Staticcheck's runner for pack
 
 For an exceptional interop requirement, use Staticcheck's normal directive with a reason, for example `//lint:ignore LV1001 external schema requires this field`. Prefer a proper type or record literal when possible.
 
+A suppression is a permanent decision about one site. Findings a repository already had when it adopted the rules, and means to fix, belong in its [baseline](configuration.md#baseline) instead, which accepts them only until they are fixed.
+
 You can run the same linter directly without Dagger. The selection below is the shipped default; append the patterns a repository's check adds, such as `,gocognit` to [opt in to gocognit](#opt-in-complexity-gocognit), to reproduce what its `go-lint` check reports:
 
 ```sh

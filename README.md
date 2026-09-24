@@ -45,6 +45,8 @@ config.go:18:9: LV1001 string choice with multiple alternatives needs a defined 
 
 To silence a finding, use Staticcheck's usual comment: `//lint:ignore CODE reason`.
 
+To turn the rules on in a repository that already has findings, name a [baseline](docs/configuration.md#baseline) file in `levenshtein.json` and record them with `verify main --write-baseline`. Recorded findings are reported but don't fail, new ones do, and fixing a recorded one means deleting its entry, so the file only shrinks.
+
 ## Quick start
 
 You need `go` (any version) and Docker or another Docker-compatible runtime, such as Colima. Levenshtein runs on Linux and macOS.
@@ -56,11 +58,13 @@ git clone https://github.com/wangjohn/levenshtein
 
 The first run takes a few minutes while it downloads and builds the tools. After that, runs are fast, and checks that passed are skipped until their files change.
 
-`verify` prints a JSON report. It exits with `0` if everything passes, `1` if a check fails, and `2` if the command or config is wrong. To see just the findings:
+`verify` prints a JSON report. It exits with `0` if everything passes, `1` if a check fails, and `2` if the command or config is wrong. To see just the findings, one per line:
 
 ```sh
-./levenshtein/verify --source ./myapp | jq -r '.results[].details.findings[]? | "\(.location.file):\(.location.line): \(.code) \(.message)"'
+./levenshtein/verify --source ./myapp --format text
 ```
+
+`--format github` writes GitHub Actions annotations and `--format sarif` a file for GitHub code scanning; `--render report.json` turns a saved JSON report into any of them. Findings with a mechanical fix, such as `gofmt -w`, carry a hint. Levenshtein never changes your files. See [output formats](docs/configuration.md#output-formats).
 
 ## Runs
 
@@ -101,7 +105,7 @@ See [docs/configuration.md](docs/configuration.md) for everything else.
 
 ## In CI
 
-Levenshtein runs inside your existing CI. On GitHub Actions it is one step, `uses: wangjohn/levenshtein@v0.1.0`, which runs `branch` on pushes, `pre-merge` on pull requests, and `main` on a nightly schedule. On other providers, your CI job checks out your repo and Levenshtein side by side, then runs `verify`. [docs/consumer-ci.md](docs/consumer-ci.md) has both.
+Levenshtein runs inside your existing CI. On GitHub Actions it is one step, `uses: wangjohn/levenshtein@v0.1.0`, which runs `branch` on pushes, `pre-merge` on pull requests, and `main` on a nightly schedule, and annotates failing findings on the pull request. On other providers, your CI job checks out your repo and Levenshtein side by side, then runs `verify`. [docs/consumer-ci.md](docs/consumer-ci.md) has both.
 
 Pin Levenshtein to a commit SHA or a release tag, not a branch. That way rule changes reach your repo only when you choose to update.
 
@@ -123,6 +127,7 @@ Levenshtein is new and is being tried out on a few Go repos. The config format i
 - [Checks](docs/checks.md): every rule and why it's on or off
 - [Configuration](docs/configuration.md): targets, runs, commands, and caching
 - [Using it in CI](docs/consumer-ci.md): GitHub Actions and other providers
+- [Coding agents](docs/agents.md): templates for Claude Code hooks, `AGENTS.md`, a workflow, and a starter config
 - [Releases](docs/releases.md): prebuilt binaries
 - [Semantic lint](docs/semantic-lint.md): an optional review by a language model
 - [Mutation testing](docs/mutation.md): an optional check that your tests catch deliberate bugs in changed code
