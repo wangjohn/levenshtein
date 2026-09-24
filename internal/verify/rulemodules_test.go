@@ -248,12 +248,15 @@ func TestAGoLintCheckSaysItSkippedCommunityRules(t *testing.T) {
 	if warnings := skippedRuleModules(Request{PlannedCheck: plan.Checks[1]}); warnings != nil {
 		t.Errorf("a check that opted out skipped nothing: %+v", warnings)
 	}
-	for _, executor := range []ExecutorKind{ExecutorNative, ExecutorDagger} {
+	for executor, reason := range map[ExecutorKind]string{
+		ExecutorNative: "run only on the Dagger executor",
+		ExecutorDagger: "are not built by this release's Dagger runner yet",
+	} {
 		check := plan.Checks[0]
 		check.Environment.Executor = executor
 		warnings := skippedRuleModules(Request{PlannedCheck: check})
-		if len(warnings) != 1 || warnings[0].Kind != WarningRuleModulesSkipped {
-			t.Errorf("%s warnings = %+v", executor, warnings)
+		if len(warnings) != 1 || warnings[0].Kind != WarningRuleModulesSkipped || !strings.Contains(warnings[0].Message, reason) {
+			t.Errorf("%s warnings = %+v, want one saying the rules %s", executor, warnings, reason)
 		}
 	}
 }
