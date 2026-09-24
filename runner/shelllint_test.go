@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -56,6 +58,72 @@ func TestShellListingFindsTheFixtureScripts(t *testing.T) {
 			t.Fatalf("%s: scripts=%v config=%q err=%v, want %v and %q", tc.fixture, scripts, config, err, tc.scripts, tc.config)
 		}
 	}
+}
+
+// The listing is an exec's stdout, which Dagger streams to its progress log
+// and traces, so it carries no file contents beyond a shebang line: not the
+// start of an extensionless key or token file, and not a script's body. Over
+// every shared-table case it still selects exactly what shellScript does.
+func TestShellListingPrintsNothingButShebangLines(t *testing.T) {
+	const key = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ\n"
+	const token = "export TOKEN=ghp_R2b8kQpXz9LmN4vT7wY1cA3eF6hJ0sD5gK8u\n" // gitleaks:allow
+	dir := t.TempDir()
+	for file, contents := range map[string]string{"id_ed25519": key, "bin/tool": "#!/bin/sh\n" + token} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, file)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, file), []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	out := runShellListing(t, dir)
+	if strings.Contains(out, "PRIVATE KEY") || strings.Contains(out, "b3BlbnNzaC1") || strings.Contains(out, "ghp_") {
+		t.Fatalf("the listing prints file contents: %q", out)
+	}
+	if scripts, _, err := shellInputs(out); err != nil || !slices.Equal(scripts, []string{"bin/tool"}) {
+		t.Fatalf("scripts=%v err=%v, want [bin/tool]", scripts, err)
+	}
+
+	data, err := os.ReadFile("testdata/shell-scripts.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []struct {
+		File   string `json:"file"`
+		Head   string `json:"head"`
+		Script bool   `json:"script"`
+	}
+	if err := json.Unmarshal(data, &cases); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range cases {
+		dir := t.TempDir()
+		file := filepath.Join(dir, filepath.FromSlash(tc.File))
+		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte(tc.Head), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		scripts, _, err := shellInputs(runShellListing(t, dir))
+		if got := err == nil && slices.Equal(scripts, []string{tc.File}); got != tc.Script {
+			t.Errorf("listing %q with %q selects %v (%v), want script=%v", tc.File, tc.Head, scripts, err, tc.Script)
+		}
+	}
+}
+
+func runShellListing(t *testing.T, dir string) string {
+	t.Helper()
+	listing := shellListing()
+	cmd := exec.CommandContext(t.Context(), listing[0], listing[1:]...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
 }
 
 func TestShellInputsRefuseAnEmptyCheckAndTwoConfigurations(t *testing.T) {

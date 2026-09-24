@@ -57,9 +57,12 @@ func shellScript(file string, head []byte) bool {
 }
 
 // shellListing prints every file outside the skipped directories as its path
-// and, for a file without an extension, the start of its contents, each
-// followed by a NUL. NULs in the contents become \x01 so they cannot split
-// the listing.
+// and, for a file without an extension that starts with #!, the first line of
+// its first shellHeadLimit bytes, each followed by a NUL. NULs in that line
+// become \x01 so they cannot split the listing. That line is all shellScript
+// reads, and the listing is an exec's stdout, which Dagger streams to its
+// progress log and traces, so no other contents, such as the start of an
+// extensionless key file or a script's body, are printed.
 func shellListing() []string {
 	var prune []string
 	for i, dir := range sourceSkipDirs {
@@ -68,7 +71,7 @@ func shellListing() []string {
 		}
 		prune = append(prune, "-name", dir)
 	}
-	script := fmt.Sprintf(`for f do printf '%%s\0' "$f"; case "${f##*/}" in *.*) ;; *) head -c %d "$f" | tr '\000' '\001' ;; esac; printf '\0'; done`, shellHeadLimit)
+	script := fmt.Sprintf(`for f do printf '%%s\0' "$f"; case "${f##*/}" in *.*) ;; *) line=$(head -c %d "$f" | tr '\000' '\001' | head -n 1); case $line in '#!'*) printf '%%s' "$line" ;; esac ;; esac; printf '\0'; done`, shellHeadLimit)
 	args := append([]string{"find", ".", "-type", "d", "("}, prune...)
 	return append(args, ")", "-prune", "-o", "-type", "f", "-exec", "sh", "-c", script, "sh", "{}", "+")
 }
