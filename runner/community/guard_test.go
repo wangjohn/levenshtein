@@ -1,6 +1,6 @@
-// These are copies of runner/community/guard_test.go; change both together.
+// These are copies of runner/lint/cmd/levenshtein-lint/guard_test.go; change both together.
 
-package main
+package community
 
 import (
 	"errors"

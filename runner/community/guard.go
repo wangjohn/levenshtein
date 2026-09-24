@@ -1,4 +1,4 @@
-package main
+package community
 
 import (
 	"fmt"
@@ -15,8 +15,8 @@ import (
 // has finished, so a package whose analysis failed is never cached, wherever
 // the cache lives: a directory, or a GOCACHEPROG program.
 //
-// runner/community/guard.go is a copy for community rules; change both
-// together.
+// This is a copy of runner/lint/cmd/levenshtein-lint/guard.go, which guards
+// the core linter; change both together.
 
 // guard wraps analyzers and stops the run on the first failure.
 type guard struct {

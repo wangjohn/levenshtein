@@ -54,6 +54,24 @@ updates:
           - minor
           - patch
 
+  # The community linter's runtime keeps the same Staticcheck pin as
+  # runner/lint; bump them together (docs/community-rules.md).
+  - package-ecosystem: gomod
+    directory: /runner/community
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: honnef.co/go/tools
+    groups:
+      go-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
   - package-ecosystem: gomod
     directory: /runner/tools
     schedule:
