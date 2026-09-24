@@ -14,7 +14,7 @@
     "lint": {
       "dir": "runner/lint",
       "workspace": ".",
-      "inputs": ["runner/lint"]
+      "inputs": ["runner/lint", "runner/testdata/import-rules.json", "runner/testdata/imports-good", "runner/testdata/imports-bad"]
     },
     "example": {
       "dir": "examples/rule-module",
