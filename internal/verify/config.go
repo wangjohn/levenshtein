@@ -22,6 +22,25 @@ type Config struct {
 	Preparations map[string]Preparation `json:"preparations,omitempty"`
 	Builds       map[string]Preparation `json:"builds,omitempty"`
 	Baseline     string                 `json:"baseline,omitempty"`
+	RuleModules  map[string]RuleModule  `json:"rule_modules,omitempty"`
+}
+
+// RuleModule pins one community rule module, keyed by its module path. Every
+// go-lint check runs the rules its select turns on, unless the check opts out
+// with "lint": {"rule_modules": false}. See docs/community-rules.md.
+type RuleModule struct {
+	// Version is an exact tag or pseudo-version.
+	Version string `json:"version"`
+	// Namespace repeats the module's lvrules.Namespace, so patterns can be
+	// checked before anything builds.
+	Namespace string `json:"namespace"`
+	// Select turns rules on for every go-lint check, in this namespace only.
+	Select []string `json:"select"`
+	// Advisory names selected rules that report without failing the check.
+	Advisory []string `json:"advisory,omitempty"`
+	// Settings are string flag values for each rule, keyed by rule code and
+	// then by the analyzer's flag name.
+	Settings map[string]map[string]string `json:"settings,omitempty"`
 }
 
 type Target struct {
@@ -123,9 +142,13 @@ type MutationCheck struct {
 // LintCheck tunes the go-lint kind. Checks are Staticcheck -checks patterns
 // applied after the shipped selection in runner/toolchain.json, where the last
 // matching pattern wins, so "gocognit" turns an opt-in rule on and "-unparam"
-// turns a default rule off without restating the rest.
+// turns a default rule off without restating the rest. A pattern containing
+// "_", such as "errs_nopanic", selects community rules instead, after every
+// rule module's select. RuleModules set to false keeps the configuration's
+// rule modules out of this one check.
 type LintCheck struct {
-	Checks []string `json:"checks"`
+	Checks      []string `json:"checks,omitempty"`
+	RuleModules *bool    `json:"rule_modules,omitempty"`
 }
 
 // ImportsCheck holds a go-imports check's layering rules. The check passes
@@ -195,6 +218,28 @@ func (check Check) lintChecks() []string {
 		return nil
 	}
 	return check.Lint.Checks
+}
+
+// coreLintChecks is what a go-lint check adds to the core linter's
+// selection: its patterns without the community ones.
+func (check Check) coreLintChecks() []string {
+	var core []string
+	for _, pattern := range check.lintChecks() {
+		if !isCommunityPattern(pattern) {
+			core = append(core, pattern)
+		}
+	}
+	return core
+}
+
+// usesRuleModules reports whether a check runs the configuration's rule
+// modules: every go-lint check does unless it opts out. go-http and go-sql run
+// one core rule each and never run community rules.
+func (check Check) usesRuleModules() bool {
+	if check.Kind != CheckGoLint {
+		return false
+	}
+	return check.Lint == nil || check.Lint.RuleModules == nil || *check.Lint.RuleModules
 }
 
 // defaultAccepted is where a go-mutation check looks for accepted survivors
