@@ -99,6 +99,9 @@ func Build(ctx context.Context, req Request, work, out string) (Result, error) {
 	if err := tidy(ctx, g, req); err != nil {
 		return Result{}, err
 	}
+	if err := checkGoLine(work, req.Go); err != nil {
+		return Result{}, err
+	}
 	if err := checkPins(ctx, g, req); err != nil {
 		return Result{}, err
 	}
@@ -267,6 +270,30 @@ func tidy(ctx context.Context, g goCommand, req Request) error {
 		return fmt.Errorf("a rule module's dependency needs a newer Go than this release pins (go %s):\n%s", req.Go, strings.Join(newer, "\n"))
 	}
 	return fmt.Errorf("resolving the rule modules failed:\n%s", text)
+}
+
+// checkGoLine refuses a resolution that raised the generated module's go line.
+// Tidy fails when a dependency needs a newer Go than the local toolchain, but
+// on a toolchain newer than the pin it succeeds and raises the line instead,
+// which would build locally what the pinned toolchain refuses.
+func checkGoLine(work, pinned string) error {
+	path := filepath.Join(work, "go.mod")
+	data, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		return err
+	}
+	file, err := modfile.ParseLax(path, data, nil)
+	if err != nil {
+		return err
+	}
+	if file.Go == nil || file.Go.Version != pinned {
+		found := "no go line"
+		if file.Go != nil {
+			found = "go " + file.Go.Version
+		}
+		return fmt.Errorf("a rule module's dependency needs a newer Go than this release pins (go %s): resolving it raised the go line to %s", pinned, found)
+	}
+	return nil
 }
 
 // checkPins refuses a resolution that moved Staticcheck or any rule module

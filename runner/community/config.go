@@ -31,8 +31,9 @@ type Report struct {
 	Rules []RuleReport `json:"rules"`
 	// Warnings are problems that do not change the verdict.
 	Warnings []Warning `json:"warnings,omitempty"`
-	// Failures are rules that returned an error or panicked. Any failure makes
-	// the check an error.
+	// Failures holds the analyzer that returned an error or panicked, if one
+	// did. The linter stops at the first failure, which makes the check an
+	// error.
 	Failures []Failure `json:"failures,omitempty"`
 }
 
@@ -61,15 +62,13 @@ type Warning struct {
 	Message string      `json:"message"`
 }
 
-// Failure is one analyzer that returned an error or panicked, on every
-// package where it did.
+// Failure is an analyzer that returned an error or panicked on a package.
 type Failure struct {
 	// Code is the rule's code, or the name of a dependency analyzer that is
 	// not a rule itself.
 	Code string `json:"code"`
 	// Source names the module that brought the analyzer in.
-	Source   string   `json:"source"`
-	Packages []string `json:"packages"`
-	// Error is the first failure's error, so a report stays bounded.
-	Error string `json:"error"`
+	Source  string `json:"source"`
+	Package string `json:"package"`
+	Error   string `json:"error"`
 }

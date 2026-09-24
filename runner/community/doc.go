@@ -8,6 +8,6 @@
 // report. See docs/community-rules.md in the Levenshtein repository.
 //
 // This package has no connection to the core linter in runner/lint beyond
-// sharing its Staticcheck pin. The failure guard in guard.go has a copy there;
-// change both together.
+// sharing its Staticcheck pin. The failure guard in guard.go is a copy of the
+// core linter's; change both together.
 package community

@@ -161,3 +161,27 @@ func TestStaticcheckIsPinnedOnceForBothLinters(t *testing.T) {
 		}
 	}
 }
+
+// Tidy on a toolchain newer than the pin raises the go line instead of
+// failing; the build must refuse that as the pinned toolchain would.
+func TestARaisedGoLineFailsTheBuild(t *testing.T) {
+	for _, test := range []struct {
+		manifest string
+		message  string
+	}{
+		{"module m\n\ngo 1.27.1\n", ""},
+		{"module m\n\ngo 1.28.0\n", "raised the go line to go 1.28.0"},
+		{"module m\n", "raised the go line to no go line"},
+	} {
+		work := t.TempDir()
+		if err := os.WriteFile(filepath.Join(work, "go.mod"), []byte(test.manifest), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		err := checkGoLine(work, "1.27.1")
+
+		if (test.message == "" && err != nil) || (test.message != "" && (err == nil || !strings.Contains(err.Error(), test.message))) {
+			t.Errorf("%q: got %v, want %q", test.manifest, err, test.message)
+		}
+	}
+}

@@ -1,37 +1,28 @@
 package main
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
-	"slices"
-	"strconv"
-	"strings"
 	"sync"
 
 	"golang.org/x/tools/go/analysis"
 )
 
 // Staticcheck's runner swallows an error an analyzer returns: the package
-// still passes, and the run caches that pass. A panic in an analyzer kills
-// the whole process instead. The guard turns both into recorded failures the
-// caller reports, and keeps a failed run's results out of every later run by
-// moving the Staticcheck cache to a new generation the moment anything fails.
+// still passes, and the run caches that pass. A panic in an analyzer kills the
+// whole process instead. The guard catches both and hands the first failure
+// to its caller, which stops the process at once. Staticcheck writes a
+// package's results to its cache only after every analyzer on that package
+// has finished, so a package whose analysis failed is never cached, wherever
+// the cache lives: a directory, or a GOCACHEPROG program.
 //
-// This is a copy of runner/community/guard.go, which guards community rules;
-// change both together.
+// runner/community/guard.go is a copy for community rules; change both
+// together.
 
-// guard wraps analyzers and records their failures.
+// guard wraps analyzers and stops the run on the first failure.
 type guard struct {
-	mu       sync.Mutex
-	wrapped  map[*analysis.Analyzer]bool
-	owners   map[*analysis.Analyzer]owner
-	failures map[*analysis.Analyzer]*guardFailure
-	order    []*analysis.Analyzer
-	onFail   func()
-	failed   bool
+	mu      sync.Mutex
+	wrapped map[*analysis.Analyzer]bool
+	stop    func(failure)
 }
 
 // owner is how a failure names the analyzer: its code, or its own name when it
@@ -41,19 +32,19 @@ type owner struct {
 	Source string
 }
 
-type guardFailure struct {
-	Packages []string
-	Err      error
+// failure is one analyzer that returned an error or panicked.
+type failure struct {
+	Code    string
+	Source  string
+	Package string
+	Error   string
 }
 
-// newGuard returns a guard that calls onFail once, on the first failure.
-func newGuard(onFail func()) *guard {
-	return &guard{
-		wrapped:  map[*analysis.Analyzer]bool{},
-		owners:   map[*analysis.Analyzer]owner{},
-		failures: map[*analysis.Analyzer]*guardFailure{},
-		onFail:   onFail,
-	}
+// newGuard returns a guard that calls stop with the first failure. stop is
+// expected to end the process; the guard holds its lock while stop runs, so a
+// second failure never reaches it.
+func newGuard(stop func(failure)) *guard {
+	return &guard{wrapped: map[*analysis.Analyzer]bool{}, stop: stop}
 }
 
 // wrap guards an analyzer and everything it requires, in place. An analyzer
@@ -63,7 +54,6 @@ func (g *guard) wrap(analyzer *analysis.Analyzer, who owner) {
 		return
 	}
 	g.wrapped[analyzer] = true
-	g.owners[analyzer] = who
 
 	run := analyzer.Run
 	analyzer.Run = func(pass *analysis.Pass) (result any, err error) {
@@ -72,7 +62,7 @@ func (g *guard) wrap(analyzer *analysis.Analyzer, who owner) {
 				err = fmt.Errorf("panic: %v", recovered)
 			}
 			if err != nil {
-				g.record(analyzer, pass.Pkg.Path(), err)
+				g.fail(failure{Code: who.Code, Source: who.Source, Package: pass.Pkg.Path(), Error: err.Error()})
 			}
 		}()
 		return run(pass)
@@ -82,145 +72,8 @@ func (g *guard) wrap(analyzer *analysis.Analyzer, who owner) {
 	}
 }
 
-func (g *guard) record(analyzer *analysis.Analyzer, pkg string, err error) {
+func (g *guard) fail(f failure) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-
-	recorded, ok := g.failures[analyzer]
-	if !ok {
-		recorded = &guardFailure{Err: err}
-		g.failures[analyzer] = recorded
-		g.order = append(g.order, analyzer)
-	}
-	if !slices.Contains(recorded.Packages, pkg) {
-		recorded.Packages = append(recorded.Packages, pkg)
-	}
-	if !g.failed {
-		g.failed = true
-		g.onFail()
-	}
-}
-
-// failure is one analyzer that returned an error or panicked, on every package
-// where it did.
-type failure struct {
-	Code     string
-	Source   string
-	Packages []string
-	Error    string
-}
-
-// report lists every failure in the order the analyzers first failed.
-func (g *guard) report() []failure {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-
-	failures := make([]failure, 0, len(g.order))
-	for _, analyzer := range g.order {
-		recorded := g.failures[analyzer]
-		who := g.owners[analyzer]
-		packages := slices.Sorted(slices.Values(recorded.Packages))
-		failures = append(failures, failure{Code: who.Code, Source: who.Source, Packages: packages, Error: recorded.Err.Error()})
-	}
-	return failures
-}
-
-// generationFile names the current cache generation inside a Staticcheck
-// cache directory. Each generation is a subdirectory, gen-<n>.
-const generationFile = "levenshtein-generation"
-
-// cacheGeneration points STATICCHECK_CACHE at the current generation under
-// the configured cache directory and returns a function that retires it. It
-// must run before Staticcheck first reads the variable. A retired generation
-// is never read again, so a run that recorded a failure cannot hand its
-// cached results to a later run, even if it dies before it finishes; runs
-// still using the old generation are unaffected. An explicit
-// STATICCHECK_CACHE=off, or a relative path Staticcheck will refuse, is left
-// alone.
-func cacheGeneration() (func(), error) {
-	base := os.Getenv("STATICCHECK_CACHE")
-	if base == "off" || (base != "" && !filepath.IsAbs(base)) {
-		return func() {}, nil
-	}
-	if base == "" {
-		dir, err := os.UserCacheDir()
-		if err != nil {
-			return nil, fmt.Errorf("STATICCHECK_CACHE is not set and there is no user cache directory: %w", err)
-		}
-		base = filepath.Join(dir, "staticcheck")
-	}
-	if err := os.MkdirAll(base, 0o700); err != nil {
-		return nil, err
-	}
-
-	generation, err := readGeneration(base)
-	if err != nil {
-		return nil, err
-	}
-	if err := os.Setenv("STATICCHECK_CACHE", filepath.Join(base, "gen-"+strconv.Itoa(generation))); err != nil {
-		return nil, err
-	}
-	prune(base, generation)
-	return func() { retire(base, generation) }, nil
-}
-
-// prune removes generations older than the one before current, so failures
-// do not leave whole caches behind. The previous generation is kept for runs
-// that started before the last failure. A run so long that it still uses an
-// older one loses its cache mid-run and fails with an error, never a pass.
-func prune(base string, current int) {
-	entries, err := os.ReadDir(base)
-	if err != nil {
-		return
-	}
-	for _, entry := range entries {
-		number, ok := strings.CutPrefix(entry.Name(), "gen-")
-		generation, err := strconv.Atoi(number)
-		if ok && err == nil && entry.IsDir() && generation < current-1 {
-			_ = os.RemoveAll(filepath.Join(base, entry.Name())) // Best effort: a leftover only costs disk.
-		}
-	}
-}
-
-func readGeneration(base string) (int, error) {
-	data, err := os.ReadFile(filepath.Join(base, generationFile))
-	if errors.Is(err, fs.ErrNotExist) {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, err
-	}
-	generation, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil || generation < 0 {
-		return 0, fmt.Errorf("%s holds %q, not a cache generation", filepath.Join(base, generationFile), data)
-	}
-	return generation, nil
-}
-
-// retire moves the cache past generation. It only ever moves forward, so two
-// runs that fail at once leave a generation neither of them wrote to. A
-// failure to write is reported and otherwise ignored: the run is already an
-// error, and the next failing run retires the generation again.
-func retire(base string, generation int) {
-	current, err := readGeneration(base)
-	if err == nil && current > generation {
-		return
-	}
-
-	temporary, err := os.CreateTemp(base, generationFile+"-*")
-	if err == nil {
-		_, err = temporary.WriteString(strconv.Itoa(generation+1) + "\n")
-		if closeErr := temporary.Close(); err == nil {
-			err = closeErr
-		}
-		if err == nil {
-			err = os.Rename(temporary.Name(), filepath.Join(base, generationFile))
-		}
-		if err != nil {
-			_ = os.Remove(temporary.Name()) // Best effort; the error below is what matters.
-		}
-	}
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "retiring the Staticcheck cache generation after a rule failure: %v\n", err)
-	}
+	g.stop(f)
 }
