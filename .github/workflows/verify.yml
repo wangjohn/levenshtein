@@ -217,14 +217,15 @@ jobs:
         env:
           GOTOOLCHAIN: local
         run: go test -race ./...
-      # The community linter's runtime.
+      # The community linter's runtime and builder. The builder tests compile
+      # real community linters from fixture modules, so they need the proxy.
       - name: Community linter tests
         working-directory: runner/community
         env:
           GOTOOLCHAIN: local
         run: go test -race ./...
-      # The template community rule authors copy: its tests, and proof that
-      # compiling it into the linter would move no pinned module version.
+      # The template community rule authors copy: its tests, and proof that it
+      # builds into a community linter with the runner's own builder.
       - name: Example rule module
         env:
           GOTOOLCHAIN: local
