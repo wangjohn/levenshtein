@@ -1,0 +1,22 @@
+[
+  {"file": "build.sh", "head": "", "script": true},
+  {"file": "scripts/lib.bash", "head": "", "script": true},
+  {"file": "scripts/run.sh", "head": "#!/usr/bin/env python3\n", "script": true},
+  {"file": "verify", "head": "#!/usr/bin/env bash\nset -euo pipefail\n", "script": true},
+  {"file": "bin/tool", "head": "#!/bin/sh\n", "script": true},
+  {"file": "bin/tool", "head": "#! /bin/bash -eu\n", "script": true},
+  {"file": "bin/tool", "head": "#!/usr/bin/env -S bash -e\n", "script": true},
+  {"file": "bin/tool", "head": "#!/usr/local/bin/dash\n", "script": true},
+  {"file": "bin/tool", "head": "#!/bin/ksh\r\n", "script": true},
+  {"file": "bin/tool", "head": "#!/bin/sh", "script": true},
+  {"file": "bin/tool", "head": "#!/bin/zsh\n", "script": false},
+  {"file": "bin/tool", "head": "#!/usr/bin/env python3\n", "script": false},
+  {"file": "bin/tool", "head": "#!/bin/bashful\n", "script": false},
+  {"file": "bin/tool", "head": "#!/bin/sh\u0000\n", "script": false},
+  {"file": "bin/tool", "head": "# a comment\n#!/bin/sh\n", "script": false},
+  {"file": "bin/tool", "head": "", "script": false},
+  {"file": "Makefile", "head": "all:\n\techo hi\n", "script": false},
+  {"file": "script.py", "head": "#!/bin/sh\n", "script": false},
+  {"file": ".bashrc", "head": "#!/bin/bash\n", "script": false},
+  {"file": "README.md", "head": "#!/bin/sh\n", "script": false}
+]

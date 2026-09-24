@@ -70,6 +70,11 @@ var nativeKinds = map[CheckKind]nativeKind{
 		rerunReady: alwaysReady,
 		execute:    goCheckExecutor((*Native).workflowSecurity, "shared check failed"),
 	},
+	CheckShellLint: {
+		validate:   validateSharedGoCheck,
+		rerunReady: alwaysReady,
+		execute:    goCheckExecutor((*Native).shellLint, "shared check failed"),
+	},
 }
 
 // sharedGoChecks are the kinds either executor can run. Their results are
@@ -84,6 +89,7 @@ var sharedGoChecks = map[CheckKind]bool{
 	CheckGoVuln:           true,
 	CheckWorkflowLint:     true,
 	CheckWorkflowSecurity: true,
+	CheckShellLint:        true,
 }
 
 // alwaysFresh names the kinds whose verdict depends on state no input

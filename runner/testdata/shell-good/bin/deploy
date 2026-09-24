@@ -1,0 +1,4 @@
+#!/bin/sh
+# The root .shellcheckrc disables SC2034, so this unused variable is not reported.
+unused=1
+echo "deploying"

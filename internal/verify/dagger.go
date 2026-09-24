@@ -51,6 +51,7 @@ var daggerFunctions = map[CheckKind]string{
 	CheckGoVuln:           "sharedCheck",
 	CheckWorkflowLint:     "sharedCheck",
 	CheckWorkflowSecurity: "sharedCheck",
+	CheckShellLint:        "sharedCheck",
 	CheckGoMutation:       "goMutation",
 }
 

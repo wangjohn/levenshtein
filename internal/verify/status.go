@@ -43,6 +43,7 @@ const (
 	CheckGoVuln           CheckKind = "go-vuln"
 	CheckWorkflowLint     CheckKind = "workflow-lint"
 	CheckWorkflowSecurity CheckKind = "workflow-security"
+	CheckShellLint        CheckKind = "shell-lint"
 	CheckSelfTest         CheckKind = "self-test"
 	CheckCommand          CheckKind = "command"
 	CheckSemanticLint     CheckKind = "semantic-lint"
@@ -51,7 +52,7 @@ const (
 
 // checkKinds lists every kind, so tests can prove each one has exactly one
 // executor. Add new kinds here as well as to the executor that runs them.
-var checkKinds = []CheckKind{CheckGoLint, CheckGoVet, CheckGoMod, CheckGoTest, CheckGoHTTP, CheckGoSQL, CheckGoVuln, CheckWorkflowLint, CheckWorkflowSecurity, CheckSelfTest, CheckCommand, CheckSemanticLint, CheckGoMutation}
+var checkKinds = []CheckKind{CheckGoLint, CheckGoVet, CheckGoMod, CheckGoTest, CheckGoHTTP, CheckGoSQL, CheckGoVuln, CheckWorkflowLint, CheckWorkflowSecurity, CheckShellLint, CheckSelfTest, CheckCommand, CheckSemanticLint, CheckGoMutation}
 
 // CacheStatus describes reuse without conflating it with verification outcomes.
 type CacheStatus string
