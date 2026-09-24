@@ -51,6 +51,29 @@ func TestDepsFindingsSeparateFindingsFromToolErrors(t *testing.T) {
 	}
 }
 
+// This mirrors internal/verify's test: an advisory osv-scanner does not count
+// toward its exit code, such as one Debian rates unimportant, is not reported.
+func TestDepsFindingsLeaveOutWhatOSVScannerDoesNotCount(t *testing.T) {
+	unimportant := `{"ids":["DEBIAN-CVE-2016-2781"],"experimental_analysis":{"DEBIAN-CVE-2016-2781":{"called":true,"unimportant":true}}}`
+	report := func(groups ...string) []byte {
+		return []byte(`{"results":[{"source":{"path":"/src/bom.cdx.json","type":"sbom"},"packages":[{"package":{"name":"coreutils","version":"9.7-3","ecosystem":"Debian:13"},"groups":[` + strings.Join(groups, ",") + `],"vulnerabilities":[{"id":"DEBIAN-CVE-2016-2781"},{"id":"DEBIAN-CVE-2025-5278","summary":"heap overflow in sort"}]}]}]}`)
+	}
+
+	findings, err := depsFindings(0, report(unimportant), "")
+	if err != nil || len(findings) != 0 {
+		t.Fatalf("only unimportant advisories must pass as osv-scanner's exit 0 says: %v %v", findings, err)
+	}
+
+	findings, err = depsFindings(depsVulnerableExit, report(unimportant, `{"ids":["DEBIAN-CVE-2025-5278"]}`), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "coreutils@9.7-3 (Debian:13) has known vulnerabilities: DEBIAN-CVE-2025-5278 heap overflow in sort"
+	if len(findings) != 1 || findings[0].Message != want || findings[0].Location.File != "bom.cdx.json" {
+		t.Fatalf("findings: %+v\nwant one: %s", findings, want)
+	}
+}
+
 func TestDepsArgumentsLeaveGoToGoVuln(t *testing.T) {
 	args := depsArguments("osv-scanner", false, depsReportPath)
 	for _, want := range []string{"--experimental-exclude=r:(^|/)(testdata|vendor|node_modules)(/|$)", "--experimental-disable-plugins=go/gomod", "--no-call-analysis=all", "--no-resolve", "--output-file=" + depsReportPath} {

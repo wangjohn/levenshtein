@@ -87,6 +87,31 @@ func TestDepsFindingsSeparateFindingsFromToolErrors(t *testing.T) {
 	}
 }
 
+// osv-scanner lists a Debian advisory the distribution rates unimportant, but
+// does not count it toward its exit code. deps-vuln must judge the same way:
+// an SBOM whose only advisories are unimportant passes, and the rest of a
+// package's advisories are reported without them.
+func TestDepsFindingsLeaveOutWhatOSVScannerDoesNotCount(t *testing.T) {
+	unimportant := `{"ids": ["DEBIAN-CVE-2016-2781"], "aliases": ["CVE-2016-2781"], "experimental_analysis": {"DEBIAN-CVE-2016-2781": {"called": true, "unimportant": true}}}`
+	report := func(groups ...string) []byte {
+		return []byte(`{"results": [{"source": {"path": "/scan/bom.cdx.json", "type": "sbom"}, "packages": [{"package": {"name": "coreutils", "version": "9.7-3", "ecosystem": "Debian:13"}, "groups": [` + strings.Join(groups, ",") + `], "vulnerabilities": [{"id": "DEBIAN-CVE-2016-2781"}, {"id": "DEBIAN-CVE-2025-5278", "summary": "heap overflow in sort"}]}]}]}`)
+	}
+
+	findings, err := depsFindings("/scan", 0, report(unimportant), "")
+	if err != nil || len(findings) != 0 {
+		t.Fatalf("only unimportant advisories must pass as osv-scanner's exit 0 says: %v %v", findings, err)
+	}
+
+	findings, err = depsFindings("/scan", depsVulnerableExit, report(unimportant, `{"ids": ["DEBIAN-CVE-2025-5278"], "aliases": ["CVE-2025-5278"]}`), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "coreutils@9.7-3 (Debian:13) has known vulnerabilities: DEBIAN-CVE-2025-5278 (CVE-2025-5278) heap overflow in sort"
+	if len(findings) != 1 || findings[0].Message != want || findings[0].Location.File != "bom.cdx.json" {
+		t.Fatalf("findings: %+v\nwant one: %s", findings, want)
+	}
+}
+
 // Go modules are go-vuln's, and nothing about the scan may run the
 // repository's code or reach beyond OSV's advisory lookup.
 func TestDepsArgumentsLeaveGoToGoVuln(t *testing.T) {

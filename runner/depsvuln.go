@@ -113,9 +113,37 @@ type depsPackageInfo struct {
 // depsGroup is one set of advisories osv-scanner considers the same
 // vulnerability, such as a GHSA and the CVE it aliases.
 type depsGroup struct {
-	IDs         []string `json:"ids"`
-	Aliases     []string `json:"aliases"`
-	MaxSeverity string   `json:"max_severity"`
+	IDs         []string                `json:"ids"`
+	Aliases     []string                `json:"aliases"`
+	MaxSeverity string                  `json:"max_severity"`
+	Analysis    map[string]depsAnalysis `json:"experimental_analysis"`
+}
+
+// depsAnalysis is what osv-scanner concluded about one advisory in a group:
+// whether the code calls the vulnerable function, and whether the
+// distribution rates the advisory unimportant, as Debian does.
+type depsAnalysis struct {
+	Called      bool `json:"called"`
+	Unimportant bool `json:"unimportant"`
+}
+
+// counts reports whether osv-scanner counts a group toward its exit code: a
+// group is left out when no advisory in it is called or any is unimportant.
+// osv-scanner still lists such a group, so deps-vuln leaves it out too, or it
+// would report what osv-scanner judged needs no action and contradict its
+// exit code.
+func (g depsGroup) counts() bool {
+	if len(g.Analysis) == 0 {
+		return true
+	}
+	called := false
+	for _, analysis := range g.Analysis {
+		if analysis.Unimportant {
+			return false
+		}
+		called = called || analysis.Called
+	}
+	return called
 }
 
 type depsAdvisory struct {
@@ -125,7 +153,7 @@ type depsAdvisory struct {
 
 // depsFindings turns one osv-scanner run into findings, one per vulnerable
 // package version, located at the lockfile that pins it and naming every
-// advisory. 128, no supported lockfile, is an error rather than an empty pass,
+// advisory osv-scanner counts (see depsGroups). 128, no supported lockfile, is an error rather than an empty pass,
 // and so is any other exit, a missing or unreadable report, and a report that
 // contradicts the exit code. Lockfile paths are reported relative to depsRoot.
 // internal/verify/depsvuln.go keeps a copy; change both together.
@@ -151,7 +179,8 @@ func depsFindings(exitCode int, report []byte, stderr string) ([]diagnostic, err
 		}
 		file = strings.TrimPrefix(file, "./")
 		for _, pkg := range result.Packages {
-			if len(pkg.Vulnerabilities) == 0 {
+			groups := depsGroups(pkg)
+			if len(groups) == 0 {
 				continue
 			}
 			if file == "" || pkg.Package.Name == "" {
@@ -159,7 +188,7 @@ func depsFindings(exitCode int, report []byte, stderr string) ([]diagnostic, err
 			}
 			findings = append(findings, diagnostic{
 				Code:     string(checkDepsVuln),
-				Message:  depsMessage(pkg),
+				Message:  depsMessage(pkg, groups),
 				Location: location{File: file, Line: 1},
 			})
 		}
@@ -170,19 +199,30 @@ func depsFindings(exitCode int, report []byte, stderr string) ([]diagnostic, err
 	return findings, nil
 }
 
-// depsMessage names the package version and, per vulnerability, its advisory
-// IDs, the other IDs it is known by, its highest severity score, and its
-// summary. internal/verify/depsvuln.go keeps a copy; change both together.
-func depsMessage(pkg depsPackage) string {
-	summaries := map[string]string{}
-	for _, advisory := range pkg.Vulnerabilities {
-		summaries[advisory.ID] = strings.TrimSpace(advisory.Summary)
+// depsGroups are the groups of a package's advisories that osv-scanner counts
+// toward its exit code, or, for a report without groups, one group per
+// advisory. internal/verify/depsvuln.go keeps a copy; change both together.
+func depsGroups(pkg depsPackage) []depsGroup {
+	if len(pkg.Vulnerabilities) == 0 {
+		return nil
 	}
-	groups := pkg.Groups
-	if len(groups) == 0 {
+	if len(pkg.Groups) == 0 {
+		groups := make([]depsGroup, 0, len(pkg.Vulnerabilities))
 		for _, advisory := range pkg.Vulnerabilities {
 			groups = append(groups, depsGroup{IDs: []string{advisory.ID}})
 		}
+		return groups
+	}
+	return slices.DeleteFunc(slices.Clone(pkg.Groups), func(group depsGroup) bool { return !group.counts() })
+}
+
+// depsMessage names the package version and, per vulnerability, its advisory
+// IDs, the other IDs it is known by, its highest severity score, and its
+// summary. internal/verify/depsvuln.go keeps a copy; change both together.
+func depsMessage(pkg depsPackage, groups []depsGroup) string {
+	summaries := map[string]string{}
+	for _, advisory := range pkg.Vulnerabilities {
+		summaries[advisory.ID] = strings.TrimSpace(advisory.Summary)
 	}
 
 	parts := make([]string, 0, len(groups))
