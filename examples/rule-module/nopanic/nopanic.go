@@ -5,18 +5,21 @@ import (
 	"go/ast"
 	"go/types"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
 )
 
-// Analyzer reports panic calls outside package main, init functions, and
-// Must-prefixed constructors, where a caller cannot recover from them.
+// Analyzer reports panic calls in library code, where a caller cannot recover
+// from them. Package main, test files, init functions, and Must functions may
+// panic.
 var Analyzer = &analysis.Analyzer{
 	Name:     "nopanic",
 	Doc:      "return an error from library code instead of calling panic",
-	URL:      "https://github.com/wangjohn/levenshtein/tree/main/examples/rule-module#nopanic",
+	URL:      "https://pkg.go.dev/github.com/wangjohn/levenshtein/examples/rule-module/nopanic",
 	Requires: []*analysis.Analyzer{inspect.Analyzer},
 	Run:      run,
 }
@@ -27,28 +30,52 @@ func run(pass *analysis.Pass) (any, error) {
 	}
 
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
-	for cursor := range inspect.Root().Preorder((*ast.FuncDecl)(nil)) {
-		decl := cursor.Node().(*ast.FuncDecl)
-		if decl.Body == nil || exempt(decl) {
+	for cursor := range inspect.Root().Preorder((*ast.CallExpr)(nil)) {
+		call := cursor.Node().(*ast.CallExpr)
+		if !builtinPanic(pass, call) || testFile(pass, call) {
 			continue
 		}
 
-		ast.Inspect(decl.Body, func(node ast.Node) bool {
-			call, ok := node.(*ast.CallExpr)
-			if ok && builtinPanic(pass, call) {
-				pass.Reportf(call.Pos(), "%s panics; return an error so callers can handle the failure", decl.Name.Name)
-			}
-			return true
-		})
+		enclosing := enclosingFunc(cursor)
+		switch {
+		case enclosing == nil:
+			pass.Reportf(call.Pos(), "package-level code panics; return an error so callers can handle the failure")
+		case !exempt(enclosing):
+			pass.Reportf(call.Pos(), "%s panics; return an error so callers can handle the failure", enclosing.Name.Name)
+		}
 	}
 	return nil, nil
 }
 
-// exempt reports whether a function is allowed to panic by convention: init
-// has no caller to return to, and a Must function promises to panic.
+// enclosingFunc returns the declared function a call is in, through any
+// function literals, or nil for a call in package-level code.
+func enclosingFunc(cursor inspector.Cursor) *ast.FuncDecl {
+	for enclosing := range cursor.Enclosing((*ast.FuncDecl)(nil)) {
+		return enclosing.Node().(*ast.FuncDecl)
+	}
+	return nil
+}
+
+// exempt reports whether a function may panic by convention: init has no
+// caller to return to, and a Must function promises to panic.
 func exempt(decl *ast.FuncDecl) bool {
 	name := decl.Name.Name
-	return (decl.Recv == nil && name == "init") || strings.HasPrefix(name, "Must")
+	return (decl.Recv == nil && name == "init") || mustName(name)
+}
+
+// mustName matches Must and MustParse, but not Mustard.
+func mustName(name string) bool {
+	rest, ok := strings.CutPrefix(name, "Must")
+	if !ok {
+		return false
+	}
+
+	next, _ := utf8.DecodeRuneInString(rest)
+	return rest == "" || unicode.IsUpper(next) || unicode.IsDigit(next)
+}
+
+func testFile(pass *analysis.Pass, call *ast.CallExpr) bool {
+	return strings.HasSuffix(pass.Fset.Position(call.Pos()).Filename, "_test.go")
 }
 
 // builtinPanic uses type information, so a local function that happens to be

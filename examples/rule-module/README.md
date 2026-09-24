@@ -1,24 +1,52 @@
 # Example rule module
 
-A community lint rule module in the shape proposed in
+A community lint rule module in the shape described in
 [community lint rules](../../docs/community-rules.md). It is its own Go module,
-so no Levenshtein build, check, or `go.mod` depends on it.
+so no Levenshtein build depends on it; Levenshtein's CI builds it into a
+community linter to keep it working (`scripts/test-example-rules`).
 
-## nopanic
+Namespace: `example`. Every rule reports as `example_<rule>`.
 
-Reports a call to the builtin `panic` in library code, where a caller cannot
-handle the failure. Return an error instead.
+## Rules
 
-Package `main`, `init` functions, and functions whose names start with `Must`
-may panic. A local function that happens to be named `panic` is not reported.
+### nopanic
+
+`example_nopanic` reports a call to the builtin `panic` in library code, where a
+caller cannot handle the failure.
+
+- **Allowed:** package `main`, `_test.go` files, `init` functions, and functions
+  named `Must` or `Must<Upper>...` (so `MustParse`, but not `Mustard`). A local
+  function that happens to be named `panic` is not reported.
+- **Fix:** return an error, or add a `Must` variant for callers that want the
+  panic.
+- **Suppress one site:** `//lint:ignore example_nopanic <reason>` on the line
+  above.
+
+## Use it
+
+> [!NOTE]
+> Levenshtein does not load rule modules yet; this is the proposed configuration.
+
+```json
+"rules": {
+  "github.com/wangjohn/levenshtein/examples/rule-module": {"version": "v0.1.0", "select": ["example_*"]}
+}
+```
+
+Until then, run the rule on its own with the `singlechecker` wrapper, which
+also applies fixes with `-fix` for rules that suggest them:
+
+```sh
+go run github.com/wangjohn/levenshtein/examples/rule-module/cmd/nopanic@latest ./...
+```
 
 ## Layout
 
-- `levenshtein/`: `Analyzers()`, the only package Levenshtein would import.
+- `lvrules/`: `Namespace` and `Analyzers()`, the only package Levenshtein imports.
 - `nopanic/`: the rule and its `analysistest` fixtures.
 - `cmd/nopanic/`: a `singlechecker` wrapper for running the rule on its own.
 
-## Try it
+## Develop
 
 ```sh
 cd examples/rule-module

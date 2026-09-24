@@ -5,23 +5,83 @@ temporary=$(mktemp -d)
 trap 'rm -rf "$temporary"' EXIT
 example="$root/examples/rule-module"
 module=$(cd "$example" && go list -m)
+go_version=$(cat "$root/.go-version")
+staticcheck=$(sed -nE 's/^ *"staticcheck": *"([^"]+)".*/\1/p' "$root/runner/toolchain.json")
 
 # The example rule module is the template community rule authors copy, so it
 # has to keep passing its own tests. See docs/community-rules.md.
 (cd "$example" && go test -race ./...)
 
-# Requiring the example from the linter's module must leave every other module
-# version where runner/lint pins it. Minimum version selection would otherwise
-# upgrade a dependency such as golang.org/x/tools under the core rules, which is
-# the conflict the proposed runner refuses; an author whose module needs a newer
-# version than the pinned linter finds out here, not in a consumer's build.
-cp "$root/runner/lint/go.mod" "$root/runner/lint/go.sum" "$temporary/"
-(cd "$temporary" && go list -m all) > "$temporary/before.txt"
-(cd "$temporary" && go mod edit -require="$module@v0.0.0" -replace="$module=$example" && go list -mod=mod -m all) \
-  | grep -vF "$module " > "$temporary/after.txt" || true
-if ! diff -u "$temporary/before.txt" "$temporary/after.txt" > "$temporary/conflict.diff"; then
-  echo "$module changes module versions runner/lint pins; require the lowest versions the rules need:" >&2
-  cat "$temporary/conflict.diff" >&2
+# Build the example into a community linter the way the proposed runner would:
+# its own process on the pinned Staticcheck, with every rule renamed into the
+# module's namespace. The module may raise other shared dependencies, but not
+# Staticcheck, which decides how selection and //lint:ignore behave.
+mkdir "$temporary/linter" "$temporary/consumer"
+cat > "$temporary/linter/main.go" <<GO
+package main
+
+import (
+	"os"
+
+	rules "$module/lvrules"
+	"honnef.co/go/tools/lintcmd"
+)
+
+func main() {
+	command := lintcmd.NewCommand("levenshtein-community-lint")
+	for _, analyzer := range rules.Analyzers() {
+		renamed := *analyzer
+		renamed.Name = rules.Namespace + "_" + analyzer.Name
+		command.AddBareAnalyzers(&renamed)
+	}
+	command.ParseFlags(os.Args[1:])
+	command.Run()
+}
+GO
+(
+  cd "$temporary/linter"
+  go mod init levenshtein.local/communitylint 2> /dev/null
+  go mod edit -go="$go_version" -require="honnef.co/go/tools@$staticcheck" -require="$module@v0.0.0" -replace="$module=$example"
+  if ! go mod tidy 2> "$temporary/tidy.log"; then
+    cat "$temporary/tidy.log" >&2
+    exit 1
+  fi
+  resolved=$(go list -m -f '{{.Version}}' honnef.co/go/tools)
+  if [[ $resolved != "$staticcheck" ]]; then
+    echo "$module raises Staticcheck from $staticcheck to $resolved; require the version runner/toolchain.json pins or lower" >&2
+    exit 1
+  fi
+  go build -o "$temporary/community-lint" .
+)
+
+# The built linter reports the rule under its namespaced code, and honors
+# //lint:ignore for it.
+printf 'module example.com/consumer\n\ngo %s\n' "$go_version" > "$temporary/consumer/go.mod"
+cat > "$temporary/consumer/store.go" <<'GO'
+package store
+
+func Load(key string) int {
+	if key == "" {
+		panic("empty key")
+	}
+	return len(key)
+}
+
+func Port(value int) int {
+	if value < 0 {
+		//lint:ignore example_nopanic callers validate the port first
+		panic("negative port")
+	}
+	return value
+}
+GO
+status=0
+(cd "$temporary/consumer" && "$temporary/community-lint" -checks=example_nopanic ./...) > "$temporary/findings.txt" 2>&1 || status=$?
+expected='store.go:5:3: Load panics; return an error so callers can handle the failure (example_nopanic)'
+if [[ $status -ne 1 || $(cat "$temporary/findings.txt") != "$expected" ]]; then
+  echo "The community linter built from $module reported (exit $status):" >&2
+  cat "$temporary/findings.txt" >&2
+  echo "expected exactly: $expected" >&2
   exit 1
 fi
-echo "$module passes its tests and leaves runner/lint's module versions unchanged"
+echo "$module passes its tests and builds into a community linter on Staticcheck $staticcheck"
