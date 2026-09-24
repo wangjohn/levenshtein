@@ -66,7 +66,7 @@ func TestShellListingFindsTheFixtureScripts(t *testing.T) {
 // every shared-table case it still selects exactly what shellScript does.
 func TestShellListingPrintsNothingButShebangLines(t *testing.T) {
 	const key = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ\n"
-	const token = "export TOKEN=ghp_R2b8kQpXz9LmN4vT7wY1cA3eF6hJ0sD5gK8u\n"
+	const token = "export TOKEN=ghp_R2b8kQpXz9LmN4vT7wY1cA3eF6hJ0sD5gK8u\n" // gitleaks:allow
 	dir := t.TempDir()
 	for file, contents := range map[string]string{"id_ed25519": key, "bin/tool": "#!/bin/sh\n" + token} {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, file)), 0o755); err != nil {

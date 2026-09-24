@@ -44,6 +44,7 @@ const (
 	CheckWorkflowLint     CheckKind = "workflow-lint"
 	CheckWorkflowSecurity CheckKind = "workflow-security"
 	CheckShellLint        CheckKind = "shell-lint"
+	CheckSecrets          CheckKind = "secrets"
 	CheckSelfTest         CheckKind = "self-test"
 	CheckCommand          CheckKind = "command"
 	CheckSemanticLint     CheckKind = "semantic-lint"
@@ -56,7 +57,7 @@ const (
 // checkKinds lists every kind, so tests can prove each one has exactly one
 // executor. Add new kinds here as well as to the executor that runs them.
 var checkKinds = []CheckKind{
-	CheckGoLint, CheckGoVet, CheckGoMod, CheckGoTest, CheckGoHTTP, CheckGoSQL, CheckGoVuln, CheckWorkflowLint, CheckWorkflowSecurity, CheckShellLint, CheckSelfTest, CheckCommand, CheckSemanticLint, CheckGoMutation,
+	CheckGoLint, CheckGoVet, CheckGoMod, CheckGoTest, CheckGoHTTP, CheckGoSQL, CheckGoVuln, CheckWorkflowLint, CheckWorkflowSecurity, CheckShellLint, CheckSecrets, CheckSelfTest, CheckCommand, CheckSemanticLint, CheckGoMutation,
 	CheckGoImports, CheckGoGenerate, CheckGoApidiff,
 }
 
