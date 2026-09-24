@@ -14,8 +14,8 @@ import (
 )
 
 // Analyzer reports panic calls in library code, where a caller cannot recover
-// from them. Package main, test files, init functions, and Must functions may
-// panic.
+// from them. Package main, test files, generated files, init functions, and
+// Must functions may panic.
 var Analyzer = &analysis.Analyzer{
 	Name:     "nopanic",
 	Doc:      "return an error from library code instead of calling panic",
@@ -32,7 +32,7 @@ func run(pass *analysis.Pass) (any, error) {
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 	for cursor := range inspect.Root().Preorder((*ast.CallExpr)(nil)) {
 		call := cursor.Node().(*ast.CallExpr)
-		if !builtinPanic(pass, call) || testFile(pass, call) {
+		if !builtinPanic(pass, call) || testFile(pass, call) || generated(cursor) {
 			continue
 		}
 
@@ -72,6 +72,15 @@ func mustName(name string) bool {
 
 	next, _ := utf8.DecodeRuneInString(rest)
 	return rest == "" || unicode.IsUpper(next) || unicode.IsDigit(next)
+}
+
+// generated reports whether a call is in a file marked "Code generated ...
+// DO NOT EDIT.", which nobody edits by hand.
+func generated(cursor inspector.Cursor) bool {
+	for file := range cursor.Enclosing((*ast.File)(nil)) {
+		return ast.IsGenerated(file.Node().(*ast.File))
+	}
+	return false
 }
 
 func testFile(pass *analysis.Pass, call *ast.CallExpr) bool {

@@ -4,9 +4,18 @@ root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 temporary=$(mktemp -d)
 trap 'rm -rf "$temporary"' EXIT
 example="$root/examples/rule-module"
-module=$(cd "$example" && go list -m)
+# Read go.mod as text: the go command refuses a go.mod newer than itself.
+module=$(awk '$1 == "module" { print $2 }' "$example/go.mod")
+module_go=$(awk '$1 == "go" { print $2 }' "$example/go.mod")
 go_version=$(cat "$root/.go-version")
-staticcheck=$(sed -nE 's/^ *"staticcheck": *"([^"]+)".*/\1/p' "$root/runner/toolchain.json")
+staticcheck=$(jq -er .staticcheck "$root/runner/toolchain.json")
+
+# A rule module must build with the Go release Levenshtein pins, so its go
+# directive cannot be newer.
+if [[ $(printf '%s\n' "$module_go" "$go_version" | sort -V | tail -n 1) != "$go_version" ]]; then
+  echo "$module requires go $module_go, newer than the pinned go $go_version" >&2
+  exit 1
+fi
 
 # The example rule module is the template community rule authors copy, so it
 # has to keep passing its own tests. See docs/community-rules.md.
@@ -15,7 +24,10 @@ staticcheck=$(sed -nE 's/^ *"staticcheck": *"([^"]+)".*/\1/p' "$root/runner/tool
 # Build the example into a community linter the way the proposed runner would:
 # its own process on the pinned Staticcheck, with every rule renamed into the
 # module's namespace. The module may raise other shared dependencies, but not
-# Staticcheck, which decides how selection and //lint:ignore behave.
+# Staticcheck, which decides how selection and //lint:ignore behave. Resolution
+# must come from go.mod requirements alone: "finding module for package" means
+# some module imports a package nothing requires, so the result would depend
+# on whatever is newest on the proxy that day.
 mkdir "$temporary/linter" "$temporary/consumer"
 cat > "$temporary/linter/main.go" <<GO
 package main
@@ -40,10 +52,14 @@ func main() {
 GO
 (
   cd "$temporary/linter"
-  go mod init levenshtein.local/communitylint 2> /dev/null
-  go mod edit -go="$go_version" -require="honnef.co/go/tools@$staticcheck" -require="$module@v0.0.0" -replace="$module=$example"
+  printf 'module levenshtein.local/communitylint\n\ngo %s\n' "$go_version" > go.mod
+  go mod edit -require="honnef.co/go/tools@$staticcheck" -require="$module@v0.0.0" -replace="$module=$example"
   if ! go mod tidy 2> "$temporary/tidy.log"; then
     cat "$temporary/tidy.log" >&2
+    exit 1
+  fi
+  if grep 'finding module for package' "$temporary/tidy.log" >&2; then
+    echo "$module or one of its dependencies has an incomplete go.mod" >&2
     exit 1
   fi
   resolved=$(go list -m -f '{{.Version}}' honnef.co/go/tools)
