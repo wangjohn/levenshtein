@@ -13,13 +13,16 @@ Every shared check kind runs the same pinned tools locally and in any CI provide
 | `U1000` | Unused unexported code |
 | `errcheck` | Report implicitly discarded errors; explicit `_ =` remains allowed |
 | `exhaustive` | Require enum switches to cover declared values |
+| `gochecksumtype` | Require type switches over an interface marked `//sumtype:decl` to list every variant; a `default` case does not count ([settings](#upstream-analyzer-settings)) |
 | `bodyclose`, `sqlclosecheck`, `rowserrcheck`, `noctx`, `contextcheck` | Resources a program opens and never closes, and calls that drop the context ([settings](#upstream-analyzer-settings)) |
 | `nilness`, `unusedwrite`, `errorlint`, `nilerr`, `durationcheck`, `reassign`, `wastedassign` | Behavior that is wrong rather than unidiomatic |
 | `musttag` | Tag every exported field of a struct passed to a JSON, XML, YAML, or TOML encoder or decoder, so renaming a Go field cannot silently change the format ([settings](#upstream-analyzer-settings)) |
 | `recvcheck` | Give a type all pointer or all value receivers; a mix means a value and a pointer have different method sets, and value methods work on a copy |
 | `nilnesserr` | Return an error already known to be nil after checking a different one, so a failure reaches the caller as success ([why](#known-bug-patterns)) |
 | `fatcontext` | Reassign a context to a child of itself in a loop or function literal, so the chain, and every lookup through it, grows with each pass ([why](#known-bug-patterns)) |
-| `appendAssign`, `argOrder`, `badCall`, `badCond`, `badRegexp`, `codegenComment`, `deprecatedComment`, `dupArg`, `dupBranchBody`, `dupCase`, `exitAfterDefer`, `filepathJoin`, `flagDeref`, `flagName`, `mapKey`, `offBy1` | go-critic's likely-bug checks that no rule above already reports ([selection](#the-go-critic-selection)) |
+| `scannererr` | Loop over a `bufio.Scanner` without checking `Err` afterwards, so a read error or an over-long line ends the input early and silently ([evidence](#measured-on-other-codebases)) |
+| `reflectvaluecompare`, `httpmux` | Compare `reflect.Value`s with `==` or `reflect.DeepEqual`, which compares the reflect package's internals, and register a Go 1.22 `ServeMux` pattern in a module whose `go` directive predates it, where it matches nothing ([why](#known-bug-patterns)) |
+| `appendAssign`, `argOrder`, `badCall`, `badCond`, `badRegexp`, `badSyncOnceFunc`, `codegenComment`, `deprecatedComment`, `dupArg`, `dupBranchBody`, `dupCase`, `evalOrder`, `exitAfterDefer`, `filepathJoin`, `flagDeref`, `flagName`, `mapKey`, `offBy1`, `rangeAppendAll`, `returnAfterHttpError` | go-critic's likely-bug checks that no rule above already reports ([selection](#the-go-critic-selection)) |
 | `zerologlint`, `loggercheck` | Log calls that lose what they record: a zerolog event never sent, and a key without a value for logr, klog, zap, or go-kit log ([why](#known-bug-patterns), [settings](#upstream-analyzer-settings)) |
 | `bidichk`, `gocheckcompilerdirectives` | Source that runs differently than it reads: Unicode bidirectional controls that reorder how a line displays, and `//go:` directives the toolchain silently ignores ([why](#known-bug-patterns)) |
 | `unparam` | Unexported functions with a parameter no caller needs, a parameter that always receives the same value, or a result no caller uses |
@@ -27,8 +30,10 @@ Every shared check kind runs the same pinned tools locally and in any CI provide
 | `exptostd` | `golang.org/x/exp` functions and constraints that the standard library now provides; x/exp makes no compatibility promise ([why](#known-bug-patterns)) |
 | `minmax`, `mapsloop`, `slicescontains`, `stringscutprefix`, `stringsseq` | Hand-written loops and comparisons that one standard-library call replaces; `go fix` applies the fix |
 | `thelper`, `tparallel`, `testifylint` | Mistakes that only appear in `_test.go` files |
+| `testableexamples` | An `Example` function without an `// Output:` comment, which `go test` compiles but never runs, so it cannot fail ([evidence](#measured-on-other-codebases)) |
 | `usetesting` | A test that changes the working directory or environment, or creates a temporary file or directory, in a way that outlives it ([why](#known-bug-patterns), [settings](#upstream-analyzer-settings)) |
 | `gocognit` | Off by default, opt-in: a function whose cognitive complexity is over 30 ([opt in](#opt-in-complexity-gocognit)) |
+| `deferInLoop` | Off by default, opt-in: a `defer` inside a loop, which holds every pass's resource until the function returns ([opt in](#opt-in-resources-deferinloop)) |
 | LV1001 | Give enum-like strings defined types and typed constants |
 | LV1002 | Construct new structs together with literals, without opt-in markers |
 | LV1003 | Declare each struct field on its own line |
@@ -49,7 +54,7 @@ Every shared check kind runs the same pinned tools locally and in any CI provide
 | [ST1021](https://staticcheck.dev/docs/checks/#ST1021) | Requires a comment on every exported type |
 | [ST1022](https://staticcheck.dev/docs/checks/#ST1022) | Requires a comment on every exported variable |
 
-`all` also selects the bare analyzers compiled into the binary, so `errcheck`, `exhaustive`, the resource and correctness analyzers, and the `LV*` rules are part of it. The selection then turns one of those off again, `-gocognit`, which is [opt-in](#opt-in-complexity-gocognit). Someone running the linter directly can pass their own selection; the same `-checks` syntax applies, a `-` prefix removes a rule a wider pattern selected, and a later name turns a removed rule back on.
+`all` also selects the bare analyzers compiled into the binary, so `errcheck`, `exhaustive`, the resource and correctness analyzers, and the `LV*` rules are part of it. The selection then turns two of those off again, `-gocognit` and `-deferInLoop`, which are opt-in ([gocognit](#opt-in-complexity-gocognit), [deferInLoop](#opt-in-resources-deferinloop)). Someone running the linter directly can pass their own selection; the same `-checks` syntax applies, a `-` prefix removes a rule a wider pattern selected, and a later name turns a removed rule back on.
 
 ### Changing the selection for one repository
 
@@ -101,7 +106,7 @@ To revisit the selection after a `golang.org/x/tools` upgrade, run `go fix -diff
 
 ## The go-critic selection
 
-[go-critic](https://go-critic.com/overview.html) tags each of its checkers. The `diagnostic` tag marks likely bugs; `style`, `performance`, and `opinionated` are advice, and `experimental` marks checkers upstream has not settled. The linter runs the stable `diagnostic` checkers, minus four that repeat a rule already on, plus two experimental ones that nothing else covers.
+[go-critic](https://go-critic.com/overview.html) tags each of its checkers. The `diagnostic` tag marks likely bugs; `style`, `performance`, and `opinionated` are advice, and `experimental` marks checkers upstream has not settled. The linter runs the stable `diagnostic` checkers, minus four that repeat a rule already on, plus six experimental ones that nothing else covers. A seventh experimental checker, `deferInLoop`, is registered but [opt-in](#opt-in-resources-deferinloop).
 
 Each checker is registered as its own analyzer, so a finding's code is the checker's name, as with the modernize rules. `//lint:ignore offBy1 reason` silences one checker on one line, and `-checks='all,...,-offBy1'` turns one off; there is no single `gocritic` code or glob that covers them all.
 
@@ -112,17 +117,21 @@ Each checker is registered as its own analyzer, so a finding's code is the check
 | `badCall` | A call that does nothing useful, such as `strings.SplitN(s, sep, 0)` or `filepath.Join` of one element |
 | `badCond` | A condition that is always true or false, or a loop condition that points the wrong way |
 | `badRegexp` | A valid regular expression with a likely mistake, such as a repeated character in a class; experimental upstream |
+| `badSyncOnceFunc` | `sync.OnceFunc(f)` whose result is discarded or called on the spot, so `f` never runs, or runs every time; experimental upstream |
 | `codegenComment` | A generated-file comment tools do not recognize, so the file is linted and reviewed as hand-written |
 | `deprecatedComment` | A deprecation notice not written as `Deprecated: `, which tools and pkg.go.dev then miss |
 | `dupArg` | The same argument twice where that is a no-op, such as `copy(dst, dst)` |
 | `dupBranchBody` | An `if` whose two branches are identical |
 | `dupCase` | A `switch` case listed twice, which can never match the second time |
+| `evalOrder` | `return x, f(&x)`, whose first result depends on an evaluation order the language leaves unspecified; experimental upstream |
 | `exitAfterDefer` | `log.Fatal` or `os.Exit` in a function with deferred calls that will not run |
 | `filepathJoin` | A path separator inside one `filepath.Join` element; experimental upstream, and it found two in Levenshtein's own tests |
 | `flagDeref` | Dereferencing a `flag` pointer at definition, which reads the default instead of the parsed value |
 | `flagName` | A flag name with whitespace that no command line can pass |
 | `mapKey` | A map literal key with stray whitespace next to keys without it |
 | `offBy1` | Indexing a slice at its length, which always panics |
+| `rangeAppendAll` | `append(out, xs...)` inside a loop over `xs`, which appends the whole slice on every pass where one element was meant; experimental upstream |
+| `returnAfterHttpError` | An `if` block that ends with `http.Error` and no `return`, so the handler writes its normal response after the error; experimental upstream |
 
 These stable diagnostic checkers are off because a rule already on reports the same line. Each was confirmed on a sample where both fire:
 
@@ -135,7 +144,7 @@ These stable diagnostic checkers are off because a rule already on reports the s
 
 `badCall` overlaps in part: `SA1018` also reports `strings.Replace` with a count of zero, and `SA4021` a single-argument `append`, so those two lines get a finding from each. It stays on because nothing else reports its `SplitN` and one-element `filepath.Join` cases.
 
-The other experimental checkers stay off. Five of them looked like candidates and were checked one by one: four repeat a rule already on, confirmed on a sample where both fire, and one is taste.
+The other experimental diagnostic checkers stay off. Each was run over the [codebases measured below](#measured-on-other-codebases). A checker that repeats a rule already on was confirmed on a sample where both fire, and the counts are findings across those codebases:
 
 | Checker | Why it is off |
 | --- | --- |
@@ -143,13 +152,21 @@ The other experimental checkers stay off. Five of them looked like candidates an
 | `externalErrorReassign` | `reassign` reports the same assignment |
 | `nilValReturn` | `nilerr` reports the same `return err` inside `if err == nil` |
 | `dynamicFmtString` | `SA1006` reports the same call, and `go vet`'s printf check does too |
+| `badSorting` | `SA4029` reports the same `x = sort.StringSlice(x)` |
+| `sqlQuery` | `sqlclosecheck` and `rowserrcheck` both report the same discarded `Rows` |
 | `sloppyReassign` | Taste: it asks for `err :=` in place of `err =`, which can introduce shadowing |
+| `weakCond` | Both findings were false alarms: an index whose bound held by construction, and a `FindSubmatch` result that is never shorter than its groups |
+| `badLock` | Its one finding was a test that locks and unlocks on purpose to wait for a reader |
+| `dupOption` | All five findings were tests that register the same middleware twice on purpose |
+| `sprintfQuotedString`, `commentedOutCode`, `unnecessaryDefer` | Taste: 37, 56, and 1 findings, none a bug |
+
+`emptyDecl`, `regexpPattern`, `sortSlice`, `syncMapLoadAndDelete`, `truncateCmp`, and `uncheckedInlineErr` found nothing in any codebase measured. Several describe real bugs, but nothing yet shows how often they raise false alarms, so they wait for evidence rather than joining on the pattern alone.
 
 To revisit the selection after a go-critic upgrade, run the linter test in `runner/lint` (`TestCriticSelection` pins the list) and compare the new checkers against this page.
 
 ## Known bug patterns
 
-The rest of this page holds a rule to one bar: it is on because it was measured to fire on real code, here or in the fixtures that stand in for a consumer. Eight analyzers are an explicit exception. None of them found anything in Levenshtein's own modules when they were added; each is on because the pattern it reports is a known bug, not a matter of style, its false alarms are rare, and its fix is local:
+The rest of this page holds a rule to one bar: it is on because it was measured to fire on real code, here, in the fixtures that stand in for a consumer, or in the [open-source codebases measured below](#measured-on-other-codebases). The analyzers in this section are an explicit exception. None of them found anything in Levenshtein's own modules when they were added, and the later ones found nothing in the other codebases either; each is on because the pattern it reports is a known bug, not a matter of style, its false alarms are rare, and its fix is local:
 
 | Analyzer | Why it earns a failing build |
 | --- | --- |
@@ -161,6 +178,13 @@ The rest of this page holds a rule to one bar: it is on because it was measured 
 | `zerologlint` | A zerolog event writes nothing until `Msg`, `Msgf`, `MsgFunc`, or `Send` dispatches it, so `log.Error().Err(err)` without one compiles, runs, and drops the line, usually on the error path where it was needed. It reports nothing in a module that does not use zerolog |
 | `loggercheck` | Structured loggers take their fields as alternating keys and values in a `...any` parameter, so the compiler accepts a key with no value. The logger then records the field with a placeholder or an error in its place, and a forgotten key moves every later value under the wrong name. It reports nothing in a module that uses none of the loggers it knows |
 | `usetesting` | `os.Setenv` and `os.Chdir` in a test change process state that every later test in the package sees, and `os.MkdirTemp` and `os.CreateTemp("", ...)` leave files behind. `t.Setenv`, `t.Chdir`, and `t.TempDir` undo the change when the test ends |
+| `reflectvaluecompare` | Two `reflect.Value`s compared with `==` or `reflect.DeepEqual` compare the reflect package's own representation, so equal values can compare unequal. `go vet` ships the pass but leaves it out of its default suite |
+| `httpmux` | Before Go 1.22, `ServeMux` treats `"GET /items/{id}"` as a literal path, so a module whose `go` directive predates 1.22 registers a route no request reaches. It reports nothing in a module on Go 1.22 or later |
+| `gochecksumtype` | Adding a variant to an interface used as a closed set leaves every type switch that does not list it falling through to its `default`. It checks only interfaces marked `//sumtype:decl`, so it reports nothing in a module that marks none |
+| `badSyncOnceFunc` | `sync.OnceFunc(f)` returns the function that runs `f` once; a statement that discards it never runs `f`, and `sync.OnceFunc(f)()` runs it every time |
+| `evalOrder` | In `return x, f(&x)`, whether `x` is read before or after `f` changes it is unspecified, and the compiler's choice can change between releases |
+| `rangeAppendAll` | `append(out, xs...)` inside `for _, x := range xs` appends the whole slice on every pass, a slip for `append(out, x)` |
+| `returnAfterHttpError` | `http.Error` writes the response but does not stop the handler, so without a `return` the normal response is written after it |
 
 Three more analyzers were added on the same argument and then left out, because they cannot find their bug under this linter:
 
@@ -183,10 +207,25 @@ These upstream analyzers need a word about scope or settings:
 - `zerologlint` follows an event through branches and into a function it is passed to, one call deep. A function that returns a `*zerolog.Event` for its caller to finish is reported, because nothing dispatches the event inside it; mark such a builder with `//lint:ignore zerologlint reason`.
 - `loggercheck` checks logr, `k8s.io/klog/v2` (`InfoS`, `ErrorS`, and their variants), zap's sugared `With` and `...w` methods, and go-kit log, which is off upstream and on here because an odd key-value list is the same bug there. It skips a call that spreads a slice with `...`. `log/slog` is left to go vet's `slog` check, which reports the same missing value and a key that is not a string, so a slip in a `slog` call is one finding in `go-vet` rather than one in each check. A configuration that runs `go-lint` without `go-vet` gets no report of it. Its `requirestringkey` and `noprintflike` options stay off: a key held in a variable is fine, and a `%` in a message is not always a format verb. Its report that a nil pointer to a `fmt.Stringer` may panic is dropped: zap, klog, logr's `funcr`, and `fmt` all recover from a `String` method that panics on a nil receiver.
 - `exptostd` suggests a replacement only when the module's `go` version has it: Go 1.21 for most of `slices` and `maps`, and Go 1.23 for `maps.Keys` and `maps.Values`, which return iterators in the standard library.
+- `gochecksumtype` reports under golangci-lint's name for it; upstream's own analyzer name is `sumtype`. A sum type is an interface marked with a `//sumtype:decl` comment that has an unexported method, so no other package can add a variant. A `default` case does not satisfy it, the opposite of upstream's default and the same as `exhaustive` here: a switch that must handle a new variant should fail when one is added. It runs without facts, for the same reason as `contextcheck`, so it checks switches over sum types declared in the same package; a switch over a sum type imported from another package is not checked.
+- `httpmux` reads the `go` directive of the module being linted, so a module on Go 1.22 or later gets no diagnostic, whatever the toolchain.
+- `testableexamples` checks `Example` functions in `_test.go` files. An example that has nothing to compare can be kept with an `// Output:` comment and no expected text, which makes `go test` run it and fail only if it prints something.
+
+## Measured on other codebases
+
+Levenshtein's own modules are too small a sample to show how often a rule fires or raises false alarms in a typical Go repository, so candidates for the default selection were also run over this repository and eight widely used open-source codebases: spf13/cobra, go-chi/chi, gin-gonic/gin, etcd-io/bbolt, restic/restic, prometheus/node_exporter, caddyserver/caddy, and hashicorp/nomad, at their default branches in September 2026. One nomad package ran the compiler out of memory and was not checked. Each finding was read and judged a bug, taste, or a false alarm.
+
+| Analyzer | Findings | Result |
+| --- | --- | --- |
+| `scannererr` | 18, in gin, node_exporter, restic, and nomad | All real. restic's sftp backend stops draining a subprocess's stderr on a line over 64 KiB, which can block the subprocess; node_exporter parses udev properties short with no error; nomad's cgroup mode detection falls through to its default on a read error |
+| `testableexamples` | 5, in caddy and cobra | All real: examples that compile and never run |
+| `deferInLoop` | 34, in seven of the nine | One leak that matters, in node_exporter's NUMA collector, which holds two files per node open until the function returns; the rest are tests or short, fixed loops, so it is [opt-in](#opt-in-resources-deferinloop) |
+
+The analyzers listed as [known bug patterns](#known-bug-patterns) that were added after this measurement found nothing in any of the nine, and the rules the tables below leave off are measured here too.
 
 ## Considered and off
 
-These analyzers were measured against this repository and left out. Counts are findings on Levenshtein's own modules.
+These analyzers were measured and left out. Counts are findings on Levenshtein's own modules unless a row names the [other codebases](#measured-on-other-codebases).
 
 | Analyzer | Why it is off |
 | --- | --- |
@@ -199,7 +238,16 @@ These analyzers were measured against this repository and left out. Counts are f
 | `testpackage` | 25 findings asking for external `_test` packages; white-box tests are a legitimate choice |
 | `gochecknoglobals` | 33 findings, all read-only lookup tables and fixed configuration such as check-kind lists |
 | `govet` `shadow` | 13 findings, every one an `err` declared again in a nested scope |
-| `gosec` | Its findings were file-permission and `exec` noise, and its taint findings were false alarms |
+| `gosec` | Its findings were file-permission and `exec` noise, and its taint findings were false alarms. A narrower set, `G108`, `G110`, `G112`, `G114`, `G201`, `G202`, `G203`, `G305`, `G402`, and `G602`, found 13 things in the [other codebases](#measured-on-other-codebases) (nomad timed out), none a bug: example programs, a test helper already suppressed, a deliberate pprof import, a trusted download, and one false alarm |
+| `errchkjson` | Most of its 42 findings in the other codebases were an error that is checked although it cannot happen, and the rest ask to check an error this page allows discarding with `_ =` |
+| `protogetter` | 414 findings in the other codebases, all direct field access where a getter would guard against nil; house taste |
+| `canonicalheader` | 28 findings in the other codebases, all non-canonical keys passed to `Header.Get` or `Header.Set`, which canonicalize them anyway |
+| `deepequalerrors` | Its non-test findings in the other codebases compared configuration structs that happen to contain an error field, not errors |
+| `sortslice` | `SA1028` reports the same `sort.Slice` call on a value that is not a slice |
+| `sqlrowserr` | `rowserrcheck` reports the same unchecked `Rows.Err` |
+| `ineffassign` | `SA4006` and `wastedassign` report the same assignments; it found nothing new |
+| `asciicheck` | Found nothing; `bidichk` covers the non-ASCII characters that change how code reads |
+| `mirror` | Allocation advice, 2 findings |
 | `nilnil` | Flags the idiomatic `return nil, nil` in `go/analysis` run functions |
 | `forcetypeassert` | Only hit `sync.Map` loads whose type is fixed by construction |
 | `unconvert` | A false alarm on a syscall conversion that another OS needs |
@@ -236,6 +284,18 @@ To opt in, add it to the repository's `go-lint` check, which [appends it to the 
 ```
 
 The check then fails on every function over the line, so fix or suppress the existing ones in the same change. A finding can be suppressed like any other, with `//lint:ignore gocognit <reason>` above the function. To try the rule without changing configuration, run the linter directly, as in [Development and exceptions](#development-and-exceptions), with `-checks=gocognit` for this rule alone.
+
+## Opt-in resources: deferInLoop
+
+go-critic's `deferInLoop` reports a `defer` inside a loop. A deferred call runs when the function returns, not when the loop's pass ends, so a loop that opens a file, a response body, or a lock on each pass and defers its release holds every one of them until the loop is done. Over a long or unbounded loop that exhausts file descriptors or connections. The usual fix moves the body of the loop into a function of its own, so each pass's `defer` runs at the end of that pass.
+
+It is registered and off by default, with `-deferInLoop` in the shipped selection, because most of what it finds is harmless: across the [codebases measured](#measured-on-other-codebases), one of its 34 findings held resources long enough to matter, and the rest were tests or short loops over a fixed few items. A repository whose loops handle requests, files, or rows in bulk can turn it on the same way as `gocognit`:
+
+```json
+"cleanup": {"kind": "go-lint", "target": "app", "environment": "go", "lint": {"checks": ["deferInLoop"]}}
+```
+
+Suppress a loop that is known to be short with `//lint:ignore deferInLoop <reason>` on the `defer` line.
 
 ## Typed choices: LV1001
 
@@ -341,12 +401,12 @@ The analyzers use Go's `go/analysis` framework and Staticcheck's runner for pack
 
 For an exceptional interop requirement, use Staticcheck's normal directive with a reason, for example `//lint:ignore LV1001 external schema requires this field`. Prefer a proper type or record literal when possible.
 
-You can run the same linter directly without Dagger. The selection below is the shipped default; append the patterns a repository's check adds, such as `,gocognit` to [opt in to gocognit](#opt-in-complexity-gocognit), to reproduce what its `go-lint` check reports:
+You can run the same linter directly without Dagger. The selection below is the shipped default; append the patterns a repository's check adds, such as `,gocognit` to [opt in to gocognit](#opt-in-complexity-gocognit) or `,deferInLoop` to [opt in to deferInLoop](#opt-in-resources-deferinloop), to reproduce what its `go-lint` check reports:
 
 ```sh
 (cd /path/to/levenshtein/runner/lint && go build -o /tmp/levenshtein-lint ./cmd/levenshtein-lint)
 cd /path/to/consumer
-/tmp/levenshtein-lint -checks='all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-gocognit' ./...
+/tmp/levenshtein-lint -checks='all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-gocognit,-deferInLoop' ./...
 ```
 
 ## Named checks and suggested runs

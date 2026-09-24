@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"go/ast"
+	"go/types"
 	"io/fs"
 	"maps"
 	"os"
@@ -13,6 +14,7 @@ import (
 	directives "4d63.com/gocheckcompilerdirectives/checkcompilerdirectives"
 	errname "github.com/Antonboom/errname/pkg/analyzer"
 	testifylint "github.com/Antonboom/testifylint/analyzer"
+	checksumtype "github.com/alecthomas/go-check-sumtype"
 	"github.com/alingse/nilnesserr"
 	"github.com/breml/bidichk/pkg/bidichk"
 	perfsprint "github.com/catenacyber/perfsprint/analyzer"
@@ -26,6 +28,7 @@ import (
 	thelper "github.com/kulti/thelper/pkg/analyzer"
 	"github.com/ldez/exptostd"
 	"github.com/ldez/usetesting"
+	"github.com/maratori/testableexamples/pkg/testableexamples"
 	"github.com/moricho/tparallel"
 	"github.com/nishanths/exhaustive"
 	"github.com/nishanths/predeclared/passes/predeclared"
@@ -45,9 +48,12 @@ import (
 	"golang.org/x/mod/modfile"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/buildssa"
+	"golang.org/x/tools/go/analysis/passes/httpmux"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/analysis/passes/modernize"
 	"golang.org/x/tools/go/analysis/passes/nilness"
+	"golang.org/x/tools/go/analysis/passes/reflectvaluecompare"
+	"golang.org/x/tools/go/analysis/passes/scannererr"
 	"golang.org/x/tools/go/analysis/passes/unusedwrite"
 	"golang.org/x/tools/go/ast/inspector"
 	"golang.org/x/tools/go/packages"
@@ -120,6 +126,12 @@ func correctness() []*analysis.Analyzer {
 		// potential finding, and it cannot tell a context stored for later
 		// from one that grows.
 		fatcontext.NewAnalyzer(),
+		// go vet leaves these x/tools passes out of its default suite; each
+		// reports a mistake that compiles and then misbehaves at run time.
+		scannererr.Analyzer,
+		reflectvaluecompare.Analyzer,
+		httpmux.Analyzer,
+		sumTypes(),
 	}
 }
 
@@ -133,6 +145,29 @@ func switches() *analysis.Analyzer {
 		panic(err)
 	}
 	return exhaustive.Analyzer
+}
+
+// sumTypes runs gochecksumtype, which checks type switches over an interface
+// declared with a //sumtype:decl comment, under golangci-lint's name for it.
+// As with exhaustive, a default case does not satisfy it: a new variant must
+// fail the switches that do not list it. Staticcheck's analyzers panic on
+// another analyzer's fact, as with contextcheck, so it runs without facts and
+// checks sum types declared in the package being linted.
+func sumTypes() *analysis.Analyzer {
+	analyzer := *checksumtype.Analyzer
+	analyzer.Name = "gochecksumtype"
+	analyzer.FactTypes = nil
+	if err := analyzer.Flags.Set("default-signifies-exhaustive", "false"); err != nil {
+		panic(err)
+	}
+	run := analyzer.Run
+	analyzer.Run = func(pass *analysis.Pass) (any, error) {
+		local := *pass
+		local.ExportPackageFact = func(analysis.Fact) {}
+		local.ImportPackageFact = func(*types.Package, analysis.Fact) bool { return false }
+		return run(&local)
+	}
+	return &analyzer
 }
 
 // tagged runs musttag with the module of the package being linted. Without
@@ -404,6 +439,7 @@ func tests() []*analysis.Analyzer {
 		tparallel.Analyzer,
 		testifylint.New(),
 		testingHelpers(),
+		testableexamples.NewAnalyzer(),
 	}
 }
 
