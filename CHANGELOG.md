@@ -59,6 +59,19 @@ Consumers pin a release tag, or its commit SHA, as described in
   `//go:generate` directive is an error rather than an empty pass. Its result is
   reused like `go-vet`'s, and it is in no default gate
   ([details](docs/checks.md#generated-code)).
+- `go-apidiff`, a shared check on both executors that compares a library
+  module's exported API at the merge base with a base branch (the `apidiff`
+  object's `base`, else `GITHUB_BASE_REF`, else `main`) against the working
+  tree, using `golang.org/x/exp/cmd/apidiff`, now pinned in `runner/tools`. Each
+  incompatible change is a finding at the declaration it concerns; compatible
+  changes pass and are listed in the report's summary. Internal and `main`
+  packages are not compared, and a module that is new or has a new module path
+  passes with a note. The CLI exports the base tree from git history on the
+  host, so the result is never reused by the CLI; the checkout needs the base
+  branch. It is in no default gate
+  ([details](docs/checks.md#api-compatibility)).
+- Levenshtein defines a `go-apidiff` run over `examples/rule-module`, which
+  enforces that a rule module keeps the exports it has published.
 - Levenshtein checks its own layering with `go-imports` in `branch`,
   `pre-merge`, `branch-dagger`, and `main`.
 - `go-lint` runs three more upstream analyzers: `unparam` (unused parameters

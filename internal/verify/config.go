@@ -54,9 +54,9 @@ type Preparation struct {
 
 // A Check carries only the options its kind accepts. Most Dagger kinds take no
 // object, a command check requires Command, semantic-lint may carry Semantic,
-// go-mutation may carry Mutation, go-lint may carry Lint, and go-imports
-// requires Imports, the last two on either executor. The other combinations
-// cannot be written down.
+// go-mutation may carry Mutation, go-lint may carry Lint, go-imports requires
+// Imports, and go-apidiff may carry Apidiff, the last three on either executor.
+// The other combinations cannot be written down.
 //
 // A check names one target, either with Target or as a Targets list that
 // expands to one planned check per entry. Exactly one of the two is set; see
@@ -71,6 +71,7 @@ type Check struct {
 	Mutation    *MutationCheck `json:"mutation,omitempty"`
 	Lint        *LintCheck     `json:"lint,omitempty"`
 	Imports     *ImportsCheck  `json:"imports,omitempty"`
+	Apidiff     *ApidiffCheck  `json:"apidiff,omitempty"`
 }
 
 // at binds a multi-target check to one of its targets, so every planned check
@@ -156,6 +157,21 @@ type ImportRule struct {
 	Allow    []string    `json:"allow,omitempty"`
 	Tests    ImportTests `json:"tests,omitempty"`
 	Reason   string      `json:"reason"`
+}
+
+// ApidiffCheck tunes the go-apidiff kind. Base is the branch whose merge base
+// the exported API is compared with; see changeBase for the default.
+type ApidiffCheck struct {
+	Base string `json:"base,omitempty"`
+}
+
+// apidiffOptions supplies defaults for a go-apidiff check that declares no
+// options of its own.
+func (check Check) apidiffOptions() ApidiffCheck {
+	if check.Apidiff == nil {
+		return ApidiffCheck{}
+	}
+	return *check.Apidiff
 }
 
 // artifacts, env and cacheable read options that only a command check has, so
@@ -252,7 +268,7 @@ func defaultConfig() Config {
 		"pre-merge": {Checks: []string{lint, vet, mod}},
 		"main":      {Checks: []string{lint, vet, mod, vuln}, RerunChecks: true},
 	}
-	for _, kind := range []CheckKind{CheckGoLint, CheckGoVet, CheckGoMod, CheckGoTest, CheckGoHTTP, CheckGoSQL, CheckGoVuln, CheckWorkflowLint, CheckWorkflowSecurity, CheckGoGenerate} {
+	for _, kind := range []CheckKind{CheckGoLint, CheckGoVet, CheckGoMod, CheckGoTest, CheckGoHTTP, CheckGoSQL, CheckGoVuln, CheckWorkflowLint, CheckWorkflowSecurity, CheckGoGenerate, CheckGoApidiff} {
 		checks[string(kind)] = Check{Kind: kind, Target: defaultTarget, Environment: defaultEnvironment}
 		runs[string(kind)] = Run{Checks: []string{string(kind)}}
 	}
