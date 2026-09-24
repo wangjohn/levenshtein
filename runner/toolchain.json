@@ -12,7 +12,8 @@
     "-ST1020",
     "-ST1021",
     "-ST1022",
-    "-gocognit"
+    "-gocognit",
+    "-deferInLoop"
   ],
   "zizmor": {
     "comment": "workflow-security runs this upstream release on either executor, downloading the archive for the host or engine platform and checking its SHA-256 before anything in it runs. The hashes are the digests GitHub records for the release assets; refresh them whenever version changes, together with the version .github/workflows/security.yml pins for its online audits.",

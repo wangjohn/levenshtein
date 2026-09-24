@@ -3,16 +3,21 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"go/ast"
+	"go/types"
 	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	directives "4d63.com/gocheckcompilerdirectives/checkcompilerdirectives"
 	errname "github.com/Antonboom/errname/pkg/analyzer"
 	testifylint "github.com/Antonboom/testifylint/analyzer"
+	checksumtype "github.com/alecthomas/go-check-sumtype"
 	"github.com/alingse/nilnesserr"
 	"github.com/breml/bidichk/pkg/bidichk"
 	perfsprint "github.com/catenacyber/perfsprint/analyzer"
@@ -26,6 +31,7 @@ import (
 	thelper "github.com/kulti/thelper/pkg/analyzer"
 	"github.com/ldez/exptostd"
 	"github.com/ldez/usetesting"
+	"github.com/maratori/testableexamples/pkg/testableexamples"
 	"github.com/moricho/tparallel"
 	"github.com/nishanths/exhaustive"
 	"github.com/nishanths/predeclared/passes/predeclared"
@@ -45,9 +51,12 @@ import (
 	"golang.org/x/mod/modfile"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/buildssa"
+	"golang.org/x/tools/go/analysis/passes/httpmux"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/analysis/passes/modernize"
 	"golang.org/x/tools/go/analysis/passes/nilness"
+	"golang.org/x/tools/go/analysis/passes/reflectvaluecompare"
+	"golang.org/x/tools/go/analysis/passes/scannererr"
 	"golang.org/x/tools/go/analysis/passes/unusedwrite"
 	"golang.org/x/tools/go/ast/inspector"
 	"golang.org/x/tools/go/packages"
@@ -120,6 +129,12 @@ func correctness() []*analysis.Analyzer {
 		// potential finding, and it cannot tell a context stored for later
 		// from one that grows.
 		fatcontext.NewAnalyzer(),
+		// go vet leaves these x/tools passes out of its default suite; each
+		// reports a mistake that compiles and then misbehaves at run time.
+		scannererr.Analyzer,
+		reflectvaluecompare.Analyzer,
+		httpmux.Analyzer,
+		sumTypes(),
 	}
 }
 
@@ -135,16 +150,44 @@ func switches() *analysis.Analyzer {
 	return exhaustive.Analyzer
 }
 
+// sumTypes runs gochecksumtype, which checks type switches over an interface
+// declared with a //sumtype:decl comment, under golangci-lint's name for it.
+// As with exhaustive, a default case does not satisfy it: a new variant must
+// fail the switches that do not list it. Staticcheck's analyzers panic on
+// another analyzer's fact, as with contextcheck, so it runs without facts and
+// checks sum types declared in the package being linted.
+func sumTypes() *analysis.Analyzer {
+	analyzer := *checksumtype.Analyzer
+	analyzer.Name = "gochecksumtype"
+	analyzer.FactTypes = nil
+	if err := analyzer.Flags.Set("default-signifies-exhaustive", "false"); err != nil {
+		panic(err)
+	}
+	run := analyzer.Run
+	analyzer.Run = func(pass *analysis.Pass) (any, error) {
+		local := *pass
+		local.ExportPackageFact = func(analysis.Fact) {}
+		local.ImportPackageFact = func(*types.Package, analysis.Fact) bool { return false }
+		return run(&local)
+	}
+	return &analyzer
+}
+
 // tagged runs musttag with the module of the package being linted. Without
 // one, musttag runs `go mod edit -json` in the working directory for every
 // package, which names a parent module, or fails, when the linter runs outside
 // the package's own module; a wrong module makes musttag skip every named type
-// and pass silently.
+// and pass silently. The test main go test generates for a package with
+// tests lives in the build cache, outside any module, and marshals nothing,
+// so it is skipped.
 func tagged() *analysis.Analyzer {
 	analyzer := musttag.New()
 	run := analyzer.Run
 	analyzer.Run = func(pass *analysis.Pass) (any, error) {
 		module, err := modulePath(pass)
+		if err != nil && testMain(pass) {
+			return nil, nil
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -153,6 +196,12 @@ func tagged() *analysis.Analyzer {
 		return run(&withModule)
 	}
 	return analyzer
+}
+
+// testMain reports whether a package is the test main go test generates for
+// a package with tests: package main at the package's path plus ".test".
+func testMain(pass *analysis.Pass) bool {
+	return pass.Pkg.Name() == "main" && strings.HasSuffix(pass.Pkg.Path(), ".test")
 }
 
 // modulePath reads the module path from the go.mod nearest a source file of
@@ -404,6 +453,7 @@ func tests() []*analysis.Analyzer {
 		tparallel.Analyzer,
 		testifylint.New(),
 		testingHelpers(),
+		testableexamples.NewAnalyzer(),
 	}
 }
 
@@ -434,21 +484,73 @@ func house() []*analysis.Analyzer {
 }
 
 func main() {
+	os.Exit(run(os.Args[1:]))
+}
+
+// modeFlags select a Staticcheck mode that lists or explains rules instead
+// of linting (lintcmd's Command.Execute).
+var modeFlags = []string{"list-checks", "explain", "version", "debug.version", "merge"}
+
+// linting reports whether the parsed flags ask for a lint run, the only mode
+// that runs analyzers or touches the Staticcheck cache.
+func linting(flags *flag.FlagSet) bool {
+	for _, name := range modeFlags {
+		if value := flags.Lookup(name).Value.String(); value != "" && value != "false" {
+			return false
+		}
+	}
+	return true
+}
+
+// run lints with every selected analyzer guarded, so an analyzer that returns
+// an error or panics stops the run with exit 2 before its package is cached.
+// The runner treats exit 2 and anything on stderr as a tool error.
+func run(args []string) int {
 	command := lintcmd.NewCommand("levenshtein-lint")
-	command.AddAnalyzers(staticcheckFamilies()...)
+	command.ParseFlags(args)
+	families := staticcheckFamilies()
+	bare := slices.Concat(
+		policy.Adapt(resources()...),
+		policy.Adapt(correctness()...),
+		policy.Adapt(critics()...),
+		policy.Adapt(logging()...),
+		policy.Adapt(source()...),
+		policy.Adapt(signatures()...),
+		policy.Adapt(hygiene()...),
+		policy.Adapt(modernizers()...),
+		policy.Adapt(tests()...),
+		policy.Adapt(complexity()...),
+		house(),
+	)
+	if !linting(command.FlagSet()) {
+		command.AddAnalyzers(families...)
+		command.AddBareAnalyzers(bare...)
+		return command.Execute()
+	}
 
-	command.AddBareAnalyzers(policy.Adapt(resources()...)...)
-	command.AddBareAnalyzers(policy.Adapt(correctness()...)...)
-	command.AddBareAnalyzers(policy.Adapt(critics()...)...)
-	command.AddBareAnalyzers(policy.Adapt(logging()...)...)
-	command.AddBareAnalyzers(policy.Adapt(source()...)...)
-	command.AddBareAnalyzers(policy.Adapt(signatures()...)...)
-	command.AddBareAnalyzers(policy.Adapt(hygiene()...)...)
-	command.AddBareAnalyzers(policy.Adapt(modernizers()...)...)
-	command.AddBareAnalyzers(policy.Adapt(tests()...)...)
-	command.AddBareAnalyzers(policy.Adapt(complexity()...)...)
-	command.AddBareAnalyzers(house()...)
+	// Staticcheck runs every registered analyzer, whatever -checks selects,
+	// and keys its cache on the registered names. Registering only the
+	// selected rules keeps a rule that is turned off from running at all, so
+	// it cannot fail the run, and gives each selection its own cache entries.
+	checks := checkList(command.FlagSet())
+	guard := newGuard(stop)
+	for _, family := range families {
+		if checks == nil || allowed(checks, family.Analyzer.Name) {
+			command.AddAnalyzers(family)
+			guard.wrap(family.Analyzer, owner{Code: family.Analyzer.Name})
+		}
+	}
+	for _, analyzer := range bare {
+		if checks == nil || allowed(checks, analyzer.Name) {
+			command.AddBareAnalyzers(analyzer)
+			guard.wrap(analyzer, owner{Code: analyzer.Name})
+		}
+	}
+	return command.Execute()
+}
 
-	command.ParseFlags(os.Args[1:])
-	command.Run()
+// stop ends the run on the first analyzer failure.
+func stop(failed failure) {
+	fmt.Fprintf(os.Stderr, "levenshtein-lint: %s failed on %s: %s\n", failed.Code, failed.Package, failed.Error)
+	os.Exit(2)
 }

@@ -262,6 +262,7 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 		ExecutionMS: time.Since(executed).Milliseconds(),
 		Stages:      outcome.Stages,
 		Details:     outcome.Details,
+		Warnings:    outcome.Warnings,
 	}
 
 	if result.Status == StatusPassed {
