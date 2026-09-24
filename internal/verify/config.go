@@ -218,7 +218,7 @@ func defaultConfig() Config {
 		"pre-merge": {Checks: []string{lint, vet, mod}},
 		"main":      {Checks: []string{lint, vet, mod, vuln}, RerunChecks: true},
 	}
-	for _, kind := range []CheckKind{CheckGoLint, CheckGoVet, CheckGoMod, CheckGoTest, CheckGoHTTP, CheckGoSQL, CheckGoVuln, CheckWorkflowLint, CheckWorkflowSecurity, CheckShellLint, CheckSecrets} {
+	for _, kind := range []CheckKind{CheckGoLint, CheckGoVet, CheckGoMod, CheckGoTest, CheckGoHTTP, CheckGoSQL, CheckGoVuln, CheckWorkflowLint, CheckWorkflowSecurity, CheckShellLint, CheckSecrets, CheckDepsVuln} {
 		checks[string(kind)] = Check{Kind: kind, Target: defaultTarget, Environment: defaultEnvironment}
 		runs[string(kind)] = Run{Checks: []string{string(kind)}}
 	}

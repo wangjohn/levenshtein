@@ -35,5 +35,16 @@
       "linux/amd64": {"name": "shellcheck-v0.11.0.linux.x86_64.tar.gz", "sha256": "b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6"},
       "linux/arm64": {"name": "shellcheck-v0.11.0.linux.aarch64.tar.gz", "sha256": "68a8133197a50beb8803f8d42f9908d1af1c5540d4bb05fdfca8c1fa47decefc"}
     }
+  },
+  "osvScanner": {
+    "comment": "deps-vuln runs this upstream release on either executor, downloading the binary for the host or engine platform and checking its SHA-256 before it runs. The digests are the ones upstream publishes in the release's osv-scanner_SHA256SUMS; refresh them from that file whenever version changes. osv-scanner is not built from runner/tools because its dependencies would move the versions actionlint and govulncheck are built with.",
+    "releases": "https://github.com/google/osv-scanner/releases/download",
+    "version": "2.6.0",
+    "assets": {
+      "darwin/amd64": {"name": "osv-scanner_darwin_amd64", "sha256": "60c5296637e977b28eeda5c7f13573e447659a632922737f94d11fa7e30ad6ca"},
+      "darwin/arm64": {"name": "osv-scanner_darwin_arm64", "sha256": "98c460dcd37de25819babd757d04542045b6243113e209edcd4d89fedb0256b4"},
+      "linux/amd64": {"name": "osv-scanner_linux_amd64", "sha256": "ca69b3d3cd08f889a49dc0a383122f71cc528b83803671df5fd874d97485b108"},
+      "linux/arm64": {"name": "osv-scanner_linux_arm64", "sha256": "2c71403eb443d05891c4f268c3ad771cf4f16e5443463fd7851ef8f454d3c7e4"}
+    }
   }
 }

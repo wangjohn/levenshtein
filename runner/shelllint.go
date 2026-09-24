@@ -14,10 +14,10 @@ import (
 	"dagger/levenshtein/internal/dagger"
 )
 
-// sourceSkipDirs are the directories shell-lint never enters: fixtures kept
-// deliberately broken, as the go command skips testdata, and third-party code
-// the repository does not maintain. internal/verify/shelllint.go keeps a copy;
-// change both together.
+// sourceSkipDirs are the directories shell-lint and deps-vuln never enter:
+// fixtures kept deliberately broken or vulnerable, as the go command skips
+// testdata, and third-party code the repository does not maintain.
+// internal/verify/shelllint.go keeps a copy; change both together.
 var sourceSkipDirs = []string{"testdata", "vendor", "node_modules"}
 
 // shellHeadLimit is how much of an extensionless file shell-lint reads to find
