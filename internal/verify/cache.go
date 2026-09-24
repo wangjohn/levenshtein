@@ -199,12 +199,13 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 		return result.withCache(CacheInfo{Status: CacheDisabled, Reason: reason})
 	}
 
-	// The files a go-mutation run mutates depend on where the base branch
-	// points, which no input fingerprint sees. Dagger still reuses a run whose
-	// source and file list are both unchanged, so a repeat costs little.
-	if req.Check.Kind == CheckGoMutation {
+	// The files a go-mutation run mutates, and the API go-apidiff compares
+	// with, depend on where the base branch points, which no input fingerprint
+	// sees. Dagger still reuses a run whose arguments are all unchanged, so a
+	// repeat costs little.
+	if reason := baseDependent[req.Check.Kind]; reason != "" {
 		result := c.Executor.Execute(ctx, req)
-		return result.withCache(CacheInfo{Status: CacheDisabled, Reason: "the mutated files depend on the base branch; Dagger reuses identical runs"})
+		return result.withCache(CacheInfo{Status: CacheDisabled, Reason: reason})
 	}
 
 	// A shared Go check is cacheable for the same reason a Dagger one is: its

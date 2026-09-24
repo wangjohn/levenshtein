@@ -54,6 +54,7 @@ var daggerFunctions = map[CheckKind]string{
 	CheckGoMutation:       "goMutation",
 	CheckGoImports:        "goImports",
 	CheckGoGenerate:       "goGenerate",
+	CheckGoApidiff:        "goApidiff",
 }
 
 func (d *Dagger) Execute(ctx context.Context, req Request) Result {
@@ -62,6 +63,9 @@ func (d *Dagger) Execute(ctx context.Context, req Request) Result {
 	}
 	if req.Check.Kind == CheckGoTest {
 		return d.executeTests(ctx, req)
+	}
+	if req.Check.Kind == CheckGoApidiff {
+		return d.executeApidiff(ctx, req)
 	}
 	result := daggerResult(d.execute(ctx, req, nil))
 

@@ -55,4 +55,36 @@ for check in native-lint native-vet native-mod native-test native-imports native
     exit 1
   fi
 done
+# go-apidiff compares a branch with its merge base, so each of its fixtures
+# becomes a repository: main holds apidiff/base and the checked-out branch holds
+# the head fixture. Both executors run over the same repositories.
+apidiff_repo() {
+  local head=$1 dir="$temporary/apidiff-$1"
+  mkdir -p "$dir/lib"
+  cp -R "$root/runner/testdata/apidiff/base/." "$dir/lib/"
+  git -C "$dir" init --quiet --initial-branch=main
+  git -C "$dir" add --all
+  git -C "$dir" -c user.name=levenshtein -c user.email=levenshtein@example.com commit --quiet -m base
+  git -C "$dir" switch --quiet -c feature
+  rm -rf "${dir:?}/lib"
+  mkdir -p "$dir/lib"
+  cp -R "$root/runner/testdata/apidiff/$head/." "$dir/lib/"
+  git -C "$dir" add --all
+  git -C "$dir" -c user.name=levenshtein -c user.email=levenshtein@example.com commit --quiet -m "$head"
+  cat > "$dir/levenshtein.json" <<'JSON'
+{"version":1,"targets":{"lib":{"dir":"lib","inputs":["lib"]}},"environments":{"go":{"executor":"dagger"},"host":{"executor":"native"}},"checks":{"api":{"kind":"go-apidiff","target":"lib","environment":"go"},"native-api":{"kind":"go-apidiff","target":"lib","environment":"host"}},"runs":{"api":{"checks":["api"]},"native-api":{"checks":["native-api"]}}}
+JSON
+}
+apidiff_repo compatible
+apidiff_repo breaking
+for check in api native-api; do
+  GITHUB_BASE_REF='' "$temporary/verify" "$check" --source "$temporary/apidiff-compatible" --shared "$root" > "$temporary/good.json"
+  status=0
+  GITHUB_BASE_REF='' "$temporary/verify" "$check" --source "$temporary/apidiff-breaking" --shared "$root" > "$temporary/bad.json" || status=$?
+  if [[ $status != 1 ]] || ! grep -q '"code": "go-apidiff"' "$temporary/bad.json"; then
+    cat "$temporary/bad.json"
+    echo "Expected $check go-apidiff finding, got exit $status" >&2
+    exit 1
+  fi
+done
 echo 'Shared-check CLI integration passed'
