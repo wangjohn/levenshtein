@@ -44,6 +44,12 @@
       "reason": "a reference starting with a slash names no check whether it is split or not, and the error quotes the whole reference either way"
     },
     {
+      "file": "internal/verify/shelllint.go",
+      "mutator": "CONDITIONALS_BOUNDARY",
+      "line": "if comment.File == \"\" || comment.Line < 1 || comment.Code < 1 || comment.Message == \"\" {",
+      "reason": "ShellCheck codes start at SC1000, so rejecting a code of exactly 1 as well changes nothing a real report can contain; the line bound on the same condition is tested"
+    },
+    {
       "file": "internal/verify/statcache.go",
       "mutator": "CONDITIONALS_BOUNDARY",
       "line": "return e.Stat.ModNS < e.HashedAt-int64(racyWindow)",
