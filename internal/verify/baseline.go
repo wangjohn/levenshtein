@@ -29,6 +29,7 @@ var baselineKinds = map[CheckKind]bool{
 	CheckGoHTTP:    true,
 	CheckGoSQL:     true,
 	CheckGoImports: true,
+	CheckShellLint: true,
 }
 
 // Baseline is the checked-in record of findings a repository has accepted for

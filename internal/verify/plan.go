@@ -157,7 +157,7 @@ func (cfg Config) planCheck(source string, selected selection, rerunChecks bool)
 		}
 	}
 
-	if (check.Kind == CheckWorkflowLint || check.Kind == CheckWorkflowSecurity) && target.Dir != "." {
+	if (check.Kind == CheckWorkflowLint || check.Kind == CheckWorkflowSecurity || check.Kind == CheckShellLint) && target.Dir != "." {
 		return PlannedCheck{}, fmt.Errorf("check %q: %s requires a repository-root target", id, check.Kind)
 	}
 

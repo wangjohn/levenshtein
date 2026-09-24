@@ -133,8 +133,8 @@ func TestTestResultsAreReusedUntilAFreshRun(t *testing.T) {
 	}
 }
 
-func TestWorkflowKindsRequireRootTarget(t *testing.T) {
-	for _, kind := range []CheckKind{CheckWorkflowLint, CheckWorkflowSecurity} {
+func TestRepositoryKindsRequireRootTarget(t *testing.T) {
+	for _, kind := range []CheckKind{CheckWorkflowLint, CheckWorkflowSecurity, CheckShellLint} {
 		cfg, err := Parse([]byte(`{"version":1,"targets":{"app":{"dir":"nested","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"workflow":{"kind":"` + string(kind) + `","target":"app","environment":"go"}},"runs":{"branch":{"checks":["workflow"]}}}`))
 		if err != nil {
 			t.Fatal(err)
@@ -151,7 +151,7 @@ func TestUnconfiguredRepoGetsSharedCheckDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, count := range map[string]int{"branch": 3, "pre-merge": 3, "main": 4, "go-lint": 1, "go-vet": 1, "go-mod": 1, "go-test": 1, "go-vuln": 1, "go-http": 1, "go-sql": 1, "workflow-lint": 1, "workflow-security": 1, "go-generate": 1, "go-apidiff": 1} {
+	for name, count := range map[string]int{"branch": 3, "pre-merge": 3, "main": 4, "go-lint": 1, "go-vet": 1, "go-mod": 1, "go-test": 1, "go-vuln": 1, "go-http": 1, "go-sql": 1, "workflow-lint": 1, "workflow-security": 1, "go-generate": 1, "go-apidiff": 1, "shell-lint": 1} {
 		plan, err := cfg.Plan(source, name)
 		if err != nil || len(plan.Checks) != count {
 			t.Fatalf("%s: %+v %v", name, plan, err)

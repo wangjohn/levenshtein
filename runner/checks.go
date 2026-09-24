@@ -30,12 +30,13 @@ const (
 	checkVuln             checkName = "go-vuln"
 	checkWorkflow         checkName = "workflow-lint"
 	checkWorkflowSecurity checkName = "workflow-security"
+	checkShellLint        checkName = "shell-lint"
 	checkSelfTest         checkName = "self-test"
 )
 
 func knownCheck(check checkName) bool {
 	switch check {
-	case checkLint, checkVet, checkMod, checkTest, checkHTTP, checkSQL, checkVuln, checkWorkflow, checkWorkflowSecurity, checkSelfTest:
+	case checkLint, checkVet, checkMod, checkTest, checkHTTP, checkSQL, checkVuln, checkWorkflow, checkWorkflowSecurity, checkShellLint, checkSelfTest:
 		return true
 	case checkImports, checkGenerate, checkApidiff:
 		return false // Each has its own function.
@@ -65,6 +66,8 @@ func executeCheck(ctx context.Context, source *dagger.Directory, module string, 
 		return goTest(ctx, source, module, tools, nonce)
 	case checkWorkflowSecurity:
 		return workflowSecurity(ctx, source, module, tools, nonce)
+	case checkShellLint:
+		return shellLint(ctx, source, tools, nonce)
 	}
 
 	ctr := goContainer(tools)
@@ -453,7 +456,7 @@ func (m *Levenshtein) SharedCheck(ctx context.Context,
 	if !filepath.IsLocal(module) || path.Clean(module) != module || strings.Contains(module, "\\") {
 		return fmt.Errorf("invalid module path %q", module)
 	}
-	if (kind == checkWorkflow || kind == checkWorkflowSecurity) && module != "." {
+	if (kind == checkWorkflow || kind == checkWorkflowSecurity || kind == checkShellLint) && module != "." {
 		return fmt.Errorf("%s requires a repository-root target", kind)
 	}
 	// Their verdicts depend on state no source input covers, so Dagger must
