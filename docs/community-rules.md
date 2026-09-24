@@ -72,7 +72,9 @@ func Analyzers() []*analysis.Analyzer
 ```
 
 Each analyzer must set `Name`, `Doc`, and `URL`, because the linter's findings
-and `-list-checks` output have nothing else to point readers at. There is no
+and `-list-checks` output have nothing else to point readers at. `Name` must be
+a Go identifier, which `analysis.Validate` enforces. [Writing a rule module](#writing-a-rule-module)
+walks through a complete example. There is no
 Levenshtein-specific SDK to import. The same analyzers keep working in
 golangci-lint, nogo, and `singlechecker`, so authors are not betting on this
 project alone. That also answers the roadmap's concern about a public protocol:
@@ -92,22 +94,29 @@ an exact module version:
 A `go-lint` check selects the rules with the existing syntax:
 
 ```json
-"cleanup": {"kind": "go-lint", "target": "app", "environment": "go", "lint": {"checks": ["acme/*", "-acme/nopanic"]}}
+"cleanup": {"kind": "go-lint", "target": "app", "environment": "go", "lint": {"checks": ["acme_*"]}}
 ```
 
 - **Namespacing.** The runner renames each contributed analyzer to
-  `<namespace>/<Name>` before registering it. Findings, `//lint:ignore acme/nopanic reason`,
+  `<namespace>_<Name>` before registering it. Findings, `//lint:ignore acme_nopanic reason`,
   and selection patterns all use that name, so a community rule can never
   shadow `SA*`, `LV*`, or another module's rules. The consumer picks the
   namespace, as in ESLint's flat config, so two modules that chose the same
-  prefix can still be used side by side. Before building this, confirm that
-  Staticcheck's `-checks` filter and `//lint:ignore` parser accept a `/` in a
-  name; if they do not, use a separator they do accept.
-- **Off unless selected.** The shipped selection is `all`, but community rules
-  are excluded from it. A consumer turns them on by naming them in
-  `lint.checks`. Upgrading Levenshtein then never enables a stranger's rule,
-  and declaring a module never changes findings until someone selects its
-  rules.
+  prefix can still be used side by side. The separator is `_`, not ESLint's
+  `/`, because analyzer names must be Go identifiers. A namespace is lowercase
+  letters and digits with no underscore, so the first `_` always ends it.
+- **Namespace globs.** Staticcheck reads a pattern of letters followed by `*`
+  as a category, the part of a code before its first digit: `LV*` matches
+  `LV1003`. `acme_nopanic` has no digit, so `acme_*` would match nothing. The
+  runner already lists the linter's rules to validate patterns, so it expands
+  `acme_*` and `-acme_*` into the exact names before calling the linter, and
+  `allowed` in `runner/main.go` gets the same rule.
+- **Off unless selected.** The shipped selection is `all`, which would include
+  community rules. The runner appends `-<rule>` for every declared community
+  rule after the shipped selection and before the consumer's patterns. Since
+  the last matching pattern wins, a consumer's `acme_*` turns the rules back on.
+  Upgrading Levenshtein then never enables a stranger's rule, and declaring a
+  module changes no findings until someone selects its rules.
 - **Exact versions only.** `version` must be a semantic version tag or a Go
   pseudo-version. Branch names and `latest` are configuration errors, as in
   TFLint and pre-commit. An optional `sum` field (`h1:…`, the `go.sum` hash)
@@ -167,6 +176,183 @@ Publish a `levenshtein-rules-template` repository containing:
   core dependency set then surfaces in the author's CI, not in a consumer's.
 - The `go list -m all` conflict check as a script authors can run locally.
 
+## Writing a rule module
+
+[`examples/rule-module`](../examples/rule-module) is a complete rule module,
+kept outside every Levenshtein module and build. It contributes one rule,
+`nopanic`, which reports the builtin `panic` in library code. Its layout is what
+the template repository would ship:
+
+```text
+go.mod                          module github.com/wangjohn/levenshtein/examples/rule-module
+levenshtein/levenshtein.go      Analyzers(), the only package Levenshtein imports
+nopanic/nopanic.go              the rule, an ordinary analysis.Analyzer
+nopanic/nopanic_test.go         analysistest over the fixtures below
+nopanic/testdata/src/...        library (findings), app and shadowed (no findings)
+cmd/nopanic/main.go             singlechecker, for running the rule today
+```
+
+### The rule
+
+A rule is an `analysis.Analyzer` like every upstream analyzer in
+`runner/lint`. `Name` is local to the module; the consumer's namespace is added
+later. `URL` is where findings send readers.
+
+```go
+var Analyzer = &analysis.Analyzer{
+	Name:     "nopanic",
+	Doc:      "return an error from library code instead of calling panic",
+	URL:      "https://github.com/wangjohn/levenshtein/tree/main/examples/rule-module#nopanic",
+	Requires: []*analysis.Analyzer{inspect.Analyzer},
+	Run:      run,
+}
+```
+
+`run` skips package `main`, `init`, and `Must*` functions, and reports every
+other call whose callee type-checks as the builtin `panic`. Because it uses
+type information, a local function named `panic` is not reported, which a
+text-matching rule would get wrong:
+
+```go
+func builtinPanic(pass *analysis.Pass, call *ast.CallExpr) bool {
+	ident, ok := ast.Unparen(call.Fun).(*ast.Ident)
+	if !ok {
+		return false
+	}
+
+	builtin, ok := pass.TypesInfo.Uses[ident].(*types.Builtin)
+	return ok && builtin.Name() == "panic"
+}
+```
+
+### The entry point
+
+`levenshtein/levenshtein.go` is the only package Levenshtein imports. It is the
+equivalent of golangci-lint's `register.Plugin` call, with no import of
+Levenshtein:
+
+```go
+func Analyzers() []*analysis.Analyzer {
+	return []*analysis.Analyzer{
+		nopanic.Analyzer,
+	}
+}
+```
+
+### Tests
+
+Fixtures under `testdata/src` mark each expected finding with a `// want`
+comment, and `analysistest` fails on any finding without one:
+
+```go
+func Parse(input string) int {
+	if input == "" {
+		panic("empty input") // want `Parse panics; return an error so callers can handle the failure`
+	}
+	return len(input)
+}
+
+func MustParse(input string) int {
+	count, err := ParseChecked(input)
+	if err != nil {
+		panic(err)
+	}
+	return count
+}
+```
+
+```go
+func TestAnalyzer(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), nopanic.Analyzer, "library", "app", "shadowed")
+}
+```
+
+Removing the `Must*` and `init` exemption makes the test fail with two
+unexpected diagnostics, which is how the fixtures were checked to have teeth.
+
+### Running it before Levenshtein supports modules
+
+`cmd/nopanic` wraps the rule in `singlechecker`, so a consumer can run it now
+(phase 0) as a native `command` check. `v0.1.0` stands for a published tag; this
+example is not tagged, so it is a shape to copy rather than a working pin:
+
+```json
+"nopanic": {"kind": "command", "target": "app", "environment": "host", "command": {"args": ["go", "run", "github.com/wangjohn/levenshtein/examples/rule-module/cmd/nopanic@v0.1.0", "./..."], "rerun_args": ["go", "run", "github.com/wangjohn/levenshtein/examples/rule-module/cmd/nopanic@v0.1.0", "./..."]}}
+```
+
+That gives up the JSON findings, the shared selection syntax, and
+`//lint:ignore`, which is what phase 1 adds.
+
+## What the runner adds
+
+These pieces were prototyped against a scratch copy of `runner/lint` and are
+not in this repository. The copy built with `examples/rule-module` compiled in,
+`runner/lint/go.mod`'s requirements did not change, and on a sample package:
+
+- `-list-checks` listed `acme_nopanic`.
+- With the shipped selection and `-acme_nopanic` appended, it reported nothing.
+- Adding `acme_nopanic` reported `store.go:7:3: Load panics; ... (acme_nopanic)`,
+  with `"code":"acme_nopanic"` in `-f=json` output.
+- A `//lint:ignore acme_nopanic <reason>` line silenced the site below it.
+
+A new package, `runner/lint/community`, holds the registry. It is the only core
+code that knows community rules exist:
+
+```go
+// Register adds a module's analyzers under namespace, renamed to
+// <namespace>_<name>. Analyzer names must be Go identifiers, which rules out
+// a slash; the prefix keeps them apart from SA*, LV*, and other modules.
+func Register(namespace string, analyzers []*analysis.Analyzer) {
+	if !namespaces.MatchString(namespace) {
+		panic(fmt.Sprintf("community rule namespace %q must be lowercase letters and digits", namespace))
+	}
+
+	for _, analyzer := range analyzers {
+		if analyzer.Doc == "" || analyzer.URL == "" {
+			panic(fmt.Sprintf("community rule %s_%s must set Doc and URL", namespace, analyzer.Name))
+		}
+
+		renamed := *analyzer
+		renamed.Name = namespace + "_" + analyzer.Name
+		registered = append(registered, &renamed)
+	}
+}
+
+// Analyzers returns every registered community rule, adapted like the
+// upstream analyzers so generated files stay silent.
+func Analyzers() []*analysis.Analyzer {
+	return policy.Adapt(registered...)
+}
+```
+
+`main.go` gains one line after the house rules:
+
+```go
+command.AddBareAnalyzers(community.Analyzers()...)
+```
+
+For each consumer, the `GoLint` Dagger function writes one file from the
+`rules` object, runs `go get` for each module, checks `go list -m all` against
+the core set, and builds:
+
+```go
+// Code generated by levenshtein from levenshtein.json; DO NOT EDIT.
+
+package main
+
+import (
+	acme "github.com/acme/levenshtein-rules/levenshtein"
+	"github.com/wangjohn/levenshtein/runner/lint/community"
+)
+
+func init() {
+	community.Register("acme", acme.Analyzers())
+}
+```
+
+Without a `rules` object, no file is generated and the linter is built exactly
+as it is today.
+
 ## The catalog
 
 Keep the catalog in a separate repository, such as `levenshtein-rules-catalog`.
@@ -177,7 +363,7 @@ release cadence.
   module path, a description, the license, maintainers, each rule's name,
   `Doc`, and `URL`, and the most recent version that passed verification. A
   suggested namespace is reserved first-come, like an npm scope, so the
-  catalog's `acme/...` names mean the same thing across repositories.
+  catalog's `acme_...` names mean the same thing across repositories.
 - **Admission by PR.** Catalog CI resolves the module, runs its tests, builds
   it against the current Levenshtein release, runs the dependency conflict
   check, and requires `Name`, `Doc`, `URL`, a test with at least one finding
@@ -221,7 +407,7 @@ maintain them.
 
 | Phase | Work | Gate |
 | --- | --- | --- |
-| 0 | Document the `analysis.Analyzer` contract, publish the template repository, and document the `command` check as the interim way to run it | None; costs no core code |
+| 0 | Document the `analysis.Analyzer` contract, publish the template repository (starting from `examples/rule-module`), and document the `command` check as the interim way to run it | None; costs no core code |
 | 1 | `rules` config, generated-main build, namespacing, dependency conflict check, and result keys, on the Dagger executor | A pilot consumer asks to run a rule Levenshtein will not ship |
 | 2 | Catalog repository, admission CI, scheduled re-verification | A second, unrelated rule module exists |
 | 3 | Generated catalog page, corpus findings counts, native executor support | The catalog lists enough entries that browsing `catalog.json` is inconvenient |
