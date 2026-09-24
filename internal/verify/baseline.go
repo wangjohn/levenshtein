@@ -213,10 +213,10 @@ func entryLines(data []byte, count int) []int {
 			return lines
 		}
 		for i := 0; decoder.More() && i < count; i++ {
-			start := int(decoder.InputOffset())
-			for start < len(data) && strings.IndexByte(" \t\r\n,", data[start]) >= 0 {
-				start++
-			}
+			// The decoder's offset is just past the previous entry, before the
+			// comma and whitespace that lead to this one.
+			offset := int(decoder.InputOffset())
+			start := len(data) - len(bytes.TrimLeft(data[offset:], " \t\r\n,"))
 			lines[i] = 1 + bytes.Count(data[:start], []byte("\n"))
 			var skip json.RawMessage
 			if decoder.Decode(&skip) != nil {
