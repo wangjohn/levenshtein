@@ -232,12 +232,12 @@ func plural(n int, one, many string) string {
 func renderGitHub(w io.Writer, report Report, options RenderOptions) error {
 	var out strings.Builder
 	for _, it := range items(report) {
-		shown := 0
+		annotated := false
 		for _, f := range it.findings {
 			if f.Baselined {
 				continue
 			}
-			shown++
+			annotated = true
 			message := strings.TrimSpace(f.Message)
 			if f.Hint != "" {
 				message += "\n\nhint: " + f.Hint
@@ -254,7 +254,7 @@ func renderGitHub(w io.Writer, report Report, options RenderOptions) error {
 		}
 
 		unfinished := it.result.Status != StatusPassed && it.result.Status != StatusFailed
-		if unfinished || (it.result.Status == StatusFailed && shown == 0) {
+		if unfinished || (it.result.Status == StatusFailed && !annotated) {
 			message := strings.TrimSpace(it.result.Error)
 			if message == "" {
 				message = string(it.result.Status)
