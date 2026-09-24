@@ -73,7 +73,7 @@ func TestGenerateReportsAStaleFileWithItsDiff(t *testing.T) {
 		t.Fatalf("want one finding: %+v", report)
 	}
 	finding := report.Findings[0]
-	if finding.Code != CodeGenerate || finding.Location.File != "names_gen.go" || finding.Location.Line != 6 || !strings.Contains(finding.Message, "+\t\"blue\",") {
+	if finding.Code != CodeGenerate || finding.Location.File != "names_gen.go" || finding.Location.Line != 9 || !strings.Contains(finding.Message, "+\t\"blue\",") {
 		t.Fatalf("finding lost its location or diff: %+v", finding)
 	}
 }
@@ -119,6 +119,25 @@ func TestGenerateRefusesWhatItCannotJudge(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A modified file is located at its first changed line, past the context
+// lines that open the hunk.
+func TestFirstChangedLineSkipsTheHunkContext(t *testing.T) {
+	for _, tc := range []struct {
+		diff string
+		want int
+	}{
+		{"diff --git a/x b/x\n@@ -6,4 +6,5 @@ var\n a\n b\n c\n+d\n e\n", 9},
+		{"@@ -1,3 +1,3 @@\n-a\n+b\n c\n", 1},
+		{"@@ -10,7 +10,6 @@\n a\n b\n c\n-d\n e\n", 13},
+		{"@@ -0,0 +1 @@\n+new\n", 1},
+		{"old mode 100644\nnew mode 100755\n", 1},
+	} {
+		if got := firstChangedLine(tc.diff); got != tc.want {
+			t.Errorf("firstChangedLine(%q) = %d, want %d", tc.diff, got, tc.want)
+		}
 	}
 }
 

@@ -222,11 +222,7 @@ func generateFinding(status gitStatus, file, module, diff string) (Finding, erro
 		message = "go generate ./... deletes this file; " + command
 	case gitModified, gitType:
 		message = "go generate ./... changes this file; " + command
-		if match := hunkStart.FindStringSubmatch(diff); match != nil {
-			if start, err := strconv.Atoi(match[1]); err == nil && start > 0 {
-				line = start
-			}
-		}
+		line = firstChangedLine(diff)
 	default:
 		return Finding{}, fmt.Errorf("git reported status %q for %s", status, file)
 	}
@@ -235,6 +231,29 @@ func generateFinding(status gitStatus, file, module, diff string) (Finding, erro
 		Message:  message + "\n" + capDiff(diff),
 		Location: Location{File: path.Clean(file), Line: line},
 	}, nil
+}
+
+// firstChangedLine is the line of the repository's file where a unified diff
+// first differs: its first hunk's old start, past the context lines before the
+// first removed or added line. A diff without a hunk, such as a mode change,
+// is located at line 1.
+func firstChangedLine(diff string) int {
+	loc := hunkStart.FindStringSubmatchIndex(diff)
+	if loc == nil {
+		return 1
+	}
+	line, err := strconv.Atoi(diff[loc[2]:loc[3]])
+	if err != nil {
+		return 1
+	}
+	_, hunk, _ := strings.Cut(diff[loc[0]:], "\n")
+	for text := range strings.Lines(hunk) {
+		if !strings.HasPrefix(text, " ") {
+			break
+		}
+		line++
+	}
+	return max(line, 1)
 }
 
 // capDiff keeps a diff's first lines and says how much was left out.

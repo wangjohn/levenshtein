@@ -313,7 +313,7 @@ func TestNativeGoChecksAgreeWithTheFixtures(t *testing.T) {
 			t.Fatalf("generate-stale must fail for its stale file, not a tool error: %+v", result)
 		}
 		findings := fixtureFindings(t, result)
-		if len(findings) != 1 || findings[0].Code != string(CheckGoGenerate) || findings[0].Location.File != "names_gen.go" || findings[0].Location.Line != 6 || !strings.Contains(findings[0].Message, "+\t\"blue\",") {
+		if len(findings) != 1 || findings[0].Code != string(CheckGoGenerate) || findings[0].Location.File != "names_gen.go" || findings[0].Location.Line != 9 || !strings.Contains(findings[0].Message, "+\t\"blue\",") {
 			t.Fatalf("lost the stale file's location or diff: %+v", findings)
 		}
 	})
