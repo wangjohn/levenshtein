@@ -33,12 +33,20 @@ levenshtein=${LEVENSHTEIN:-$project/../levenshtein}
 run=${LEVENSHTEIN_RUN:-branch}
 
 # Nothing Go-related changed since the last commit, and no commit the branch
-# has not pushed to its upstream touches Go: nothing to check. Agents often
-# commit before they stop, so committing alone must not skip the run. A branch
-# without an upstream is judged on uncommitted changes only. Outside a git work
-# tree the change is unknown, so the run goes ahead.
+# has not pushed touches Go: nothing to check. Agents often commit before they
+# stop, so committing alone must not skip the run. Unpushed commits are those
+# since the branch's upstream or, for a new branch without one, since the
+# remote's default branch (origin/HEAD); with neither, only uncommitted
+# changes count. Outside a git work tree the change is unknown, so the run
+# goes ahead.
 paths=('*.go' '*go.mod' '*go.sum' '*go.work' 'levenshtein.json' '.levenshtein')
-unpushed=$(git -C "$source" diff --name-only '@{upstream}...HEAD' -- "${paths[@]}" 2> /dev/null) || unpushed=''
+unpushed=''
+for base in '@{upstream}' 'refs/remotes/origin/HEAD'; do
+  if git -C "$source" rev-parse --verify --quiet "$base" > /dev/null 2>&1; then
+    unpushed=$(git -C "$source" diff --name-only "$base...HEAD" -- "${paths[@]}" 2> /dev/null) || unpushed=''
+    break
+  fi
+done
 if changes=$(git -C "$source" status --porcelain -- "${paths[@]}" 2> /dev/null) && [[ -z $changes && -z $unpushed ]]; then
   exit 0
 fi

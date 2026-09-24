@@ -45,7 +45,7 @@ Claude Code runs [hooks](https://code.claude.com/docs/en/hooks) at points in a s
 
 When the agent tries to end its turn, `levenshtein-stop.sh`:
 
-1. Does nothing and lets the agent stop when `git status` shows no uncommitted change to a `.go` file, a `go.mod`, `go.sum`, or `go.work`, `levenshtein.json`, or `.levenshtein/`, and no commit the branch has not yet pushed to its upstream touches one. A turn that did not touch Go costs nothing, and an agent that commits before it stops is still checked. A branch without an upstream is judged on uncommitted changes only. Outside a git work tree it cannot tell, so it runs.
+1. Does nothing and lets the agent stop when `git status` shows no uncommitted change to a `.go` file, a `go.mod`, `go.sum`, or `go.work`, `levenshtein.json`, or `.levenshtein/`, and no commit the branch has not yet pushed touches one: the commits since its upstream or, for a new branch without one, since the remote's default branch (`origin/HEAD`). A turn that did not touch Go costs nothing, and an agent that commits before it stops is still checked. With neither reference, only uncommitted changes count. Outside a git work tree it cannot tell, so it runs.
 2. Otherwise runs `$LEVENSHTEIN/verify $LEVENSHTEIN_RUN --source <repository> --format text`.
 3. Exits 0 when the run passes, so the agent stops.
 4. Exits 2 when the run fails, with the text report on standard error. Claude Code's contract for a `Stop` hook is that exit 2 prevents stopping and hands stderr to the model as the reason, so the agent sees every finding and keeps working.

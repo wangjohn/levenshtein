@@ -213,6 +213,27 @@ func TestStopHookChecksUnpushedCommits(t *testing.T) {
 	if _, err := os.Stat(marker); err != nil {
 		t.Fatal("a committed Go change the branch has not pushed must run the checks")
 	}
+
+	// A new branch has no upstream; its commits since the remote's default
+	// branch are unpushed.
+	git("push", "-q", "origin", "main")
+	git("remote", "set-head", "origin", "main")
+	git("switch", "-q", "-c", "agent")
+	if err := os.WriteFile(filepath.Join(project, "b.go"), []byte("package a\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "b.go")
+	git("commit", "-q", "-m", "add b")
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+
+	if code, stderr := runHook(t, "levenshtein-stop.sh", input, env...); code != 0 {
+		t.Fatalf("a passing run must let the agent stop: %d %s", code, stderr)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatal("a committed Go change on a branch without an upstream must run the checks")
+	}
 }
 
 func TestGofmtHookTemplate(t *testing.T) {
