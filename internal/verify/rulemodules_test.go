@@ -2,11 +2,14 @@ package verify
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
 // ruleModulesConfig is a configuration with one rule module, a go-lint check
@@ -251,5 +254,44 @@ func TestANativeGoLintCheckSaysItSkippedCommunityRules(t *testing.T) {
 	warnings := nativeWarnings(Request{PlannedCheck: plan.Checks[0]})
 	if len(warnings) != 1 || warnings[0].Kind != WarningRuleModulesSkipped {
 		t.Errorf("warnings = %+v", warnings)
+	}
+}
+
+func TestLintReportsCarryAdvisoryFindingsAndWarnings(t *testing.T) {
+	passed := withLintReport(Result{Status: StatusPassed}, `{"findings": [{"code": "errs_sentinel", "message": "m", "location": {"file": "a.go", "line": 1, "column": 1}, "advisory": true}], "warnings": [{"kind": "rule-renamed", "message": "old name"}]}`)
+	quiet := withLintReport(Result{Status: StatusPassed}, `{"findings": [], "warnings": []}`)
+	broken := withLintReport(Result{Status: StatusPassed}, `not json`)
+
+	if passed.Status != StatusPassed || !strings.Contains(string(passed.Details), `"advisory":true`) || len(passed.Warnings) != 1 || passed.Warnings[0].Kind != WarningRuleRenamed {
+		t.Errorf("an advisory finding must leave the check passing with its details: %+v", passed)
+	}
+	if quiet.Details != nil || quiet.Warnings != nil {
+		t.Errorf("an empty report adds nothing: %+v", quiet)
+	}
+	if broken.Status != StatusError {
+		t.Errorf("an unreadable report must be an error: %+v", broken)
+	}
+}
+
+func TestACheckErrorKeepsTheFindingsItHas(t *testing.T) {
+	err := &gqlerror.Error{Message: "Go policy lint failed", Extensions: map[string]any{
+		"levenshteinFindings": []map[string]any{{"code": "SA4006", "message": "m", "location": map[string]any{"file": "a.go", "line": 3, "column": 1}}},
+		"levenshteinError":    "errs_nopanic (github.com/acme/lvrules-errors@v1.4.0) failed on 3 packages: panic: boom",
+		"levenshteinWarnings": []map[string]any{{"kind": "rule-deprecated", "message": "errs_wrapf is deprecated"}},
+	}}
+
+	result := daggerResult(err)
+
+	if result.Status != StatusError || !strings.HasPrefix(result.Error, "errs_nopanic (") {
+		t.Errorf("status %s, error %q", result.Status, result.Error)
+	}
+	if !strings.Contains(string(result.Details), `"SA4006"`) {
+		t.Errorf("core findings must survive a community failure: %s", result.Details)
+	}
+	if len(result.Warnings) != 1 || result.Warnings[0].Kind != WarningRuleDeprecated {
+		t.Errorf("warnings = %+v", result.Warnings)
+	}
+	if daggerResult(errors.New("engine unavailable")).Warnings != nil {
+		t.Error("a plain error carries no warnings")
 	}
 }

@@ -1,6 +1,10 @@
 # Community lint rules
 
-**Status: proposal.** Only the example module and its CI check exist today.
+**Status: phase 1 is implemented** on the main branch and ships with the next
+release: `rule_modules`, the community linter, selection, advisory findings,
+merged findings, warnings, and error handling. Phases 2 and 3 (the catalog,
+`./verify rules`, the Renovate preset, native execution, private modules) are
+still proposals; see [Phasing](#phasing).
 
 **Problem.** A rule Levenshtein does not ship can only run as a native
 `command` check, which loses shared selection, `//lint:ignore`, JSON findings,
@@ -102,7 +106,9 @@ appears in findings, patterns, and `//lint:ignore errs_nopanic <reason>`.
 
 1. `gonew github.com/wangjohn/lvrules-template github.com/you/lvrules-errors`
    copies the template and rewrites the module path. Choose a namespace; the
-   template's CI fails while it is still `example`.
+   template's CI fails while it is still `example`. Until the template
+   repository is published (phase 0), copy
+   [`examples/rule-module`](../examples/rule-module) instead.
 2. Write the analyzer and add it to `Analyzers()`.
 3. Add fixtures under `testdata/src` with a `// want` comment on every expected
    finding, plus clean cases. Break the rule once to check that the test fails.
@@ -119,9 +125,9 @@ keeps it working:
 
 - The `example` target in `levenshtein.json` gets lint, vet, mod, and tests.
 - `scripts/test-example-rules` checks its `go` directive against
-  `.go-version`, builds it into a community linter on the pinned Staticcheck,
-  and runs that linter on a sample package, including a `//lint:ignore`. It
-  uses a plain rename until `runner/community` exists.
+  `.go-version`, builds it into a community linter with the runner's own
+  builder, and runs that linter on a sample package, including a
+  `//lint:ignore`.
 
 ## For consumers
 
@@ -144,7 +150,7 @@ keeps it working:
 | `version` | Required. An exact tag or pseudo-version; branches and `latest` are errors |
 | `namespace` | Required. Repeats the module's `Namespace`, so patterns can be checked before anything builds |
 | `select` | Required, nonempty. Patterns for the rules every `go-lint` check runs from this module; only this module's namespace |
-| `advisory` | Patterns for selected rules that report without failing the check; naming a rule no check selects is an error |
+| `advisory` | Patterns for selected rules that report without failing the check. A rule named here that no `go-lint` check selects is a configuration error, and a pattern that matches no rule is a check error |
 | `settings` | String flag values for each rule, set through the analyzer's `Flags` |
 
 To stop using a module, remove its entry. A single check opts out with
@@ -178,8 +184,11 @@ Advisory findings appear in the report and the job summary but never fail the
 check:
 
 ```text
-| `go-lint/app` | passed | 2 advisory |
-  [advisory] store/store.go:7:3 errs_sentinel: compare errors with errors.Is (https://pkg.go.dev/github.com/acme/lvrules-errors/sentinel)
+| `go-lint/app` | passed | 1 advisory |
+
+#### Advisory findings
+
+- [advisory] `go-lint/app` store/store.go:7:3 errs_sentinel: compare errors with errors.Is ([docs](https://pkg.go.dev/github.com/acme/lvrules-errors/sentinel))
 ```
 
 A stale `//lint:ignore` is advisory only if every code it names is advisory.
@@ -205,15 +214,15 @@ Every finding gains `source`, `url`, and `advisory`. Core findings get `url` and
  "url": "https://pkg.go.dev/github.com/acme/lvrules-errors/nopanic", "advisory": false}
 ```
 
-Each result gains a `warnings` list. It is stored with cached results and
-printed in the job summary:
+Each result gains a `warnings` list. It is stored with cached results, so a
+cache hit repeats it, and printed in the job summary:
 
 | Warning | When |
 | --- | --- |
 | `rule-modules-skipped` | A native `go-lint` check skipped community rules |
 | `rule-module-deprecated` | This Levenshtein release lists the pinned version as deprecated |
 | `rule-module-retracted` | The author retracted the pinned version, detected when the linter is built |
-| `rule-renamed` | A pattern uses a rule's old name |
+| `rule-renamed` | A pattern, advisory entry, or setting uses a rule's old name |
 | `rule-deprecated` | A selected rule is deprecated |
 
 ### Executors
@@ -237,8 +246,8 @@ against a real repository before phase 2:
   "datasourceTemplate": "go"}]}
 ```
 
-`./verify rules` lists each module's pin, newer versions, retractions, and
-catalog status. Checks themselves never contact the catalog, so a pinned run
+From phase 2, `./verify rules` lists each module's pin, newer versions,
+retractions, and catalog status. Checks themselves never contact the catalog, so a pinned run
 always gives the same answer. Instead, each Levenshtein release ships
 `runner/rule-modules.json`, a snapshot of the versions the catalog has marked
 `withdrawn` or `deprecated`. When a consumer updates their Levenshtein pin, a
@@ -267,86 +276,150 @@ The cost is a second package load, only for checks that use community rules.
 On this repository's root module that was about 2.5 s, next to 6.5 s for the
 core linter.
 
+| Piece | Where |
+| --- | --- |
+| Configuration, load-time checks, planning, withdrawn versions | `internal/verify/rulemodules.go` |
+| The community linter's runtime: validation, selection, settings, `lvrules_*` codes, failure guard, report | `runner/community` |
+| The builder that generates and compiles the linter | `runner/community/internal/build`, run as `cmd/levenshtein-community-build` |
+| The three Dagger containers and the merged report | `runner/community.go`, `GoLint` and `GoLintReport` in `runner/main.go` |
+| Versions a release refuses or warns about | `runner/rule-modules.json` |
+
 ### Build
 
-The `GoLint` Dagger function gains a `rule_modules` argument and uses three
-containers:
+`GoLint` takes a `ruleModules` argument, the check's planned modules as JSON,
+and uses three containers.
 
-1. **Build** (network): generate a module that requires the pinned Staticcheck
-   and each `module@version`, run `go mod tidy` against the checksum database,
-   and build with `GOTOOLCHAIN=local`. The build fails if:
-   - Staticcheck moves off its pin;
-   - a module needs a newer Go;
+1. **Build** (network, shared Go caches): `levenshtein-community-build`
+   generates a module that requires the pinned Staticcheck, `runner/community`,
+   and each `module@version`, runs `go mod tidy` against the checksum
+   database, and builds with `GOTOOLCHAIN=local`. It never sees the consumer's
+   source, so every check with the same pins shares one build. The build fails
+   if:
+   - a module's `go` directive is newer than `.go-version`;
    - tidy prints "finding module for package", which means some module imports
-     a package no `go.mod` requires, so the result would change with the proxy.
-2. **Download** (network): `go mod download` for the consumer's module, checked
-   against its `go.sum`.
+     a package no `go.mod` requires, so the result would change with the proxy;
+   - Staticcheck or any rule module resolves off its pin;
+   - the module has no `lvrules` package, or it does not declare `Namespace`
+     and `Analyzers`, or a literal `Namespace` differs from `levenshtein.json`;
+   - the generated main does not compile.
+
+   It also asks the proxy whether each pin is retracted, which becomes a
+   `rule-module-retracted` warning.
+2. **Download** (network): `go mod download` for the consumer's module,
+   checked against its `go.sum`, into a plain directory. It sees only the
+   module's `go.mod`, `go.sum`, `go.work`, and `go.work.sum` files, so editing
+   any other file reuses the download. A module with `vendor/modules.txt` is
+   not downloaded at all: the lint step reads `vendor/`, and its dependencies
+   may be private modules no proxy serves.
+
+   Both steps let a failing command fail rather than record its exit code.
+   Dagger never caches a failed command, so a transient failure, such as an
+   unreachable proxy, is retried on the next run instead of being replayed
+   until the pins change. A run with `rerun_checks` repeats both steps, so it
+   also refreshes the retraction check.
 3. **Lint** (no shared state): the pinned Go image, which Staticcheck needs
    because it runs `go list`. It gets the linter binary and the downloaded
-   sources as plain directories, `GOPROXY=off`, `GOFLAGS=-mod=readonly`, a fresh
-   `GOCACHE`, and its own Staticcheck cache volume.
+   sources as plain directories, `GOPROXY=off`, a fresh `GOCACHE`, and a
+   Staticcheck cache volume of its own. `GOFLAGS` is cleared rather than set
+   to `-mod=readonly`, so a vendored module still lints from `vendor/`; Go's
+   default is `readonly` otherwise.
 
 The generated `main` imports each module under a positional alias (`m0`, `m1`,
-...) and lists only the rules some check selects, because Staticcheck runs every
-registered analyzer whether or not it is selected.
+...) and lists nothing else:
 
 ```go
 // Code generated by levenshtein from levenshtein.json; DO NOT EDIT.
-var modules = []community.Module{{
-	Path:      "github.com/acme/lvrules-errors",
-	Version:   "v1.4.0",
-	Namespace: m0.Namespace,
-	Renamed:   m0.Renamed, // nil when the module has no Renamed
-	Analyzers: m0.Analyzers(),
-	Selected:  []string{"nopanic", "sentinel"},
-	Settings:  map[string]map[string]string{"nopanic": {"allow": "Must,Should"}},
-}}
+community.Main([]community.Module{
+	{Path: "github.com/acme/lvrules-errors", Version: "v1.4.0", Namespace: m0.Namespace, Renamed: m0.Renamed, Analyzers: m0.Analyzers()},
+})
 ```
 
-`runner/community` is a new module with the same Staticcheck pin as
-`runner/lint`, and no other connection to it. It:
+`Renamed` is `nil` when the module declares none; the builder reads the
+`lvrules` package's declarations to find out. The check's selection,
+advisory rules, and settings are not compiled in. The runner passes them at
+run time with `-lvrules.config`, so one binary serves every check with the same
+pins, and each run registers only the rules its check selects, because
+Staticcheck runs every registered analyzer whether or not it is selected.
 
-- validates each module;
-- clones every analyzer together with the whole `Requires` graph under it, so
-  renaming, settings, and the failure wrapper reach dependencies too;
+`runner/community` is a separate module with the same Staticcheck pin as
+`runner/lint` (a test keeps the two pins and `runner/toolchain.json` equal),
+and no other connection to it. At startup, the community linter:
+
+- validates each module against [the contract](#the-contract);
+- resolves the check's patterns, advisory entries, and settings, refusing any
+  that match no rule, and warns about old names and deprecated rules;
 - rejects an analyzer that two modules share, because they would share its
   settings;
-- adds a `Doc` title line only when one is missing;
+- renames each selected rule to its code and adds a `Doc` title line only
+  when one is missing;
+- wraps every analyzer in each selected rule's `Requires` graph, in place, with
+  the failure guard;
 - registers `lvrules_mixed` and `lvrules_renamed`;
-- hands everything to `lintcmd`, calling `Execute` rather than `Run` so it can
-  write a completion marker.
+- sets `-checks` to the selected codes and `-fail` to the non-advisory ones,
+  and refuses either flag on its own command line;
+- hands everything to `lintcmd`, calling `Execute` rather than `Run`, then
+  writes its report to `-lvrules.report`. The report lists each rule's source,
+  URL, and advisory setting, the warnings, and any failures, and doubles as
+  the completion marker.
 
-The runner starts the community linter with `-fail` naming only the
-non-advisory rules. Advisory findings then come back as warnings with exit code
-0.
+A stale directive that names only advisory rules is rewritten to a warning in
+the JSON output, and the exit code follows: 1 while any finding still fails.
+
+### Failures
+
+Staticcheck's runner swallows an error an analyzer returns: the package passes,
+and the pass is cached. A panic kills the whole process. The failure guard
+wraps each analyzer so both are recorded, and hands Staticcheck an error so
+dependent analyzers are skipped. On the first failure it retires the current
+Staticcheck cache generation (a `gen-<n>` directory under the configured cache,
+named by a `levenshtein-generation` file), so no later run can reuse a failed
+run's results, even if that run dies before it finishes. Generations older
+than the previous one are removed when a linter starts. The core linter
+carries a copy of the guard; it reports failures on stderr and exits 2, and it
+touches the cache only when it lints, not for `-list-checks`.
 
 ### Errors
 
 | Detected | Examples | Outcome |
 | --- | --- | --- |
-| Loading `levenshtein.json` | Bad version or namespace syntax; a namespace declared twice; a pattern naming an undeclared namespace; a version this release lists as withdrawn | Configuration error, exit 2 |
-| Building the community linter | `namespace` differs from the module; an unknown rule or setting; a missing `URL`; duplicate names; an incomplete `go.mod`; Go or Staticcheck above the pins; no compile against the pinned dependencies | Check error naming the module, exit 1 |
-| Running a rule | The rule returns an error or panics, including in a dependency | Written to a failure file; check error such as "errs_nopanic (…@v1.4.0) failed on 3 packages", exit 1 |
-| After the run | No completion marker, for example because a rule called `os.Exit(0)` | Check error, exit 1 |
+| Loading `levenshtein.json` | Bad version or namespace syntax; a namespace declared twice; settings keys that differ only in case; a pattern naming an undeclared namespace; a literal advisory rule no go-lint check selects; community patterns on a check that sets `rule_modules` to `false`; a version this release lists as withdrawn | Configuration error, exit 2 |
+| Building the community linter | `namespace` differs from the module; an incomplete `go.mod`; Go or Staticcheck above the pins; another module moved a pin; no compile against the pinned dependencies | Check error naming the module, exit 1 |
+| Starting the community linter | An unknown rule or setting; two settings keys that reach the same rule; a pattern or advisory entry that matches no rule; a missing `URL`; duplicate names | Check error naming the module, exit 1 |
+| Running a rule | The rule returns an error or panics, including in a dependency | Check error such as "errs_nopanic (…@v1.4.0) failed on 3 package(s), first: panic: …", exit 1 |
+| After the run | No report, for example because a rule called `os.Exit(0)` | Check error, exit 1 |
 
 Core findings are reported in every case. Messages state what is known and
 never guess a fix, for example: "…@v1.5.0 requires honnef.co/go/tools v0.9.0
 (through example.com/helper@v0.3.0), but this release pins v0.8.1."
 
+### Results
+
+A passing check can now carry findings, all advisory, and warnings. The CLI
+calls `GoLintReport`, which returns them as JSON; `GoLint` stays a Dagger
+check that returns only an error. A failing check carries its findings,
+warnings, and any community error as error extensions. The merged report drops
+both linters' "unused directive" reports at a line where `lvrules_mixed`
+reported. A compile error in the community linter's output makes the check an
+error; the core linter reports the same error first.
+
 ### Result keys
 
-A result key includes the `rule_modules` entries and the shared implementation,
-including `runner/rule-modules.json`. It cannot include versions resolved
-inside Dagger. It does not need to: the build rejects any resolution that
-depends on the proxy's current state, so the entries determine the resolved
-versions.
+A result key includes the check's planned `rule_modules` entries and the shared
+implementation, including `runner/community` and `runner/rule-modules.json`. A
+check without rule modules keeps the key it had before rule modules existed.
+The key cannot include versions resolved inside Dagger. It does not need to:
+the build rejects any resolution that depends on the proxy's current state, so
+the entries determine the resolved versions.
 
 ### Security model
 
 - **Nothing shared is writable.** The lint step mounts no module, build, or
   core Staticcheck cache, so a rule cannot poison other checks or consumers.
-- **No credentials** reach the lint step. Only the binary and sources are
-  copied in.
+  Its own Staticcheck cache volume is named by the linter binary's digest and
+  mounted privately, so only the code that would run in that step anyway can
+  write to it, and never two steps at once.
+- **No credentials** reach the lint step. Only the binary, the dependency
+  sources, the consumer's source, and the check's configuration are copied in.
 - **Pins cannot move.** An exact version checked against the checksum database
   means a push or a replaced tag cannot change what runs.
 - **Core findings stay honest.** They come from another process.
@@ -358,20 +431,6 @@ versions.
 
 Private rule modules wait for phase 3: the build would receive a token as a
 Dagger secret, and the entry would carry an `h1:` `sum`.
-
-### Changes to existing code
-
-| Where | Change |
-| --- | --- |
-| `internal/verify/config.go`, `validation.go` | `rule_modules` and `lint.rule_modules`, with the load-time checks above |
-| `runner/main.go`, `internal/verify/validation.go` | `lintPattern` accepts `_`; patterns split between the linters, and community globs expand |
-| `runner/main.go` `GoLint` | A `rule_modules` argument and the three containers; passing results carry findings, as `go-mutation`'s do, so exit 0 may now come with advisory findings |
-| `runner/main.go` `parseFindings` | Accepts `staticcheck` and `compile` codes from both linters, and reports `compile` diagnostics once |
-| `runner/main.go` diagnostic, report schema | `source`, `url`, and `advisory` on findings; `warnings` on results, kept in the result cache |
-| `runner/lint/cmd/levenshtein-lint` | The same failure wrapper, since Staticcheck's runner also swallows errors from core analyzers |
-| New `runner/community`, `runner/rule-modules.json` | The community linter's registration, and the shipped withdrawn/deprecated list |
-| `action.yml` job summary, README `jq` recipe | Show advisory findings and `url` |
-| `SECURITY.md` | Community rules: vulnerabilities go to the module's maintainers, a malicious module to the catalog, and native runs are trusted-only |
 
 ## The catalog
 
