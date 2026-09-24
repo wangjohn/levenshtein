@@ -239,17 +239,21 @@ func TestTheShippedRuleModuleListIsValid(t *testing.T) {
 	}
 }
 
-func TestANativeGoLintCheckSaysItSkippedCommunityRules(t *testing.T) {
+func TestAGoLintCheckSaysItSkippedCommunityRules(t *testing.T) {
 	plan, err := ruleModulesConfig(t, "", "").Plan(t.TempDir(), "branch")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if warnings := nativeWarnings(Request{PlannedCheck: plan.Checks[1]}); warnings != nil {
+	if warnings := skippedRuleModules(Request{PlannedCheck: plan.Checks[1]}); warnings != nil {
 		t.Errorf("a check that opted out skipped nothing: %+v", warnings)
 	}
-	warnings := nativeWarnings(Request{PlannedCheck: plan.Checks[0]})
-	if len(warnings) != 1 || warnings[0].Kind != WarningRuleModulesSkipped {
-		t.Errorf("warnings = %+v", warnings)
+	for _, executor := range []ExecutorKind{ExecutorNative, ExecutorDagger} {
+		check := plan.Checks[0]
+		check.Environment.Executor = executor
+		warnings := skippedRuleModules(Request{PlannedCheck: check})
+		if len(warnings) != 1 || warnings[0].Kind != WarningRuleModulesSkipped {
+			t.Errorf("%s warnings = %+v", executor, warnings)
+		}
 	}
 }

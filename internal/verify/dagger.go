@@ -62,9 +62,10 @@ func (d *Dagger) Execute(ctx context.Context, req Request) Result {
 		return d.executeTests(ctx, req)
 	}
 	result := daggerResult(d.execute(ctx, req, nil))
+	result.Warnings = skippedRuleModules(req)
 
 	if err := ctx.Err(); err != nil {
-		return Result{Status: StatusCancelled, Error: err.Error(), Stdout: result.Stdout, Stderr: result.Stderr, Details: result.Details}
+		return Result{Status: StatusCancelled, Error: err.Error(), Stdout: result.Stdout, Stderr: result.Stderr, Details: result.Details, Warnings: result.Warnings}
 	}
 	return result
 }
@@ -189,8 +190,9 @@ func (d *Dagger) execute(ctx context.Context, req Request, mutation *mutationArg
 		query = query.Arg("check", string(req.Check.Kind))
 	}
 	// The added patterns are a function argument, so Dagger's own call cache
-	// keys on them just as the CLI's fingerprint does.
-	if checks := req.Check.lintChecks(); len(checks) > 0 {
+	// keys on them just as the CLI's fingerprint does. Community patterns stay
+	// out: the runner's core linter rejects them.
+	if checks := req.Check.coreLintChecks(); len(checks) > 0 {
 		query = query.Arg("checks", checks)
 	}
 	if mutation != nil {

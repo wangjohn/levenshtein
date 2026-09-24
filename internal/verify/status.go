@@ -59,8 +59,8 @@ var checkKinds = []CheckKind{CheckGoLint, CheckGoVet, CheckGoMod, CheckGoTest, C
 type WarningKind string
 
 const (
-	// WarningRuleModulesSkipped: a native go-lint check ran its core rules
-	// only; community rules run on the Dagger executor.
+	// WarningRuleModulesSkipped: a go-lint check ran its core rules only,
+	// because its executor does not run community rules.
 	WarningRuleModulesSkipped WarningKind = "rule-modules-skipped"
 	// WarningRuleModuleDeprecated: this release lists the pinned version as
 	// deprecated.
