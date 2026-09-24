@@ -308,9 +308,11 @@ and uses three containers.
 2. **Download** (network): `go mod download` for the consumer's module,
    checked against its `go.sum`, into a plain directory. It sees only the
    module's `go.mod`, `go.sum`, `go.work`, and `go.work.sum` files, so editing
-   any other file reuses the download. A module with `vendor/modules.txt` is
-   not downloaded at all: the lint step reads `vendor/`, and its dependencies
-   may be private modules no proxy serves.
+   any other file reuses the download. A vendored module is not downloaded at
+   all: the lint step reads `vendor/`, and its dependencies may be private
+   modules no proxy serves. As Go does, the step looks for
+   `vendor/modules.txt` at the root of the nearest `go.work` at or above the
+   module, and in the module's own directory when there is no workspace.
 
    Both steps let a failing command fail rather than record its exit code.
    Dagger never caches a failed command, so a transient failure, such as an
@@ -357,10 +359,13 @@ and no other connection to it. At startup, the community linter:
 - registers `lvrules_mixed` and `lvrules_renamed`;
 - sets `-checks` to the selected codes and `-fail` to the non-advisory ones,
   and refuses either flag on its own command line;
+- gives each distinct set of settings its own Staticcheck cache directory,
+  because settings reach a rule through analyzer flags, which Staticcheck's
+  cache key leaves out;
 - hands everything to `lintcmd`, calling `Execute` rather than `Run`, then
   writes its report to `-lvrules.report`. The report lists each rule's source,
-  URL, and advisory setting, the warnings, and any failures, and doubles as
-  the completion marker.
+  URL, and advisory setting, the warnings, and a failure if there was one,
+  and doubles as the completion marker.
 
 A stale directive that names only advisory rules is rewritten to a warning in
 the JSON output, and the exit code follows: 1 while any finding still fails.
@@ -369,14 +374,15 @@ the JSON output, and the exit code follows: 1 while any finding still fails.
 
 Staticcheck's runner swallows an error an analyzer returns: the package passes,
 and the pass is cached. A panic kills the whole process. The failure guard
-wraps each analyzer so both are recorded, and hands Staticcheck an error so
-dependent analyzers are skipped. On the first failure it retires the current
-Staticcheck cache generation (a `gen-<n>` directory under the configured cache,
-named by a `levenshtein-generation` file), so no later run can reuse a failed
-run's results, even if that run dies before it finishes. Generations older
-than the previous one are removed when a linter starts. The core linter
-carries a copy of the guard; it reports failures on stderr and exits 2, and it
-touches the cache only when it lints, not for `-list-checks`.
+wraps each selected analyzer and everything it requires, and stops the run at
+the first error or panic: the community linter writes its report with that
+failure and exits 4. Staticcheck writes a package's results to its cache only
+after every analyzer on the package has finished, so a failed package is never
+cached, wherever the cache lives, and no later or concurrent run can reuse it.
+
+The core linter carries a copy of the guard; it reports a failure on stderr and
+exits 2. It also registers only the rules a check selects, as the community
+linter does, so a rule that is turned off never runs and cannot fail the run.
 
 ### Errors
 
@@ -385,7 +391,7 @@ touches the cache only when it lints, not for `-list-checks`.
 | Loading `levenshtein.json` | Bad version or namespace syntax; a namespace declared twice; settings keys that differ only in case; a pattern naming an undeclared namespace; a literal advisory rule no go-lint check selects; community patterns on a check that sets `rule_modules` to `false`; a version this release lists as withdrawn | Configuration error, exit 2 |
 | Building the community linter | `namespace` differs from the module; an incomplete `go.mod`; Go or Staticcheck above the pins; another module moved a pin; no compile against the pinned dependencies | Check error naming the module, exit 1 |
 | Starting the community linter | An unknown rule or setting; two settings keys that reach the same rule; a pattern or advisory entry that matches no rule; a missing `URL`; duplicate names | Check error naming the module, exit 1 |
-| Running a rule | The rule returns an error or panics, including in a dependency | Check error such as "errs_nopanic (…@v1.4.0) failed on 3 package(s), first: panic: …", exit 1 |
+| Running a rule | The rule returns an error or panics, including in a dependency | Check error such as "errs_nopanic (…@v1.4.0) failed on example.com/app/store: panic: …", exit 1 |
 | After the run | No report, for example because a rule called `os.Exit(0)` | Check error, exit 1 |
 
 Core findings are reported in every case. Messages state what is known and

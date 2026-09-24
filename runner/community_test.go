@@ -129,7 +129,7 @@ func TestCommunityOutputBecomesFindings(t *testing.T) {
 func TestCommunityOutputThatDisagreesWithItselfIsAnError(t *testing.T) {
 	failing := communityLine("errs_nopanic", "error", 7)
 	advisory := communityLine("errs_sentinel", "warning", 9)
-	failedReport := `{"rules": [], "failures": [{"code": "errs_nopanic", "source": "example.com/lvrules-errors@v1.4.0", "packages": ["a", "b", "c"], "error": "panic: boom"}]}`
+	failedReport := `{"rules": [], "failures": [{"code": "errs_nopanic", "source": "example.com/lvrules-errors@v1.4.0", "package": "example.com/app/store", "error": "panic: boom"}]}`
 
 	for _, test := range []struct {
 		name    string
@@ -137,7 +137,7 @@ func TestCommunityOutputThatDisagreesWithItselfIsAnError(t *testing.T) {
 		message string
 	}{
 		{"no report", communityRun{ExitCode: 0}, "without finishing"},
-		{"failed rule", communityRun{ExitCode: 1, Stdout: failing, Report: failedReport, Reported: true}, "errs_nopanic (example.com/lvrules-errors@v1.4.0) failed on 3 package(s), first: panic: boom"},
+		{"failed rule", communityRun{ExitCode: 4, Report: failedReport, Reported: true}, "errs_nopanic (example.com/lvrules-errors@v1.4.0) failed on example.com/app/store: panic: boom"},
 		{"crash", communityRun{ExitCode: 2, Report: sampleReport, Reported: true, Stderr: "fatal"}, "exited 2"},
 		{"stderr", communityRun{ExitCode: 0, Report: sampleReport, Reported: true, Stderr: "warning: skipped package"}, "clean result"},
 		{"unselected code", communityRun{ExitCode: 1, Stdout: communityLine("errs_wrapf", "error", 1), Report: sampleReport, Reported: true}, "did not select"},
@@ -196,5 +196,30 @@ func TestTheShippedRuleModuleListIsReadable(t *testing.T) {
 	warnings, err := releaseNotices(errsModules)
 	if err != nil || warnings != nil {
 		t.Errorf("the shipped list deprecates nothing yet: %v %v", warnings, err)
+	}
+}
+
+func TestVendoringFollowsTheWorkspace(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		files  []string
+		module string
+		want   string
+	}{
+		{"a module on its own", nil, "app", "app/vendor/modules.txt"},
+		{"the repository root", nil, ".", "vendor/modules.txt"},
+		{"a workspace at the root", []string{"go.work"}, "services/app", "vendor/modules.txt"},
+		{"a workspace between", []string{"services/go.work"}, "services/app", "services/vendor/modules.txt"},
+		{"a module holding the workspace", []string{"services/app/go.work", "go.work"}, "services/app", "services/app/vendor/modules.txt"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			exists := func(file string) (bool, error) { return slices.Contains(test.files, file), nil }
+
+			got, err := vendorFile(test.module, exists)
+
+			if err != nil || got != test.want {
+				t.Errorf("vendorFile(%q) = %q, %v; want %q", test.module, got, err, test.want)
+			}
+		})
 	}
 }

@@ -41,7 +41,7 @@ func goCheckExecutor(run goRunner, message string) func(*Native, context.Context
 
 		work := goRun{Dir: dir, Env: analysisEnv(env, workspace(req, dir)), Root: root}
 		findings, invocation, err := run(n, ctx, req, work)
-		result := Result{Stdout: invocation.Stdout, Stderr: invocation.Stderr, Warnings: nativeWarnings(req)}
+		result := Result{Stdout: invocation.Stdout, Stderr: invocation.Stderr, Warnings: skippedRuleModules(req)}
 
 		if ctx.Err() != nil {
 			return result.withOutcome(StatusCancelled, ctx.Err().Error())
@@ -61,12 +61,12 @@ func goCheckExecutor(run goRunner, message string) func(*Native, context.Context
 	}
 }
 
-// nativeWarnings says what a native check left out. Community rules run
-// only on the Dagger executor, where the lint step is isolated from the host;
-// a native go-lint check runs its core rules and says it skipped the rest, so
-// one configuration can still mix executors.
-func nativeWarnings(req Request) []Warning {
-	if len(req.RuleModules) == 0 {
+// skippedRuleModules says what a native go-lint check left out. Community
+// rules run only on the Dagger executor, where the lint step is isolated from
+// the host; a native go-lint check runs its core rules and says it skipped
+// the rest, so one configuration can still mix executors.
+func skippedRuleModules(req Request) []Warning {
+	if len(req.RuleModules) == 0 || req.Environment.Executor != ExecutorNative {
 		return nil
 	}
 	return []Warning{{

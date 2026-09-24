@@ -247,13 +247,19 @@ func TestANativeGoLintCheckSaysItSkippedCommunityRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	native, dagger := plan.Checks[0], plan.Checks[0]
+	native.Environment.Executor = ExecutorNative
+	dagger.Environment.Executor = ExecutorDagger
 
-	if warnings := nativeWarnings(Request{PlannedCheck: plan.Checks[1]}); warnings != nil {
+	if warnings := skippedRuleModules(Request{PlannedCheck: plan.Checks[1]}); warnings != nil {
 		t.Errorf("a check that opted out skipped nothing: %+v", warnings)
 	}
-	warnings := nativeWarnings(Request{PlannedCheck: plan.Checks[0]})
+	if warnings := skippedRuleModules(Request{PlannedCheck: dagger}); warnings != nil {
+		t.Errorf("the Dagger executor runs community rules: %+v", warnings)
+	}
+	warnings := skippedRuleModules(Request{PlannedCheck: native})
 	if len(warnings) != 1 || warnings[0].Kind != WarningRuleModulesSkipped {
-		t.Errorf("warnings = %+v", warnings)
+		t.Errorf("native warnings = %+v", warnings)
 	}
 }
 

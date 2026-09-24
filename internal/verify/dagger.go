@@ -234,7 +234,8 @@ func (d *Dagger) execute(ctx context.Context, req Request, args *daggerArgs) err
 		query = query.Arg("check", string(req.Check.Kind))
 	}
 	// The added patterns are a function argument, so Dagger's own call cache
-	// keys on them just as the CLI's fingerprint does.
+	// keys on them just as the CLI's fingerprint does. The runner splits them
+	// between its core and community linters.
 	if checks := req.Check.lintChecks(); len(checks) > 0 {
 		query = query.Arg("checks", checks)
 	}

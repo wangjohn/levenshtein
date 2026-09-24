@@ -90,19 +90,10 @@ func runLinter(t *testing.T, binary, cache string, cfg community.Config) lintRun
 	return lintRun{Exit: code, Stdout: stdout.String(), Report: report, Reported: reported}
 }
 
-func failedCodes(report community.Report) []string {
-	var codes []string
-	for _, failure := range report.Failures {
-		codes = append(codes, failure.Code)
-	}
-	slices.Sort(codes)
-	return codes
-}
-
 // TestFailingRulesAreErrorsEvenFromTheCache builds a real community linter
-// from a module whose rules fail on purpose and runs it twice over one
-// Staticcheck cache. Staticcheck alone would swallow the error, cache the
-// package as passing, and die on the panic.
+// from a module whose rules fail on purpose and runs each failing rule twice
+// over one Staticcheck cache. Staticcheck alone would swallow the error and
+// cache the package as passing, or die on the panic without a report.
 func TestFailingRulesAreErrorsEvenFromTheCache(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds a linter, which needs the module proxy")
@@ -113,22 +104,27 @@ func TestFailingRulesAreErrorsEvenFromTheCache(t *testing.T) {
 	}
 	binary := filepath.Join(out, Binary)
 	cache := t.TempDir()
-	cfg := community.Config{Modules: []community.ModuleConfig{{
-		Path: "example.com/lvrules-faulty", Version: "v0.0.0", Namespace: "faulty", Select: []string{"faulty_*"},
-	}}}
 
-	for _, attempt := range []string{"first", "second"} {
-		run := runLinter(t, binary, cache, cfg)
+	for _, test := range []struct {
+		rule  string
+		error string
+	}{
+		{"faulty_oops", "oops failed on purpose"},
+		{"faulty_boom", "panic: boom failed on purpose"},
+	} {
+		cfg := community.Config{Modules: []community.ModuleConfig{{
+			Path: "example.com/lvrules-faulty", Version: "v0.0.0", Namespace: "faulty", Select: []string{"faulty_ok", test.rule},
+		}}}
+		want := []community.Failure{{Code: test.rule, Source: "example.com/lvrules-faulty@v0.0.0", Package: "example.com/consumer", Error: test.error}}
 
-		if !run.Reported {
-			t.Fatalf("%s run left no report (exit %d)", attempt, run.Exit)
-		}
-		if got := failedCodes(run.Report); !slices.Equal(got, []string{"faulty_boom", "faulty_oops"}) {
-			t.Errorf("%s run: failures = %+v", attempt, run.Report.Failures)
-		}
-		for _, want := range []string{`"code":"faulty_ok"`, `"message":"function Load"`, `faulty_fine is now faulty_ok; update this directive`} {
-			if !strings.Contains(run.Stdout, want) {
-				t.Errorf("%s run: output lacks %s:\n%s", attempt, want, run.Stdout)
+		for _, attempt := range []string{"first", "second"} {
+			run := runLinter(t, binary, cache, cfg)
+
+			if !run.Reported || run.Exit != 4 {
+				t.Fatalf("%s %s run: exit %d, reported %v", test.rule, attempt, run.Exit, run.Reported)
+			}
+			if !slices.Equal(run.Report.Failures, want) {
+				t.Errorf("%s %s run: failures = %+v, want %+v", test.rule, attempt, run.Report.Failures, want)
 			}
 		}
 	}

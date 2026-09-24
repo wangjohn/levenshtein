@@ -248,7 +248,14 @@ var manifests = []string{"**/go.mod", "**/go.sum", "**/go.work", "**/go.work.sum
 // A vendored module needs no download: Go reads vendor/ in the lint step, and
 // its dependencies may well be private modules no proxy can serve.
 func downloadDependencies(ctx context.Context, source *dagger.Directory, module string, tools toolchain, nonce string) (*dagger.Directory, error) {
-	vendored, err := source.Exists(ctx, path.Join(module, "vendor", "modules.txt"), dagger.DirectoryExistsOpts{ExpectedType: dagger.ExistsTypeRegularType})
+	exists := func(file string) (bool, error) {
+		return source.Exists(ctx, file, dagger.DirectoryExistsOpts{ExpectedType: dagger.ExistsTypeRegularType})
+	}
+	modules, err := vendorFile(module, exists)
+	if err != nil {
+		return nil, err
+	}
+	vendored, err := exists(modules)
 	if err != nil {
 		return nil, err
 	}
@@ -267,6 +274,25 @@ func downloadDependencies(ctx context.Context, source *dagger.Directory, module 
 		return nil, fmt.Errorf("downloading module %q's dependencies for the community linter failed: %w", module, execFailure(err))
 	}
 	return downloaded.Directory("/deps"), nil
+}
+
+// vendorFile is the vendor/modules.txt Go reads for module. In workspace mode
+// Go reads only the workspace root's vendor directory, so the nearest go.work
+// at or above the module decides; without one, it is the module's own. The
+// lint step sets no GOWORK, so Go finds the same go.work.
+func vendorFile(module string, exists func(string) (bool, error)) (string, error) {
+	for dir := module; ; dir = path.Dir(dir) {
+		workspace, err := exists(path.Join(dir, "go.work"))
+		if err != nil {
+			return "", err
+		}
+		if workspace {
+			return path.Join(dir, "vendor", "modules.txt"), nil
+		}
+		if dir == "." {
+			return path.Join(module, "vendor", "modules.txt"), nil
+		}
+	}
 }
 
 // communityConfig is runner/community's Config.
@@ -358,10 +384,10 @@ type communityReport struct {
 	} `json:"rules"`
 	Warnings []warning `json:"warnings"`
 	Failures []struct {
-		Code     string   `json:"code"`
-		Source   string   `json:"source"`
-		Packages []string `json:"packages"`
-		Error    string   `json:"error"`
+		Code    string `json:"code"`
+		Source  string `json:"source"`
+		Package string `json:"package"`
+		Error   string `json:"error"`
 	} `json:"failures"`
 }
 
@@ -400,7 +426,7 @@ func parseCommunity(run communityRun) ([]diagnostic, []warning, error) {
 	if len(report.Failures) > 0 {
 		var failed []string
 		for _, failure := range report.Failures {
-			failed = append(failed, fmt.Sprintf("%s (%s) failed on %d package(s), first: %s", failure.Code, failure.Source, len(failure.Packages), failure.Error))
+			failed = append(failed, fmt.Sprintf("%s (%s) failed on %s: %s", failure.Code, failure.Source, failure.Package, failure.Error))
 		}
 		return nil, report.Warnings, errors.New(strings.Join(failed, "; "))
 	}
@@ -542,7 +568,8 @@ func (o lintOutcome) report() (string, error) {
 // merged report: the rule's finding with its source and page, a suppressed
 // call, and a mixed directive reported once as lvrules_mixed instead of as
 // two unused directives. It then lints the vendored fixture, whose dependency
-// no proxy serves, to prove the lint step needs no download for it.
+// no proxy serves, on its own and inside a vendored workspace, to prove the
+// lint step needs no download for either.
 func communitySelfTest(ctx context.Context, fixtures *dagger.Directory, tools toolchain, nonce string) error {
 	const fixture = "example.com/lvrules-fixture"
 	pins := []buildModule{{Path: fixture, Version: "v0.0.0", Namespace: "fixture", Dir: "/fixtures/rule-module"}}
@@ -591,6 +618,29 @@ func communitySelfTest(ctx context.Context, fixtures *dagger.Directory, tools to
 	}
 	if findings, _, err := parseCommunity(vendoredRun); err != nil || len(findings) != 0 {
 		return fmt.Errorf("vendored fixture must pass the community linter offline: findings=%v error=%v", findings, err)
+	}
+
+	// In a workspace, Go reads only the workspace root's vendor/, the same
+	// layout scripts/test-consumers builds for the core linter.
+	modulesTxt, err := vendored.File("vendor/modules.txt").Contents(ctx)
+	if err != nil {
+		return err
+	}
+	workspace := dag.Directory().
+		WithDirectory("app", vendored.WithoutDirectory("vendor")).
+		WithDirectory("vendor", vendored.Directory("vendor")).
+		WithNewFile("vendor/modules.txt", "## workspace\n"+modulesTxt).
+		WithNewFile("go.work", "go "+tools.Go+"\n\nuse ./app\n")
+	workspaceDeps, err := downloadDependencies(ctx, workspace, "app", tools, nonce)
+	if err != nil {
+		return fmt.Errorf("a module in a vendored workspace needs no download: %w", err)
+	}
+	workspaceRun, err := runCommunityLinter(ctx, workspace, "app", tools, built.Binary, workspaceDeps, communityConfig{Modules: modules}, nonce)
+	if err != nil {
+		return err
+	}
+	if findings, _, err := parseCommunity(workspaceRun); err != nil || len(findings) != 0 {
+		return fmt.Errorf("workspace-vendored fixture must pass the community linter offline: findings=%v error=%v", findings, err)
 	}
 	return nil
 }
