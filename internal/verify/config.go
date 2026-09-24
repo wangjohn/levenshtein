@@ -21,6 +21,7 @@ type Config struct {
 	Runs         map[string]Run         `json:"runs"`
 	Preparations map[string]Preparation `json:"preparations,omitempty"`
 	Builds       map[string]Preparation `json:"builds,omitempty"`
+	Baseline     string                 `json:"baseline,omitempty"`
 }
 
 type Target struct {

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/pflag"
@@ -22,14 +23,22 @@ func run() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	code, err := runCommand(ctx, os.Args[1:], os.Stdout)
+	code, err := runCommand(ctx, os.Args[1:], console{in: os.Stdin, out: os.Stdout, err: os.Stderr})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 	}
 	return code
 }
 
-func runCommand(ctx context.Context, args []string, output io.Writer) (int, error) {
+// console is where a command reads a saved report from and writes its report
+// and notes to. An error that ends the command is returned, not written.
+type console struct {
+	in  io.Reader
+	out io.Writer
+	err io.Writer
+}
+
+func runCommand(ctx context.Context, args []string, streams console) (int, error) {
 	source, err := os.Getwd()
 	if err != nil {
 		return 2, err
@@ -40,12 +49,15 @@ func runCommand(ctx context.Context, args []string, output io.Writer) (int, erro
 		source:   source,
 		shared:   os.Getenv("LEVENSHTEIN_SHARED_ROOT"),
 		cacheDir: filepath.Join(cacheRoot, "levenshtein", "verification-v1"),
-	}, output)
+	}, streams.out)
 	if errors.Is(err, pflag.ErrHelp) {
 		return 0, nil
 	}
 	if err != nil {
 		return 2, err
+	}
+	if opts.render != "" {
+		return renderSaved(opts, streams)
 	}
 
 	source, err = filepath.Abs(opts.source)
@@ -61,13 +73,28 @@ func runCommand(ctx context.Context, args []string, output io.Writer) (int, erro
 		return 2, err
 	}
 
-	encoder := json.NewEncoder(output)
-	encoder.SetIndent("", "  ")
 	if opts.dry {
+		encoder := json.NewEncoder(streams.out)
+		encoder.SetIndent("", "  ")
 		if err := encoder.Encode(plan); err != nil {
 			return 2, err
 		}
 		return 0, nil
+	}
+
+	// The baseline is read before anything runs, so a malformed file is a
+	// configuration error rather than a verdict. Writing one reads it too,
+	// to keep the entries of checks the run does not cover.
+	if opts.writeBaseline && plan.Baseline == "" {
+		return 2, fmt.Errorf(`--write-baseline needs "baseline" in levenshtein.json to name the file; see docs/configuration.md#baseline`)
+	}
+	applyBaseline := plan.Baseline != "" && !opts.noBaseline && !opts.writeBaseline
+	var baseline verify.Baseline
+	if applyBaseline || opts.writeBaseline {
+		baseline, err = verify.LoadBaseline(plan.Source, plan.Baseline)
+		if err != nil {
+			return 2, err
+		}
 	}
 
 	if opts.shared == "" {
@@ -108,11 +135,66 @@ func runCommand(ctx context.Context, args []string, output io.Writer) (int, erro
 		verify.ExecutorNative: verify.CachedExecutor{Cache: cache, Executor: &verify.Native{Cache: cache}},
 	}, opts.jobs)
 
-	if err := encoder.Encode(report); err != nil {
+	// The baseline and hints apply to the finished report, after the cache has
+	// stored whatever it stores, so neither ever reaches a cached result.
+	if applyBaseline {
+		report = baseline.Apply(report)
+	}
+	report = verify.WithHints(report)
+	if err := verify.Render(streams.out, report, opts.format, verify.RenderOptions{PathPrefix: opts.pathPrefix}); err != nil {
 		return 2, err
+	}
+	if opts.writeBaseline {
+		return recordBaseline(report, baseline, plan.Source, streams)
 	}
 	if report.Status != verify.StatusPassed {
 		return 1, nil
+	}
+	return 0, nil
+}
+
+// recordBaseline writes the findings of a run that ignored the baseline into
+// the configured file. It exits 0 once the file is written, whatever the run
+// found, and 1 when a check did not reach a verdict, leaving the file alone.
+func recordBaseline(report verify.Report, existing verify.Baseline, source string, streams console) (int, error) {
+	recorded, change, err := existing.Record(report)
+	if err != nil {
+		return 1, err
+	}
+	if err := recorded.Write(source); err != nil {
+		return 2, fmt.Errorf("baseline %q: %w", recorded.Path, err)
+	}
+
+	_, _ = fmt.Fprintf(streams.err, "wrote %d entries to %s: %d findings added, %d removed\n", len(recorded.Entries), recorded.Path, change.Added, change.Removed)
+	if len(change.Unrecorded) != 0 {
+		_, _ = fmt.Fprintf(streams.err, "not recorded, because their kind cannot be baselined: %s\n", strings.Join(change.Unrecorded, ", "))
+	}
+	return 0, nil
+}
+
+// renderSaved writes a report an earlier run saved as JSON in another format.
+// It runs nothing, so it exits 0 once the report is written, whatever the
+// report's own status.
+func renderSaved(opts options, streams console) (int, error) {
+	input := streams.in
+	if opts.render != "-" {
+		file, err := os.Open(opts.render)
+		if err != nil {
+			return 2, err
+		}
+		defer func() { _ = file.Close() }() // Read-only file cleanup.
+		input = file
+	}
+
+	var report verify.Report
+	if err := json.NewDecoder(input).Decode(&report); err != nil {
+		return 2, fmt.Errorf("--render %q: %w", opts.render, err)
+	}
+	if report.Version != 1 {
+		return 2, fmt.Errorf("--render %q: not a version 1 Levenshtein report", opts.render)
+	}
+	if err := verify.Render(streams.out, verify.WithHints(report), opts.format, verify.RenderOptions{PathPrefix: opts.pathPrefix}); err != nil {
+		return 2, err
 	}
 	return 0, nil
 }
