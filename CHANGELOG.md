@@ -82,6 +82,25 @@ Consumers pin a release tag, or its commit SHA, as described in
   check runs ([lint selection](docs/configuration.md#lint-selection)). This is
   an additive field of configuration version 1; files without it are
   unchanged and keep their cached results.
+- `go-lint` runs `scannererr`, which reports a `bufio.Scanner` loop that never
+  checks `Err`, so a read error or an over-long line ends the input early with
+  no error, and `testableexamples`, which reports an `Example` function without
+  an `// Output:` comment that `go test` compiles but never runs. Measured over
+  eight open-source Go codebases, `scannererr` found 18 real cases in four of
+  them and `testableexamples` 5 in two
+  ([evidence](docs/checks.md#measured-on-other-codebases)).
+- `go-lint` runs seven more analyzers for known bug patterns:
+  `reflectvaluecompare` (`reflect.Value`s compared with `==`), `httpmux`
+  (Go 1.22 `ServeMux` patterns in a module on an older Go), `gochecksumtype`
+  (a type switch over a `//sumtype:decl` interface that misses a variant; a
+  `default` case does not count), and go-critic's `badSyncOnceFunc`,
+  `evalOrder`, `rangeAppendAll`, and `returnAfterHttpError`. None fired on
+  Levenshtein or the other codebases measured;
+  [docs/checks.md](docs/checks.md#known-bug-patterns) explains why each is on.
+  A consumer upgrading may see new findings from these and the two above.
+- `levenshtein-lint` includes go-critic's `deferInLoop`, a `defer` inside a
+  loop, off in the shipped selection like `gocognit`
+  ([opt in](docs/checks.md#opt-in-resources-deferinloop)).
 
 ### Changed
 

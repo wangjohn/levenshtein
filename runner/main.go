@@ -234,20 +234,20 @@ func parseFindings(exitCode int, stdout, stderr string, checks []string) ([]diag
 var expectedBadCodes = []string{
 	"SA4006", "SA5001", "SA5003", "SA9001", "S1002", "ST1005", "QF1011", "U1000",
 	"bodyclose", "sqlclosecheck", "rowserrcheck", "noctx", "contextcheck",
-	"errcheck", "exhaustive", "nilness", "unusedwrite", "errorlint", "nilerr", "durationcheck", "reassign", "wastedassign", "musttag", "recvcheck", "nilnesserr", "fatcontext",
-	"appendAssign", "argOrder", "badCall", "badCond", "badRegexp", "codegenComment", "deprecatedComment", "dupArg", "dupBranchBody", "dupCase", "exitAfterDefer", "filepathJoin", "flagDeref", "flagName", "mapKey", "offBy1",
+	"errcheck", "exhaustive", "nilness", "unusedwrite", "errorlint", "nilerr", "durationcheck", "reassign", "wastedassign", "musttag", "recvcheck", "nilnesserr", "fatcontext", "scannererr", "reflectvaluecompare", "gochecksumtype",
+	"appendAssign", "argOrder", "badCall", "badCond", "badRegexp", "badSyncOnceFunc", "codegenComment", "deprecatedComment", "dupArg", "dupBranchBody", "dupCase", "evalOrder", "exitAfterDefer", "filepathJoin", "flagDeref", "flagName", "mapKey", "offBy1", "rangeAppendAll", "returnAfterHttpError",
 	"zerologlint", "loggercheck",
 	"bidichk", "gocheckcompilerdirectives",
 	"unparam",
 	"intrange", "usestdlibvars", "perfsprint", "predeclared", "errname", "exptostd",
 	"minmax", "mapsloop", "slicescontains", "stringscutprefix", "stringsseq",
-	"thelper", "tparallel", "testifylint", "usetesting",
+	"thelper", "tparallel", "testifylint", "usetesting", "testableexamples",
 	"LV1001", "LV1002", "LV1003", "LV1004", "LV1005", "LV1006",
 }
 
 func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce string) error {
 	fixtures := dag.CurrentModule().Source().Directory("testdata")
-	for _, name := range []string{"good", "vendored", "embedded", "modernize-legacy", "complexity"} {
+	for _, name := range []string{"good", "vendored", "embedded", "modernize-legacy", "complexity", "defer-loop"} {
 		findings, err := lint(ctx, fixtures.Directory(name), ".", tools, nonce)
 		if err != nil || len(findings) != 0 {
 			return fmt.Errorf("%s fixture must pass: findings=%v error=%v", name, findings, err)
@@ -266,6 +266,22 @@ func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce strin
 	}
 	if _, err := selection(ctx, tools, []string{"gocogint"}); err == nil || !strings.Contains(err.Error(), "matches no rule") {
 		return fmt.Errorf("a misspelled added rule must be refused; got %v", err)
+	}
+
+	deferred, err := selection(ctx, tools, []string{"deferInLoop"})
+	if err != nil {
+		return fmt.Errorf("adding deferInLoop to the selection: %w", err)
+	}
+	loop, err := lint(ctx, fixtures.Directory("defer-loop"), ".", deferred, nonce)
+	if err != nil || len(loop) != 1 || loop[0].Code != "deferInLoop" {
+		return fmt.Errorf("defer-loop fixture must fail for one deferInLoop finding when a check adds it: findings=%v error=%v", loop, err)
+	}
+
+	// httpmux reports only a module whose go directive predates Go 1.22, so it
+	// has a fixture of its own rather than a case in bad.
+	legacy, err := lint(ctx, fixtures.Directory("httpmux-legacy"), ".", tools, nonce)
+	if err != nil || len(legacy) != 1 || legacy[0].Code != "httpmux" {
+		return fmt.Errorf("httpmux-legacy fixture must fail for one httpmux finding: findings=%v error=%v", legacy, err)
 	}
 
 	bad, err := lint(ctx, fixtures.Directory("bad"), ".", tools, nonce)

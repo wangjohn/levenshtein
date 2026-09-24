@@ -17,8 +17,9 @@ func TestCriticSelection(t *testing.T) {
 	}
 
 	want := []string{
-		"appendAssign", "argOrder", "badCall", "badCond", "badRegexp", "codegenComment", "deprecatedComment",
-		"dupArg", "dupBranchBody", "dupCase", "exitAfterDefer", "filepathJoin", "flagDeref", "flagName", "mapKey", "offBy1",
+		"appendAssign", "argOrder", "badCall", "badCond", "badRegexp", "badSyncOnceFunc", "codegenComment", "deferInLoop",
+		"deprecatedComment", "dupArg", "dupBranchBody", "dupCase", "evalOrder", "exitAfterDefer", "filepathJoin", "flagDeref",
+		"flagName", "mapKey", "offBy1", "rangeAppendAll", "returnAfterHttpError",
 	}
 	if !slices.Equal(names, want) {
 		t.Errorf("go-critic checkers = %v, want %v", names, want)

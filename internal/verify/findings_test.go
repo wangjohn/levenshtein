@@ -80,16 +80,19 @@ func TestCheckSelectionMatchesTheRunner(t *testing.T) {
 	}
 }
 
-// gocognit is compiled into the linter but opt-in, so the shipped selection a
-// native go-lint reads must keep it off while leaving the rest on.
-func TestShippedSelectionLeavesGocognitOff(t *testing.T) {
+// gocognit and deferInLoop are compiled into the linter but opt-in, so the
+// shipped selection a native go-lint reads must keep them off while leaving
+// the rest on.
+func TestShippedSelectionLeavesOptInRulesOff(t *testing.T) {
 	checks, err := sharedChecks(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if allowed(checks, "gocognit") {
-		t.Errorf("the shipped selection %v reports gocognit", checks)
+	for _, code := range []string{"gocognit", "deferInLoop"} {
+		if allowed(checks, code) {
+			t.Errorf("the shipped selection %v reports %s", checks, code)
+		}
 	}
 	if !allowed(checks, "errcheck") {
 		t.Errorf("the shipped selection %v drops errcheck", checks)
