@@ -61,11 +61,10 @@ func (d *Dagger) Execute(ctx context.Context, req Request) Result {
 	if req.Check.Kind == CheckGoTest {
 		return d.executeTests(ctx, req)
 	}
+	// Only goLintReport binds a report here; every other function leaves it
+	// empty, which withLintReport passes through unchanged.
 	var report string
-	result := daggerResult(d.execute(ctx, req, &daggerArgs{report: &report}))
-	if req.Check.Kind == CheckGoLint {
-		result = withLintReport(result, report)
-	}
+	result := withLintReport(daggerResult(d.execute(ctx, req, &daggerArgs{report: &report})), report)
 
 	if err := ctx.Err(); err != nil {
 		return Result{Status: StatusCancelled, Error: err.Error(), Stdout: result.Stdout, Stderr: result.Stderr, Details: result.Details, Warnings: result.Warnings}
