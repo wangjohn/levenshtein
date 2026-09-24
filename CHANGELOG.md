@@ -104,6 +104,12 @@ Consumers pin a release tag, or its commit SHA, as described in
 
 ### Changed
 
+- The core linter registers only the rules a check selects and guards each
+  one: an analyzer that returns an error or panics now stops the run with an
+  error instead of leaving a silently passing package (Staticcheck swallows
+  analyzer errors and caches the pass). The run stops before Staticcheck
+  caches the failed package, so no later run reuses its results, and a rule
+  that is turned off never runs, so a broken rule can be switched off.
 - **Repositories without a `levenshtein.json` now run `go-mod` in their
   default `branch`, `pre-merge`, and `main` runs**, next to `go-lint` and
   `go-vet`. An untidy root module, or one whose dependencies the container
@@ -122,6 +128,9 @@ Consumers pin a release tag, or its commit SHA, as described in
 
 ### Fixed
 
+- `musttag` no longer fails, unnoticed, on the test main `go test` generates
+  for a package with tests; the new analyzer guard surfaced the swallowed
+  error.
 - Input discovery passes the run's context to the `git ls-files` it starts, so
   cancelling `verify` stops it too, and a cancelled or failed listing is no
   longer remembered for the rest of the run.
