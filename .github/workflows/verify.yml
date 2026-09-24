@@ -227,12 +227,12 @@ jobs:
       - name: Native shared Go checks
         env:
           GOTOOLCHAIN: local
-        run: go test -tags=integration ./internal/verify -run TestNativeGoChecksAgreeWithTheFixtures -count=1
+        run: go test -tags=integration ./internal/verify ./cmd/levenshtein -run 'TestNativeGoChecksAgreeWithTheFixtures|TestBaselineWithNativeGoLint' -count=1
       # The scripts carry no extension, so name them explicitly by shebang.
       # shellcheck ships with the ubuntu-24.04 runner image.
       - name: Shell script checks
         run: |
-          mapfile -t bash_scripts < <(grep -rl '^#!/usr/bin/env bash' scripts)
+          mapfile -t bash_scripts < <(grep -rl '^#!/usr/bin/env bash' scripts templates)
           test "${#bash_scripts[@]}" -gt 0
           shellcheck verify "${bash_scripts[@]}"
       - name: Documentation pins name the newest release
@@ -371,16 +371,21 @@ jobs:
           source: tests/fixtures/action
           setup-go: 'false'
           cache: 'false'
+          sarif: ${{ runner.temp }}/levenshtein.sarif
       - name: The action reported the finding and failed
         env:
           OUTCOME: ${{ steps.failing.outcome }}
           REPORT: ${{ steps.failing.outputs.report }}
+          SARIF: ${{ steps.failing.outputs.sarif }}
           PASSING_RUN: ${{ steps.passing.outputs.run }}
+          PASSING_SARIF: ${{ steps.passing.outputs.sarif }}
         run: |
           test "$PASSING_RUN" = pre-merge
+          test -z "$PASSING_SARIF"
           test "$OUTCOME" = failure
           jq -e '.results[] | select(.id == "lint") | .status == "failed"' "$REPORT"
           grep -q '"code": "SA5001"' "$REPORT"
+          jq -e '.runs[0].results[] | select(.ruleId == "SA5001") | .locations[0].physicalLocation.artifactLocation.uri == "tests/fixtures/action/broken.go"' "$SARIF"
 
   release-smoke:
     # Keep release archives off the draft-PR lint critical path; still required

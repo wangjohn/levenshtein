@@ -30,6 +30,19 @@ inputs:
       but write only their own results, which stay in the pull request's cache
       scope. Helper binaries are not cached; they rebuild from Go's build cache.
     default: 'true'
+  annotations:
+    description: >-
+      Annotate the run's failing findings, and any check that did not reach a
+      verdict, on the workflow run and the pull request's changed files. Needs
+      no permission beyond the job's defaults.
+    default: 'true'
+  sarif:
+    description: >-
+      Path, relative to the workspace, to write a SARIF 2.1.0 file to for
+      github/codeql-action/upload-sarif. Empty writes none. Uploading it is the
+      calling workflow's step and needs security-events write permission there;
+      this action needs none.
+    default: ''
 
 outputs:
   run:
@@ -38,6 +51,9 @@ outputs:
   report:
     description: Path to the JSON report the run printed.
     value: ${{ steps.plan.outputs.report }}
+  sarif:
+    description: Path to the SARIF file, when the sarif input asked for one and it was written.
+    value: ${{ steps.sarif.outputs.sarif }}
 
 runs:
   using: composite
@@ -116,12 +132,45 @@ runs:
       run: |
         mkdir -p "$CACHE_DIR"
         "$LEVENSHTEIN/verify" "$RUN" --source "$SOURCE" --cache-dir "$CACHE_DIR" | tee "$REPORT"
+    # The report is rendered from the saved JSON rather than by running again,
+    # so these steps never change the verdict the Verify step already gave.
+    # Workflow commands escape every value, so a message or file name taken
+    # from the verified source cannot end an annotation or start a command.
+    - name: Annotate findings
+      if: ${{ !cancelled() && inputs.annotations == 'true' && (steps.verify.outcome == 'success' || steps.verify.outcome == 'failure') }}
+      shell: bash
+      env:
+        LEVENSHTEIN: ${{ github.action_path }}
+        REPORT: ${{ steps.plan.outputs.report }}
+        SOURCE: ${{ inputs.source }}
+      run: |
+        if [[ -s $REPORT ]]; then
+          "$LEVENSHTEIN/verify" --render "$REPORT" --format github --path-prefix "$SOURCE"
+        fi
+    - name: Write SARIF
+      id: sarif
+      if: ${{ !cancelled() && inputs.sarif != '' && (steps.verify.outcome == 'success' || steps.verify.outcome == 'failure') }}
+      shell: bash
+      env:
+        LEVENSHTEIN: ${{ github.action_path }}
+        REPORT: ${{ steps.plan.outputs.report }}
+        SOURCE: ${{ inputs.source }}
+        SARIF: ${{ inputs.sarif }}
+      run: |
+        if [[ -s $REPORT ]]; then
+          mkdir -p "$(dirname -- "$SARIF")"
+          "$LEVENSHTEIN/verify" --render "$REPORT" --format sarif --path-prefix "$SOURCE" > "$SARIF"
+          echo "sarif=$SARIF" >> "$GITHUB_OUTPUT"
+        fi
+    # The summary lists at most 50 failing findings; the annotations, the SARIF
+    # file, and the JSON report (the report output) have all of them.
     - name: Summarize
       if: ${{ !cancelled() && (steps.verify.outcome == 'success' || steps.verify.outcome == 'failure') }}
       shell: bash
       env:
         RUN: ${{ steps.plan.outputs.run }}
         REPORT: ${{ steps.plan.outputs.report }}
+        SOURCE: ${{ inputs.source }}
       run: |
         {
           echo "### Levenshtein \`$RUN\`"
@@ -129,6 +178,24 @@ runs:
           echo '| Check | Status |'
           echo '| --- | --- |'
           jq -r '.results[]? | "| `\(.id)` | \(.status) |"' "$REPORT" || echo '| (no report) | error |'
+          findings=$(jq -r --arg prefix "$SOURCE" '
+            [.results[]? | .details.findings[]?
+              | select(.code != null and .location != null and .baselined != true)
+              | "\(if $prefix == "." or $prefix == "" then "" else "\($prefix)/" end)\(.location.file):\(.location.line): \(.code) \(.message | split("\n")[0])"]
+            | (.[:50][]), (if length > 50 then "... and \(length - 50) more" else empty end)' "$REPORT" 2> /dev/null || true)
+          if [[ -n $findings ]]; then
+            echo
+            echo '#### Failing findings'
+            echo
+            echo '```text'
+            echo "$findings"
+            echo '```'
+          fi
+          baselined=$(jq -r '.baseline.baselined // 0' "$REPORT" 2> /dev/null || echo 0)
+          if [[ $baselined != 0 ]]; then
+            echo
+            echo "$baselined findings are accepted by the baseline and not listed."
+          fi
         } >> "$GITHUB_STEP_SUMMARY"
     - name: Save Levenshtein results
       if: >-
