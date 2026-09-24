@@ -24,8 +24,8 @@ Consumers pin a release tag, or its commit SHA, as described in
   output. Levenshtein never applies one
   ([table](docs/configuration.md#fix-hints)).
 - A findings baseline: an optional top-level `baseline` file records existing
-  `go-lint`, `go-http`, and `go-sql` findings by kind, target directory, file,
-  code, and normalized message, never by line. Recorded findings are reported
+  `go-lint`, `go-http`, `go-sql`, and `go-imports` findings by kind, target
+  directory, file, code, and normalized message, never by line. Recorded findings are reported
   as `baselined` and do not fail; new ones fail as before; an entry a check no
   longer matches fails as `baseline-stale` until it is deleted.
   `--write-baseline` records a run in which every check reached a verdict, as
