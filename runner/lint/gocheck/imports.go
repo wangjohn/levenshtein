@@ -184,7 +184,11 @@ func Imports(ctx context.Context, dir, prefix string, config ImportRules, env []
 	if err != nil {
 		return Report{}, err
 	}
-	packages, err := listPackages(ctx, dir, env)
+	// The go command turns cgo off when it finds no C compiler, and go list
+	// then drops cgo files. Listing with cgo on judges them whatever the host
+	// has, as the Dagger image, which has one, does; go list -find compiles
+	// nothing, so it needs no compiler.
+	packages, err := listPackages(ctx, dir, withEnv(env, "CGO_ENABLED=1"))
 	if err != nil {
 		return Report{}, err
 	}

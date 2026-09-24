@@ -92,6 +92,30 @@ func TestImportsReportsEachViolatingImportAtItsPosition(t *testing.T) {
 	}
 }
 
+// A cgo file is judged whether or not the host has a C compiler: go list
+// drops cgo files when cgo is off, which the go command decides by whether
+// it finds one, so a host without it would pass what the Dagger image fails.
+func TestImportsJudgesCgoFilesWithoutACCompiler(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"go.mod":         "module example.com/m\n\ngo 1.24\n",
+		"api/api.go":     "package api\n",
+		"store/store.go": "package store\n",
+		"store/cgo.go":   "package store\n\n// #include <stdlib.h>\nimport \"C\"\n\nimport _ \"example.com/m/api\"\n",
+	})
+	rules := ImportRules{Rules: []ImportRule{{Packages: []string{"./store"}, Deny: []string{"./api"}, Reason: "layering"}}}
+
+	for _, cgo := range []string{"CGO_ENABLED=0", "CGO_ENABLED=1"} {
+		report, err := Imports(t.Context(), dir, ".", rules, withEnv(testEnv(), cgo))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(report.Findings) != 1 || report.Findings[0].Location.File != "store/cgo.go" {
+			t.Errorf("%s: want the cgo file's import: %+v", cgo, report.Findings)
+		}
+	}
+}
+
 func TestImportsRefusesAPackagePatternThatMatchesNothing(t *testing.T) {
 	rules := ImportRules{Rules: []ImportRule{{Packages: []string{"./core", "./cores/..."}, Deny: []string{"net/http"}, Reason: "typo"}}}
 	_, err := Imports(t.Context(), filepath.Join(testdata, "imports-good"), "app", rules, testEnv())
