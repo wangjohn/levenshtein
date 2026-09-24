@@ -1,0 +1,48 @@
+name: Levenshtein
+
+# Copy to .github/workflows/levenshtein.yml. See docs/agents.md and
+# docs/consumer-ci.md in the Levenshtein repository.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  merge_group:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '23 7 * * *' # This repository's daily audit; pick your own minute.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      # Only the code scanning upload below needs this. Remove it, the sarif
+      # input, and the upload step if you do not use code scanning.
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Pin the release's commit SHA, with the version as a comment, to make
+      # the pin immutable. Annotations are on by default.
+      - name: Verify
+        id: levenshtein
+        uses: wangjohn/levenshtein@v0.1.0
+        with:
+          sarif: levenshtein.sarif
+      # A pull request from a fork cannot write security events, so only
+      # same-repository events upload; annotations still cover forks.
+      - name: Upload findings to code scanning
+        if: >-
+          ${{ !cancelled() && steps.levenshtein.outputs.sarif != '' &&
+          (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
+        with:
+          sarif_file: ${{ steps.levenshtein.outputs.sarif }}
+          category: levenshtein

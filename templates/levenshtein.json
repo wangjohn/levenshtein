@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "targets": {
+    "app": {"dir": ".", "inputs": ["."]}
+  },
+  "environments": {
+    "host": {"executor": "native"}
+  },
+  "checks": {
+    "lint": {"kind": "go-lint", "target": "app", "environment": "host"},
+    "vet": {"kind": "go-vet", "target": "app", "environment": "host"},
+    "modules": {"kind": "go-mod", "target": "app", "environment": "host"},
+    "vulnerabilities": {"kind": "go-vuln", "target": "app", "environment": "host"}
+  },
+  "runs": {
+    "branch": {"checks": ["lint", "vet"]},
+    "pre-merge": {"checks": ["lint", "vet", "modules"]},
+    "main": {"checks": ["lint", "vet", "modules", "vulnerabilities"], "rerun_checks": true}
+  },
+  "baseline": ".levenshtein/baseline.json"
+}
