@@ -3,12 +3,15 @@ package verify
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"testing/iotest"
 )
 
 // historyRepo is a git repository for checks that read history: its main
@@ -285,5 +288,17 @@ func TestApidiffBaseIgnoresArchiveAttributes(t *testing.T) {
 	}
 	if data, err := os.ReadFile(filepath.Join(base.Dir, "lib", "version.go")); err != nil || !strings.Contains(string(data), "$Format:%H$") {
 		t.Fatalf("lib/version.go was rewritten: %q %v", data, err)
+	}
+}
+
+// A read that fails partway through a file is reported as that failure, not
+// as a file that ended early.
+func TestWriteArchivedReportsTheReadError(t *testing.T) {
+	failure := errors.New("pipe broke")
+	target := filepath.Join(t.TempDir(), "a.go")
+
+	err := writeArchived(io.MultiReader(strings.NewReader("package"), iotest.ErrReader(failure)), target, 0o644, 20)
+	if !errors.Is(err, failure) {
+		t.Fatalf("a failed read must be returned as itself: %v", err)
 	}
 }
