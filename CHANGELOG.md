@@ -11,6 +11,24 @@ Consumers pin a release tag, or its commit SHA, as described in
 
 ### Added
 
+- `--format` writes the report as `json` (the default, unchanged), `text`
+  (one `file:line:col: CODE message` line per failing finding, then a status
+  line per check), `github` (Actions annotations, escaped as the runner
+  expects), or `sarif` (SARIF 2.1.0 for code scanning, one run with a rule per
+  code). `--render REPORT` writes a saved JSON report in any format without
+  running anything, and `--path-prefix` places paths under a subdirectory.
+  The exit status is the same in every format
+  ([details](docs/configuration.md#output-formats)).
+- Findings whose fix is mechanical carry a one-line `hint`, such as
+  `gofmt -w <file>` for LV1005 or `go fix -minmax ./...`, shown in text
+  output. Levenshtein never applies one
+  ([table](docs/configuration.md#fix-hints)).
+- The GitHub Action annotates failing findings by default (`annotations`),
+  writes a SARIF file when the `sarif` input names one (the `sarif` output),
+  and lists up to 50 failing findings in the job summary. It needs no new
+  permission; uploading the SARIF file needs `security-events: write` in the
+  calling job ([details](docs/consumer-ci.md#github-actions)).
+
 - `go-mod`, a shared check on both executors that runs `go mod tidy -diff` and
   `go mod verify` in the target module. Untidy manifests fail with tidy's diff,
   and a download that no longer matches its recorded hash or `go.sum` fails too;

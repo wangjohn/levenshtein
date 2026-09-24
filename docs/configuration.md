@@ -114,6 +114,49 @@ The CLI emits a versioned JSON report with the resolved plan and a result for ev
 
 Application repos retain their own CI triggers, workers, schedules, and merge gates. Pin the shared checkout as described in [consumer CI](consumer-ci.md).
 
+### Output formats
+
+`--format` chooses how the report is written. Every format describes the same report, and the exit status is the same whichever one is chosen.
+
+| Format | Writes |
+| --- | --- |
+| `json` (default) | The full report described above |
+| `text` | One line per failing finding, `file:line:col: CODE message`, then one status line per check and a total |
+| `github` | GitHub Actions workflow commands: an `::error` annotation per failing finding, and one per check that did not pass without a finding to show |
+| `sarif` | SARIF 2.1.0 for GitHub code scanning (`github/codeql-action/upload-sarif`) |
+
+**Text.** Findings are grouped by check in plan order and sorted by file, line, column, and code within a check. Paths are relative to the source root, as they are in the JSON report. A check that wraps a whole tool, such as `go-vet`, `go-mod`, or `workflow-lint`, reports one finding per module whose message is the tool's own output; text prints its directory and code on one line and the output indented below it. A hint, when there is one, follows on an indented `hint:` line. After the findings, each check gets one line with its status and a note: how many findings it has, the first line of an error, or `cached`. An error of more than one line is repeated in full below the table.
+
+**GitHub.** A finding from `go-lint`, `go-http`, `go-sql`, or `go-mutation` is annotated at its file, line, and column; a module-level finding is annotated without a file. A check that ended in `error`, `incomplete`, or `cancelled`, or that failed without any finding to show (a `command` check, for example), gets one annotation with its error. Every value is escaped as GitHub's runner expects (`%`, carriage return, and newline in messages; also `:` and `,` in properties), so a message or file name cannot end an annotation or start another command.
+
+**SARIF.** The file has one run, whose tool is `Levenshtein`, with one rule per finding code, sorted by code. Code scanning treats a run as one tool's analysis and refuses several runs of the same tool in one upload, so the checks share the run; each result names its check and kind under `properties`. A rule links to its documentation where there is a stable page (Levenshtein's `LV` rules and Staticcheck's codes) and carries the hint as its help text. Only findings with a source location become results, because code scanning needs a file and line for each one: module-level findings, and checks that did not reach a verdict, are listed as tool execution notifications instead, and `executionSuccessful` is false when any check did not reach a verdict. Locations are relative to `%SRCROOT%`, the checkout `upload-sarif` resolves them against. `semantic-lint`'s advisory findings stay in the JSON report only, in every format.
+
+`--path-prefix DIR` joins a directory in front of every path in text, GitHub, and SARIF output. Use it when the source is a subdirectory of the checkout that annotations and SARIF locations are relative to, as the GitHub Action does with its `source` input. It must be a relative path inside the checkout, and it is an error with `json`.
+
+`--render REPORT` writes a report an earlier run saved as JSON, from a file or from standard input with `-`, in the format `--format` names, without planning or running anything:
+
+```sh
+./levenshtein/verify pre-merge --source ./app > report.json   # exits 0, 1, or 2 as usual
+./levenshtein/verify --render report.json --format github --path-prefix app
+./levenshtein/verify --render report.json --format sarif > levenshtein.sarif
+```
+
+A CI job can therefore keep the JSON report and derive the other formats from it. `--render` exits 0 once it has written the report, whatever the report's status, and 2 when the input cannot be read or is not a version 1 report. It takes no run name or `--dry-run`.
+
+### Fix hints
+
+A finding whose code has a mechanical, well-known fix carries a one-line `hint` in the JSON report, and text output prints it below the finding. The table lives in `internal/verify/hints.go` and is deliberately small:
+
+| Code | Hint |
+| --- | --- |
+| `LV1001`–`LV1006` | What the rule wants, with a link to its section of [the checks](checks.md) |
+| `LV1005` | `gofmt -w <file>` |
+| `minmax`, `mapsloop`, `slicescontains`, `stringscutprefix`, `stringsseq` | `go fix -<rule> ./...` in the module |
+| `errcheck` | Handle the error, or discard it explicitly with `_ =` and a comment giving the reason |
+| `go-mod` | `go mod tidy` in the module, when tidy's diff is the finding; a download that fails `go mod verify` gets no hint |
+
+Levenshtein never applies a hint or changes a file. Hints are added to the finished report on the CLI side, never by an executor, so they are not part of any cached result, and `--render` fills in hints a saved report lacks.
+
 ## Native commands
 
 Native commands execute on the supplied macOS or Linux worker. They are trusted repo code, not a sandbox. Levenshtein does not provision Xcode or change CI worker selection.
