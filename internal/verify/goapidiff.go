@@ -1,17 +1,17 @@
 package verify
 
 import (
-	"archive/tar"
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"dagger.io/dagger"
@@ -118,15 +118,60 @@ func gitPath(prefix, rel string) string {
 	return prefix + filepath.ToSlash(rel)
 }
 
-// exportTree extracts paths at commit from git archive into dest, relative to
-// the source rather than the top of the work tree. Only directories and
-// regular files are written; links, which a Dagger input may not hold anyway,
-// and anything outside the source, excluded, or private are skipped.
+// committedFile is one regular file of the base tree and where it is written.
+type committedFile struct {
+	object string
+	target string
+	perm   os.FileMode
+}
+
+// exportTree writes paths at commit into dest, relative to the source rather
+// than the top of the work tree. It reads the committed objects themselves:
+// git archive would apply the tree's export-ignore and export-subst
+// attributes, dropping or rewriting files the base really had, so a breaking
+// change to an export-ignored package would read as that package's addition.
+// Only regular files are written; links, which a Dagger input may not hold
+// anyway, submodules, and anything outside the source, excluded, or private
+// are skipped.
 func exportTree(ctx context.Context, git, top, commit, prefix string, paths, excludes []string, dest string) error {
-	args := append([]string{"--literal-pathspecs", "archive", "--format=tar", commit, "--"}, paths...)
-	cmd := exec.CommandContext(ctx, git, args...)
+	lister := gitchange.Runner{Git: git, Dir: top, Env: os.Environ()}
+	listed, err := lister.Run(ctx, append([]string{"--literal-pathspecs", "ls-tree", "-r", "-z", commit, "--"}, paths...)...)
+	if err != nil {
+		return err
+	}
+
+	var files []committedFile
+	var objects strings.Builder
+	for entry := range strings.SplitSeq(listed, "\x00") {
+		if entry == "" {
+			continue
+		}
+		meta, file, ok := strings.Cut(entry, "\t")
+		fields := strings.Fields(meta)
+		if !ok || len(fields) != 3 {
+			return fmt.Errorf("git ls-tree printed an unexpected entry: %q", entry)
+		}
+		mode, kind, object := fields[0], fields[1], fields[2]
+		if kind != "blob" || (mode != "100644" && mode != "100755") {
+			continue
+		}
+		name, ok := strings.CutPrefix(file, prefix)
+		rel := filepath.FromSlash(name)
+		if !ok || name == "" || !filepath.IsLocal(rel) || privateSourcePath(rel) || excluded(rel, excludes) {
+			continue
+		}
+		perm := os.FileMode(0o644)
+		if mode == "100755" {
+			perm = 0o755
+		}
+		files = append(files, committedFile{object: object, target: filepath.Join(dest, rel), perm: perm})
+		objects.WriteString(object + "\n")
+	}
+
+	cmd := exec.CommandContext(ctx, git, "cat-file", "--batch")
 	cmd.Dir = top
 	cmd.Env = os.Environ()
+	cmd.Stdin = strings.NewReader(objects.String())
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	stdout, err := cmd.StdoutPipe()
@@ -137,47 +182,43 @@ func exportTree(ctx context.Context, git, top, commit, prefix string, paths, exc
 		return err
 	}
 
-	readErr := extractTar(tar.NewReader(stdout), prefix, excludes, dest)
+	readErr := writeCommitted(bufio.NewReader(stdout), files)
 	if readErr != nil {
 		_, _ = io.Copy(io.Discard, stdout)
 	}
 	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("git archive: %v: %s", err, strings.TrimSpace(stderr.String()))
+		return fmt.Errorf("git cat-file: %v: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	return readErr
 }
 
-func extractTar(archive *tar.Reader, prefix string, excludes []string, dest string) error {
-	for {
-		header, err := archive.Next()
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
+// writeCommitted reads git cat-file --batch output, an "<object> blob <size>"
+// line, the contents, and a newline for each file, into each file's target.
+func writeCommitted(batch *bufio.Reader, files []committedFile) error {
+	for _, file := range files {
+		header, err := batch.ReadString('\n')
 		if err != nil {
-			return fmt.Errorf("reading git archive: %w", err)
+			return fmt.Errorf("reading git cat-file: %w", err)
 		}
-		name, ok := strings.CutPrefix(strings.TrimSuffix(header.Name, "/"), prefix)
-		rel := filepath.FromSlash(name)
-		if !ok || name == "" || !filepath.IsLocal(rel) || privateSourcePath(rel) || excluded(rel, excludes) {
-			continue
+		fields := strings.Fields(header)
+		if len(fields) != 3 || fields[0] != file.object || fields[1] != "blob" {
+			return fmt.Errorf("git cat-file printed an unexpected header: %q", header)
 		}
-
-		target := filepath.Join(dest, rel)
-		//exhaustive:ignore Links, devices and pax headers are not source.
-		switch header.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0o700); err != nil {
-				return err
-			}
-		case tar.TypeReg:
-			if err := writeArchived(archive, target, header.FileInfo().Mode().Perm()); err != nil {
-				return err
-			}
+		size, err := strconv.ParseInt(fields[2], 10, 64)
+		if err != nil {
+			return fmt.Errorf("git cat-file printed an unexpected header: %q", header)
+		}
+		if err := writeArchived(io.LimitReader(batch, size), file.target, file.perm, size); err != nil {
+			return err
+		}
+		if newline, err := batch.ReadByte(); err != nil || newline != '\n' {
+			return fmt.Errorf("git cat-file output for %s did not end where its size says", file.object)
 		}
 	}
+	return nil
 }
 
-func writeArchived(from io.Reader, target string, perm os.FileMode) error {
+func writeArchived(from io.Reader, target string, perm os.FileMode, size int64) error {
 	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 		return err
 	}
@@ -185,9 +226,14 @@ func writeArchived(from io.Reader, target string, perm os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(file, from); err != nil {
+	copied, err := io.Copy(file, from)
+	if err != nil {
 		_ = file.Close()
 		return err
+	}
+	if copied != size {
+		_ = file.Close()
+		return fmt.Errorf("git cat-file ended %d bytes into %s, which has %d", copied, target, size)
 	}
 	return file.Close()
 }

@@ -160,7 +160,7 @@ before and after in a git repository kept outside it; natively the tree is a
 copy of the target's declared inputs (`copyInputs` in
 `internal/verify/gogenerate.go`), in Dagger the container's own `/src`.
 `go-apidiff` resolves the merge base on the host, as `go-mutation` does, and
-exports the target's declared inputs at that commit with `git archive`
+exports the target's declared inputs at that commit from its objects
 (`apidiffBase` in `internal/verify/goapidiff.go`); the command's `apidiff` mode
 then drives the `apidiff` built from `runner/tools` over that tree and the
 source, natively, or in the runner's `goApidiff` function, which receives the

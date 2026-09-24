@@ -235,3 +235,32 @@ func TestApidiffResultNamesTheComparison(t *testing.T) {
 		t.Fatalf("an error must keep the tool's output: %+v", broken)
 	}
 }
+
+// The base is the committed tree as it was, not a release archive of it:
+// export-ignore and export-subst attributes must not drop a package or
+// rewrite a file, or a breaking change to it would look like an addition.
+func TestApidiffBaseIgnoresArchiveAttributes(t *testing.T) {
+	dir := historyRepo(t, map[string]*string{
+		".gitattributes":   text("lib/contrib export-ignore\nlib/version.go export-subst\n"),
+		"lib/go.mod":       text("module example.com/lib\n"),
+		"lib/contrib/c.go": text("package contrib\n\nfunc F() {}\n"),
+		"lib/version.go":   text("package lib\n\nconst Version = \"$Format:%H$\"\n"),
+	}, map[string]*string{
+		"lib/contrib/c.go": text("package contrib\n"),
+	})
+	req := apidiffRequest(dir, Target{Dir: "lib", Inputs: []string{"lib"}})
+
+	base, release, err := apidiffBase(t.Context(), req)
+	defer release()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{filepath.Join("lib", "contrib", "c.go"), filepath.Join("lib", "go.mod"), filepath.Join("lib", "version.go")}
+	if got := listTree(t, base.Dir); !slices.Equal(got, want) {
+		t.Fatalf("exported %v, want %v", got, want)
+	}
+	if data, err := os.ReadFile(filepath.Join(base.Dir, "lib", "version.go")); err != nil || !strings.Contains(string(data), "$Format:%H$") {
+		t.Fatalf("lib/version.go was rewritten: %q %v", data, err)
+	}
+}
