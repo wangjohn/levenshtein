@@ -91,7 +91,7 @@ func apidiffBase(ctx context.Context, req Request) (apidiffBaseTree, func(), err
 		if err != nil {
 			return apidiffBaseTree{}, release, err
 		}
-		if found || input == "." {
+		if found {
 			paths = append(paths, gitPath(prefix, input))
 		}
 	}
@@ -111,13 +111,7 @@ func apidiffBase(ctx context.Context, req Request) (apidiffBaseTree, func(), err
 // gitPath is a source-relative path as git names it from the top of the work
 // tree.
 func gitPath(prefix, rel string) string {
-	if rel == "." {
-		if prefix == "" {
-			return "."
-		}
-		return strings.TrimSuffix(prefix, "/")
-	}
-	return prefix + filepath.ToSlash(rel)
+	return path.Join(prefix, filepath.ToSlash(rel))
 }
 
 // treeMode is the mode git ls-tree prints for an entry.
