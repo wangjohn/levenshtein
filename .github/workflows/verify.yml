@@ -232,7 +232,7 @@ jobs:
       # shellcheck ships with the ubuntu-24.04 runner image.
       - name: Shell script checks
         run: |
-          mapfile -t bash_scripts < <(grep -rl '^#!/usr/bin/env bash' scripts)
+          mapfile -t bash_scripts < <(grep -rl '^#!/usr/bin/env bash' scripts templates)
           test "${#bash_scripts[@]}" -gt 0
           shellcheck verify "${bash_scripts[@]}"
       - name: Documentation pins name the newest release

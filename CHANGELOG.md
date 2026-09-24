@@ -38,6 +38,11 @@ Consumers pin a release tag, or its commit SHA, as described in
   and lists up to 50 failing findings in the job summary. It needs no new
   permission; uploading the SARIF file needs `security-events: write` in the
   calling job ([details](docs/consumer-ci.md#github-actions)).
+- `templates/`: a starter `levenshtein.json`, a GitHub Actions workflow with
+  annotations and a code scanning upload, Claude Code hooks that block
+  finishing while the `branch` run fails and report unformatted Go files after
+  each edit, and an `AGENTS.md` section, all tested in this repository
+  ([details](docs/agents.md)).
 
 - `go-mod`, a shared check on both executors that runs `go mod tidy -diff` and
   `go mod verify` in the target module. Untidy manifests fail with tidy's diff,
@@ -138,6 +143,9 @@ Consumers pin a release tag, or its commit SHA, as described in
   source instead of cgo's generated rewrite of it. Upstream findings in
   hand-written cgo files, which were all silently dropped, are now reported,
   and LV1005 no longer reports cgo's build-cache output as unformatted.
+- [docs/consumer-ci.md](docs/consumer-ci.md) no longer says there is no shared
+  `go-test` check, and its list of what is available names `go-test`,
+  `workflow-security`, and `go-mutation`.
 
 ## [0.1.0] - 2026-09-22
 

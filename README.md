@@ -127,6 +127,7 @@ Levenshtein is new and is being tried out on a few Go repos. The config format i
 - [Checks](docs/checks.md): every rule and why it's on or off
 - [Configuration](docs/configuration.md): targets, runs, commands, and caching
 - [Using it in CI](docs/consumer-ci.md): GitHub Actions and other providers
+- [Coding agents](docs/agents.md): templates for Claude Code hooks, `AGENTS.md`, a workflow, and a starter config
 - [Releases](docs/releases.md): prebuilt binaries
 - [Semantic lint](docs/semantic-lint.md): an optional review by a language model
 - [Mutation testing](docs/mutation.md): an optional check that your tests catch deliberate bugs in changed code

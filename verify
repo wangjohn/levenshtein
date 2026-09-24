@@ -20,5 +20,10 @@ if ! probe=$(go env GOVERSION 2>&1); then
   echo "Install it, or allow the toolchain download (GOPROXY). See docs/setup.md." >&2
   exit 2
 fi
-(cd "$root" && go build -o "$bin_dir/levenshtein" ./cmd/levenshtein)
+# A CLI that does not build is a setup error, exit 2 as documented, never the
+# exit 1 that means a check failed.
+if ! (cd "$root" && go build -o "$bin_dir/levenshtein" ./cmd/levenshtein); then
+  echo "Building the Levenshtein CLI failed. See docs/setup.md." >&2
+  exit 2
+fi
 exec "$bin_dir/levenshtein" --shared "$root" --source "$root" "$@"

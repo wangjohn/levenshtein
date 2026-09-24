@@ -2,7 +2,7 @@
 
 Your CI checks out the application, chooses a run, and invokes a pinned Levenshtein version. Levenshtein prepares the check environment and returns results and an exit status. Application tests and CI schedules belong to the application repo.
 
-**Available now:** shared Go lint, vet, module manifest checks, HTTP/SQL cleanup checks, vulnerability scanning, workflow lint, native commands, local result/setup/build caching, text/GitHub/SARIF output, and a findings [baseline](configuration.md#baseline) for adopting the rules with existing findings. Start with one product target and a few useful checks; keep existing CI gates while proving equivalent behavior.
+**Available now:** shared Go lint, vet, module manifest checks, HTTP/SQL cleanup checks, vulnerability scanning, tests (`go-test`), workflow lint and workflow security, mutation testing (`go-mutation`), native commands, local result/setup/build caching, text/GitHub/SARIF output, and a findings [baseline](configuration.md#baseline) for adopting the rules with existing findings. Start with one product target and a few useful checks; keep existing CI gates while proving equivalent behavior.
 
 ## The same command locally and in CI
 
@@ -48,7 +48,7 @@ A single Go module at the application root works without configuration. For adop
 
 Adjust paths to your repo. For Dagger checks, `inputs` is the source allowlist **and** cache input scope: include every required workspace module, local dependency, manifest, fixture, and lockfile. Missing optional paths are allowed. Private directories stay outside the allowlist. Do not use `"."` in a mixed product/private repository. Symlinked inputs are rejected; declare real paths. See [source boundaries](configuration.md#source-boundaries).
 
-Application tests stay in the application repo. Wrap existing test scripts with a native `command` check using the [native configuration](configuration.md#native-commands); the host must supply Go, Postgres, Xcode, or any other required tools/services. Native commands have host access and are not restricted by the Dagger allowlist. No shared `go-test` check is provided yet.
+Application tests stay in the application repo. Wrap existing test scripts with a native `command` check using the [native configuration](configuration.md#native-commands); the host must supply Go, Postgres, Xcode, or any other required tools/services. Native commands have host access and are not restricted by the Dagger allowlist. Self-contained unit tests can instead run as the shared [`go-test`](checks.md#tests) check, which runs `go test -race ./...` on either executor; tests that need a service stay in a `command` check.
 
 For an advisory model review of each pull request, add a native environment, a `semantic-lint` check in its own run, and supply `TYPESAFE_API_KEY` from a CI secret with `fetch-depth: 0` on checkout. The check reads the key and the pull request's base branch from the host environment itself. Findings never fail the run. See [semantic lint](semantic-lint.md).
 
@@ -124,7 +124,7 @@ jobs:
           category: levenshtein
 ```
 
-`!cancelled()` uploads after a failing Verify step too, which is when there is something to see. The `annotations` and `sarif` inputs are new since 0.1.0 (see the [changelog](../CHANGELOG.md)); a pin to 0.1.0 does not have them.
+`!cancelled()` uploads after a failing Verify step too, which is when there is something to see. The `annotations` and `sarif` inputs are new since 0.1.0 (see the [changelog](../CHANGELOG.md)); a pin to 0.1.0 does not have them. [`templates/github/workflows/levenshtein.yml`](../templates/github/workflows/levenshtein.yml) is this workflow ready to copy, and [coding agents](agents.md) describes the other templates.
 
 **Adopting the rules with existing findings.** Name a `baseline` file in `levenshtein.json`, run `verify main --source . --write-baseline` once over the whole repository, and commit the file. From then on a new finding fails the job, a baselined one is reported without failing it, and fixing a baselined finding fails until its entry is deleted in the same change, so the file only shrinks. `verify` never adds entries on its own; only `--write-baseline` does, so an entry that grows the file shows up in review. Consider a `CODEOWNERS` entry for the file. See [baseline](configuration.md#baseline).
 
