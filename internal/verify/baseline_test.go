@@ -336,7 +336,7 @@ func TestLoadBaseline(t *testing.T) {
 		"unsupported kind": {`{"version": 1, "findings": [{"kind":"go-vet","dir":".","file":"a.go","code":"go-vet","message":"e","count":1}]}`, `kind "go-vet" cannot be baselined; only go-http, go-imports, go-lint, go-sql`},
 		"duplicate":        {`{"version": 1, "findings": [` + valid + `,` + valid + `]}`, "entry 2 repeats"},
 		"escaping file":    {`{"version": 1, "findings": [{"kind":"go-lint","dir":".","file":"../a.go","code":"c","message":"e","count":1}]}`, `file "../a.go"`},
-		"zero count":       {`{"version": 1, "findings": [{"kind":"go-lint","dir":".","file":"a.go","code":"c","message":"e","count":0}]}`, "count must be at least 1"},
+		"zero count":       {`{"version": 1, "findings": [` + valid + `,{"kind":"go-lint","dir":".","file":"a.go","code":"c","message":"e","count":0}]}`, "entry 2: count must be at least 1"},
 		"no message":       {`{"version": 1, "findings": [{"kind":"go-lint","dir":".","file":"a.go","code":"c","message":" ","count":1}]}`, "needs a code and a message"},
 	} {
 		t.Run(name, func(t *testing.T) {
