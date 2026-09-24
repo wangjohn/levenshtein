@@ -84,7 +84,7 @@ a preparation stage.
 `internal/verify/dagger.go` holds one Dagger SDK session (`dagger.Client`)
 per CLI invocation and serves the pinned module in `runner/` once
 (`client.ModuleSource(shared).AsModule().Serve`). Each check calls a
-function on that session (`goLint`, `selfTest`, `goImports`, `goGenerate`, `goApidiff`, or `sharedCheck` for
+function on that session (`goLintReport`, `selfTest`, `goImports`, `goGenerate`, `goApidiff`, or `sharedCheck` for
 vet/mod/test/HTTP/SQL/vuln/workflow-lint/workflow-security/shell-lint) with a freshness nonce, plus the consumer
 source directory and module path for every kind except `selfTest`;
 `sharedCheck` also receives the check kind. Consumer inputs travel as
@@ -100,7 +100,14 @@ attaches them as a `levenshteinFindings` extension on a `gqlerror.Error`, and
 `daggerResult` in `dagger.go` turns that into a `Result{Status: StatusFailed}`
 with the findings in `Details`. A GraphQL error without that extension, or
 whose extension does not decode to a non-empty list, becomes `StatusError`
-instead.
+instead. A `go-lint` check also passes its planned rule modules as the
+`ruleModules` argument. `goLintReport` returns a passing check's advisory
+findings and warnings as JSON; a failing one attaches them as the
+`levenshteinFindings` and `levenshteinWarnings` extensions, and a
+`levenshteinError` extension marks a check that could not finish, such as one
+whose community rules failed, as `StatusError` while keeping its findings.
+[Community lint rules](community-rules.md#running-community-rules) describes the
+build, download, and lint containers behind it.
 
 ### Native executor
 
@@ -313,7 +320,7 @@ report is written and 2 when the input cannot be read.
 See [output formats](configuration.md#output-formats) and
 [baseline](configuration.md#baseline) for what each produces.
 
-## The four Go modules
+## The Go modules
 
 - **Root module** (`go.mod`, module `github.com/wangjohn/levenshtein`): the
   `cmd/levenshtein` CLI and `internal/verify` planning/execution/cache logic.
@@ -328,6 +335,11 @@ See [output formats](configuration.md#output-formats) and
   analyzers listed in [Go lint rules](checks.md#go-lint-rules), and the house rules
   `LV1001`-`LV1006` in `runner/lint/policy`) do not leak into the Dagger
   module's own dependency resolution.
+- **`runner/community/`** (`runner/community/go.mod`): the community linter's
+  runtime and the builder that compiles it for a configuration's rule modules.
+  It shares only its Staticcheck pin with `runner/lint`, so community rules can
+  require newer versions of other dependencies without touching the core
+  linter.
 - **`runner/tools/`** (`runner/tools/go.mod`): pins `actionlint`,
   `govulncheck`, `gremlins`, and `apidiff` via Go's `tool` directive, so their versions are locked
   independently of the modules that build and run them.

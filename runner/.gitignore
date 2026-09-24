@@ -2,3 +2,6 @@
 /internal/dagger
 /internal/telemetry
 /.env
+
+# Binaries `go build` leaves beside their main packages.
+/lint/cmd/levenshtein-lint/levenshtein-lint

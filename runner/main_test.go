@@ -66,6 +66,8 @@ func TestCheckSelectionMatchesTheLinter(t *testing.T) {
 		selectionCase{Name: "the shipped default keeps the deselected style rules off", Checks: tools.Checks, Code: "ST1000", Want: false},
 		selectionCase{Name: "the shipped default keeps gocognit off", Checks: tools.Checks, Code: "gocognit", Want: false},
 		selectionCase{Name: "adding gocognit to the shipped default turns it on", Checks: append(slices.Clone(tools.Checks), "gocognit"), Code: "gocognit", Want: true},
+		selectionCase{Name: "the shipped default keeps deferInLoop off", Checks: tools.Checks, Code: "deferInLoop", Want: false},
+		selectionCase{Name: "adding deferInLoop to the shipped default turns it on", Checks: append(slices.Clone(tools.Checks), "deferInLoop"), Code: "deferInLoop", Want: true},
 		selectionCase{Name: "the shipped default keeps everything else on", Checks: tools.Checks, Code: "errcheck", Want: true},
 	)
 	for _, tc := range shared.Cases {

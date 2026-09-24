@@ -6,20 +6,20 @@ trap 'rm -rf "$temporary"' EXIT
 (cd "$root/runner/lint" && go build -o "$temporary/lint" ./cmd/levenshtein-lint)
 
 # The default selection in runner/toolchain.json, spelled the way the linter takes it.
-checks='all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-gocognit'
+checks='all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-gocognit,-deferInLoop'
 
 # One triggering case per default rule. This list mirrors expectedBadCodes in
 # runner/main.go, so a rule that stops running fails here without Dagger too.
 expected='SA4006 SA5001 SA5003 SA9001 S1002 ST1005 QF1011 U1000
 bodyclose sqlclosecheck rowserrcheck noctx contextcheck
-errcheck exhaustive nilness unusedwrite errorlint nilerr durationcheck reassign wastedassign musttag recvcheck nilnesserr fatcontext
-appendAssign argOrder badCall badCond badRegexp codegenComment deprecatedComment dupArg dupBranchBody dupCase exitAfterDefer filepathJoin flagDeref flagName mapKey offBy1
+errcheck exhaustive nilness unusedwrite errorlint nilerr durationcheck reassign wastedassign musttag recvcheck nilnesserr fatcontext scannererr reflectvaluecompare gochecksumtype
+appendAssign argOrder badCall badCond badRegexp badSyncOnceFunc codegenComment deprecatedComment dupArg dupBranchBody dupCase evalOrder exitAfterDefer filepathJoin flagDeref flagName mapKey offBy1 rangeAppendAll returnAfterHttpError
 zerologlint loggercheck
 bidichk gocheckcompilerdirectives
 unparam
 intrange usestdlibvars perfsprint predeclared errname exptostd
 minmax mapsloop slicescontains stringscutprefix stringsseq
-thelper tparallel testifylint usetesting
+thelper tparallel testifylint usetesting testableexamples
 LV1001 LV1002 LV1003 LV1004 LV1005 LV1006'
 
 (cd "$root/runner/testdata/good" && "$temporary/lint" -checks="$checks" ./...)
@@ -32,6 +32,8 @@ LV1001 LV1002 LV1003 LV1004 LV1005 LV1006'
 (cd "$root/runner/testdata/resources-good" && "$temporary/lint" -checks="$checks" ./...)
 # gocognit is registered but off by default, so its fixture passes the default.
 (cd "$root/runner/testdata/complexity" && "$temporary/lint" -checks="$checks" ./...)
+# deferInLoop is registered but off by default too.
+(cd "$root/runner/testdata/defer-loop" && "$temporary/lint" -checks="$checks" ./...)
 
 # fails runs a command in a fixture and requires it to fail, keeping the output.
 fails() {
@@ -79,6 +81,10 @@ expect_failure complexity gocognit "$temporary/lint" -checks=all ./...
 # A go-lint check's "lint": {"checks": [...]} is appended to the default, so a
 # later name turns the opt-in rule back on.
 expect_failure complexity gocognit "$temporary/lint" -checks="$checks,gocognit" ./...
+expect_failure defer-loop deferInLoop "$temporary/lint" -checks="$checks,deferInLoop" ./...
+# httpmux only reports a module whose go directive predates Go 1.22, so it has a
+# fixture of its own rather than a case in bad.
+expect_failure httpmux-legacy httpmux "$temporary/lint" -checks="$checks" ./...
 fails vet-bad go vet ./...
 reported 'passes lock by value' 'passes lock by value'
 echo 'Expanded check regression fixtures passed'

@@ -18,7 +18,7 @@ func validateCheck(check Check, env Environment) error {
 		if check.Kind != CheckGoLint {
 			return fmt.Errorf("lint options apply only to go-lint checks")
 		}
-		if err := validateLintChecks(check.Lint.Checks); err != nil {
+		if err := validateLintChecks(*check.Lint); err != nil {
 			return err
 		}
 	}
@@ -106,16 +106,23 @@ func validateGoMutation(check Check) error {
 // runner/main.go has a copy that guards a direct Dagger call.
 var lintPattern = regexp.MustCompile(`^-?(\*|[A-Za-z][A-Za-z0-9]*\*?)$`)
 
-// validateLintChecks accepts the patterns a go-lint check adds to the shipped
-// selection. They are joined with commas into one -checks flag, so an entry
-// that is not a single pattern would change what the others mean. Whether a
-// pattern names a rule the pinned linter registers is checked when the check
-// runs, because only the linter knows its rules.
-func validateLintChecks(checks []string) error {
-	if len(checks) == 0 {
-		return fmt.Errorf("go-lint lint options need a nonempty checks list")
+// validateLintChecks accepts the options of a go-lint check: patterns it adds
+// to the shipped selection, and whether it runs the rule modules. Core
+// patterns are joined with commas into one -checks flag, so an entry that is
+// not a single pattern would change what the others mean. A pattern with "_"
+// is a community pattern (see rulemodules.go). Whether a pattern names a rule
+// is checked when the check runs, because only the linters know their rules.
+func validateLintChecks(options LintCheck) error {
+	if len(options.Checks) == 0 && options.RuleModules == nil {
+		return fmt.Errorf("go-lint lint options need a nonempty checks list or rule_modules")
 	}
-	for _, check := range checks {
+	for _, check := range options.Checks {
+		if isCommunityPattern(check) {
+			if !communityPattern.MatchString(check) {
+				return fmt.Errorf("go-lint check %q must be one community pattern such as \"errs_*\", \"errs_no*\", or \"-errs_nopanic\"", check)
+			}
+			continue
+		}
 		if !lintPattern.MatchString(check) {
 			return fmt.Errorf("go-lint check %q must be one Staticcheck pattern such as \"gocognit\", \"-unparam\", or \"SA5*\"", check)
 		}

@@ -15,14 +15,14 @@ func TestRepositoryRunsPlanTheSameCheckIDs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	native := []string{"native-go-lint/root", "native-go-lint/runner", "native-go-lint/lint", "native-go-lint/example", "native-go-vet/root", "native-go-vet/runner", "native-go-vet/lint", "native-go-vet/example", "native-go-mod/root", "native-go-mod/lint", "native-go-mod/tools", "native-go-mod/example", "native-go-imports", "native-go-imports-lint", "native-workflow-lint", "native-workflow-security", "native-shell-lint"}
-	dagger := []string{"go-lint/root", "go-lint/runner", "go-lint/lint", "go-lint/example", "go-vet/root", "go-vet/runner", "go-vet/lint", "go-vet/example", "go-mod/root", "go-mod/lint", "go-mod/tools", "go-mod/example", "go-imports", "go-imports-lint", "workflow-lint", "workflow-security", "shell-lint"}
+	native := []string{"native-go-lint/root", "native-go-lint/runner", "native-go-lint/lint", "native-go-lint/community", "native-go-lint/example", "native-go-vet/root", "native-go-vet/runner", "native-go-vet/lint", "native-go-vet/community", "native-go-vet/example", "native-go-mod/root", "native-go-mod/lint", "native-go-mod/community", "native-go-mod/tools", "native-go-mod/example", "native-go-imports", "native-go-imports-lint", "native-workflow-lint", "native-workflow-security", "native-shell-lint"}
+	dagger := []string{"go-lint/root", "go-lint/runner", "go-lint/lint", "go-lint/community", "go-lint/example", "go-vet/root", "go-vet/runner", "go-vet/lint", "go-vet/community", "go-vet/example", "go-mod/root", "go-mod/lint", "go-mod/community", "go-mod/tools", "go-mod/example", "go-imports", "go-imports-lint", "workflow-lint", "workflow-security", "shell-lint"}
 	for name, want := range map[string][]string{
 		"branch":        native,
 		"pre-merge":     append(slices.Clone(native), "self-test"),
 		"mutation":      {"go-mutation", "go-mutation-lint"},
 		"branch-dagger": dagger,
-		"main":          append(slices.Clone(dagger), "self-test", "go-vuln/root", "go-vuln/runner", "go-vuln/lint"),
+		"main":          append(slices.Clone(dagger), "self-test", "go-vuln/root", "go-vuln/runner", "go-vuln/lint", "go-vuln/community"),
 	} {
 		plan, err := cfg.Plan("../..", name)
 		if err != nil {
