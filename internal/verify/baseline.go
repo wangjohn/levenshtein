@@ -270,7 +270,7 @@ func (b Baseline) Apply(report Report) Report {
 		findings := detailFindings(result.Details)
 		for j, f := range findings {
 			key := findingKey(check, f)
-			if f.Code != baselineStaleCode && left[key] > 0 {
+			if f.Code != baselineStaleCode && !f.Advisory && left[key] > 0 {
 				left[key]--
 				findings[j].Baselined = true
 				baselined++
@@ -312,7 +312,8 @@ func (b Baseline) Apply(report Report) Report {
 }
 
 // judged settles one completed result once its findings are marked: it fails
-// while any finding is neither baselined nor absent, and passes otherwise.
+// while any finding is neither baselined, advisory, nor absent, and passes
+// otherwise.
 func judged(result Result, stale []finding) Result {
 	slices.SortFunc(stale, func(a, b finding) int {
 		return cmp.Or(cmp.Compare(a.Location.Line, b.Location.Line), cmp.Compare(a.Message, b.Message))
@@ -322,7 +323,7 @@ func judged(result Result, stale []finding) Result {
 		result = result.withDetails(replaceFindings(result.Details, findings))
 	}
 
-	failing := slices.ContainsFunc(findings, func(f finding) bool { return !f.Baselined && f.Code != baselineStaleCode })
+	failing := slices.ContainsFunc(findings, func(f finding) bool { return fails(f) && f.Code != baselineStaleCode })
 	switch {
 	case failing:
 		return result.withOutcome(StatusFailed, result.Error)
@@ -346,8 +347,8 @@ func (b Baseline) staleFinding(index, missing int) finding {
 	}
 }
 
-// Record returns the baseline that holds exactly the findings a run reported
-// for every baseline-kind check it ran, and keeps the entries of kinds and
+// Record returns the baseline that holds exactly the failing findings a run
+// reported for every baseline-kind check it ran, and keeps the entries of kinds and
 // directories the run did not cover. It refuses a run in which any check did
 // not reach a verdict, because its findings are unknown. When several checks
 // cover the same entry, it records the most findings any one of them reported.
@@ -383,7 +384,7 @@ func (b Baseline) Record(report Report) (Baseline, BaselineChange, error) {
 		covered[scope{Kind: check.Check.Kind, Dir: check.Target.Dir}] = true
 		local := map[baselineKey]int{}
 		for _, f := range findings {
-			if f.Code != baselineStaleCode {
+			if f.Code != baselineStaleCode && !f.Advisory {
 				local[findingKey(check, f)]++
 			}
 		}

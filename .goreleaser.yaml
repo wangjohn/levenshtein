@@ -24,6 +24,8 @@ archives:
       - runner/checks.go
       - runner/mutation.go
       - runner/zizmor.go
+      - runner/community.go
+      - runner/rule-modules.json
       - runner/go.mod
       - runner/go.sum
       - runner/toolchain.json
@@ -33,6 +35,7 @@ archives:
       - sdk/patched-go/src/**/*.py
       - sdk/patched-go/README.md
       - runner/lint/**
+      - runner/community/**
       - runner/testdata/**
 sboms:
   - artifacts: archive
