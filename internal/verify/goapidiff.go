@@ -37,11 +37,7 @@ type apidiffBaseTree struct {
 
 // note says what the comparison was made with.
 func (b apidiffBaseTree) note() string {
-	commit := b.Commit
-	if len(commit) > 12 {
-		commit = commit[:12]
-	}
-	return fmt.Sprintf("compared with the merge base of %s, %s", b.Ref, commit)
+	return fmt.Sprintf("compared with the merge base of %s, %s", b.Ref, b.Commit[:min(len(b.Commit), 12)])
 }
 
 // apidiffBase finds the merge base of HEAD with the check's base branch and
@@ -196,9 +192,9 @@ func exportTree(ctx context.Context, git, top, commit, prefix string, paths, exc
 	}
 
 	readErr := writeCommitted(bufio.NewReader(stdout), files)
-	if readErr != nil {
-		_, _ = io.Copy(io.Discard, stdout)
-	}
+	// Whatever writeCommitted left unread, after a failure, must still be read,
+	// or git blocks on a full pipe and Wait never returns.
+	_, _ = io.Copy(io.Discard, stdout)
 	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("git cat-file: %v: %s", err, strings.TrimSpace(stderr.String()))
 	}
