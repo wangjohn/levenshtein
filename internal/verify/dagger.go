@@ -53,6 +53,7 @@ var daggerFunctions = map[CheckKind]string{
 	CheckWorkflowSecurity: "sharedCheck",
 	CheckGoMutation:       "goMutation",
 	CheckGoImports:        "goImports",
+	CheckGoGenerate:       "goGenerate",
 }
 
 func (d *Dagger) Execute(ctx context.Context, req Request) Result {

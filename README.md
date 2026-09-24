@@ -42,7 +42,7 @@ config.go:18:9: LV1001 string choice with multiple alternatives needs a defined 
 - **Modernize rules**: five rules for newer Go features, each fixable with `go fix`.
 - **Levenshtein's own rules**: typed constants for enum-like strings, building structs in one literal, and three formatting rules.
 - **Other tools**: `go vet`, `go mod tidy -diff` and `go mod verify`, `govulncheck`, and `actionlint` for GitHub Actions. `zizmor`'s offline security audits of workflows and composite actions are available as the opt-in `workflow-security` check, and `go test -race ./...` as the opt-in `go-test` check.
-- **Module-wide checks** (opt-in): `go-imports` enforces the layering rules a repository declares, reporting each forbidden import where it is written.
+- **Module-wide checks** (opt-in): `go-imports` enforces the layering rules a repository declares, reporting each forbidden import where it is written, and `go-generate` runs `go generate ./...` in a scratch copy and reports every generated file that is out of date, with the diff.
 
 To silence a finding, use Staticcheck's usual comment: `//lint:ignore CODE reason`.
 
