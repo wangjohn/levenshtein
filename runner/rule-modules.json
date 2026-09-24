@@ -1,0 +1,4 @@
+{
+  "comment": "Rule module versions this Levenshtein release refuses or warns about, copied from the levenshtein-lint-rules catalog when the release is cut. A withdrawn version (malicious or dangerous) is a configuration error; a deprecated one runs with a warning. Checks never contact the catalog, so a pinned Levenshtein always gives the same answer. See docs/community-rules.md#upgrades-and-withdrawals.",
+  "modules": []
+}

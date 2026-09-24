@@ -3,7 +3,8 @@
 A community lint rule module in the shape described in
 [community lint rules](../../docs/community-rules.md). It is its own Go module,
 so no Levenshtein build depends on it; Levenshtein's CI builds it into a
-community linter to keep it working (`scripts/test-example-rules`).
+community linter with the runner's own builder to keep it working
+(`scripts/test-example-rules`).
 
 Namespace: `example`. Every rule reports as `example_<rule>`. The `example`
 namespace is reserved for this module; a module copied from it must choose its
@@ -26,8 +27,8 @@ caller cannot handle the failure.
 
 ## Use it
 
-> [!NOTE]
-> Levenshtein does not load rule modules yet; this is the proposed configuration.
+Pin it in `levenshtein.json` and every Dagger `go-lint` check runs its rules
+beside the shipped ones:
 
 ```json
 "rule_modules": {
@@ -35,16 +36,17 @@ caller cannot handle the failure.
 }
 ```
 
-Until then, run the rule on its own with the `singlechecker` wrapper, pinned to
-an exact version. It also applies fixes with `-fix` for rules that suggest them:
+Outside Levenshtein, run the rule on its own with the `singlechecker` wrapper,
+pinned to an exact version. It also applies fixes with `-fix` for rules that
+suggest them:
 
 ```sh
 go run github.com/wangjohn/levenshtein/examples/rule-module/cmd/nopanic@v0.1.0 ./...
 ```
 
-This module is not tagged yet. Because it lives in a subdirectory, its tags
-will be prefixed with that directory, as in `examples/rule-module/v0.1.0`, while
-Go still calls the version `v0.1.0`.
+This module is not tagged yet, so neither command works until it is. Because
+it lives in a subdirectory, its tags will be prefixed with that directory, as
+in `examples/rule-module/v0.1.0`, while Go still calls the version `v0.1.0`.
 
 ## Layout
 

@@ -11,6 +11,24 @@ Consumers pin a release tag, or its commit SHA, as described in
 
 ### Added
 
+- Community lint rules: a top-level `rule_modules` object pins lint rules
+  published as ordinary Go modules, which run beside the shipped rules in every
+  Dagger `go-lint` check and report into the same results. Each rule reports as
+  `<namespace>_<name>`, works with `//lint:ignore`, and is selected per module
+  (`select`) and per check (`lint.checks`); `"lint": {"rule_modules": false}`
+  opts one check out. Rules can be advisory, reported without failing the
+  check, and take settings through their analyzer flags. The community linter
+  is a separate binary on the same pinned Staticcheck, built for the exact
+  pins with nothing allowed to move off them, and its lint step runs with no
+  credentials and nothing shared writable. A rule that returns an error or
+  panics makes the check an error while the core findings are still reported.
+  Native `go-lint` checks run the shipped rules and warn that they skipped
+  community rules. `runner/rule-modules.json` lists versions a release
+  refuses or warns about. See [docs/community-rules.md](docs/community-rules.md).
+- Lint findings carry `advisory` and, where the rule has one, a documentation
+  `url`; community findings also name their `source` module. Results carry
+  `warnings`, which are kept with cached results, and the GitHub Action's job
+  summary lists advisory findings and warnings.
 - `--format` writes the report as `json` (the default, unchanged), `text`
   (one `file:line:col: CODE message` line per failing finding, then a status
   line per check), `github` (Actions annotations, escaped as the runner
@@ -100,9 +118,36 @@ Consumers pin a release tag, or its commit SHA, as described in
   check runs ([lint selection](docs/configuration.md#lint-selection)). This is
   an additive field of configuration version 1; files without it are
   unchanged and keep their cached results.
+- `go-lint` runs `scannererr`, which reports a `bufio.Scanner` loop that never
+  checks `Err`, so a read error or an over-long line ends the input early with
+  no error, and `testableexamples`, which reports an `Example` function without
+  an `// Output:` comment that `go test` compiles but never runs. Measured over
+  eight open-source Go codebases, `scannererr` found 18 real cases in four of
+  them and `testableexamples` 5 in two
+  ([evidence](docs/checks.md#measured-on-other-codebases)).
+- `go-lint` runs seven more analyzers for known bug patterns:
+  `reflectvaluecompare` (`reflect.Value`s compared with `==`), `httpmux`
+  (Go 1.22 `ServeMux` patterns in a module on an older Go), `gochecksumtype`
+  (a type switch over a `//sumtype:decl` interface that misses a variant; a
+  `default` case does not count), and go-critic's `badSyncOnceFunc`,
+  `evalOrder`, `rangeAppendAll`, and `returnAfterHttpError`. None fired on
+  Levenshtein or the other codebases measured;
+  [docs/checks.md](docs/checks.md#known-bug-patterns) explains why each is on.
+  A consumer upgrading may see new findings from these and the two above.
+- `levenshtein-lint` includes go-critic's `deferInLoop`, a `defer` inside a
+  loop, off in the shipped selection like `gocognit`
+  ([opt in](docs/checks.md#opt-in-resources-deferinloop)).
 
 ### Changed
 
+- The Dagger CLI path calls `goLintReport`, which returns a passing check's
+  advisory findings and warnings; `goLint` stays the Dagger check.
+- Both linters register only the rules a check selects and guard each one:
+  an analyzer that returns an error or panics now stops the run with an
+  error instead of leaving a silently passing package (Staticcheck swallows
+  analyzer errors and caches the pass). The run stops before Staticcheck
+  caches the failed package, so no later run reuses its results, and a rule
+  that is turned off never runs, so a broken rule can be switched off.
 - **Repositories without a `levenshtein.json` now run `go-mod` in their
   default `branch`, `pre-merge`, and `main` runs**, next to `go-lint` and
   `go-vet`. An untidy root module, or one whose dependencies the container
@@ -121,6 +166,9 @@ Consumers pin a release tag, or its commit SHA, as described in
 
 ### Fixed
 
+- `musttag` no longer fails, unnoticed, on the test main `go test` generates
+  for a package with tests; the new analyzer guard surfaced the swallowed
+  error.
 - Input discovery passes the run's context to the `git ls-files` it starts, so
   cancelling `verify` stops it too, and a cancelled or failed listing is no
   longer remembered for the rest of the run.

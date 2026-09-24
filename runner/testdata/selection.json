@@ -1,5 +1,5 @@
 {
-  "comment": "Check-selection cases shared by runner/main_test.go and internal/verify/findings_test.go. Both copies of allowed/selects must agree with every row; change the table, not one test.",
+  "comment": "Check-selection cases shared by runner/main_test.go, internal/verify/findings_test.go, and runner/lint/cmd/levenshtein-lint/selection_test.go. Every copy of allowed/selects must agree with every row; change the table, not one test.",
   "cases": [
     {"name": "all selects an upstream analyzer", "checks": ["all"], "code": "nilness", "want": true},
     {"name": "all selects a house rule", "checks": ["all"], "code": "LV1003", "want": true},

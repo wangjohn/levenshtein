@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/url"
 	"path"
-	"regexp"
 	"slices"
 	"strings"
 	"text/tabwriter"
@@ -107,18 +106,23 @@ func Render(w io.Writer, report Report, format Format, options RenderOptions) er
 	}
 }
 
-// renderText writes every finding that fails the run, one per line as
-// file:line:col: CODE message, grouped by check in plan order and sorted by
-// location within a check, then one status line per check and a total.
+// renderText writes every finding, one per line as file:line:col: CODE
+// message, grouped by check in plan order and sorted by location within a
+// check, then one status line per check and a total. An advisory finding,
+// which never fails its check, is marked as one.
 func renderText(w io.Writer, report Report, options RenderOptions) error {
 	var out strings.Builder
 	for _, it := range items(report) {
 		for _, f := range it.findings {
 			first, rest, _ := strings.Cut(strings.TrimSpace(f.Message), "\n")
+			code := f.Code
+			if f.Advisory {
+				code += " [advisory]"
+			}
 			if it.located() {
-				fmt.Fprintf(&out, "%s: %s %s\n", textPosition(options.path(f.Location.File), f.Location), f.Code, first)
+				fmt.Fprintf(&out, "%s: %s %s\n", textPosition(options.path(f.Location.File), f.Location), code, first)
 			} else {
-				fmt.Fprintf(&out, "%s: %s\n", options.path(f.Location.File), f.Code)
+				fmt.Fprintf(&out, "%s: %s\n", options.path(f.Location.File), code)
 				rest = strings.TrimSpace(f.Message)
 			}
 			if rest != "" {
@@ -170,11 +174,20 @@ func textPosition(file string, at location) string {
 // textStatus is the note after a check's status: what it found, or why it
 // did not reach a verdict.
 func textStatus(it item) string {
-	failing := len(it.findings)
+	advisory := 0
+	for _, f := range it.findings {
+		if f.Advisory {
+			advisory++
+		}
+	}
+	failing := len(it.findings) - advisory
 
 	var notes []string
 	if failing > 0 {
 		notes = append(notes, fmt.Sprintf("%d %s", failing, plural(failing, "finding", "findings")))
+	}
+	if advisory > 0 {
+		notes = append(notes, fmt.Sprintf("%d advisory", advisory))
 	}
 	if it.result.Status != StatusPassed && failing == 0 && it.result.Error != "" {
 		first, _, _ := strings.Cut(strings.TrimSpace(it.result.Error), "\n")
@@ -213,6 +226,13 @@ func renderGitHub(w io.Writer, report Report, options RenderOptions) error {
 			if f.Hint != "" {
 				message += "\n\nhint: " + f.Hint
 			}
+			if f.URL != "" && !strings.Contains(f.Hint, f.URL) {
+				message += "\n\ndocs: " + f.URL
+			}
+			command := "error"
+			if f.Advisory {
+				command = "warning"
+			}
 			properties := []string{}
 			if it.located() {
 				properties = append(properties, "file="+escapeProperty(options.path(f.Location.File)), fmt.Sprintf("line=%d", f.Location.Line))
@@ -221,11 +241,11 @@ func renderGitHub(w io.Writer, report Report, options RenderOptions) error {
 				}
 			}
 			properties = append(properties, "title="+escapeProperty(fmt.Sprintf("%s (%s)", f.Code, it.result.ID)))
-			fmt.Fprintf(&out, "::error %s::%s\n", strings.Join(properties, ","), escapeData(message))
+			fmt.Fprintf(&out, "::%s %s::%s\n", command, strings.Join(properties, ","), escapeData(message))
 		}
 
 		unfinished := it.result.Status != StatusPassed && it.result.Status != StatusFailed
-		if unfinished || (it.result.Status == StatusFailed && len(it.findings) == 0) {
+		if unfinished || (it.result.Status == StatusFailed && !slices.ContainsFunc(it.findings, failing)) {
 			message := strings.TrimSpace(it.result.Error)
 			if message == "" {
 				message = string(it.result.Status)
@@ -334,16 +354,30 @@ type sarifRegion struct {
 type sarifLevel string
 
 const (
-	sarifError sarifLevel = "error"
+	sarifError   sarifLevel = "error"
+	sarifWarning sarifLevel = "warning"
 )
 
-// staticcheckCode is the shape of Staticcheck's own rule names, which its
-// documentation lists by name.
-var staticcheckCode = regexp.MustCompile(`^(SA|S|ST|QF|U)[0-9]+$`)
+// failing reports whether a finding fails its check; an advisory one does not.
+func failing(f finding) bool {
+	return !f.Advisory
+}
 
-func helpURI(code string) string {
+func findingLevel(f finding) sarifLevel {
+	if f.Advisory {
+		return sarifWarning
+	}
+	return sarifError
+}
+
+// helpURI is the page for a code: Levenshtein's own rule docs, then the URL a
+// finding carried (a community rule's page), then Staticcheck's.
+func helpURI(code, reported string) string {
 	if doc, ok := ruleDocs[code]; ok {
 		return doc
+	}
+	if reported != "" {
+		return reported
 	}
 	if staticcheckCode.MatchString(code) {
 		return "https://staticcheck.dev/docs/checks/#" + code
@@ -375,7 +409,7 @@ func renderSARIF(w io.Writer, report Report, options RenderOptions) error {
 
 		for _, f := range it.findings {
 			if !it.located() {
-				notifications = append(notifications, sarifNotification{Level: sarifError, Message: sarifMessage{Text: fmt.Sprintf("%s %s: %s", it.result.ID, f.Code, strings.TrimSpace(f.Message))}})
+				notifications = append(notifications, sarifNotification{Level: findingLevel(f), Message: sarifMessage{Text: fmt.Sprintf("%s %s: %s", it.result.ID, f.Code, strings.TrimSpace(f.Message))}})
 				continue
 			}
 
@@ -383,7 +417,7 @@ func renderSARIF(w io.Writer, report Report, options RenderOptions) error {
 			results = append(results, sarifResult{
 				RuleID:     f.Code,
 				RuleIndex:  index[f.Code],
-				Level:      sarifError,
+				Level:      findingLevel(f),
 				Message:    sarifMessage{Text: strings.TrimSpace(f.Message)},
 				Locations:  []sarifLocation{{PhysicalLocation: sarifPhysicalLocation{ArtifactLocation: sarifArtifactLocation{URI: uri, URIBaseID: "%SRCROOT%"}, Region: sarifRegion{StartLine: max(f.Location.Line, 1), StartColumn: f.Location.Column}}}},
 				Properties: sarifResultProperty{Check: it.result.ID, Kind: it.check.Check.Kind},
@@ -409,10 +443,12 @@ func renderSARIF(w io.Writer, report Report, options RenderOptions) error {
 // says where each one sits in that list for the results to refer to.
 func sarifRules(all []item) ([]sarifRule, map[string]int) {
 	kinds := map[string]CheckKind{}
+	urls := map[string]string{}
 	for _, it := range all {
 		for _, f := range it.findings {
 			if _, seen := kinds[f.Code]; !seen && it.located() {
 				kinds[f.Code] = it.check.Check.Kind
+				urls[f.Code] = f.URL
 			}
 		}
 	}
@@ -430,7 +466,7 @@ func sarifRules(all []item) ([]sarifRule, map[string]int) {
 		if hint, ok := hints[code]; ok {
 			help = &sarifMessage{Text: strings.ReplaceAll(hint, "{file}", "<file>")}
 		}
-		rules = append(rules, sarifRule{ID: code, ShortDescription: sarifMessage{Text: code}, HelpURI: helpURI(code), Help: help, Properties: sarifProperties{Tags: []string{string(kinds[code])}}})
+		rules = append(rules, sarifRule{ID: code, ShortDescription: sarifMessage{Text: code}, HelpURI: helpURI(code, urls[code]), Help: help, Properties: sarifProperties{Tags: []string{string(kinds[code])}}})
 		index[code] = i
 	}
 	return rules, index

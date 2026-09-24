@@ -15,6 +15,9 @@ type PlannedCheck struct {
 	Environment Environment  `json:"environment"`
 	Preparation *Preparation `json:"preparation,omitempty"`
 	Build       *Preparation `json:"build,omitempty"`
+	// RuleModules are the community rule modules a go-lint check runs. They
+	// are part of the check's result key.
+	RuleModules []PlannedRuleModule `json:"rule_modules,omitempty"`
 }
 
 type Plan struct {
@@ -45,6 +48,9 @@ func (cfg Config) Plan(source, name string) (Plan, error) {
 	run, ok := cfg.Runs[name]
 	if !ok || len(run.Checks) == 0 {
 		return Plan{}, fmt.Errorf("run %q is missing or empty", name)
+	}
+	if err := cfg.validateRuleModules(); err != nil {
+		return Plan{}, err
 	}
 
 	p := Plan{Version: 1, Run: name, RerunChecks: run.RerunChecks, Source: source}
@@ -217,5 +223,6 @@ func (cfg Config) planCheck(source string, selected selection, rerunChecks bool)
 	return PlannedCheck{
 		ID: id, Check: check, Target: target, Environment: env,
 		Preparation: preparation, Build: build,
+		RuleModules: cfg.plannedRuleModules(check),
 	}, nil
 }
