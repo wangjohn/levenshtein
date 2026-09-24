@@ -172,6 +172,7 @@ jobs:
             go.sum
             runner/go.sum
             runner/lint/go.sum
+            runner/community/go.sum
             runner/tools/go.sum
             examples/rule-module/go.sum
       # testdata holds lint fixtures, some deliberately unformatted; LV1005
@@ -213,6 +214,12 @@ jobs:
           overwrite: true
       - name: Go policy analyzer tests
         working-directory: runner/lint
+        env:
+          GOTOOLCHAIN: local
+        run: go test -race ./...
+      # The community linter's runtime.
+      - name: Community linter tests
+        working-directory: runner/community
         env:
           GOTOOLCHAIN: local
         run: go test -race ./...

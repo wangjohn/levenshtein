@@ -1,4 +1,4 @@
-package main
+package community
 
 import (
 	"errors"
@@ -20,7 +20,7 @@ import (
 // caller reports, and keeps a failed run's results out of every later run by
 // moving the Staticcheck cache to a new generation the moment anything fails.
 //
-// This is a copy of runner/community/guard.go, which guards community rules;
+// runner/lint/cmd/levenshtein-lint/guard.go keeps a copy for the core linter;
 // change both together.
 
 // guard wraps analyzers and records their failures.
@@ -101,26 +101,17 @@ func (g *guard) record(analyzer *analysis.Analyzer, pkg string, err error) {
 	}
 }
 
-// failure is one analyzer that returned an error or panicked, on every package
-// where it did.
-type failure struct {
-	Code     string
-	Source   string
-	Packages []string
-	Error    string
-}
-
 // report lists every failure in the order the analyzers first failed.
-func (g *guard) report() []failure {
+func (g *guard) report() []Failure {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	failures := make([]failure, 0, len(g.order))
+	failures := make([]Failure, 0, len(g.order))
 	for _, analyzer := range g.order {
 		recorded := g.failures[analyzer]
 		who := g.owners[analyzer]
 		packages := slices.Sorted(slices.Values(recorded.Packages))
-		failures = append(failures, failure{Code: who.Code, Source: who.Source, Packages: packages, Error: recorded.Err.Error()})
+		failures = append(failures, Failure{Code: who.Code, Source: who.Source, Packages: packages, Error: recorded.Err.Error()})
 	}
 	return failures
 }

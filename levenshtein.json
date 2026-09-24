@@ -16,6 +16,11 @@
       "workspace": ".",
       "inputs": ["runner/lint"]
     },
+    "community": {
+      "dir": "runner/community",
+      "workspace": ".",
+      "inputs": ["runner/community", "runner/testdata/community-patterns.json"]
+    },
     "example": {
       "dir": "examples/rule-module",
       "workspace": ".",
@@ -48,20 +53,20 @@
     "host-go": {"executor": "native"}
   },
   "checks": {
-    "go-lint": {"kind": "go-lint", "targets": ["root", "runner", "lint", "example"], "environment": "go"},
-    "go-vet": {"kind": "go-vet", "targets": ["root", "runner", "lint", "example"], "environment": "go"},
-    "go-mod": {"kind": "go-mod", "targets": ["root", "lint", "tools", "example"], "environment": "go"},
-    "go-http": {"kind": "go-http", "targets": ["root", "runner", "lint"], "environment": "go"},
-    "go-sql": {"kind": "go-sql", "targets": ["root", "runner", "lint"], "environment": "go"},
-    "go-vuln": {"kind": "go-vuln", "targets": ["root", "runner", "lint"], "environment": "go"},
+    "go-lint": {"kind": "go-lint", "targets": ["root", "runner", "lint", "community", "example"], "environment": "go"},
+    "go-vet": {"kind": "go-vet", "targets": ["root", "runner", "lint", "community", "example"], "environment": "go"},
+    "go-mod": {"kind": "go-mod", "targets": ["root", "lint", "community", "tools", "example"], "environment": "go"},
+    "go-http": {"kind": "go-http", "targets": ["root", "runner", "lint", "community"], "environment": "go"},
+    "go-sql": {"kind": "go-sql", "targets": ["root", "runner", "lint", "community"], "environment": "go"},
+    "go-vuln": {"kind": "go-vuln", "targets": ["root", "runner", "lint", "community"], "environment": "go"},
     "workflow-lint": {"kind": "workflow-lint", "target": "workflows", "environment": "go"},
     "workflow-security": {"kind": "workflow-security", "target": "actions", "environment": "go"},
     "self-test": {"kind": "self-test", "target": "root", "environment": "go"},
     "semantic-lint": {"kind": "semantic-lint", "target": "repository", "environment": "host"},
-    "native-go-lint": {"kind": "go-lint", "targets": ["root", "runner", "lint", "example"], "environment": "host-go"},
-    "native-go-vet": {"kind": "go-vet", "targets": ["root", "runner", "lint", "example"], "environment": "host-go"},
-    "native-go-mod": {"kind": "go-mod", "targets": ["root", "lint", "tools", "example"], "environment": "host-go"},
-    "native-go-test": {"kind": "go-test", "targets": ["repository", "lint", "example"], "environment": "host-go"},
+    "native-go-lint": {"kind": "go-lint", "targets": ["root", "runner", "lint", "community", "example"], "environment": "host-go"},
+    "native-go-vet": {"kind": "go-vet", "targets": ["root", "runner", "lint", "community", "example"], "environment": "host-go"},
+    "native-go-mod": {"kind": "go-mod", "targets": ["root", "lint", "community", "tools", "example"], "environment": "host-go"},
+    "native-go-test": {"kind": "go-test", "targets": ["repository", "lint", "community", "example"], "environment": "host-go"},
     "native-workflow-lint": {"kind": "workflow-lint", "target": "workflows", "environment": "host-go"},
     "native-workflow-security": {"kind": "workflow-security", "target": "actions", "environment": "host-go"},
     "go-mutation": {"kind": "go-mutation", "target": "repository", "environment": "go"},

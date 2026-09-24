@@ -1,6 +1,4 @@
-// These are copies of runner/community/guard_test.go; change both together.
-
-package main
+package community
 
 import (
 	"errors"
@@ -25,7 +23,7 @@ func TestGuardRecordsErrorsAndPanicsAcrossTheRequiresGraph(t *testing.T) {
 	calls := 0
 	g := newGuard(func() { calls++ })
 
-	g.wrap(rule, owner{Code: "errs_nopanic", Source: "example.com/lvrules-errors@v1.4.0"})
+	g.wrap(rule, owner{Code: "errs_nopanic", Source: errsPath + "@v1.4.0"})
 	_, ruleErr := rule.Run(passFor(rule, "example.com/b"))
 	_, _ = rule.Run(passFor(rule, "example.com/a"))
 	_, dependencyErr := dependency.Run(passFor(dependency, "example.com/a"))
@@ -36,9 +34,9 @@ func TestGuardRecordsErrorsAndPanicsAcrossTheRequiresGraph(t *testing.T) {
 	if calls != 1 {
 		t.Errorf("onFail ran %d times, want once", calls)
 	}
-	want := []failure{
-		{Code: "errs_nopanic", Source: "example.com/lvrules-errors@v1.4.0", Packages: []string{"example.com/a", "example.com/b"}, Error: "no type information"},
-		{Code: "helper", Source: "example.com/lvrules-errors@v1.4.0", Packages: []string{"example.com/a"}, Error: "panic: index out of range"},
+	want := []Failure{
+		{Code: "errs_nopanic", Source: errsPath + "@v1.4.0", Packages: []string{"example.com/a", "example.com/b"}, Error: "no type information"},
+		{Code: "helper", Source: errsPath + "@v1.4.0", Packages: []string{"example.com/a"}, Error: "panic: index out of range"},
 	}
 	got := g.report()
 	if len(got) != len(want) {
