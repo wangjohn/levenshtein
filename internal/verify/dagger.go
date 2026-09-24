@@ -41,7 +41,7 @@ func (d *Dagger) Close() error {
 
 // These are the Dagger functions supported by both planning and execution.
 var daggerFunctions = map[CheckKind]string{
-	CheckGoLint:           "goLint",
+	CheckGoLint:           "goLintReport",
 	CheckSelfTest:         "selfTest",
 	CheckGoVet:            "sharedCheck",
 	CheckGoMod:            "sharedCheck",
@@ -69,10 +69,46 @@ func (d *Dagger) Execute(ctx context.Context, req Request) Result {
 	if req.Check.Kind == CheckGoApidiff {
 		return d.executeApidiff(ctx, req)
 	}
-	result := daggerResult(d.execute(ctx, req, nil))
+	// Only goLintReport binds a report here; every other function leaves it
+	// empty, which withLintReport passes through unchanged.
+	var report string
+	result := withLintReport(daggerResult(d.execute(ctx, req, &daggerArgs{report: &report})), report)
 
 	if err := ctx.Err(); err != nil {
-		return Result{Status: StatusCancelled, Error: err.Error(), Stdout: result.Stdout, Stderr: result.Stderr, Details: result.Details}
+		return Result{Status: StatusCancelled, Error: err.Error(), Stdout: result.Stdout, Stderr: result.Stderr, Details: result.Details, Warnings: result.Warnings}
+	}
+	return result
+}
+
+// lintReport is what the goLintReport function returns for a passing check:
+// advisory findings and warnings, both of which leave the check passing.
+type lintReport struct {
+	Findings []json.RawMessage `json:"findings"`
+	Warnings []Warning         `json:"warnings"`
+}
+
+// withLintReport adds a passing go-lint check's report to its result. A
+// failing check carries the same information in its error's extensions.
+func withLintReport(result Result, raw string) Result {
+	if result.Status != StatusPassed || raw == "" {
+		return result
+	}
+	var report lintReport
+	if err := json.Unmarshal([]byte(raw), &report); err != nil {
+		return result.withOutcome(StatusError, "the go-lint report is not valid JSON: "+err.Error())
+	}
+
+	if len(report.Warnings) > 0 {
+		result.Warnings = report.Warnings
+	}
+	if len(report.Findings) > 0 {
+		details, err := json.Marshal(struct {
+			Findings []json.RawMessage `json:"findings"`
+		}{report.Findings})
+		if err != nil {
+			return result.withOutcome(StatusError, err.Error())
+		}
+		result.Details = details
 	}
 	return result
 }
@@ -119,7 +155,7 @@ func (d *Dagger) executeMutation(parent context.Context, req Request) Result {
 		lines = string(encoded)
 	}
 	var summary string
-	result := daggerResult(d.execute(ctx, req, &mutationArgs{files: selection.Files, lines: lines, accepted: options.Accepted, tags: options.Tags, summary: &summary}))
+	result := daggerResult(d.execute(ctx, req, &daggerArgs{mutation: &mutationArgs{files: selection.Files, lines: lines, accepted: options.Accepted, tags: options.Tags}, report: &summary}))
 	if raw := mutationSummaryOf(result, summary); raw != "" {
 		result.Stdout, result.Details = mutationStdout(raw, selection.Note, result.Details)
 	}
@@ -149,7 +185,7 @@ func (d *Dagger) executeTests(parent context.Context, req Request) Result {
 	ctx, cancel := context.WithTimeout(parent, goCheckTimeout)
 	defer cancel()
 
-	result := daggerResult(d.execute(ctx, req, nil))
+	result := daggerResult(d.execute(ctx, req, &daggerArgs{}))
 	if err := parent.Err(); err != nil {
 		return Result{Status: StatusCancelled, Error: err.Error(), Stdout: result.Stdout, Stderr: result.Stderr, Details: result.Details}
 	}
@@ -159,17 +195,26 @@ func (d *Dagger) executeTests(parent context.Context, req Request) Result {
 	return result
 }
 
+// reporting are the kinds whose Dagger function returns a report on a pass.
+var reporting = map[CheckKind]bool{CheckGoLint: true, CheckGoMutation: true}
+
+// daggerArgs are what one function call needs beyond the request: the
+// go-mutation arguments, and where a function that returns a report puts it.
+type daggerArgs struct {
+	mutation *mutationArgs
+	report   *string
+}
+
 // mutationArgs are the go-mutation function's arguments beyond source and
-// module, and where its returned summary lands.
+// module.
 type mutationArgs struct {
 	files    []string
 	lines    string
 	accepted string
 	tags     string
-	summary  *string
 }
 
-func (d *Dagger) execute(ctx context.Context, req Request, mutation *mutationArgs) error {
+func (d *Dagger) execute(ctx context.Context, req Request, args *daggerArgs) error {
 	function, ok := daggerFunctions[req.Check.Kind]
 	if !ok {
 		return fmt.Errorf("unsupported Dagger check %q", req.Check.Kind)
@@ -197,9 +242,19 @@ func (d *Dagger) execute(ctx context.Context, req Request, mutation *mutationArg
 		query = query.Arg("check", string(req.Check.Kind))
 	}
 	// The added patterns are a function argument, so Dagger's own call cache
-	// keys on them just as the CLI's fingerprint does.
+	// keys on them just as the CLI's fingerprint does. The runner splits them
+	// between its core and community linters.
 	if checks := req.Check.lintChecks(); len(checks) > 0 {
 		query = query.Arg("checks", checks)
+	}
+	// Rule modules are an argument for the same reason; they are also part of
+	// the planned check, and so of the CLI's result key.
+	if len(req.RuleModules) > 0 {
+		modules, err := encodeRuleModules(req.RuleModules)
+		if err != nil {
+			return err
+		}
+		query = query.Arg("ruleModules", modules)
 	}
 	// A go-imports check's rules are an argument too, so they key Dagger's
 	// call cache the way they key the CLI's fingerprint.
@@ -210,8 +265,11 @@ func (d *Dagger) execute(ctx context.Context, req Request, mutation *mutationArg
 		}
 		query = query.Arg("rules", rules)
 	}
-	if mutation != nil {
-		query = query.Arg("files", mutation.files).Arg("lines", mutation.lines).Arg("accepted", mutation.accepted).Arg("tags", mutation.tags).Bind(mutation.summary)
+	if mutation := args.mutation; mutation != nil {
+		query = query.Arg("files", mutation.files).Arg("lines", mutation.lines).Arg("accepted", mutation.accepted).Arg("tags", mutation.tags)
+	}
+	if args.report != nil && reporting[req.Check.Kind] {
+		query = query.Bind(args.report)
 	}
 	return query.Execute(ctx)
 }
@@ -278,7 +336,30 @@ func daggerResult(err error) Result {
 		}
 	}
 
-	return Result{Status: status, Error: err.Error(), Stdout: stdout, Stderr: stderr, Details: details}
+	message := err.Error()
+	// A check that could not finish, such as a community linter that did not
+	// build, is an error even when it carries the findings it did produce.
+	if checkError, _ := failure.Extensions["levenshteinError"].(string); checkError != "" {
+		status, message = StatusError, checkError
+	}
+	return Result{Status: status, Error: message, Stdout: stdout, Stderr: stderr, Details: details, Warnings: extensionWarnings(failure.Extensions)}
+}
+
+// extensionWarnings reads the warnings a failing function attached.
+func extensionWarnings(extensions map[string]any) []Warning {
+	raw, ok := extensions["levenshteinWarnings"]
+	if !ok {
+		return nil
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var warnings []Warning
+	if json.Unmarshal(data, &warnings) != nil {
+		return nil
+	}
+	return warnings
 }
 
 // Generate freshness outside Dagger's cached function invocation.

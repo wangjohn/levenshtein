@@ -10,7 +10,7 @@ trap 'rm -rf "$temporary"' EXIT
 mkdir "$temporary/shared" "$temporary/app"
 tar -xzf "$archive" -C "$temporary/shared"
 shared="$temporary/shared"
-for file in runner/checks.go runner/tools/go.mod sdk/patched-go/dagger.json sdk/patched-go/pyproject.toml sdk/patched-go/src/patched_go/__init__.py; do
+for file in runner/checks.go runner/rule-modules.json runner/community/go.mod runner/tools/go.mod sdk/patched-go/dagger.json sdk/patched-go/pyproject.toml sdk/patched-go/src/patched_go/__init__.py; do
   test -f "$shared/$file" || { echo "Archive missing $file" >&2; exit 1; }
 done
 # The Dagger module compiles every non-test Go file in runner/, and the archive
