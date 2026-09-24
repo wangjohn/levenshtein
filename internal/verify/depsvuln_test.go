@@ -116,10 +116,13 @@ func TestDepsFindingsLeaveOutWhatOSVScannerDoesNotCount(t *testing.T) {
 // repository's code or reach beyond OSV's advisory lookup.
 func TestDepsArgumentsLeaveGoToGoVuln(t *testing.T) {
 	args := depsArguments("osv-scanner", false, "/tmp/report.json")
-	for _, want := range []string{"scan", "source", "--recursive", "--no-ignore", "--experimental-exclude=r:(^|/)(testdata|vendor|node_modules)(/|$)", "--no-resolve", "--no-call-analysis=all", "--experimental-disable-plugins=go/gomod", "--experimental-disable-plugins=directory", "--format=json", "--output-file=/tmp/report.json"} {
+	for _, want := range []string{"scan", "source", "--recursive", "--no-ignore", "--no-resolve", "--no-call-analysis=all", "--experimental-disable-plugins=go/gomod", "--experimental-disable-plugins=directory", "--format=json", "--output-file=/tmp/report.json"} {
 		if !slices.Contains(args, want) {
 			t.Errorf("arguments %q lack %q", args, want)
 		}
+	}
+	if slices.ContainsFunc(args, func(arg string) bool { return strings.HasPrefix(arg, "--experimental-exclude") }) {
+		t.Errorf("the staged directory already leaves out the skipped directories, and osv-scanner would match an exclusion against its absolute path: %q", args)
 	}
 	if args[len(args)-1] != "." || slices.ContainsFunc(args, func(arg string) bool { return strings.HasPrefix(arg, "--config") }) {
 		t.Fatalf("an unconfigured scan covers the working directory with osv-scanner's own lookup: %q", args)

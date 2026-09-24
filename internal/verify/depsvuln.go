@@ -73,8 +73,11 @@ func depsEnv(env []string) []string {
 
 // depsArguments scans every lockfile under the working directory, including
 // ones .gitignore names, since the target's inputs and excludes already decide
-// what is in scope, except under the sourceSkipDirs, which the native path
-// does not stage either. Go modules are left to go-vuln, whose govulncheck reports
+// what is in scope. The staged directory already leaves out the
+// sourceSkipDirs, so unlike the runner's copy it passes no
+// --experimental-exclude: osv-scanner matches that pattern against absolute
+// paths, and a temporary directory under, say, a vendor directory would
+// exclude every lockfile. Go modules are left to go-vuln, whose govulncheck reports
 // only vulnerabilities the code can reach: the go/gomod extractor is disabled,
 // and call analysis, which would run govulncheck or a Rust build, is off for
 // every language. The directory preset is disabled too: it would identify
@@ -83,9 +86,9 @@ func depsEnv(env []string) []string {
 // transitive dependencies through deps.dev. A root osv-scanner.toml is named
 // explicitly and applies to every lockfile; without one, osv-scanner reads the
 // osv-scanner.toml beside each lockfile, if there is one.
-// runner/depsvuln.go keeps a copy; change both together.
+// runner/depsvuln.go keeps a copy, which adds the exclusion; change both together.
 func depsArguments(binary string, configured bool, report string) []string {
-	args := []string{binary, "scan", "source", "--recursive", "--no-ignore", "--experimental-exclude=r:(^|/)(" + strings.Join(sourceSkipDirs, "|") + ")(/|$)", "--no-resolve", "--no-call-analysis=all", "--experimental-disable-plugins=go/gomod", "--experimental-disable-plugins=directory", "--format=json", "--output-file=" + report, "--verbosity=warn"}
+	args := []string{binary, "scan", "source", "--recursive", "--no-ignore", "--no-resolve", "--no-call-analysis=all", "--experimental-disable-plugins=go/gomod", "--experimental-disable-plugins=directory", "--format=json", "--output-file=" + report, "--verbosity=warn"}
 	if configured {
 		args = append(args, "--config="+depsConfig)
 	}
