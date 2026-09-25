@@ -18,41 +18,9 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/wangjohn/levenshtein/internal/checktool"
 )
-
-// This mirrors the runner's workflow-security test: only zizmor's medium and
-// high finding codes are findings, and every other nonzero exit is a tool
-// error, never a pass.
-func TestZizmorFindingsSeparateFindingsFromToolErrors(t *testing.T) {
-	for _, tc := range []struct {
-		code      int
-		stdout    string
-		stderr    string
-		wantError bool
-	}{
-		{code: 14, stdout: "error[template-injection]: code injection via template expansion"},
-		{code: 13, stdout: "warning[excessive-permissions]: overly broad permissions"},
-		{code: 1, stderr: "fatal: no audit was performed", wantError: true},
-		{code: 2, stderr: "error: unexpected argument '--bogus' found", wantError: true},
-		{code: 3, stderr: "fatal: no inputs collected", wantError: true},
-		{code: 12, stdout: "help[self-repository]: use GitHub's dedicated self-repository syntax", wantError: true},
-		{code: 11, stdout: "info[template-injection]: code injection via template expansion", wantError: true},
-		{code: 14, wantError: true},
-		{code: 137, stderr: "killed", wantError: true},
-	} {
-		findings, err := zizmorFindings(".", tc.code, tc.stdout, tc.stderr)
-		if (err != nil) != tc.wantError {
-			t.Fatalf("exit %d: findings=%v error=%v", tc.code, findings, err)
-		}
-		if !tc.wantError && (len(findings) != 1 || findings[0].Code != string(CheckWorkflowSecurity) || findings[0].Message != strings.TrimSpace(tc.stdout+"\n"+tc.stderr) || findings[0].Location.File != ".") {
-			t.Fatalf("lost zizmor's report: %v", findings)
-		}
-	}
-
-	if findings, err := zizmorFindings(".", 0, "No findings to report. Good job!", ""); err != nil || len(findings) != 0 {
-		t.Fatalf("a clean run is not a finding: %v %v", findings, err)
-	}
-}
 
 func TestZizmorInputsNameWorkflowsActionsAndDependabot(t *testing.T) {
 	source := t.TempDir()
@@ -79,7 +47,7 @@ func TestZizmorInputsNameWorkflowsActionsAndDependabot(t *testing.T) {
 	if !slices.Equal(inputs, want) || config != "" {
 		t.Fatalf("inputs=%v config=%q, want %v and no configuration", inputs, config, want)
 	}
-	if args := zizmorArguments("zizmor", config, inputs); !slices.Contains(args, "--no-config") || !slices.Contains(args, "--offline") {
+	if args := checktool.ZizmorArguments("zizmor", config, inputs); !slices.Contains(args, "--no-config") || !slices.Contains(args, "--offline") {
 		t.Fatalf("an unconfigured audit must stay offline and ignore configurations outside the repository: %v", args)
 	}
 
@@ -87,7 +55,7 @@ func TestZizmorInputsNameWorkflowsActionsAndDependabot(t *testing.T) {
 	if _, config, err := zizmorInputs(source, []string{"."}, nil); err != nil || config != ".github/zizmor.yml" {
 		t.Fatalf("the repository's zizmor configuration was not used: %q %v", config, err)
 	}
-	if args := zizmorArguments("zizmor", ".github/zizmor.yml", inputs); !slices.Contains(args, "--config=.github/zizmor.yml") || slices.Contains(args, "--no-config") {
+	if args := checktool.ZizmorArguments("zizmor", ".github/zizmor.yml", inputs); !slices.Contains(args, "--config=.github/zizmor.yml") || slices.Contains(args, "--no-config") {
 		t.Fatalf("a configured audit must name its file: %v", args)
 	}
 

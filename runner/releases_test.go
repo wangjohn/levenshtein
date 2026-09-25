@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"testing"
+
+	"dagger/levenshtein/internal/checktool"
 )
 
 // Every platform either executor runs on has a reviewed asset for both pinned
@@ -13,13 +15,13 @@ func TestReleasePinsCoverEveryPlatform(t *testing.T) {
 	if err := json.Unmarshal(toolchainJSON, &tools); err != nil {
 		t.Fatal(err)
 	}
-	for tool, pin := range map[string]releasePin{"shellcheck": tools.ShellCheck, "osv-scanner": tools.OSVScanner} {
+	for tool, pin := range map[string]checktool.ReleasePin{"shellcheck": tools.ShellCheck, "osv-scanner": tools.OSVScanner} {
 		for _, platform := range []string{"linux/amd64", "linux/arm64", "linux/arm64/v8", "darwin/amd64", "darwin/arm64"} {
-			if _, err := pin.asset(tool, platform); err != nil {
+			if _, err := pin.Asset(tool, platform); err != nil {
 				t.Errorf("%s %s: %v", tool, platform, err)
 			}
 		}
-		if _, err := pin.asset(tool, "windows/amd64"); err == nil {
+		if _, err := pin.Asset(tool, "windows/amd64"); err == nil {
 			t.Errorf("%s: an unpinned platform must be an error, not an unverified download", tool)
 		}
 	}

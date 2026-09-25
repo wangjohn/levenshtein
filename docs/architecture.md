@@ -161,9 +161,8 @@ check's `PATH`, and the runner runs the same command in the pinned image, which
 ships `gcc`. `go-imports` runs `levenshtein-gocheck`, built from
 `runner/lint/cmd/levenshtein-gocheck` like `levenshtein-lint`, on both
 executors: the verdict is decided once, in `runner/lint/gocheck`, and each
-executor only reads its JSON report (`gocheckReport` in
-`internal/verify/gocheck.go` and its copy in `runner/gocheck.go`, both tested
-against `runner/testdata/gocheck-reports.json`). Its rules travel as a
+executor only reads its JSON report (`GocheckReport` in `internal/checktool`,
+tested against `runner/testdata/gocheck-reports.json`). Its rules travel as a
 `rules` argument to the runner's `goImports` function, so they key Dagger's
 call cache as they key the CLI's fingerprint. `go-generate` runs the same
 command's `generate` mode, which runs `go generate ./...` and compares the tree
@@ -189,18 +188,16 @@ that. Without a cache
 directory, a check's tools go into a temporary directory removed when it
 finishes.
 
-`internal/verify/findings.go` is a deliberate copy of the runner's
-`parseFindings`/`commandFindings`/`modFindings` (and `zizmor.go` of its
-`zizmorFindings`/`zizmorArguments`, `gotest.go` of its `testArgs`/`testFindings`,
-and `shelllint.go`, `secrets.go`, and `depsvuln.go` of the runner's files of the
-same names, whose `shellScript` selection both sides test against
-`runner/testdata/shell-scripts.json`)
-and of its check-selection filter (`allowed`/`selects`), since `runner` is a
-separate `package main` module that cannot be imported. Both filters are tested
-against one table, `runner/testdata/selection.json`, and both copies of
-`testFindings` against recorded `go test -json` output in
-`runner/testdata/test-events`, so they cannot drift apart unnoticed. It
-produces the same `{"findings": [...]}` `Details` envelope as `daggerResult`,
+Both executors start each pinned tool and read its result with the same code,
+`internal/checktool`: the arguments, how an exit code and the tool's output
+(`go test -json`, `go mod`, the linter's JSON, ShellCheck, gitleaks, zizmor,
+osv-scanner, `levenshtein-gocheck`, or a plain exit) become findings or an
+error, the check-selection filter, and the release pin type. `runner` is a
+separate module that cannot import the root one, so it compiles
+`runner/internal/checktool`, a copy `go generate ./internal/checktool` writes;
+`TestRunnerCopyIsCurrent` fails while the copy differs from its source. The
+native executor turns checktool's findings into its own
+`{"findings": [...]}` `Details` envelope, the one `daggerResult` produces,
 with locations relative to the source root, so a report does not say which
 executor produced it. Because the host's Go is not covered by any snapshot,
 `fingerprint` adds its `go env GOVERSION GOOS GOARCH` to the cache key for

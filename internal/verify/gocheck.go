@@ -8,49 +8,14 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/wangjohn/levenshtein/internal/checktool"
 )
 
 // helperGocheck is the command both executors run for the shared checks that
 // judge a whole module, so each verdict is decided in one place:
 // runner/lint/gocheck.
 var helperGocheck = helper{Name: "levenshtein-gocheck", Module: "runner/lint", Pkg: "./cmd/levenshtein-gocheck"}
-
-// gocheckOutput is levenshtein-gocheck's report: findings in the shape every
-// check reports, and notes a person should see either way.
-type gocheckOutput struct {
-	Findings []finding `json:"findings"`
-	Notes    []string  `json:"notes"`
-}
-
-// gocheckReport reads one levenshtein-gocheck run, refusing any result that
-// does not agree with itself: exit 0 must carry no findings and exit 1 some,
-// every one of the check's own code at a real location, with nothing on
-// stderr. Exit 2, the command's own error, and any other exit are tool errors,
-// never a pass. runner/gocheck.go keeps a copy for the Dagger path; both tests
-// load runner/testdata/gocheck-reports.json.
-func gocheckReport(kind CheckKind, exitCode int, stdout, stderr string) ([]finding, []string, error) {
-	if exitCode != 0 && exitCode != 1 {
-		return nil, nil, fmt.Errorf("%s could not run: %s", kind, strings.TrimSpace(stderr+"\n"+stdout))
-	}
-	var output gocheckOutput
-	decoder := json.NewDecoder(strings.NewReader(stdout))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&output); err != nil {
-		return nil, nil, fmt.Errorf("%s printed an unreadable report: %w: %s", kind, err, strings.TrimSpace(stdout+"\n"+stderr))
-	}
-	if (exitCode == 0) != (len(output.Findings) == 0) {
-		return nil, nil, fmt.Errorf("%s exit %d does not match its %d findings: %s", kind, exitCode, len(output.Findings), stdout)
-	}
-	for _, found := range output.Findings {
-		if found.Code != string(kind) || found.Message == "" || found.Location.File == "" || found.Location.Line < 1 {
-			return nil, nil, fmt.Errorf("%s reported an unexpected finding: %+v", kind, found)
-		}
-	}
-	if strings.TrimSpace(stderr) != "" {
-		return nil, nil, fmt.Errorf("%s could not produce a clean result: %s", kind, stderr)
-	}
-	return output.Findings, output.Notes, nil
-}
 
 // gocheckRun runs levenshtein-gocheck for one check and turns its report into
 // findings, with its notes as the output a person reads.
@@ -59,12 +24,13 @@ func gocheckRun(ctx context.Context, kind CheckKind, dir string, args, env []str
 	if err != nil {
 		return nil, run, err
 	}
-	findings, notes, err := gocheckReport(kind, run.ExitCode, run.Stdout, run.Stderr)
+	found, notes, err := checktool.GocheckReport(checktool.Kind(kind), checktool.Run(run))
 	if err != nil {
 		return nil, run, err
 	}
+	findings, err := toolFindings(found, nil)
 	run.Stdout = strings.Join(notes, "\n")
-	return findings, run, nil
+	return findings, run, err
 }
 
 // goImports checks the target's packages against its layering rules. It

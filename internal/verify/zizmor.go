@@ -19,6 +19,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/wangjohn/levenshtein/internal/checktool"
 )
 
 // zizmorReleases is where upstream publishes zizmor's release archives. The
@@ -183,11 +185,11 @@ func (n *Native) workflowSecurity(ctx context.Context, req Request, work goRun) 
 		return nil, toolRun{}, err
 	}
 
-	run, err := runTool(ctx, work.Dir, zizmorArguments(binary, config, inputs), zizmorEnv(work.Env), goCheckTimeout)
+	run, err := runTool(ctx, work.Dir, checktool.ZizmorArguments(binary, config, inputs), zizmorEnv(work.Env), goCheckTimeout)
 	if err != nil {
 		return nil, run, err
 	}
-	findings, err := zizmorFindings(req.Target.Dir, run.ExitCode, run.Stdout, run.Stderr)
+	findings, err := toolFindings(checktool.ZizmorFindings(req.Target.Dir, checktool.Run(run)))
 	return findings, run, err
 }
 
@@ -205,10 +207,6 @@ func zizmorEnv(env []string) []string {
 	}
 	return out
 }
-
-// zizmorConfigs are the files zizmor would discover at a repository root, in
-// its own order of precedence.
-var zizmorConfigs = []string{".github/zizmor.yml", ".github/zizmor.yaml", "zizmor.yml", "zizmor.yaml"}
 
 // zizmorInputs names every file workflow-security audits, the way the Dagger
 // path does: the workflows, the composite actions at the root and under
@@ -255,7 +253,7 @@ func zizmorInputs(source string, declaredInputs, excludes []string) ([]string, s
 	}
 
 	var configs []string
-	for _, config := range zizmorConfigs {
+	for _, config := range checktool.ZizmorConfigs {
 		info, err := os.Stat(filepath.Join(source, filepath.FromSlash(config)))
 		if err == nil && info.Mode().IsRegular() && visible(filepath.FromSlash(config)) {
 			configs = append(configs, config)
@@ -271,41 +269,4 @@ func zizmorInputs(source string, declaredInputs, excludes []string) ([]string, s
 		config = configs[0]
 	}
 	return inputs, config, nil
-}
-
-// zizmorArguments audits offline, so the verdict depends only on the inputs,
-// the configuration and the pinned binary, which is what makes it cacheable.
-// Online audits stay with zizmor's own GitHub Action. Without a configuration
-// file, --no-config keeps zizmor from finding one outside the repository.
-// --strict-collection makes an unparsable input an error instead of a warning
-// and a silent pass. runner/checks.go keeps a copy; change both together.
-func zizmorArguments(binary, config string, inputs []string) []string {
-	args := []string{binary, "--offline", "--strict-collection", "--min-severity=medium", "--format=plain", "--color=never", "--no-progress", "--quiet"}
-	if config == "" {
-		args = append(args, "--no-config")
-	} else {
-		args = append(args, "--config="+config)
-	}
-	return append(args, inputs...)
-}
-
-// zizmorFindings keeps zizmor's own report as the finding. zizmor exits 13 or
-// 14 when its highest finding is medium or high; with --min-severity=medium
-// nothing lower is reported, so 11 and 12 cannot mean findings here. 1 is an
-// audit error, 2 a usage error and 3 no inputs; every other code is reserved.
-// runner/checks.go keeps a copy; change both together.
-func zizmorFindings(module string, exitCode int, stdout, stderr string) ([]finding, error) {
-	if exitCode == 0 {
-		return nil, nil
-	}
-
-	message := strings.TrimSpace(stdout + "\n" + stderr)
-	if (exitCode != 13 && exitCode != 14) || message == "" {
-		return nil, fmt.Errorf("zizmor exited %d: %s", exitCode, message)
-	}
-	return []finding{{
-		Code:     string(CheckWorkflowSecurity),
-		Message:  message,
-		Location: location{File: module, Line: 1},
-	}}, nil
 }

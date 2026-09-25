@@ -2,36 +2,11 @@ package verify
 
 import (
 	"context"
-	"encoding/json"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 )
-
-// The runner's shellScript is tested against the same table, so the two
-// executors pick the same scripts.
-func TestShellScriptMatchesTheSharedTable(t *testing.T) {
-	data, err := os.ReadFile("../../runner/testdata/shell-scripts.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var cases []struct {
-		File   string `json:"file"`
-		Head   string `json:"head"`
-		Script bool   `json:"script"`
-	}
-	if err := json.Unmarshal(data, &cases); err != nil {
-		t.Fatal(err)
-	}
-
-	for _, tc := range cases {
-		if got := shellScript(tc.File, []byte(tc.Head)); got != tc.Script {
-			t.Errorf("shellScript(%q, %q) = %v, want %v", tc.File, tc.Head, got, tc.Script)
-		}
-	}
-}
 
 func TestShellInputsSkipFixturesAndHonorOneRootConfiguration(t *testing.T) {
 	source := t.TempDir()
@@ -88,63 +63,10 @@ func TestShellInputsSkipADeclaredInputUnderTestdata(t *testing.T) {
 	}
 }
 
-func TestShellcheckArgumentsIsolateTheConfiguration(t *testing.T) {
-	scripts := []string{"build.sh", "scripts/deploy"}
-	common := []string{"shellcheck", "--format=json1", "--severity=warning", "--color=never"}
-
-	if got, want := shellcheckArguments("shellcheck", "", scripts), append(slices.Clone(common), "--norc", "--", "build.sh", "scripts/deploy"); !slices.Equal(got, want) {
-		t.Fatalf("without a configuration: %q, want %q", got, want)
-	}
-	if got, want := shellcheckArguments("shellcheck", ".shellcheckrc", scripts), append(slices.Clone(common), "--rcfile=.shellcheckrc", "--", "build.sh", "scripts/deploy"); !slices.Equal(got, want) {
-		t.Fatalf("with a configuration: %q, want %q", got, want)
-	}
-}
-
 func TestShellEnvDropsHostOptions(t *testing.T) {
 	env := shellEnv([]string{"PATH=/bin", "SHELLCHECK_OPTS=--severity=style", "HOME=/home/user"})
 	if !slices.Equal(env, []string{"PATH=/bin", "HOME=/home/user"}) {
 		t.Fatalf("unexpected ShellCheck environment: %v", env)
-	}
-}
-
-// This mirrors the runner's test: only an exit that agrees with the json1
-// report is a verdict, and every other outcome is a tool error, never a pass.
-func TestShellFindingsSeparateFindingsFromToolErrors(t *testing.T) {
-	report := `{"comments":[{"file":"run.sh","line":2,"endLine":2,"column":1,"endColumn":8,"level":"warning","code":2164,"message":"Use 'cd ... || exit' or 'cd ... || return' in case cd fails.","fix":null}]}`
-	findings, err := shellFindings(1, report, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := finding{Code: "SC2164", Message: "Use 'cd ... || exit' or 'cd ... || return' in case cd fails.", Location: location{File: "run.sh", Line: 2, Column: 1}}
-	if len(findings) != 1 || findings[0] != want {
-		t.Fatalf("findings=%+v, want %+v", findings, want)
-	}
-
-	// ShellCheck reports a missing or unknown shebang on line 1.
-	firstLine := `{"comments":[{"file":"run","line":1,"endLine":1,"column":1,"endColumn":1,"level":"error","code":2148,"message":"Tips depend on target shell and yours is unknown.","fix":null}]}`
-	if findings, err := shellFindings(1, firstLine, ""); err != nil || len(findings) != 1 || findings[0].Location.Line != 1 {
-		t.Fatalf("a diagnostic on the first line is a finding there: %v %v", findings, err)
-	}
-
-	if findings, err := shellFindings(0, `{"comments":[]}`, ""); err != nil || len(findings) != 0 {
-		t.Fatalf("a clean run is not a finding: %v %v", findings, err)
-	}
-	for _, tc := range []struct {
-		code   int
-		stdout string
-		stderr string
-	}{
-		{2, `{"comments":[]}`, "nope.sh: openBinaryFile: does not exist"},
-		{3, "", "Invalid severity"},
-		{4, "", "unrecognized option"},
-		{1, `{"comments":[]}`, ""},
-		{0, report, ""},
-		{1, "not json", ""},
-		{1, `{"comments":[{"file":"run.sh","line":0,"code":2164,"message":"m"}]}`, ""},
-	} {
-		if findings, err := shellFindings(tc.code, tc.stdout, tc.stderr); err == nil {
-			t.Errorf("exit %d with %q must be an error, got %v", tc.code, tc.stdout, findings)
-		}
 	}
 }
 

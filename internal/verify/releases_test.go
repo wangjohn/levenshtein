@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/wangjohn/levenshtein/internal/checktool"
 )
 
 // writeReleasePin writes a toolchain.json into a fresh shared checkout that
@@ -21,11 +23,11 @@ import (
 func writeReleasePin(t *testing.T, tool releaseTool, binary, name string, asset []byte) string {
 	t.Helper()
 	sum := sha256.Sum256(asset)
-	pin := map[string]releasePin{string(tool): {
+	pin := map[string]checktool.ReleasePin{string(tool): {
 		Releases: "https://example.invalid/releases",
 		Version:  "1.2.3",
 		Binary:   binary,
-		Assets:   map[string]releaseAsset{runtime.GOOS + "/" + runtime.GOARCH: {Name: name, SHA256: hex.EncodeToString(sum[:])}},
+		Assets:   map[string]checktool.ReleaseAsset{runtime.GOOS + "/" + runtime.GOARCH: {Name: name, SHA256: hex.EncodeToString(sum[:])}},
 	}}
 	data, err := json.Marshal(pin)
 	if err != nil {
@@ -154,7 +156,7 @@ func TestReleasePinsCoverNativePlatforms(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, platform := range []string{"darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"} {
-			if _, err := pin.asset(tool, platform); err != nil {
+			if _, err := pin.Asset(string(tool), platform); err != nil {
 				t.Error(err)
 			}
 		}

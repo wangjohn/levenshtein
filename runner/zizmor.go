@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"dagger/levenshtein/internal/checktool"
 	"dagger/levenshtein/internal/dagger"
 )
 
@@ -24,10 +25,6 @@ type zizmorArchive struct {
 	Name   string `json:"name"`
 	SHA256 string `json:"sha256"`
 }
-
-// zizmorConfigs are the files zizmor would discover at a repository root, in
-// its own order of precedence.
-var zizmorConfigs = []string{".github/zizmor.yml", ".github/zizmor.yaml", "zizmor.yml", "zizmor.yaml"}
 
 // workflowSecurity audits the repository's workflows, composite actions and
 // Dependabot configuration with the pinned zizmor. The engine fetches the
@@ -59,20 +56,11 @@ func workflowSecurity(ctx context.Context, source *dagger.Directory, module stri
 		ctr = ctr.WithEnvVariable("LEVENSHTEIN_RUN_NONCE", nonce)
 	}
 
-	checked := ctr.WithExec(zizmorArguments("/usr/local/bin/zizmor", config, inputs), dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
-	exitCode, err := checked.ExitCode(ctx)
+	run, _, err := runTool(ctx, ctr, checktool.ZizmorArguments("/usr/local/bin/zizmor", config, inputs))
 	if err != nil {
 		return nil, err
 	}
-	stdout, err := checked.Stdout(ctx)
-	if err != nil {
-		return nil, err
-	}
-	stderr, err := checked.Stderr(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return zizmorFindings(module, exitCode, stdout, stderr)
+	return checktool.ZizmorFindings(module, run)
 }
 
 // archive is the pinned archive for one platform, ignoring any CPU variant the
@@ -108,7 +96,7 @@ func zizmorInputs(ctx context.Context, source *dagger.Directory) ([]string, stri
 	}
 
 	var configs []string
-	for _, config := range zizmorConfigs {
+	for _, config := range checktool.ZizmorConfigs {
 		files, err := source.Glob(ctx, config)
 		if err != nil {
 			return nil, "", err
@@ -125,39 +113,4 @@ func zizmorInputs(ctx context.Context, source *dagger.Directory) ([]string, stri
 		config = configs[0]
 	}
 	return inputs, config, nil
-}
-
-// zizmorArguments audits offline, so the verdict depends only on the inputs,
-// the configuration and the pinned binary. Without a configuration file,
-// --no-config keeps zizmor from finding one elsewhere. --strict-collection
-// makes an unparsable input an error rather than a skipped file.
-// internal/verify keeps a copy; change both together.
-func zizmorArguments(binary, config string, inputs []string) []string {
-	args := []string{binary, "--offline", "--strict-collection", "--min-severity=medium", "--format=plain", "--color=never", "--no-progress", "--quiet"}
-	if config == "" {
-		args = append(args, "--no-config")
-	} else {
-		args = append(args, "--config="+config)
-	}
-	return append(args, inputs...)
-}
-
-// zizmorFindings keeps zizmor's own report as the finding. zizmor exits 13 or
-// 14 when its highest finding is medium or high; with --min-severity=medium
-// nothing lower is reported, so 11 and 12 cannot mean findings here. 1 is an
-// audit error, 2 a usage error and 3 no inputs; every other code is reserved.
-// internal/verify keeps a copy; change both together.
-func zizmorFindings(module string, exitCode int, stdout, stderr string) ([]diagnostic, error) {
-	if exitCode == 0 {
-		return nil, nil
-	}
-	message := strings.TrimSpace(stdout + "\n" + stderr)
-	if (exitCode != 13 && exitCode != 14) || message == "" {
-		return nil, fmt.Errorf("zizmor exited %d: %s", exitCode, message)
-	}
-	return []diagnostic{{
-		Code:     string(checkWorkflowSecurity),
-		Message:  message,
-		Location: location{File: module, Line: 1},
-	}}, nil
 }

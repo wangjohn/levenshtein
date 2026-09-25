@@ -1,0 +1,145 @@
+package checktool
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"regexp"
+	"slices"
+	"strings"
+	"unicode"
+)
+
+// staticcheckCode is a code from one of Staticcheck's own families.
+var staticcheckCode = regexp.MustCompile(`^(SA|S|ST|QF)[0-9]{4}$|^U1000$`)
+
+// CoreURL is the page that documents a core lint rule: Staticcheck's own page
+// for its families, and otherwise Levenshtein's rule list, which gives the
+// reason for every rule. Its tests load runner/testdata/core-urls.json.
+func CoreURL(code string) string {
+	if url := StaticcheckURL(code); url != "" {
+		return url
+	}
+	return "https://github.com/wangjohn/levenshtein/blob/main/docs/checks.md#go-lint-rules"
+}
+
+// StaticcheckURL is Staticcheck's page for a code from one of its own
+// families, or "" for any other code.
+func StaticcheckURL(code string) string {
+	if !staticcheckCode.MatchString(code) {
+		return ""
+	}
+	return "https://staticcheck.dev/docs/checks/#" + code
+}
+
+// Allowed reproduces Staticcheck's filterAnalyzerNames (lintcmd/lint.go in
+// honnef.co/go/tools v0.8.1) for one code. The core linter keeps its own copy
+// (runner/lint/cmd/levenshtein-lint), in a module this package cannot reach;
+// both load runner/testdata/selection.json in their tests, so a change to one
+// that is not made to the other fails a test.
+//
+// Patterns apply in order and the last one that matches wins, so
+// "all,-SA5001" turns SA5001 off while "-SA5001,all" turns it back on. A "-"
+// prefix turns a code off rather than on. Anything not selected, including a
+// compile error reported as a diagnostic, is not a lint finding and makes the
+// run an error rather than a failure.
+func Allowed(checks []string, code string) bool {
+	selected := false
+	for _, check := range checks {
+		pattern := check
+		enable := true
+		if len(pattern) > 1 && pattern[0] == '-' {
+			pattern = pattern[1:]
+			enable = false
+		}
+		if Selects(pattern, code) {
+			selected = enable
+		}
+	}
+	return selected
+}
+
+// Selects matches one pattern the way Staticcheck does, ignoring case: "all"
+// or "*" matches every code, a trailing "*" after letters matches that exact
+// category (S* matches S1002 but not SA5001), a trailing "*" after a digit is a
+// plain prefix (SA5* matches SA5001), and anything else is a literal name.
+func Selects(pattern, code string) bool {
+	pattern = strings.ToLower(pattern)
+	code = strings.ToLower(code)
+
+	//lint:ignore LV1001 patterns are free-form user input; these are two spellings of one wildcard, not an enum.
+	if pattern == "*" || pattern == "all" {
+		return true
+	}
+	prefix, glob := strings.CutSuffix(pattern, "*")
+	if !glob {
+		return pattern == code
+	}
+	if strings.IndexFunc(prefix, unicode.IsNumber) != -1 {
+		return strings.HasPrefix(code, prefix)
+	}
+	category := code
+	if digit := strings.IndexFunc(code, unicode.IsNumber); digit != -1 {
+		category = code[:digit]
+	}
+	return category == prefix
+}
+
+// Registered checks every pattern a go-lint check adds against the linter's
+// -list-checks output, one rule per line with its name first, since a
+// misspelled name would otherwise leave its rule silently off. Its tests load
+// runner/testdata/registered.json.
+func Registered(patterns []string, listing string) error {
+	var names []string
+	for line := range strings.Lines(listing) {
+		if fields := strings.Fields(line); len(fields) > 0 {
+			names = append(names, fields[0])
+		}
+	}
+
+	for _, pattern := range patterns {
+		name := strings.TrimPrefix(pattern, "-")
+		if !slices.ContainsFunc(names, func(rule string) bool { return Selects(name, rule) }) {
+			return fmt.Errorf("go-lint check %q matches no rule levenshtein-lint registers", pattern)
+		}
+	}
+	return nil
+}
+
+// LintFindings turns one levenshtein-lint -f=json run over root into
+// diagnostics, refusing any result that does not agree with itself: an
+// unexpected exit code, output that is not the configured checks, an exit
+// status that contradicts the diagnostics, or anything at all on stderr.
+func LintFindings(run Run, checks []string, root string) ([]Finding, error) {
+	if run.ExitCode != 0 && run.ExitCode != 1 {
+		return nil, fmt.Errorf("the linter exited %d: %s\n%s", run.ExitCode, run.Stderr, run.Stdout)
+	}
+
+	var findings []Finding
+	decoder := json.NewDecoder(strings.NewReader(run.Stdout))
+	for {
+		var diagnostic Finding
+		err := decoder.Decode(&diagnostic)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("invalid linter JSON: %w", err)
+		}
+		if !Allowed(checks, diagnostic.Code) || diagnostic.Message == "" || diagnostic.Location.File == "" || diagnostic.Location.Line < 1 {
+			return nil, fmt.Errorf("unexpected diagnostic (possibly a compile error): %s", run.Stdout)
+		}
+		diagnostic.Location.File = relative(root, diagnostic.Location.File)
+		diagnostic.URL = CoreURL(diagnostic.Code)
+		findings = append(findings, diagnostic)
+	}
+
+	if (run.ExitCode == 0 && len(findings) != 0) || (run.ExitCode == 1 && len(findings) == 0) {
+		return nil, fmt.Errorf("linter exit %d does not match diagnostics: %s\n%s", run.ExitCode, run.Stdout, run.Stderr)
+	}
+	if strings.TrimSpace(run.Stderr) != "" {
+		return nil, fmt.Errorf("the linter could not produce a clean result: %s", run.Stderr)
+	}
+	return findings, nil
+}

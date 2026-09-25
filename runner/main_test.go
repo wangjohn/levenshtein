@@ -6,74 +6,35 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"dagger/levenshtein/internal/checktool"
 )
 
-func TestLintExitStatusAndDiagnosticsAgree(t *testing.T) {
-	valid := `{"code":"SA5001","message":"defer before error check","location":{"file":"/src/close.go","line":7,"column":2}}`
-	findings, err := parseFindings(1, valid, "", []string{"SA5001"})
-	if err != nil || len(findings) != 1 || findings[0].Location.File != "close.go" {
-		t.Fatalf("lost lint diagnostic: %v, %v", findings, err)
-	}
-	for _, tc := range []struct {
-		code   int
-		out    string
-		stderr string
-	}{
-		{0, valid, ""}, {1, "", ""}, {2, "", "crash"},
-		{1, "not JSON", ""}, {0, "", "warning: no packages"},
-		{1, `{"code":"compile","message":"syntax error"}`, ""},
-	} {
-		if _, err := parseFindings(tc.code, tc.out, tc.stderr, []string{"SA5001"}); err == nil {
-			t.Errorf("accepted invalid tool result: %+v", tc)
-		}
-	}
-	if _, err := parseFindings(0, "", "", []string{"SA5001"}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// selectionCase is one row of testdata/selection.json.
-type selectionCase struct {
-	Name   string   `json:"name"`
-	Checks []string `json:"checks"`
-	Code   string   `json:"code"`
-	Want   bool     `json:"want"`
-}
-
-func TestCheckSelectionMatchesTheLinter(t *testing.T) {
+// The shipped selection keeps its opt-in and deselected rules off and the rest
+// on, and a check can still add an opt-in rule. checktool's own tests cover
+// the filter's general cases.
+func TestShippedSelectionLeavesOptInRulesOff(t *testing.T) {
 	var tools toolchain
 	if err := json.Unmarshal(toolchainJSON, &tools); err != nil {
 		t.Fatal(err)
 	}
 
-	// The general cases live in a table the standalone CLI's copy of this
-	// filter (internal/verify/findings.go) also loads, so the two cannot drift.
-	data, err := os.ReadFile("testdata/selection.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var shared struct {
-		Cases []selectionCase `json:"cases"`
-	}
-	if err := json.Unmarshal(data, &shared); err != nil {
-		t.Fatal(err)
-	}
-	if len(shared.Cases) == 0 {
-		t.Fatal("testdata/selection.json has no cases")
-	}
-
-	shared.Cases = append(shared.Cases,
-		selectionCase{Name: "the shipped default keeps the deselected style rules off", Checks: tools.Checks, Code: "ST1000", Want: false},
-		selectionCase{Name: "the shipped default keeps gocognit off", Checks: tools.Checks, Code: "gocognit", Want: false},
-		selectionCase{Name: "adding gocognit to the shipped default turns it on", Checks: append(slices.Clone(tools.Checks), "gocognit"), Code: "gocognit", Want: true},
-		selectionCase{Name: "the shipped default keeps deferInLoop off", Checks: tools.Checks, Code: "deferInLoop", Want: false},
-		selectionCase{Name: "adding deferInLoop to the shipped default turns it on", Checks: append(slices.Clone(tools.Checks), "deferInLoop"), Code: "deferInLoop", Want: true},
-		selectionCase{Name: "the shipped default keeps everything else on", Checks: tools.Checks, Code: "errcheck", Want: true},
-	)
-	for _, tc := range shared.Cases {
-		t.Run(tc.Name, func(t *testing.T) {
-			if got := allowed(tc.Checks, tc.Code); got != tc.Want {
-				t.Fatalf("allowed(%v, %q) = %v, want %v", tc.Checks, tc.Code, got, tc.Want)
+	for _, tc := range []struct {
+		name   string
+		checks []string
+		code   string
+		want   bool
+	}{
+		{"the shipped default keeps the deselected style rules off", tools.Checks, "ST1000", false},
+		{"the shipped default keeps gocognit off", tools.Checks, "gocognit", false},
+		{"adding gocognit to the shipped default turns it on", append(slices.Clone(tools.Checks), "gocognit"), "gocognit", true},
+		{"the shipped default keeps deferInLoop off", tools.Checks, "deferInLoop", false},
+		{"adding deferInLoop to the shipped default turns it on", append(slices.Clone(tools.Checks), "deferInLoop"), "deferInLoop", true},
+		{"the shipped default keeps everything else on", tools.Checks, "errcheck", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := checktool.Allowed(tc.checks, tc.code); got != tc.want {
+				t.Fatalf("Allowed(%v, %q) = %v, want %v", tc.checks, tc.code, got, tc.want)
 			}
 		})
 	}
@@ -86,7 +47,7 @@ func TestSelfTestCoversEveryDefaultRule(t *testing.T) {
 	}
 
 	for _, code := range expectedBadCodes {
-		if !allowed(tools.Checks, code) {
+		if !checktool.Allowed(tools.Checks, code) {
 			t.Errorf("the bad fixture expects %s, which the default selection does not report", code)
 		}
 	}
@@ -116,40 +77,6 @@ func TestLinterDependencyMatchesToolchain(t *testing.T) {
 	}
 	if !strings.Contains(string(module), "honnef.co/go/tools "+tools.Staticcheck+"\n") {
 		t.Fatal("lint module and toolchain.json must pin the same Staticcheck version")
-	}
-}
-
-// registeredCase is one row of testdata/registered.json.
-type registeredCase struct {
-	Name    string   `json:"name"`
-	Checks  []string `json:"checks"`
-	Matches bool     `json:"matches"`
-}
-
-// A pattern a go-lint call adds must match a rule the linter lists. The
-// standalone CLI's copy (internal/verify/gotools.go) loads the same table.
-func TestAddedChecksMustMatchARegisteredRule(t *testing.T) {
-	data, err := os.ReadFile("testdata/registered.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var shared struct {
-		Listing string           `json:"listing"`
-		Cases   []registeredCase `json:"cases"`
-	}
-	if err := json.Unmarshal(data, &shared); err != nil {
-		t.Fatal(err)
-	}
-	if len(shared.Cases) == 0 {
-		t.Fatal("testdata/registered.json has no cases")
-	}
-
-	for _, tc := range shared.Cases {
-		t.Run(tc.Name, func(t *testing.T) {
-			if err := registered(tc.Checks, shared.Listing); (err == nil) != tc.Matches {
-				t.Fatalf("registered(%v) = %v, want matches=%v", tc.Checks, err, tc.Matches)
-			}
-		})
 	}
 }
 

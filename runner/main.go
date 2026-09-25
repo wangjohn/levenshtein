@@ -5,16 +5,14 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
-	"unicode"
 
+	"dagger/levenshtein/internal/checktool"
 	"dagger/levenshtein/internal/dagger"
 
 	"github.com/vektah/gqlparser/v2/gqlerror"
@@ -26,50 +24,22 @@ type Levenshtein struct{}
 var toolchainJSON []byte
 
 type toolchain struct {
-	Go                 string     `json:"go"`
-	GoImage            string     `json:"goImage"`
-	Staticcheck        string     `json:"staticcheck"`
-	StaticcheckRelease string     `json:"staticcheckRelease"`
-	Checks             []string   `json:"checks"`
-	Zizmor             zizmorPin  `json:"zizmor"`
-	ShellCheck         releasePin `json:"shellcheck"`
-	OSVScanner         releasePin `json:"osvScanner"`
+	Go                 string               `json:"go"`
+	GoImage            string               `json:"goImage"`
+	Staticcheck        string               `json:"staticcheck"`
+	StaticcheckRelease string               `json:"staticcheckRelease"`
+	Checks             []string             `json:"checks"`
+	Zizmor             zizmorPin            `json:"zizmor"`
+	ShellCheck         checktool.ReleasePin `json:"shellcheck"`
+	OSVScanner         checktool.ReleasePin `json:"osvScanner"`
 }
 
-// diagnostic is one finding. internal/verify's finding is a copy; change both
-// together.
-type diagnostic struct {
-	Code     string   `json:"code"`
-	Message  string   `json:"message"`
-	Location location `json:"location"`
-	// Source names the rule module a community finding came from, as
-	// path@version; core findings leave it out.
-	Source string `json:"source,omitempty"`
-	// URL documents the rule that reported the finding, when it has a page.
-	URL string `json:"url,omitempty"`
-	// Advisory findings are reported without failing the check.
-	Advisory bool `json:"advisory"`
-}
+// diagnostic is one finding, in the shape the CLI reads from the
+// levenshteinFindings extension. checktool is generated from the CLI's own
+// internal/checktool, so both executors report one shape.
+type diagnostic = checktool.Finding
 
-// staticcheckFamily is a code from one of Staticcheck's own families.
-var staticcheckFamily = regexp.MustCompile(`^(SA|S|ST|QF)[0-9]{4}$|^U1000$`)
-
-// coreURL is the page that documents a core lint rule: Staticcheck's own page
-// for its families, and otherwise Levenshtein's rule list, which gives the
-// reason for every rule. internal/verify/findings.go has a copy; both tests
-// load testdata/core-urls.json.
-func coreURL(code string) string {
-	if staticcheckFamily.MatchString(code) {
-		return "https://staticcheck.dev/docs/checks/#" + code
-	}
-	return "https://github.com/wangjohn/levenshtein/blob/main/docs/checks.md#go-lint-rules"
-}
-
-type location struct {
-	File   string `json:"file"`
-	Line   int    `json:"line"`
-	Column int    `json:"column"`
-}
+type location = checktool.Location
 
 // linter is the pinned Go image with levenshtein-lint built from this module.
 func linter(tools toolchain) *dagger.Container {
@@ -104,20 +74,11 @@ func lint(ctx context.Context, source *dagger.Directory, module string, tools to
 		ctr = ctr.WithEnvVariable("LEVENSHTEIN_RUN_NONCE", nonce).
 			WithEnvVariable("STATICCHECK_CACHE", "/tmp/staticcheck-fresh")
 	}
-	checked := ctr.WithExec([]string{"/go/bin/levenshtein-lint", "-f=json", "-checks=" + strings.Join(tools.Checks, ","), "./..."}, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
-	exitCode, err := checked.ExitCode(ctx)
+	run, _, err := runTool(ctx, ctr, []string{"/go/bin/levenshtein-lint", "-f=json", "-checks=" + strings.Join(tools.Checks, ","), "./..."})
 	if err != nil {
 		return nil, err
 	}
-	stdout, err := checked.Stdout(ctx)
-	if err != nil {
-		return nil, err
-	}
-	stderr, err := checked.Stderr(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return parseFindings(exitCode, stdout, stderr, tools.Checks)
+	return checktool.LintFindings(run, tools.Checks, "/src")
 }
 
 // lintPattern is one entry of Staticcheck's -checks list: an optional "-",
@@ -147,110 +108,11 @@ func selection(ctx context.Context, tools toolchain, added []string) (toolchain,
 	if err != nil {
 		return toolchain{}, fmt.Errorf("listing the linter's rules: %w", err)
 	}
-	if err := registered(added, listing); err != nil {
+	if err := checktool.Registered(added, listing); err != nil {
 		return toolchain{}, err
 	}
 	tools.Checks = append(slices.Clone(tools.Checks), added...)
 	return tools, nil
-}
-
-// registered checks every pattern against the linter's -list-checks output,
-// one rule per line with its name first. internal/verify/gotools.go has a
-// copy; both tests load testdata/registered.json.
-func registered(patterns []string, listing string) error {
-	var names []string
-	for line := range strings.Lines(listing) {
-		if fields := strings.Fields(line); len(fields) > 0 {
-			names = append(names, fields[0])
-		}
-	}
-
-	for _, pattern := range patterns {
-		name := strings.TrimPrefix(pattern, "-")
-		if !slices.ContainsFunc(names, func(rule string) bool { return selects(name, rule) }) {
-			return fmt.Errorf("go-lint check %q matches no rule levenshtein-lint registers", pattern)
-		}
-	}
-	return nil
-}
-
-// allowed reproduces Staticcheck's filterAnalyzerNames (lintcmd/lint.go in
-// honnef.co/go/tools v0.8.1) for one code. Patterns apply in order and the
-// last one that matches wins, so "all,-SA5001" turns SA5001 off while
-// "-SA5001,all" turns it back on. A "-" prefix turns a code off rather than on.
-func allowed(checks []string, code string) bool {
-	selected := false
-	for _, check := range checks {
-		pattern := check
-		enable := true
-		if len(pattern) > 1 && pattern[0] == '-' {
-			pattern = pattern[1:]
-			enable = false
-		}
-		if selects(pattern, code) {
-			selected = enable
-		}
-	}
-	return selected
-}
-
-// selects matches one pattern the way Staticcheck does, ignoring case: "all"
-// or "*" matches every code, a trailing "*" after letters matches that exact
-// category (S* matches S1002 but not SA5001), a trailing "*" after a digit is a
-// plain prefix (SA5* matches SA5001), and anything else is a literal name.
-func selects(pattern, code string) bool {
-	pattern = strings.ToLower(pattern)
-	code = strings.ToLower(code)
-
-	//lint:ignore LV1001 patterns are free-form user input; these are two spellings of one wildcard, not an enum.
-	if pattern == "*" || pattern == "all" {
-		return true
-	}
-	prefix, glob := strings.CutSuffix(pattern, "*")
-	if !glob {
-		return pattern == code
-	}
-	if strings.IndexFunc(prefix, unicode.IsNumber) != -1 {
-		return strings.HasPrefix(code, prefix)
-	}
-	category := code
-	if digit := strings.IndexFunc(code, unicode.IsNumber); digit != -1 {
-		category = code[:digit]
-	}
-	return category == prefix
-}
-
-func parseFindings(exitCode int, stdout, stderr string, checks []string) ([]diagnostic, error) {
-	if exitCode != 0 && exitCode != 1 {
-		return nil, fmt.Errorf("the linter exited %d: %s\n%s", exitCode, stderr, stdout)
-	}
-
-	var findings []diagnostic
-	decoder := json.NewDecoder(strings.NewReader(stdout))
-	for {
-		var finding diagnostic
-		err := decoder.Decode(&finding)
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("invalid linter JSON: %w", err)
-		}
-		if !allowed(checks, finding.Code) || finding.Message == "" || finding.Location.File == "" || finding.Location.Line < 1 {
-			return nil, fmt.Errorf("unexpected diagnostic (possibly a compile error): %s", stdout)
-		}
-		finding.Location.File = strings.TrimPrefix(finding.Location.File, "/src/")
-		finding.URL = coreURL(finding.Code)
-		findings = append(findings, finding)
-	}
-
-	if (exitCode == 0 && len(findings) != 0) || (exitCode == 1 && len(findings) == 0) {
-		return nil, fmt.Errorf("linter exit %d does not match diagnostics: %s\n%s", exitCode, stdout, stderr)
-	}
-	if strings.TrimSpace(stderr) != "" {
-		return nil, fmt.Errorf("the linter could not produce a clean result: %s", stderr)
-	}
-	return findings, nil
 }
 
 // expectedBadCodes is the contract that every default rule really runs: the bad
