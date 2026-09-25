@@ -25,3 +25,19 @@ func (m Mixed) Count() int {
 func (m *Mixed) Add() {
 	m.count++
 }
+
+// Staticcheck applies no directive without a reason and reports it as
+// malformed, so the build without tests does not match it either.
+//
+//lint:ignore recvcheck
+type Unexplained struct { // want `use pointer receiver and non-pointer receiver`
+	count int
+}
+
+func (u Unexplained) Count() int {
+	return u.count
+}
+
+func (u *Unexplained) Add() {
+	u.count++
+}
