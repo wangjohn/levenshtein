@@ -20,7 +20,7 @@ import (
 func main() { os.Exit(run()) }
 
 func run() int {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := interruptible()
 	defer stop()
 
 	code, err := runCommand(ctx, os.Args[1:], console{in: os.Stdin, out: os.Stdout, err: os.Stderr})
@@ -28,6 +28,16 @@ func run() int {
 		fmt.Fprintln(os.Stderr, err)
 	}
 	return code
+}
+
+// interruptible returns a context the first interrupt or SIGTERM cancels.
+// The handler is released as soon as it does, so a second signal gets the
+// default behavior and ends a report, cache flush, or Dagger teardown that
+// hangs, without needing SIGKILL.
+func interruptible() (context.Context, context.CancelFunc) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	context.AfterFunc(ctx, stop)
+	return ctx, stop
 }
 
 // console is where a command reads a saved report from and writes its report

@@ -304,6 +304,10 @@ Consumers pin a release tag, or its commit SHA, as described in
   `details.skipped`, and the change-level state is sent first. A large
   refactor used to send hundreds of requests, run into the timeout, and
   report nothing ([details](docs/semantic-lint.md#how-it-works)).
+- A second Ctrl-C or SIGTERM ends `verify` while it writes the report,
+  flushes the cache, or closes the Dagger session. The first signal cancels
+  the run as before; the second used to be swallowed until the process
+  exited, so a hung teardown needed SIGKILL.
 
 ## [0.1.0] - 2026-09-22
 
