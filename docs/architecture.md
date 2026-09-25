@@ -33,7 +33,7 @@ exit codes](#report-and-exit-codes) below says where each is decided.
 - **Environment**: an `executor` (`dagger` or `native`), plus native-only
   options such as `identity`, `env`, `pass_env`, and pinned `tools`.
 - **Check**: a `kind` (listed in [check kinds](check-kinds.md); the code's
-  list is `checkKinds` in `internal/verify/status.go`) bound to an
+  list is `kindSpecs` in `internal/verify/kinds.go`) bound to an
   environment and to either one `target` or a list of `targets`, plus at most
   one kind-specific option object: `command`, `semantic`, `mutation`, `lint`,
   `imports`, or `apidiff` (see [configuration](configuration.md)).
@@ -75,7 +75,7 @@ a preparation stage.
 `internal/verify/dagger.go` holds one Dagger SDK session (`dagger.Client`)
 per CLI invocation and serves the pinned module in `runner/` once
 (`client.ModuleSource(shared).AsModule().Serve`). Each check calls a
-function on that session, chosen by the `daggerFunctions` table in `dagger.go`
+function on that session, named by the `dagger` field of its kind's `kindSpec` in `kinds.go`
 (`goLintReport`, `selfTest`, `goMutation`, `goImports`, `goGenerate`,
 `goApidiff`, or `sharedCheck` for every other Dagger kind) with a freshness nonce, plus the consumer
 source directory and module path for every kind except `selfTest`;
