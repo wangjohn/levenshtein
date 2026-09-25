@@ -14,22 +14,40 @@ import (
 // fileSet is the one answer to which files a check consumes: the paths under
 // a root's declared inputs, less its excludes, enumerated the way its
 // discovery says. The cache fingerprint hashes exactly this set, the Dagger
-// import is built from it (daggerSource), and the native scanners read it
-// (visibleFiles). Where they deliberately differ, such as leaving private
-// files out of what a scanner or a container sees, that is a named filter
-// over this one enumeration, never a second walk.
+// import is built from it (daggerSource), and the native readers take it
+// (visibleFiles, copyInputs). Where they deliberately differ, such as leaving
+// private files out of what a scanner or a container sees, that is a named
+// filter over this one enumeration, never a second walk.
 type fileSet struct {
 	Root      string
 	Inputs    []string
 	Excludes  []string
 	Discovery DiscoveryKind
+	// GoToolchain widens git discovery with the ignored paths the Go toolchain
+	// can load (see goLoader), because it reads them whatever git lists.
+	GoToolchain bool
 }
 
+// pathScope says why an enumerated path is in a file set.
+type pathScope string
+
+const (
+	// scopeDeclared is the target's own content: listed by git, or walked from
+	// disk. A symlink here is refused by the key and by the Dagger import.
+	scopeDeclared pathScope = "declared"
+	// scopeIgnored is a path the work tree ignores that the Go toolchain can
+	// load. A symlink here is hashed by its link text and never followed.
+	scopeIgnored pathScope = "ignored"
+	// scopeOmitted is an ignored path the set leaves out. It is reported once,
+	// never descended, so an import can exclude it.
+	scopeOmitted pathScope = "omitted"
+)
+
 // goToolchainKinds run the Go toolchain over the target, natively or in the
-// container. It reads every file in a package directory, and whatever a test or
-// a //go:embed pattern opens below it, including generated code the work tree
-// ignores (a gitignored *.pb.go, a vendor/ tree, a generated SDK), so no
-// listing that leaves ignored files out can describe what these kinds consume.
+// container. It reads every source file in a package directory, whatever a
+// //go:embed pattern names below it, and whatever a test opens, including
+// generated code the work tree ignores (a gitignored *.pb.go, a generated
+// SDK), so their file set adds the ignored paths the toolchain can load.
 var goToolchainKinds = map[CheckKind]bool{
 	CheckGoLint:     true,
 	CheckGoVet:      true,
@@ -44,28 +62,21 @@ var goToolchainKinds = map[CheckKind]bool{
 	CheckGoMutation: true,
 }
 
-// enumeratesFilesystem reports whether a check of kind enumerates its inputs
-// from the filesystem whatever its target's discovery says. Planning records
-// the answer in the planned target, so the key, the Dagger import, and the
-// report all name the enumeration that was used.
-func enumeratesFilesystem(kind CheckKind) bool {
-	return goToolchainKinds[kind]
-}
-
 // targetFiles is the file set a planned check's target declares.
 func targetFiles(req Request) fileSet {
 	return fileSet{
-		Root:      req.Source,
-		Inputs:    req.Target.Inputs,
-		Excludes:  req.Target.Exclude,
-		Discovery: req.Target.Discovery,
+		Root:        req.Source,
+		Inputs:      req.Target.Inputs,
+		Excludes:    req.Target.Exclude,
+		Discovery:   req.Target.Discovery,
+		GoToolchain: goToolchainKinds[req.Check.Kind],
 	}
 }
 
 // visitFunc receives one enumerated path, relative to the root with the OS
-// separator. info is nil for a declared input that does not exist. Returning
-// fs.SkipDir for a directory leaves its contents out.
-type visitFunc func(rel string, info fs.FileInfo) error
+// separator, and why it is in the set. info is nil for a declared input that
+// does not exist. Returning fs.SkipDir for a directory leaves its contents out.
+type visitFunc func(rel string, info fs.FileInfo, scope pathScope) error
 
 // under reports whether path is input or lies below it. Every "inputs minus
 // excludes" decision goes through it, so a declared path means the same thing
@@ -79,18 +90,23 @@ func under(path, input string) bool {
 // own, and a listed file absent from disk is skipped rather than reported
 // missing, so a work tree enumerates like a fresh clone. A listed directory (a
 // submodule's gitlink or an untracked nested repository) is walked in full,
-// because git lists nothing inside it. Outside a work tree, or under
-// filesystem discovery, every path under each input is walked.
+// because git lists nothing inside it. Each ignored path is then reported once,
+// omitted, or for a Go toolchain set walked as far as the toolchain can load
+// it. Outside a work tree, or under filesystem discovery, every path under
+// each input is walked.
 //
 // A symlink is reported, never followed, including one above a declared input:
 // an input reached through a link is an alias, which the source symlink
 // policy refuses to fingerprint.
 func (s fileSet) walk(ctx context.Context, dir *os.Root, visit visitFunc) error {
-	var listed []string
-	tracked := false
+	// One listing answers both what git lists and what it ignores, so the two
+	// halves of a walk cannot come from different runs of git.
+	found := &gitListing{}
 	if s.Discovery == DiscoveryGit {
-		listed, tracked = gitFiles(ctx, s.Root)
+		found = listing(ctx, s.Root)
 	}
+	listed, ignored, tracked := found.files, found.ignored, found.files != nil
+	loader := newGoLoader(dir, &found.goDirectories)
 
 	for _, input := range s.Inputs {
 		if !relative(input) {
@@ -108,6 +124,9 @@ func (s fileSet) walk(ctx context.Context, dir *os.Root, visit visitFunc) error 
 		case !reached:
 		case tracked && !nested:
 			err = s.walkListing(dir, listed, input, visit)
+			if err == nil {
+				err = s.walkIgnored(dir, ignored, input, loader, visit)
+			}
 		default:
 			err = s.walkTree(dir, input, visit)
 		}
@@ -134,10 +153,10 @@ func reach(dir *os.Root, listed []string, input string, visit visitFunc) (reache
 			return false, false, err
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			return false, false, visit(parent, info)
+			return false, false, visit(parent, info, scopeDeclared)
 		}
 		if !info.IsDir() {
-			return false, false, visit(input, nil)
+			return false, false, visit(input, nil, scopeDeclared)
 		}
 		if listedAt(listed, parent) {
 			nested = true
@@ -188,7 +207,7 @@ func (s fileSet) walkListing(dir *os.Root, listed []string, input string, visit 
 		if info.IsDir() {
 			err = s.walkTree(dir, rel, visit)
 		} else {
-			err = visit(rel, info)
+			err = visit(rel, info, scopeDeclared)
 		}
 		if err != nil {
 			return err
@@ -199,17 +218,60 @@ func (s fileSet) walkListing(dir *os.Root, listed []string, input string, visit 
 	}
 
 	// A declared path git knows nothing about is missing only when it is also
-	// absent from disk; an ignored one contributes nothing. One that resolves
+	// absent from disk; an ignored one is walkIgnored's. One that resolves
 	// only because the filesystem ignores case is neither: git spells it
 	// differently, so it must be declared as git spells it.
 	_, err := dir.Lstat(input)
 	if errors.Is(err, fs.ErrNotExist) {
-		return visit(input, nil)
+		return visit(input, nil, scopeDeclared)
 	}
 	if err != nil {
 		return err
 	}
 	return spelledExactly(dir, input)
+}
+
+// walkIgnored reports the ignored paths an input covers: those below it, or
+// the input itself when an ignored directory holds it.
+func (s fileSet) walkIgnored(dir *os.Root, ignored []string, input string, loader *goLoader, visit visitFunc) error {
+	paths := listedUnder(ignored, input)
+	parts := strings.Split(input, string(filepath.Separator))
+	for i := 1; i < len(parts); i++ {
+		if listedAt(ignored, filepath.Join(parts[:i]...)) {
+			paths = []string{input}
+			break
+		}
+	}
+
+	held := ""
+	for _, rel := range paths {
+		// git can name an ignored directory and an ignored file inside it.
+		if held != "" && under(rel, held) {
+			continue
+		}
+		held = rel
+		if excluded(rel, s.Excludes) {
+			continue
+		}
+
+		info, err := dir.Lstat(rel)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		switch {
+		case err != nil:
+		case !s.GoToolchain:
+			err = visit(rel, info, scopeOmitted)
+		case info.IsDir():
+			err = loader.walk(rel, s.Excludes, visit)
+		default:
+			err = visit(rel, info, loader.fileScope(rel))
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s fileSet) walkTree(dir *os.Root, path string, visit visitFunc) error {
@@ -222,7 +284,7 @@ func (s fileSet) walkTree(dir *os.Root, path string, visit visitFunc) error {
 			return nil
 		}
 		if errors.Is(err, fs.ErrNotExist) {
-			return visit(rel, nil)
+			return visit(rel, nil, scopeDeclared)
 		}
 		if err != nil {
 			return err
@@ -232,13 +294,17 @@ func (s fileSet) walkTree(dir *os.Root, path string, visit visitFunc) error {
 		if err != nil {
 			return err
 		}
-		err = visit(rel, info)
-		// SkipDir from a file would skip its remaining siblings.
-		if errors.Is(err, fs.SkipDir) && !info.IsDir() {
-			return nil
-		}
-		return err
+		return skipOnlyDirs(visit(rel, info, scopeDeclared), info)
 	})
+}
+
+// skipOnlyDirs keeps fs.SkipDir from a file, which would skip its remaining
+// siblings, from reaching fs.WalkDir.
+func skipOnlyDirs(err error, info fs.FileInfo) error {
+	if errors.Is(err, fs.SkipDir) && !info.IsDir() {
+		return nil
+	}
+	return err
 }
 
 // spelling returns path as the filesystem spells the part of it that exists.

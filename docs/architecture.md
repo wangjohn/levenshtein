@@ -37,8 +37,8 @@ described under [report and exit codes](#report-and-exit-codes).
   `inputs` (literal paths, not globs) used for both Dagger source import and
   cache fingerprinting, optional `exclude` paths dropped from both, and a
   `discovery` mode (`git` or `filesystem`) selecting how the files under those
-  inputs are enumerated. The Go kinds always plan `filesystem`, because the Go
-  toolchain reads files the work tree ignores.
+  inputs are enumerated. Under `git`, the Go kinds also cover the ignored
+  paths the Go toolchain can load.
 - **Environment**: an `executor` (`dagger` or `native`), plus native-only
   options such as `identity`, `env`, `pass_env`, and pinned `tools`.
 - **Check**: a `kind` (`go-lint`, `go-vet`, `go-mod`, `go-test`, `go-imports`,
@@ -244,15 +244,20 @@ native `command` checks with `cache: true`), it:
    The enumeration is one `fileSet` (`internal/verify/enumerate.go`), and every
    consumer of a target's files takes it from there, so a reused result covers
    exactly what its check read: the fingerprint hashes it, `daggerSource`
-   imports it (the same run's `git ls-files --others --ignored --directory`
-   supplies literal excludes for the ignored paths, a wholly ignored directory
-   as one entry), and `visibleFiles` hands it to the native scanners. Policy
-   that differs between them is a named filter over that one set: the private
-   `.git`/`.env` paths are hashed but never imported or scanned, and
-   `shell-lint` and `deps-vuln` also skip fixture and dependency directories.
-   The Go kinds (`goToolchainKinds`) plan filesystem discovery, because the Go
-   toolchain reads every file in a package directory, including ignored
-   generated code, on the host and in the container alike. Planning rejects an
+   imports it, and `visibleFiles` hands it to the native
+   scanners. The same listing's `git ls-files --others --ignored --directory`
+   names the ignored paths, a wholly ignored directory as one entry; the walk
+   reports each one it leaves out as omitted, and the Dagger import excludes
+   exactly those, literally. Policy that differs between consumers is a named
+   filter over that one set: the private `.git`/`.env` paths are hashed but
+   never imported or scanned, and `shell-lint` and `deps-vuln` also skip
+   fixture and dependency directories. For the Go kinds (`goToolchainKinds`)
+   `goLoader` (`internal/verify/goload.go`) keeps the ignored paths the Go
+   toolchain can load, on the host and in the container alike: Go and cgo
+   sources, module files, what a `//go:embed` in the directory or above could
+   name, and `testdata`. It prunes an ignored directory with no `.go` file
+   below it by reading directory names only, memoized with the listing, and
+   records a symlink it keeps by its link text. Planning rejects an
    input or exclude that resolves only under another spelling, and a symlink
    above a declared input is refused like one inside it.
    `TestFileSetConformance` and the integration test

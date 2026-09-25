@@ -22,9 +22,9 @@ import (
 // is not part of the fingerprint, and so is not part of what the check reads
 // either: the Dagger import leaves out the ignored paths and the native
 // scanners read the listing. A target whose real inputs are generated and
-// gitignored must declare "discovery": "filesystem". The Go kinds always do
-// (see enumeratesFilesystem), because the Go toolchain reads ignored files in a
-// package directory whatever the listing says.
+// gitignored must declare "discovery": "filesystem". The Go kinds add the
+// ignored paths their toolchain can load (see goLoader), because it reads them
+// whatever the listing says.
 type gitListing struct {
 	// files are source-relative paths, sorted, of everything git tracks or would
 	// add. Nil means the listing is unusable and callers walk the filesystem.
@@ -34,6 +34,10 @@ type gitListing struct {
 	// once. Everything on disk is in files or in ignored, so excluding ignored
 	// from a directory import leaves exactly files.
 	ignored []string
+	// goDirectories memoizes goLoader's scan of each ignored directory for as
+	// long as this listing lives, so a run reads a large ignored tree's names
+	// once, and again only after relist.
+	goDirectories sync.Map
 	// note explains an unexpected failure for the cache Reason. A directory that
 	// is simply not a work tree is ordinary and carries no note.
 	note string
@@ -64,13 +68,6 @@ func listing(ctx context.Context, source string) *gitListing {
 func gitFiles(ctx context.Context, source string) ([]string, bool) {
 	found := listing(ctx, source)
 	return found.files, found.files != nil
-}
-
-// gitIgnored reports the ignored paths under source, from the same memoized
-// listing gitFiles answers from, or false when the caller walks the filesystem.
-func gitIgnored(ctx context.Context, source string) ([]string, bool) {
-	found := listing(ctx, source)
-	return found.ignored, found.files != nil
 }
 
 // relist drops source's memoized listing so the next snapshot asks git again.

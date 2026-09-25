@@ -266,8 +266,8 @@ func gitRepository(t *testing.T) string {
 // files, never ignored ones, and never a tracked path that is not on disk. A
 // submodule is listed as a single gitlink, so its contents are walked. Leaving
 // ignored files out is sound only because the executors leave them out too
-// (TestFileSetConformance); the Go kinds, whose toolchain cannot, plan
-// filesystem discovery instead.
+// (TestFileSetConformance); the Go kinds, whose toolchain can load ignored
+// files, add those it can (TestGoKindKeySkipsUnloadableIgnoredTrees).
 func TestGitDiscoveryFollowsTheWorkTree(t *testing.T) {
 	root := gitRepository(t)
 	runGit(t, root, "update-index", "--add", "--cacheinfo", "160000,0123456789abcdef0123456789abcdef01234567,sub")
@@ -407,9 +407,8 @@ func TestTargetExcludeLeavesPathsOutOfTheFingerprint(t *testing.T) {
 	}
 }
 
-// A Go kind plans filesystem discovery whatever its target says, because the Go
-// toolchain reads files the work tree ignores; every other kind keeps the
-// target's choice.
+// Every kind keeps the target's discovery, the Go kinds included: a Go kind
+// widens git discovery itself with the ignored paths its toolchain can load.
 func TestPlanValidatesDiscoveryAndExclude(t *testing.T) {
 	const config = `{"version":1,"targets":{"app":{"dir":".","inputs":["."]%s}},"environments":{"go":{"executor":"dagger"}},"checks":{"lint":{"kind":%q,"target":"app","environment":"go"}},"runs":{"branch":{"checks":["lint"]}}}`
 	for _, tt := range []struct {
@@ -421,8 +420,8 @@ func TestPlanValidatesDiscoveryAndExclude(t *testing.T) {
 		{name: "default", kind: CheckSecrets, want: DiscoveryGit},
 		{name: "explicit filesystem", kind: CheckSecrets, target: `,"discovery":"filesystem"`, want: DiscoveryFilesystem},
 		{name: "explicit git", kind: CheckSecrets, target: `,"discovery":"git","exclude":["node_modules","build"]`, want: DiscoveryGit},
-		{name: "Go kind by default", kind: CheckGoLint, want: DiscoveryFilesystem},
-		{name: "Go kind with explicit git", kind: CheckGoTest, target: `,"discovery":"git"`, want: DiscoveryFilesystem},
+		{name: "Go kind by default", kind: CheckGoLint, want: DiscoveryGit},
+		{name: "Go kind with explicit filesystem", kind: CheckGoTest, target: `,"discovery":"filesystem"`, want: DiscoveryFilesystem},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg, err := Parse([]byte(fmt.Sprintf(config, tt.target, tt.kind)))

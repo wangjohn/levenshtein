@@ -275,10 +275,13 @@ Consumers pin a release tag, or its commit SHA, as described in
   ignore and `secrets`, `shell-lint`, and `deps-vuln` read only the listed
   files. The Go kinds (`go-lint`, `go-vet`, `go-mod`, `go-test`, `go-http`,
   `go-sql`, `go-vuln`, `go-imports`, `go-generate`, `go-apidiff`,
-  `go-mutation`) always plan `"discovery": "filesystem"`, because the Go
-  toolchain reads ignored files in a package directory; their keys change
-  once, and a Go target whose inputs hold a large ignored tree such as
-  `node_modules` should `exclude` it.
+  `go-mutation`) add the ignored paths the Go toolchain can load: ignored Go
+  and cgo sources and module files, whatever a `//go:embed` directive in
+  the directory or above could name, and `testdata`. An ignored directory
+  with no `.go` file in it and nothing embedding it, such as `node_modules`
+  or a build output, is left out of the key and the Dagger import, and a
+  symlink in the ignored content that is kept is hashed by its link text
+  rather than disabling result reuse. The Go kinds' keys change once.
 - A declared input that git discovery could not see no longer contributes
   nothing to the key. An input spelled with different case than the
   repository (`Src` for `src/` on a case-insensitive filesystem), or an

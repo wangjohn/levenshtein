@@ -199,17 +199,12 @@ func (cfg Config) planCheck(source string, selected selection, rerunChecks bool)
 	}
 
 	// Discovery is explicit in the plan even when configuration omits it, so a
-	// dry run says which enumeration produced a fingerprint. A Go kind always
-	// enumerates from the filesystem, because the toolchain reads what the work
-	// tree ignores.
+	// dry run says which enumeration produced a fingerprint.
 	if target.Discovery == "" {
 		target.Discovery = DiscoveryGit
 	}
 	if !slices.Contains(discoveryKinds, target.Discovery) {
 		return PlannedCheck{}, fmt.Errorf("target %q: unknown discovery %q", check.Target, target.Discovery)
-	}
-	if enumeratesFilesystem(check.Kind) {
-		target.Discovery = DiscoveryFilesystem
 	}
 	if err := spelledAsOnDisk(source, append(slices.Clone(target.Inputs), target.Exclude...)); err != nil {
 		return PlannedCheck{}, fmt.Errorf("target %q: %w", check.Target, err)

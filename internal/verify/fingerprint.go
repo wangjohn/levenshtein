@@ -55,6 +55,9 @@ type snapshotRequest struct {
 	Excludes  []string
 	Outputs   bool
 	Discovery DiscoveryKind
+	// GoToolchain adds the ignored paths the Go toolchain can load (see
+	// fileSet).
+	GoToolchain bool
 }
 
 // hashTarget is a regular file whose content still has to be read. Info is the
@@ -89,12 +92,12 @@ func snapshotEntries(ctx context.Context, req snapshotRequest) (map[string]strin
 	if req.Outputs {
 		discovery = DiscoveryFilesystem
 	}
-	set := fileSet{Root: req.Root, Inputs: req.Paths, Excludes: req.Excludes, Discovery: discovery}
+	set := fileSet{Root: req.Root, Inputs: req.Paths, Excludes: req.Excludes, Discovery: discovery, GoToolchain: req.GoToolchain}
 
 	entries := map[string]string{}
 	var files []hashTarget
-	err = set.walk(ctx, dir, func(rel string, info fs.FileInfo) error {
-		return record(dir, req, rel, info, entries, &files)
+	err = set.walk(ctx, dir, func(rel string, info fs.FileInfo, scope pathScope) error {
+		return record(dir, req, rel, info, scope, entries, &files)
 	})
 	if err != nil {
 		return nil, err
@@ -106,14 +109,20 @@ func snapshotEntries(ctx context.Context, req snapshotRequest) (map[string]strin
 }
 
 // record classifies one enumerated path. Regular files are queued rather than
-// read, so every content hash in one snapshot can run at once.
-func record(dir *os.Root, req snapshotRequest, rel string, info fs.FileInfo, entries map[string]string, files *[]hashTarget) error {
+// read, so every content hash in one snapshot can run at once. An omitted path
+// is not part of the key. A symlink in declared source disables result reuse;
+// one in an output or in ignored content the Go toolchain can load is recorded
+// by its link text and never followed.
+func record(dir *os.Root, req snapshotRequest, rel string, info fs.FileInfo, scope pathScope, entries map[string]string, files *[]hashTarget) error {
+	if scope == scopeOmitted {
+		return nil
+	}
 	if info == nil {
 		entries[rel] = "missing"
 		return nil
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		if !req.Outputs {
+		if !req.Outputs && scope == scopeDeclared {
 			return fmt.Errorf("source symlink %q requires fresh execution", rel)
 		}
 		link, err := dir.Readlink(rel)
@@ -261,10 +270,11 @@ func keyedSource(req Request) snapshotRequest {
 	}
 	sort.Strings(paths)
 	return snapshotRequest{
-		Root:      req.Source,
-		Paths:     paths,
-		Excludes:  append(outputPaths(req), req.Target.Exclude...),
-		Discovery: req.Target.Discovery,
+		Root:        req.Source,
+		Paths:       paths,
+		Excludes:    append(outputPaths(req), req.Target.Exclude...),
+		Discovery:   req.Target.Discovery,
+		GoToolchain: goToolchainKinds[req.Check.Kind],
 	}
 }
 

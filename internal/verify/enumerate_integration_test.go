@@ -16,7 +16,7 @@ import (
 // The Dagger half of TestFileSetConformance: what the container receives is
 // exactly the key's file set less the private files, for a git-discovery kind
 // (no ignored file, including one whose name holds pattern characters) and for
-// a Go kind (every file on disk).
+// a Go kind (the ignored files the Go toolchain can load, links included).
 func TestDaggerImportMatchesTheKey(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -32,7 +32,7 @@ func TestDaggerImportMatchesTheKey(t *testing.T) {
 	for _, tt := range []struct {
 		kind CheckKind
 		want []string
-	}{{kind: CheckSecrets, want: listedFiles}, {kind: CheckGoVet, want: onDiskFiles}} {
+	}{{kind: CheckSecrets, want: listedFiles}, {kind: CheckGoVet, want: goFiles}} {
 		t.Run(string(tt.kind), func(t *testing.T) {
 			req := Request{Source: root, PlannedCheck: planFor(t, root, tt.kind, ExecutorDagger)}
 			keyed := keyedFiles(t, req)

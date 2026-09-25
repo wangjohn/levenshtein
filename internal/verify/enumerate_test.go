@@ -10,9 +10,13 @@ import (
 )
 
 // fileSetRepository is a work tree holding every kind of path the file set has
-// to classify: tracked, untracked, ignored (files, one named with pattern
-// characters, a directory, and a tracked file an ignore rule also matches),
-// excluded, private, and a symlink inside an excluded directory.
+// to classify: tracked, untracked, excluded, and private files, a symlink
+// inside an excluded directory, and ignored paths the Go toolchain can and
+// cannot load. Loadable: Go files in an ignored directory and one in an
+// ordinary package directory, a directory a tracked package embeds (holding a
+// symlink), and testdata. Not loadable: a node_modules tree with a .bin
+// symlink, a _build directory, a dependency directory, and loose ignored files,
+// one named with pattern characters.
 func fileSetRepository(t *testing.T) string {
 	t.Helper()
 	requireGit(t)
@@ -22,14 +26,24 @@ func fileSetRepository(t *testing.T) string {
 	}
 
 	runGit(t, root, "init")
-	writeFile(t, filepath.Join(root, ".gitignore"), "gen/\ndeps/\n*.log\n.env\n")
-	for _, name := range []string{"main.go", "pkg/lib.go", "pkg/new.go", "gen/keep.pb.go", "gen/api.pb.go", "gen/deep/x.go", "deps/a/b.js", "debug.log", "!odd[1]*.log", ".env", "config/.env.local", "build/tracked.txt", "build/out.bin"} {
+	writeFile(t, filepath.Join(root, ".gitignore"), "gen/\ndeps/\n*.log\n.env\nnode_modules/\n_build/\n*_generated.go\npkg/assets/\n*.out\n")
+	for _, name := range []string{
+		"main.go", "pkg/lib.go", "pkg/new.go", "gen/keep.pb.go", "gen/api.pb.go", "gen/deep/x.go", "pkg/zz_generated.go",
+		"pkg/assets/data.txt", "pkg/testdata/golden.out", "node_modules/lib/index.js", "_build/app.bin",
+		"deps/a/b.js", "debug.log", "!odd[1]*.log", ".env", "config/.env.local", "build/tracked.txt", "build/out.bin",
+	} {
 		writeFile(t, filepath.Join(root, filepath.FromSlash(name)), sourceOne)
 	}
-	if err := os.Symlink(filepath.Join("..", "main.go"), filepath.Join(root, "build", "link")); err != nil {
-		t.Fatal(err)
+	writeFile(t, filepath.Join(root, "pkg", "embed.go"), "package pkg\n\nimport _ \"embed\"\n\n//go:embed assets\nvar assets string\n")
+	for link, target := range map[string]string{"build/link": "../main.go", "node_modules/.bin/tool": "../lib/index.js", "pkg/assets/link": "data.txt"} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, link)), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.FromSlash(target), filepath.Join(root, filepath.FromSlash(link))); err != nil {
+			t.Fatal(err)
+		}
 	}
-	runGit(t, root, "add", ".gitignore", "main.go", "pkg/lib.go", "build/tracked.txt")
+	runGit(t, root, "add", ".gitignore", "main.go", "pkg/lib.go", "pkg/embed.go", "build/tracked.txt")
 	runGit(t, root, "add", "-f", "gen/keep.pb.go")
 	relist(root)
 	return root
@@ -76,6 +90,51 @@ func TestGoKindKeyCoversIgnoredGoFiles(t *testing.T) {
 	}
 }
 
+// An ignored tree the Go toolchain cannot load, such as node_modules with its
+// .bin symlinks, must neither disable result reuse nor change the key, while
+// an ignored directory a package embeds changes it, links included.
+func TestGoKindKeySkipsUnloadableIgnoredTrees(t *testing.T) {
+	root := fileSetRepository(t)
+	stats.configure(t.TempDir())
+	for _, executor := range []ExecutorKind{ExecutorDagger, ExecutorNative} {
+		t.Run(string(executor), func(t *testing.T) {
+			req := Request{Source: root, Shared: t.TempDir(), PlannedCheck: planFor(t, root, CheckGoVet, executor)}
+			key := func() string {
+				t.Helper()
+				got, err := fingerprint(t.Context(), req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return got
+			}
+
+			before := key()
+			for _, name := range []string{"node_modules/lib/index.js", "_build/app.bin", "debug.log"} {
+				writeFile(t, filepath.Join(root, filepath.FromSlash(name)), sourceTwo+string(executor))
+			}
+			if key() != before {
+				t.Fatal("editing ignored files the Go toolchain cannot load changed the key")
+			}
+
+			writeFile(t, filepath.Join(root, "pkg", "assets", "data.txt"), sourceThree+string(executor))
+			embedded := key()
+			if embedded == before {
+				t.Fatal("editing an embedded ignored file left the key unchanged")
+			}
+			link := filepath.Join(root, "pkg", "assets", "link")
+			if err := os.Remove(link); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("other-"+string(executor), link); err != nil {
+				t.Fatal(err)
+			}
+			if key() == embedded {
+				t.Fatal("retargeting an embedded ignored link left the key unchanged")
+			}
+		})
+	}
+}
+
 // A native scanner reads exactly what the key hashed: under git discovery an
 // ignored file is in neither, so adding a secret to one cannot replay a pass
 // over a scan that read it.
@@ -87,7 +146,7 @@ func TestVisibleFilesLeaveOutIgnoredFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{".gitignore", "gen/keep.pb.go", "main.go", "pkg/lib.go", "pkg/new.go"}
+	want := []string{".gitignore", "gen/keep.pb.go", "main.go", "pkg/embed.go", "pkg/lib.go", "pkg/new.go"}
 	if !slices.Equal(files, want) {
 		t.Fatalf("visible files %v, want %v", files, want)
 	}
@@ -157,16 +216,18 @@ func TestInputInsideANestedRepositoryIsFingerprinted(t *testing.T) {
 }
 
 // The files each consumer of fileSetRepository's target (all of it, less
-// build/) reads. A git-discovery kind reads what git lists; a Go kind reads
-// everything on disk, as the Go toolchain does. Private files are hashed but
-// never shown to a scanner or a container.
+// build/) reads. A git-discovery kind reads what git lists. A Go kind also
+// reads the ignored paths the Go toolchain can load: Go files, what a package
+// embeds, and testdata, but nothing under node_modules, _build, or deps, which
+// hold no Go file, nor loose ignored files no package embeds. Private files are
+// hashed but never shown to a scanner or a container.
 var (
-	listedFiles  = []string{".gitignore", "config/.env.local", "gen/keep.pb.go", "main.go", "pkg/lib.go", "pkg/new.go"}
-	onDiskFiles  = []string{"!odd[1]*.log", ".env", ".gitignore", "config/.env.local", "debug.log", "deps/a/b.js", "gen/api.pb.go", "gen/deep/x.go", "gen/keep.pb.go", "main.go", "pkg/lib.go", "pkg/new.go"}
+	listedFiles  = []string{".gitignore", "config/.env.local", "gen/keep.pb.go", "main.go", "pkg/embed.go", "pkg/lib.go", "pkg/new.go"}
+	goFiles      = []string{".gitignore", "config/.env.local", "gen/api.pb.go", "gen/deep/x.go", "gen/keep.pb.go", "main.go", "pkg/assets/data.txt", "pkg/assets/link", "pkg/embed.go", "pkg/lib.go", "pkg/new.go", "pkg/testdata/golden.out", "pkg/zz_generated.go"}
 	privateFiles = []string{".env", "config/.env.local"}
 )
 
-// keyedFiles are the regular files a check's key hashes, as sorted
+// keyedFiles are the files and links a check's key hashes, as sorted
 // forward-slash paths. Entries for directories and missing inputs are not
 // files anything reads.
 func keyedFiles(t *testing.T, req Request) []string {
@@ -178,7 +239,7 @@ func keyedFiles(t *testing.T, req Request) []string {
 
 	var files []string
 	for name := range entries {
-		if info, err := os.Lstat(filepath.Join(req.Source, name)); err == nil && info.Mode().IsRegular() {
+		if info, err := os.Lstat(filepath.Join(req.Source, name)); err == nil && !info.IsDir() {
 			files = append(files, filepath.ToSlash(name))
 		}
 	}
@@ -188,6 +249,25 @@ func keyedFiles(t *testing.T, req Request) []string {
 
 func withoutPrivate(files []string) []string {
 	return slices.DeleteFunc(slices.Clone(files), func(file string) bool { return slices.Contains(privateFiles, file) })
+}
+
+// excludedPaths are the paths the Dagger import leaves out beyond the fixed
+// private patterns, one pattern per path.
+func excludedPaths(t *testing.T, req Request) []string {
+	t.Helper()
+	excludes, err := importExcludes(t.Context(), targetFiles(req))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var named []string
+	for _, pattern := range excludes {
+		if !strings.HasSuffix(pattern, "/**") {
+			named = append(named, pattern)
+		}
+	}
+	slices.Sort(named)
+	return named
 }
 
 // TestFileSetConformance is the contract H-1 and M-1 broke: for every kind of
@@ -214,34 +294,29 @@ func TestFileSetConformance(t *testing.T) {
 
 		// Everything the listing leaves out is excluded from the Dagger import,
 		// literally, and a wholly ignored directory as one path. gen/ holds a
-		// tracked file, so its ignored files are excluded one by one.
-		excludes := ignoredExcludes(t.Context(), targetFiles(req))
-		var named []string
-		for _, pattern := range excludes {
-			if !strings.HasSuffix(pattern, "/**") {
-				named = append(named, pattern)
-			}
-		}
-		if want := []string{`\!odd\[1]\*.log`, ".env", "debug.log", "deps", "gen/api.pb.go", "gen/deep"}; !slices.Equal(named, want) {
-			t.Errorf("the Dagger import excludes %v, want %v", named, want)
+		// tracked file, so its ignored paths are excluded one by one.
+		want := []string{`\!odd\[1]\*.log`, "_build", "debug.log", "deps", "gen/api.pb.go", "gen/deep", "node_modules", "pkg/assets", "pkg/testdata", "pkg/zz_generated.go"}
+		if got := excludedPaths(t, req); !slices.Equal(got, want) {
+			t.Errorf("the Dagger import excludes %v, want %v", got, want)
 		}
 	})
 
-	// The Go toolchain reads every file under the inputs, so the key and the
-	// Dagger import cover all of them, on either executor.
+	// The Go toolchain reads what it can load, so the key covers it and the
+	// Dagger import leaves out exactly the rest, on either executor.
 	t.Run("Go kind", func(t *testing.T) {
 		for _, executor := range []ExecutorKind{ExecutorNative, ExecutorDagger} {
 			req := Request{Source: root, PlannedCheck: planFor(t, root, CheckGoVet, executor)}
-			if got := keyedFiles(t, req); !slices.Equal(got, onDiskFiles) {
-				t.Fatalf("%s: key hashes %v, want %v", executor, got, onDiskFiles)
+			if got := keyedFiles(t, req); !slices.Equal(got, goFiles) {
+				t.Fatalf("%s: key hashes %v, want %v", executor, got, goFiles)
 			}
-			if excludes := ignoredExcludes(t.Context(), targetFiles(req)); len(excludes) != 0 {
-				t.Fatalf("%s: the Dagger import leaves out %v, which the toolchain reads", executor, excludes)
+			want := []string{`\!odd\[1]\*.log`, "_build", "debug.log", "deps", "node_modules"}
+			if got := excludedPaths(t, req); !slices.Equal(got, want) {
+				t.Fatalf("%s: the Dagger import excludes %v, want %v", executor, got, want)
 			}
 		}
 	})
 
-	// A symlink inside a declared input is refused by the key and by the
+	// A symlink inside declared content is refused by the key and by the
 	// Dagger import alike; neither follows it.
 	t.Run("symlink", func(t *testing.T) {
 		link := filepath.Join(root, "pkg", "link.go")
@@ -257,7 +332,7 @@ func TestFileSetConformance(t *testing.T) {
 			if _, err := snapshot(t.Context(), keyedSource(req)); err == nil || !strings.Contains(err.Error(), "symlink") {
 				t.Errorf("%s: the key hashed a symlink: %v", kind, err)
 			}
-			if err := validateDaggerSource(t.Context(), targetFiles(req)); err == nil || !strings.Contains(err.Error(), "symlink") {
+			if _, err := importExcludes(t.Context(), targetFiles(req)); err == nil || !strings.Contains(err.Error(), "symlink") {
 				t.Errorf("%s: the Dagger import accepted a symlink: %v", kind, err)
 			}
 		}
