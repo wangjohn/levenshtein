@@ -108,7 +108,11 @@ findings and warnings as JSON; a failing one attaches them as the
 `levenshteinError` extension marks a check that could not finish, such as one
 whose community rules failed, as `StatusError` while keeping its findings.
 [Community lint rules](community-rules.md#running-community-rules) describes the
-build, download, and lint containers behind it.
+build, download, and lint containers behind it. The steps that run the
+consumer's own code (`go-test`, `go-generate`, and `go-mutation`) mount Go
+module and build cache volumes of their own (`untrustedGoContainer` in
+`runner/checks.go`), never the ones the linters and pinned tools are built
+from, so that code cannot change what a later tool build compiles.
 
 ### Native executor
 

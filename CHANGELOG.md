@@ -266,6 +266,16 @@ Consumers pin a release tag, or its commit SHA, as described in
   then reported the directive as matching nothing and the check failed either
   way. Upstream analyzers now leave `//lint:ignore` to Staticcheck.
 
+### Security
+
+- The Dagger `go-test`, `go-generate`, and `go-mutation` steps, which run the
+  repository's own code as root, mount Go module and build cache volumes of
+  their own. Before, they shared the volumes that build `levenshtein-lint`,
+  `levenshtein-gocheck`, and the pinned tools, so a malicious test could edit a
+  linter's module source in the cache and change later linter builds on a
+  persistent engine. The tool-build volumes are renamed too, so an engine that
+  ran older checks starts them clean.
+
 ## [0.1.0] - 2026-09-22
 
 The first release: everything merged into `main` so far, grouped by what it

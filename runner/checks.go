@@ -46,11 +46,58 @@ func knownCheck(check checkName) bool {
 	return false
 }
 
+// cacheTrust says whose code has run with a set of Go cache volumes mounted.
+// Go does not re-verify extracted module source when it builds, so code that
+// can write the module cache can change what every later build in it compiles.
+type cacheTrust string
+
+const (
+	// cacheTools volumes build the linters and the other pinned tools, and
+	// back checks that only read the repository.
+	cacheTools cacheTrust = "tools"
+	// cacheUntrusted volumes back the steps that run the repository's own
+	// code as root: its tests, its generators, and mutation testing.
+	cacheUntrusted cacheTrust = "untrusted"
+)
+
+// goCache is one Go cache directory and the Dagger volume mounted there.
+type goCache struct {
+	Path   string
+	Volume string
+}
+
+// goCaches are the module and build cache volumes for one kind of step, keyed
+// by the pinned Go version and by trust, so no tool is ever built from a cache
+// the repository's code could have written.
+func goCaches(tools toolchain, trust cacheTrust) []goCache {
+	suffix := string(trust) + "-" + tools.Go
+	return []goCache{
+		{Path: "/go/pkg/mod", Volume: "levenshtein-go-mod-" + suffix},
+		{Path: "/root/.cache/go-build", Volume: "levenshtein-go-build-" + suffix},
+	}
+}
+
+func goContainerWith(tools toolchain, trust cacheTrust) *dagger.Container {
+	ctr := dag.Container().From(tools.GoImage).WithEnvVariable("GOTOOLCHAIN", "local")
+	for _, cache := range goCaches(tools, trust) {
+		ctr = ctr.WithMountedCache(cache.Path, dag.CacheVolume(cache.Volume))
+	}
+	return ctr
+}
+
+// goContainer is the pinned Go image with the caches tools are built from.
+// Nothing that runs the repository's code may use it; see
+// untrustedGoContainer.
 func goContainer(tools toolchain) *dagger.Container {
-	return dag.Container().From(tools.GoImage).
-		WithEnvVariable("GOTOOLCHAIN", "local").
-		WithMountedCache("/go/pkg/mod", dag.CacheVolume("levenshtein-go-mod-"+tools.Go)).
-		WithMountedCache("/root/.cache/go-build", dag.CacheVolume("levenshtein-go-build-"+tools.Go))
+	return goContainerWith(tools, cacheTools)
+}
+
+// untrustedGoContainer is the pinned Go image with caches of its own, for the
+// steps that run the repository's code. A tool such a step needs is built in
+// goContainer and copied in, or, where it is built here, is only ever trusted
+// by that step.
+func untrustedGoContainer(tools toolchain) *dagger.Container {
+	return goContainerWith(tools, cacheUntrusted)
 }
 
 func executeCheck(ctx context.Context, source *dagger.Directory, module string, tools toolchain, check checkName, nonce string) ([]diagnostic, error) {
@@ -285,7 +332,7 @@ func goTest(ctx context.Context, source *dagger.Directory, module string, tools 
 	if _, err := source.File(path.Join(module, "go.mod")).Contents(ctx); err != nil {
 		return nil, fmt.Errorf("module %q needs a readable go.mod: %w", module, err)
 	}
-	ctr := goContainer(tools).
+	ctr := untrustedGoContainer(tools).
 		WithEnvVariable("CGO_ENABLED", "1").
 		WithDirectory("/src", source).
 		WithWorkdir(path.Join("/src", module))
