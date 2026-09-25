@@ -214,6 +214,10 @@ Consumers pin a release tag, or its commit SHA, as described in
 - `levenshtein-lint` includes go-critic's `deferInLoop`, a `defer` inside a
   loop, off in the shipped selection like `gocognit`
   ([opt in](docs/checks.md#opt-in-resources-deferinloop)).
+- The release workflow publishes only a `vX.Y.Z` tag whose commit `main`
+  contains and whose version `CHANGELOG.md` releases (`scripts/release-on-main`).
+  [docs/releases.md](docs/releases.md#protecting-release-tags) has the tag
+  rulesets and immutable-release setting an admin can apply.
 
 ### Changed
 
@@ -250,6 +254,24 @@ Consumers pin a release tag, or its commit SHA, as described in
   predates its change, ends with a report instead of looping.
   `LEVENSHTEIN_STOP_ONCE=0` keeps blocking every attempt while the run fails
   ([docs/agents.md](docs/agents.md#stop-keep-working-while-the-run-fails)).
+- The workflow template and the consumer examples pin the action by the
+  release's commit SHA with the version as a comment
+  (`wangjohn/levenshtein@<sha> # v0.1.0`), and `scripts/test-doc-pins` checks
+  that the SHA is the one the tag names. Releases now update the examples in a
+  pull request after the tag ([docs/releases.md](docs/releases.md)).
+- Levenshtein's own CI: concurrency groups are per commit outside pull
+  requests, so GitHub no longer cancels queued `main` runs; `dependency-review`
+  reports in a merge queue; every `integration`-tagged Go test runs, natively
+  unless `scripts/test-integration` lists it as needing Dagger; a non-required
+  `macos` job runs the root module's unit tests; the `tests` job's result
+  cache saves only result records; the Dagger CLI cache holds the release
+  archive, verified against its checksum on every run, instead of the binary;
+  `TYPESAFE_API_KEY` is visible only to the semantic-lint step;
+  `go-vuln` also scans `examples/rule-module` and `scripts/test-sdk-security`
+  scans the built `runner/tools` binaries; Dependabot updates
+  `examples/rule-module` and bumps Staticcheck in `runner/lint` and
+  `runner/community` together; and `scripts/test-workflows` keeps the
+  template's action pins equal to the workflows'.
 
 ### Fixed
 
@@ -284,6 +306,12 @@ Consumers pin a release tag, or its commit SHA, as described in
 - Concurrent `verify` launchers no longer rebuild the CLI in place: each builds
   to a temporary file and renames it over the binary, so none can run a
   half-written one.
+- Dagger runs no longer resolve the patched SDK adapter's Python dependencies
+  from PyPI each time: `sdk/patched-go/uv.lock` locks them with hashes,
+  `dagger-io` is pinned to the engine version and the `uv_build` backend
+  exactly, and release archives include the lock. Runs still download the
+  wheels, but always the same, hash-checked ones. A `deps-vuln` check scans the
+  lock in the `main` run.
 
 ## [0.1.0] - 2026-09-22
 
