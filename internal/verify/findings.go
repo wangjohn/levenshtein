@@ -15,6 +15,10 @@ import (
 // as its levenshteinFindings extension, so a report says the same thing however
 // the check was executed. The runner is a separate Go module and cannot be
 // imported, so these are a deliberate copy; change both together.
+//
+// Hint is the exception: no executor sets it. The CLI adds it to a finished
+// report (see hints.go), after any result was cached, so it never reaches a
+// cached result or the runner.
 type finding struct {
 	Code     string   `json:"code"`
 	Message  string   `json:"message"`
@@ -26,6 +30,8 @@ type finding struct {
 	URL string `json:"url,omitempty"`
 	// Advisory findings are reported without failing the check.
 	Advisory bool `json:"advisory"`
+	// Hint is a one-line fix the CLI adds to a finished report.
+	Hint string `json:"hint,omitempty"`
 }
 
 // staticcheckCode is a code from one of Staticcheck's own families.

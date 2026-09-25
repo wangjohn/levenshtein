@@ -15,7 +15,9 @@ parses flags and an optional run name (default `branch`), loads
 
 With `--dry-run`, it prints the plan and exits; no executor runs. Otherwise it
 builds a `Dagger` executor and a `Native` executor, wraps both in
-`CachedExecutor`, executes the plan, and prints a JSON report. Exit codes:
+`CachedExecutor`, executes the plan, and prints the report, as JSON unless
+`--format` chooses text, GitHub workflow commands, or SARIF. Exit codes, the
+same for every format:
 
 - `0`: every selected check passed.
 - `1`: planning succeeded but a check failed, errored, or was cancelled/incomplete.
@@ -23,6 +25,9 @@ builds a `Dagger` executor and a `Native` executor, wraps both in
   shared checkout (neither `--shared` nor `LEVENSHTEIN_SHARED_ROOT`), a
   `--cache-dir` inside the source or shared checkout, or a failure to write
   the plan or report. `--help` exits `0`.
+
+`--render` has its own meaning for `0`, described under
+[report and exit codes](#report-and-exit-codes).
 
 ## Configuration concepts
 
@@ -242,9 +247,20 @@ session with the run's context first, as `executeMutation` does.
 
 `internal/verify/run.go`'s `Execute` returns a `Report` with the resolved
 `Plan` and one `Result` per check (status, timing, stdout/stderr, cache info,
-stage results, and any `Details`). The CLI in `cmd/levenshtein/main.go`
-encodes that report as JSON to stdout, then maps `Report.Status` to the
-process exit code described above.
+stage results, and any `Details`). The CLI in `cmd/levenshtein/main.go` then
+finishes the report after every result was produced or restored, so nothing it
+adds is ever part of a cached result: `WithHints` in
+`internal/verify/hints.go` fills in each finding's `hint` from one small table.
+It rewrites only the `findings` array of a result's `Details`
+(`internal/verify/report.go`), keeping any other field such as
+`go-mutation`'s `summary`. `Render` in `internal/verify/render.go` writes the
+report in the `--format` chosen (`json`, `text`, `github`, or `sarif`) to
+stdout, and the CLI maps `Report.Status` to the process exit code described
+above; the format never changes it. `--render` decodes a saved JSON report,
+fills in its hints, and renders it without planning or executing anything; it
+exits 0 once the report is written and 2 when the input cannot be read.
+
+See [output formats](configuration.md#output-formats) for what each produces.
 
 ## The Go modules
 

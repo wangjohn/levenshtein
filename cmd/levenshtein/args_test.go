@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/spf13/pflag"
+	"github.com/wangjohn/levenshtein/internal/verify"
 )
 
 func TestParseArgs(t *testing.T) {
@@ -17,13 +18,13 @@ func TestParseArgs(t *testing.T) {
 		want    options
 		wantErr string
 	}{
-		{name: "defaults", want: options{source: defaults.source, shared: defaults.shared, name: "branch"}},
-		{name: "flags after run", args: []string{"pre-merge", "--dry-run", "--source", "/app", "--shared", "/tools"}, want: options{source: "/app", shared: "/tools", name: "pre-merge", dry: true}},
-		{name: "flags before run", args: []string{"--source=/app", "--shared=/tools", "--dry-run", "pre-merge"}, want: options{source: "/app", shared: "/tools", name: "pre-merge", dry: true}},
-		{name: "override launcher defaults", args: []string{"--source", "/launcher", "--shared", "/launcher", "custom-run", "--source=/app", "--shared=/tools"}, want: options{source: "/app", shared: "/tools", name: "custom-run"}},
-		{name: "explicit false", args: []string{"--dry-run", "branch", "--dry-run=false"}, want: options{source: defaults.source, shared: defaults.shared, name: "branch"}},
-		{name: "terminator", args: []string{"--", "--custom-run"}, want: options{source: defaults.source, shared: defaults.shared, name: "--custom-run"}},
-		{name: "jobs", args: []string{"branch", "--jobs", "8"}, want: options{source: defaults.source, shared: defaults.shared, name: "branch", jobs: 8}},
+		{name: "defaults", want: options{format: verify.FormatJSON, source: defaults.source, shared: defaults.shared, name: "branch"}},
+		{name: "flags after run", args: []string{"pre-merge", "--dry-run", "--source", "/app", "--shared", "/tools"}, want: options{format: verify.FormatJSON, source: "/app", shared: "/tools", name: "pre-merge", dry: true}},
+		{name: "flags before run", args: []string{"--source=/app", "--shared=/tools", "--dry-run", "pre-merge"}, want: options{format: verify.FormatJSON, source: "/app", shared: "/tools", name: "pre-merge", dry: true}},
+		{name: "override launcher defaults", args: []string{"--source", "/launcher", "--shared", "/launcher", "custom-run", "--source=/app", "--shared=/tools"}, want: options{format: verify.FormatJSON, source: "/app", shared: "/tools", name: "custom-run"}},
+		{name: "explicit false", args: []string{"--dry-run", "branch", "--dry-run=false"}, want: options{format: verify.FormatJSON, source: defaults.source, shared: defaults.shared, name: "branch"}},
+		{name: "terminator", args: []string{"--", "--custom-run"}, want: options{format: verify.FormatJSON, source: defaults.source, shared: defaults.shared, name: "--custom-run"}},
+		{name: "jobs", args: []string{"branch", "--jobs", "8"}, want: options{format: verify.FormatJSON, source: defaults.source, shared: defaults.shared, name: "branch", jobs: 8}},
 		{name: "negative jobs", args: []string{"--jobs=-1"}, wantErr: "--jobs cannot be negative"},
 		{name: "multiple runs", args: []string{"branch", "main"}, wantErr: "expected at most one run"},
 		{name: "unknown flag", args: []string{"branch", "--unknown"}, wantErr: "unknown flag"},
@@ -31,6 +32,15 @@ func TestParseArgs(t *testing.T) {
 		{name: "missing shared", args: []string{"branch", "--shared"}, wantErr: "needs an argument"},
 		{name: "invalid boolean", args: []string{"--dry-run=maybe"}, wantErr: "invalid argument"},
 		{name: "empty source", args: []string{"--source="}, wantErr: "source directory cannot be empty"},
+		{name: "text format", args: []string{"branch", "--format", "text"}, want: options{format: verify.FormatText, source: defaults.source, shared: defaults.shared, name: "branch"}},
+		{name: "github format with prefix", args: []string{"--format=github", "--path-prefix", "./app/", "pre-merge"}, want: options{format: verify.FormatGitHub, pathPrefix: "app", source: defaults.source, shared: defaults.shared, name: "pre-merge"}},
+		{name: "unknown format", args: []string{"--format", "xml"}, wantErr: "--format must be one of json, text, github, sarif"},
+		{name: "render", args: []string{"--render", "report.json", "--format", "sarif"}, want: options{format: verify.FormatSARIF, render: "report.json", source: defaults.source, shared: defaults.shared, name: "branch"}},
+		{name: "render with a run", args: []string{"--render", "-", "main"}, wantErr: "--render writes a saved report and runs nothing"},
+		{name: "dry run with a format", args: []string{"--dry-run", "--format", "text"}, wantErr: "--dry-run prints the plan as JSON"},
+		{name: "prefix on json", args: []string{"--path-prefix", "app"}, wantErr: "--path-prefix applies to text, github and sarif"},
+		{name: "prefix outside the checkout", args: []string{"--format", "text", "--path-prefix", "../app"}, wantErr: "must be a relative directory"},
+		{name: "absolute prefix", args: []string{"--format", "text", "--path-prefix", "/app"}, wantErr: "must be a relative directory"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var output bytes.Buffer
@@ -56,7 +66,7 @@ func TestHelp(t *testing.T) {
 		if !errors.Is(err, pflag.ErrHelp) {
 			t.Fatalf("help error = %v", err)
 		}
-		for _, text := range []string{"Usage: verify", "--source", "--shared", "--dry-run", "--help", "--cache-dir", "--jobs"} {
+		for _, text := range []string{"Usage: verify", "--source", "--shared", "--dry-run", "--help", "--cache-dir", "--jobs", "--format", "--render", "--path-prefix"} {
 			if !strings.Contains(output.String(), text) {
 				t.Errorf("help missing %q: %s", text, &output)
 			}

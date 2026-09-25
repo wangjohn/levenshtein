@@ -2,7 +2,7 @@
 
 Your CI checks out the application, chooses a run, and invokes a pinned Levenshtein version. Levenshtein prepares the check environment and returns results and an exit status. Application tests and CI schedules belong to the application repo.
 
-**Available now:** shared Go lint, vet, module manifest checks, HTTP/SQL cleanup checks, vulnerability scanning, workflow lint, native commands, and local result/setup/build caching. Start with one product target and a few useful checks; keep existing CI gates while proving equivalent behavior.
+**Available now:** shared Go lint, vet, module manifest checks, HTTP/SQL cleanup checks, vulnerability scanning, workflow lint, native commands, local result/setup/build caching, and text/GitHub/SARIF output. Start with one product target and a few useful checks; keep existing CI gates while proving equivalent behavior.
 
 ## The same command locally and in CI
 
@@ -91,8 +91,40 @@ With no `run` input, the action picks one from the event: a schedule runs `main`
 | `source` | `.` | Directory to verify, relative to the workspace |
 | `setup-go` | `true` | Install the Go version this revision pins. Set `false` when the job already provides Go |
 | `cache` | `true` | Restore and save completed results and the Staticcheck analysis cache with `actions/cache` |
+| `annotations` | `true` | Annotate each failing finding, and each check that did not reach a verdict, on the run and on the pull request's files |
+| `sarif` | empty | Path, relative to the workspace, to write a SARIF file to for code scanning. Empty writes none |
 
-The action's outputs are `run`, the run it executed, and `report`, the path to the JSON report. It also writes a status table to the job summary. A failed check fails the step. Make the job a required status check in the application's branch protection or ruleset.
+The action's outputs are `run`, the run it executed, `report`, the path to the JSON report, and `sarif`, the path of the SARIF file when the `sarif` input asked for one. The job summary has a status table and lists up to 50 failing findings. A failed check fails the step. Make the job a required status check in the application's branch protection or ruleset.
+
+The annotations and the SARIF file are rendered from the saved JSON report with `verify --render` after the Verify step, so they never run the checks again or change the step's result, and a repository whose `source` is a subdirectory gets paths relative to the workspace. Neither needs a permission beyond `contents: read`: annotations are workflow commands in the step's log. [Output formats](configuration.md#output-formats) describes both.
+
+**Code scanning.** To see findings in the repository's Security tab and on pull request diffs, pass `sarif:` and upload the file in a later step of the same job. The upload, not this action, needs `security-events: write`; a private repository's upload also needs `actions: read`. A pull request from a fork never gets `security-events: write`, so upload only from same-repository events and keep annotations for forks:
+
+```yaml
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: levenshtein
+        uses: wangjohn/levenshtein@v0.1.0
+        with:
+          sarif: levenshtein.sarif
+      - if: >-
+          ${{ !cancelled() && steps.levenshtein.outputs.sarif != '' &&
+          (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
+        with:
+          sarif_file: ${{ steps.levenshtein.outputs.sarif }}
+          category: levenshtein
+```
+
+`!cancelled()` uploads after a failing Verify step too, which is when there is something to see. The `annotations` and `sarif` inputs are new since 0.1.0 (see the [changelog](../CHANGELOG.md)); a pin to 0.1.0 does not have them.
 
 **Pin a release.** `@v0.1.0` names a published [release](releases.md). To pin immutably, use that tag's commit SHA with the version as a comment, as this repository does for every action it calls. Dependabot's `github-actions` ecosystem proposes new Levenshtein releases like any other action, including the SHA and comment. Do not pin a branch.
 

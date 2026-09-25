@@ -145,18 +145,7 @@ func Execute(ctx context.Context, plan Plan, shared string, executors map[Execut
 	}
 	wg.Wait()
 
-	status := StatusPassed
-	if len(plan.Checks) == 0 {
-		status = StatusIncomplete
-	}
-	for _, outcome := range results {
-		if outcome.Status != StatusPassed {
-			status = StatusFailed
-			break
-		}
-	}
-
-	return Report{Version: 1, Run: plan.Run, Status: status, Plan: plan, Results: results}
+	return Report{Version: 1, Run: plan.Run, Status: reportStatus(results), Plan: plan, Results: results}
 }
 
 func executeCheck(ctx context.Context, check PlannedCheck, req Request, executors map[ExecutorKind]Executor) Result {
