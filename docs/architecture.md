@@ -129,7 +129,7 @@ still match a recorded run, which requires the environment to declare an
 
 `internal/verify/kinds.go` registers `go-lint`, `go-vet`, `go-mod`, `go-test`,
 `go-imports`, `go-generate`, `go-apidiff`, `workflow-lint`, `workflow-security`, `shell-lint`, `secrets`, `deps-vuln` and `go-vuln` for the native executor as well as the Dagger one; `self-test`,
-`go-http` and `go-sql` stay Dagger-only. `internal/verify/gotools.go` builds the
+`go-http` and `go-sql` stay Dagger-only ([check kinds](check-kinds.md) lists every kind; its table is generated from `kindSpecs` in the same file). `internal/verify/gotools.go` builds the
 helper binaries (`levenshtein-lint` from `runner/lint`, `actionlint` and
 `govulncheck` from `runner/tools`) out of the pinned shared checkout into
 `cache.Dir/tools/` with `GOWORK=off GOTOOLCHAIN=local go build -trimpath`,

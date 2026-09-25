@@ -214,6 +214,12 @@ Consumers pin a release tag, or its commit SHA, as described in
 - `levenshtein-lint` includes go-critic's `deferInLoop`, a `defer` inside a
   loop, off in the shipped selection like `gocognit`
   ([opt in](docs/checks.md#opt-in-resources-deferinloop)).
+- [docs/check-kinds.md](docs/check-kinds.md) lists every check kind with
+  what it checks, which executors run it, whether its results are cached,
+  whether a baseline can hold its findings, whether it needs a
+  repository-root target, and which default runs include it. The table is
+  generated from the verifier's own kind descriptors, and a test fails when
+  it falls out of date.
 
 ### Changed
 
