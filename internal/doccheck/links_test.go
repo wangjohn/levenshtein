@@ -62,6 +62,22 @@ type link struct {
 // match a heading or HTML anchor in the Markdown file it points at, using
 // GitHub's anchor rules. External links are not fetched.
 func TestRelativeLinksResolve(t *testing.T) {
+	docs := loadDocs(t)
+
+	for _, file := range slices.Sorted(maps.Keys(docs)) {
+		for _, l := range docs[file].links {
+			if problem := resolve(docs, file, l.target); problem != "" {
+				t.Errorf("%s:%d: link %q: %s", file, l.line, l.target, problem)
+			}
+		}
+	}
+}
+
+// loadDocs parses every Markdown file in the repository outside skippedDirs
+// and hidden directories other than .github, keyed by slash-separated path
+// relative to the repository root.
+func loadDocs(t *testing.T) map[string]document {
+	t.Helper()
 	docs := map[string]document{}
 	err := filepath.WalkDir(repoRoot, func(p string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -91,14 +107,7 @@ func TestRelativeLinksResolve(t *testing.T) {
 	if len(docs) < 10 {
 		t.Fatalf("found only %d Markdown files under %s; is the walk rooted correctly?", len(docs), repoRoot)
 	}
-
-	for _, file := range slices.Sorted(maps.Keys(docs)) {
-		for _, l := range docs[file].links {
-			if problem := resolve(docs, file, l.target); problem != "" {
-				t.Errorf("%s:%d: link %q: %s", file, l.line, l.target, problem)
-			}
-		}
-	}
+	return docs
 }
 
 // resolve returns why target, linked from file, does not resolve, or "".
