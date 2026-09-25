@@ -117,8 +117,8 @@ func resolve(docs map[string]document, file, target string) string {
 		if err != nil {
 			return fmt.Sprintf("bad escape: %v", err)
 		}
-		if strings.HasPrefix(decoded, "/") {
-			resolved = path.Clean(strings.TrimPrefix(decoded, "/"))
+		if rooted, ok := strings.CutPrefix(decoded, "/"); ok {
+			resolved = path.Clean(rooted)
 		} else {
 			resolved = path.Join(path.Dir(file), decoded)
 		}
@@ -129,7 +129,7 @@ func resolve(docs map[string]document, file, target string) string {
 			if pendingTargets[resolved] {
 				return ""
 			}
-			return fmt.Sprintf("%s does not exist", resolved)
+			return resolved + " does not exist"
 		}
 	}
 
