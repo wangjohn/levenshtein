@@ -26,6 +26,11 @@ for source in "$root"/runner/*.go; do
   [[ $file == *_test.go || $file == runner/dagger.gen.go ]] && continue
   test -f "$shared/$file" || { echo "Archive missing $file; add it to .goreleaser.yaml" >&2; exit 1; }
 done
+# The runner imports its generated copy of internal/checktool.
+for source in "$root"/runner/internal/checktool/*.go; do
+  file=${source#"$root"/}
+  test -f "$shared/$file" || { echo "Archive missing $file; add it to .goreleaser.yaml" >&2; exit 1; }
+done
 # Dagger's Python runtime installs the SDK adapter from these files, and
 # without uv.lock it resolves the adapter's dependencies from PyPI on every
 # run, so every tracked file but its .gitignore ships.
