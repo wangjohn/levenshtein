@@ -73,6 +73,13 @@ reported '^cgo/cgo\.go:[0-9]+:[0-9]+: .*\(exhaustive\)$' 'exhaustive in the hand
 # good/ignored.go suppresses a nilerr finding with //lint:ignore; a nilerr
 # directive with no finding under it must still be reported as unused.
 reported "^correctness\\.go:58:2: this linter directive didn't match anything; should it be removed\\? \\(staticcheck\\)\$" 'unused //lint:ignore nilerr'
+# good/builds.go suppresses recvcheck and unparam findings that exist in only
+# one of the package's builds, with and without tests. Directives for those
+# rules that match nothing in any build must still be reported, in a package
+# with tests and in one without.
+reported "^builds\\.go:8:1: this linter directive didn't match anything; should it be removed\\? \\(staticcheck\\)\$" 'unused //lint:ignore recvcheck'
+reported "^builds\\.go:18:1: this linter directive didn't match anything; should it be removed\\? \\(staticcheck\\)\$" 'unused //lint:ignore unparam'
+reported "^notests/notests\\.go:7:1: this linter directive didn't match anything; should it be removed\\? \\(staticcheck\\)\$" 'unused //lint:ignore recvcheck without tests'
 # The default build leaves integration.go out, but gofmt checks it, so LV1005 does too.
 reported '^integration\.go:1:1: file is not gofmt-formatted; run gofmt -w \(LV1005\)$' 'LV1005 in a file the build ignores'
 if grep -q '^/' "$temporary/output"; then

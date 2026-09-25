@@ -280,6 +280,16 @@ Consumers pin a release tag, or its commit SHA, as described in
   `//go:build ignore`, which `gofmt -l` checks and LV1005 skipped. The
   linter keys Staticcheck's cache on those files too, so formatting one clears
   its finding on the next run.
+- `//lint:ignore recvcheck`, `//lint:ignore unparam`, and
+  `//lint:ignore gochecksumtype` suppress a finding that exists in only one of
+  a package's builds, with or without its tests, instead of being reported as
+  matching nothing by the other build. One build now decides each rule's
+  findings on non-test files: the build with tests for `recvcheck`, and the
+  build without them for `unparam` and `gochecksumtype`, so a test's calls no
+  longer change what `unparam` reports and a test's fake variant no longer
+  makes a sum type's switches incomplete. A directive that matches nothing is
+  still reported. The `//lint:file-ignore unparam` workaround is no longer
+  needed.
 
 ## [0.1.0] - 2026-09-22
 
