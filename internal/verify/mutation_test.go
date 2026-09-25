@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/vektah/gqlparser/v2/gqlerror"
 	"github.com/wangjohn/levenshtein/internal/gitchange"
+	"github.com/wangjohn/levenshtein/internal/testgit"
 )
 
 func mutationConfig(check string) string {
@@ -75,17 +75,11 @@ func TestGoMutationRejectsInvalidOptions(t *testing.T) {
 type mutationRepo struct {
 	dir string
 	git string
-	env []string
 }
 
 func (r mutationRepo) run(t *testing.T, args ...string) {
 	t.Helper()
-	cmd := exec.CommandContext(t.Context(), r.git, args...)
-	cmd.Dir = r.dir
-	cmd.Env = r.env
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
+	testgit.Run(t, r.git, r.dir, args...)
 }
 
 func (r mutationRepo) write(t *testing.T, path, content string) {
@@ -101,22 +95,14 @@ func (r mutationRepo) write(t *testing.T, path, content string) {
 
 func newMutationRepo(t *testing.T) mutationRepo {
 	t.Helper()
-	git, err := exec.LookPath("git")
-	if err != nil {
-		t.Skip("git is not installed")
-	}
+	git := testgit.Path(t)
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Isolate git configuration without changing HOME; Apple's git shim reads its license state from there.
-	env := append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
-	for _, entry := range env[len(os.Environ()):] {
-		name, value, _ := strings.Cut(entry, "=")
-		t.Setenv(name, value) // mutationFiles runs git with the process environment.
-	}
+	testgit.Isolate(t)              // mutationFiles runs git with the process environment.
 	t.Setenv("GITHUB_BASE_REF", "") // CI sets it for pull requests; each test chooses its own base.
-	r := mutationRepo{dir: dir, git: git, env: env}
+	r := mutationRepo{dir: dir, git: git}
 	r.run(t, "init", "--quiet", "--initial-branch=main")
 
 	unchanged := map[string]string{

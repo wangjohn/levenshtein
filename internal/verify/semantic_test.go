@@ -6,12 +6,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/wangjohn/levenshtein/internal/testgit"
 )
 
 const semanticConfig = `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"host":{"executor":"native"}},"checks":{"semantic":{"kind":"semantic-lint","target":"app","environment":"host"%s}},"runs":{"branch":{"checks":["semantic"]},"audit":{"checks":["semantic"],"rerun_checks":true}}}`
@@ -130,18 +131,12 @@ func TestSemanticLintRequiresAPIKey(t *testing.T) {
 
 func gitRepo(t *testing.T) string {
 	t.Helper()
-	git, err := exec.LookPath("git")
-	if err != nil {
-		t.Skip("git is not installed")
-	}
+	git := testgit.Path(t)
+	testgit.Isolate(t) // The check runs git with the process environment.
 	dir := t.TempDir()
 	run := func(args ...string) {
-		cmd := exec.CommandContext(t.Context(), git, args...)
-		cmd.Dir = dir
-		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
+		t.Helper()
+		testgit.Run(t, git, dir, args...)
 	}
 	write := func(path, content string) {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, path)), 0755); err != nil {

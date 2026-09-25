@@ -2,11 +2,12 @@ package gitchange
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/wangjohn/levenshtein/internal/testgit"
 )
 
 type repo struct {
@@ -17,25 +18,14 @@ type repo struct {
 
 func newRepo(t *testing.T) repo {
 	t.Helper()
-	git, err := exec.LookPath("git")
-	if err != nil {
-		t.Skip("git is not installed")
-	}
-	// Isolate git configuration without changing HOME; Apple's git shim reads its license state from there.
-	env := append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
-	r := repo{dir: t.TempDir(), git: git, env: env}
+	r := repo{dir: t.TempDir(), git: testgit.Path(t), env: testgit.Env()}
 	r.run(t, "init", "--quiet", "--initial-branch=main")
 	return r
 }
 
 func (r repo) run(t *testing.T, args ...string) {
 	t.Helper()
-	cmd := exec.CommandContext(t.Context(), r.git, args...)
-	cmd.Dir = r.dir
-	cmd.Env = r.env
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
+	testgit.Run(t, r.git, r.dir, args...)
 }
 
 func (r repo) write(t *testing.T, path, content string) {

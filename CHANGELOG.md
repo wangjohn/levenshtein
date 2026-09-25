@@ -265,6 +265,13 @@ Consumers pin a release tag, or its commit SHA, as described in
   nilerr applied the directive itself and dropped the finding, so Staticcheck
   then reported the directive as matching nothing and the check failed either
   way. Upstream analyzers now leave `//lint:ignore` to Staticcheck.
+- Tests that build throwaway git repositories no longer write to the
+  repository `go test` was started from. They inherited `GIT_DIR`,
+  `GIT_INDEX_FILE`, and `GIT_WORK_TREE`, which git exports to hooks, so the
+  lefthook `pre-push` run of `go test ./...` committed, switched branches, and
+  staged files in the pushing checkout. Every test now runs git through
+  `internal/testgit`, which drops every inherited `GIT_` variable, and a guard
+  test fails on a test file that runs git directly.
 
 ## [0.1.0] - 2026-09-22
 
