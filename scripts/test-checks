@@ -100,9 +100,10 @@ expect_failure httpmux-legacy httpmux "$temporary/lint" -checks="$checks" ./...
 fails vet-bad go vet ./...
 reported 'passes lock by value' 'passes lock by value'
 
-# Staticcheck caches a package's results by the files the build compiles, and
-# LV1005 also reads the files the build leaves out. Formatting only such a file
-# must clear its finding on the next run from the same cache.
+# Staticcheck caches a package's results by the files the build compiles, so
+# LV1005 checks the files the build leaves out after the run, outside that
+# cache. Formatting only such a file must clear its finding on the next run
+# from the same cache, and unformatting it again must bring the finding back.
 cached="$temporary/cached"
 mkdir -p "$cached/module"
 printf 'module example.com/cached\n\ngo 1.27.1\n' > "$cached/module/go.mod"
@@ -118,4 +119,10 @@ if ! (cd "$cached/module" && STATICCHECK_CACHE="$cached/cache" "$temporary/lint"
   echo "a cached LV1005 finding outlived the fix to a file the build ignores" >&2
   exit 1
 fi
+printf '//go:build integration\n\npackage cached\nvar  x = 1\n' > "$cached/module/integration.go"
+if (cd "$cached/module" && STATICCHECK_CACHE="$cached/cache" "$temporary/lint" -checks=LV1005 ./...) > "$temporary/output" 2>&1; then
+  echo "a cached run missed a file the build ignores that was unformatted again" >&2
+  exit 1
+fi
+reported '^integration\.go:1:1: .*\(LV1005\)$' 'LV1005 in a file the build ignores, unformatted again'
 echo 'Expanded check regression fixtures passed'

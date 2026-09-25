@@ -593,9 +593,6 @@ func run(args []string) int {
 	// selected rules keeps a rule that is turned off from running at all, so
 	// it cannot fail the run, and gives each selection its own cache entries.
 	checks := checkList(command.FlagSet())
-	if checks == nil || allowed(checks, policy.Formatting.Name) {
-		keyIgnoredFiles(command.FlagSet().Args())
-	}
 	guard := newGuard(stop)
 	for _, family := range families {
 		if checks == nil || allowed(checks, family.Analyzer.Name) {
@@ -609,7 +606,15 @@ func run(args []string) int {
 			guard.wrap(analyzer, owner{Code: analyzer.Name})
 		}
 	}
-	return command.Execute()
+	status := command.Execute()
+
+	// LV1005 checks the files the builds leave out after the run, outside
+	// Staticcheck's cache (see excluded.go). Exit 2 is a run that never got
+	// as far as reporting.
+	if status == 2 || (checks != nil && !allowed(checks, policy.Formatting.Name)) {
+		return status
+	}
+	return checkExcluded(command.FlagSet(), checks, status, os.Stdout, os.Stderr)
 }
 
 // stop ends the run on the first analyzer failure.
