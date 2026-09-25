@@ -138,7 +138,7 @@ Some consequences are worth stating. A file the repository's `.gitignore` files 
 
 **The Go kinds add what the Go toolchain can load.** `go-lint`, `go-vet`, `go-mod`, `go-test`, `go-http`, `go-sql`, `go-vuln`, `go-imports`, `go-generate`, `go-apidiff`, and `go-mutation` read gitignored generated code such as a `*.pb.go` or a generated SDK whatever git lists, so under git discovery their key, their Dagger import, and the native `go-generate` copy also cover the ignored paths the toolchain can load:
 
-- ignored Go, cgo, assembly, and `.syso` sources, and `go.mod`, `go.sum`, `go.work`, and `go.work.sum`;
+- ignored Go, cgo, assembly, and `.syso` sources, `go.mod`, `go.sum`, `go.work`, and `go.work.sum`, and a `vendor/modules.txt` manifest;
 - any ignored file in a directory that holds, or sits below one that holds, a `.go` file with a `//go:embed` directive;
 - anything under a `testdata` directory, which tests read by convention.
 - an ignored symlink to a directory, through which an import path can resolve.

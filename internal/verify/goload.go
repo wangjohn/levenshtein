@@ -18,6 +18,10 @@ var goSourceExtensions = []string{".go", ".c", ".cc", ".cxx", ".cpp", ".m", ".h"
 // goModuleFiles are read wherever they sit: a nested module, a workspace.
 var goModuleFiles = []string{"go.mod", "go.sum", "go.work", "go.work.sum"}
 
+// vendorManifest is the file the go command builds a vendored module or
+// workspace from, and checks against go.mod, in a directory named vendor.
+const vendorManifest = "modules.txt"
+
 // goLoader decides which paths the work tree ignores the Go toolchain can
 // still load, so a Go toolchain file set hashes them and leaves out the rest.
 //
@@ -56,7 +60,12 @@ func newGoLoader(dir *os.Root, scans *sync.Map) *goLoader {
 // fileScope classifies an ignored file, or a symlink, whose info is its Lstat.
 func (l *goLoader) fileScope(rel string, info fs.FileInfo) pathScope {
 	name := filepath.Base(rel)
-	if slices.Contains(goSourceExtensions, filepath.Ext(name)) || slices.Contains(goModuleFiles, name) || inTestdata(rel) || l.embedded(filepath.Dir(rel)) || l.directoryLink(rel, info) {
+	switch {
+	case slices.Contains(goSourceExtensions, filepath.Ext(name)), slices.Contains(goModuleFiles, name):
+		return scopeIgnored
+	case name == vendorManifest && filepath.Base(filepath.Dir(rel)) == "vendor":
+		return scopeIgnored
+	case inTestdata(rel), l.embedded(filepath.Dir(rel)), l.directoryLink(rel, info):
 		return scopeIgnored
 	}
 	return scopeOmitted

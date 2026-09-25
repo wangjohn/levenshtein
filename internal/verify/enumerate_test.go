@@ -171,6 +171,34 @@ func TestGoKindKeyCoversIgnoredDirectoryLinks(t *testing.T) {
 	}
 }
 
+// With a vendor directory the go command builds from vendor/modules.txt,
+// refusing a tree whose manifest disagrees with go.mod, so an edit to an
+// ignored manifest must change a Go kind's key.
+func TestGoKindKeyCoversIgnoredVendorManifest(t *testing.T) {
+	root := fileSetRepository(t)
+	writeFile(t, filepath.Join(root, ".gitignore"), "gen/\ndeps/\n*.log\n.env\nnode_modules/\n_build/\n*_generated.go\npkg/assets/\n*.out\nvendor/\n")
+	writeFile(t, filepath.Join(root, "vendor", "example.com", "dep", "dep.go"), sourceOne)
+	writeFile(t, filepath.Join(root, "vendor", "modules.txt"), "# example.com/dep v1.0.0\n## explicit; go 1.21\nexample.com/dep\n")
+	runGit(t, root, "add", ".gitignore")
+	relist(root)
+	stats.configure(t.TempDir())
+	req := Request{Source: root, Shared: t.TempDir(), PlannedCheck: planFor(t, root, CheckGoVet, ExecutorNative)}
+
+	before, err := fingerprint(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(root, "vendor", "modules.txt"), "# example.com/dep v1.0.0\n## explicit; go 1.22\nexample.com/dep\n")
+
+	after, err := fingerprint(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after == before {
+		t.Fatal("editing an ignored vendor/modules.txt left the go-vet key unchanged")
+	}
+}
+
 // A native scanner reads exactly what the key hashed: under git discovery an
 // ignored file is in neither, so adding a secret to one cannot replay a pass
 // over a scan that read it.

@@ -111,7 +111,7 @@ Consumers pin a release tag, or its commit SHA, as described in
   files. The Go kinds (`go-lint`, `go-vet`, `go-mod`, `go-test`, `go-http`,
   `go-sql`, `go-vuln`, `go-imports`, `go-generate`, `go-apidiff`,
   `go-mutation`) add the ignored paths the Go toolchain can load: ignored Go
-  and cgo sources and module files, whatever a `//go:embed` directive in
+  and cgo sources, module files and `vendor/modules.txt`, whatever a `//go:embed` directive in
   the directory or above could name, `testdata`, and symlinks to
   directories, through which an import path resolves. An ignored directory
   with no `.go` file in it and nothing embedding it, such as `node_modules`
