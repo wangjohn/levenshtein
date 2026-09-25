@@ -48,7 +48,7 @@ updates:
 
   # Staticcheck (honnef.co/go/tools) is ignored here and in runner/community:
   # both must stay on the pin runner/toolchain.json names, so it is bumped by
-  # hand in one change across all three (docs/community-rules.md). Proposing
+  # hand in one change across all three (docs/design/community-rules.md). Proposing
   # it for one module alone would only split the pin.
   - package-ecosystem: gomod
     directory: /runner/lint

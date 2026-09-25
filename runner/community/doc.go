@@ -5,7 +5,7 @@
 // levenshtein-community-lint, whose generated main calls [Main] with one
 // [Module] per rule module. The binary runs beside the core linter on the same
 // pinned Staticcheck, and the runner merges both linters' findings into one
-// report. See docs/community-rules.md in the Levenshtein repository.
+// report. See docs/design/community-rules.md in the Levenshtein repository.
 //
 // Only that generated main imports this package. Rule authors never do: a
 // rule module exports plain analyzers from its lvrules package, and that
