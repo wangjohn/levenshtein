@@ -91,6 +91,23 @@ func hookTools(t *testing.T, tools ...string) {
 	}
 }
 
+// toolsDir returns a directory holding links to just the named tools, for a
+// PATH that leaves the others out.
+func toolsDir(t *testing.T, tools ...string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, tool := range tools {
+		path, err := exec.LookPath(tool)
+		if err != nil {
+			t.Skipf("%s is not installed: %v", tool, err)
+		}
+		if err := os.Symlink(path, filepath.Join(dir, tool)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
 // runHook runs a hook template with the given JSON on stdin and environment,
 // and returns its exit code and stderr.
 func runHook(t *testing.T, script, input string, env ...string) (int, string) {
@@ -171,6 +188,15 @@ func TestStopHookTemplate(t *testing.T) {
 	}
 	if code, stderr := runHook(t, "levenshtein-stop.sh", active, append(env, "FAKE_STATUS=1", "LEVENSHTEIN_STOP_ONCE=0")...); code != 2 || !strings.Contains(stderr, "branch run fails") {
 		t.Fatalf("LEVENSHTEIN_STOP_ONCE=0 must block a continued turn too: %d %s", code, stderr)
+	}
+
+	// Without jq the hook still blocks only the first stop.
+	noJQ := append(env, "FAKE_STATUS=1", "PATH="+toolsDir(t, "bash", "cat", "git"))
+	if code, stderr := runHook(t, "levenshtein-stop.sh", input, noJQ...); code != 2 || !strings.Contains(stderr, "branch run fails") {
+		t.Fatalf("without jq a failing run must still block the first stop: %d %s", code, stderr)
+	}
+	if code, stderr := runHook(t, "levenshtein-stop.sh", active, noJQ...); code != 0 {
+		t.Fatalf("without jq a continued turn must be let stop: %d %s", code, stderr)
 	}
 
 	if code, stderr := runHook(t, "levenshtein-stop.sh", input, append(env, "FAKE_STATUS=2")...); code != 1 || !strings.Contains(stderr, "could not run") {
