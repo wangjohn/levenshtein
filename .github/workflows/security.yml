@@ -8,6 +8,9 @@ name: Security
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  # dependency-review is a required check, so it has to report in a merge
+  # queue too, or a queued change would wait on it forever.
+  merge_group:
   push:
     branches: [main]
   schedule:
@@ -18,8 +21,11 @@ on:
 permissions:
   contents: read
 
+# As in verify.yml: pull requests cancel superseded runs, and every other event
+# groups by commit, since GitHub cancels all but one pending run per group even
+# without cancel-in-progress.
 concurrency:
-  group: security-${{ github.event_name }}-${{ github.ref }}
+  group: security-${{ github.event_name }}-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'latest' || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -55,7 +61,7 @@ jobs:
     # default branch, so it runs on main and on the weekly schedule rather
     # than on a pull request's merge ref. Results go to code scanning only;
     # publishing to the public Scorecard API would also need id-token: write.
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'push' || github.event_name == 'schedule'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -78,17 +84,24 @@ jobs:
           category: scorecard
 
   dependency-review:
-    # Only a pull request has a base and a head to compare.
-    if: github.event_name == 'pull_request'
+    # Only a pull request has a base and a head to compare. In a merge queue
+    # the job passes without a review: the pull request it queued already had
+    # one, and a required check that never reports would stall the queue.
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'pull_request'
         with:
           persist-credentials: false
       # Requires the repository's dependency graph (Settings -> Code security).
       # Without it the action fails, which is the intended signal.
       - name: Review added dependencies
+        if: github.event_name == 'pull_request'
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: high
+      - name: Pass outside pull requests
+        if: github.event_name != 'pull_request'
+        run: echo 'Dependencies were reviewed on the queued pull request.' >> "$GITHUB_STEP_SUMMARY"

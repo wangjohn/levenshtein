@@ -37,6 +37,7 @@ archives:
       - runner/tools/**
       - sdk/patched-go/dagger.json
       - sdk/patched-go/pyproject.toml
+      - sdk/patched-go/uv.lock
       - sdk/patched-go/src/**/*.py
       - sdk/patched-go/README.md
       - runner/lint/**

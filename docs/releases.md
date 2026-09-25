@@ -1,6 +1,6 @@
 # Release archives
 
-GoReleaser builds the CLI for macOS and Linux on amd64 and arm64, and creates archives with SHA-256 checksums. Each archive includes the shared Dagger module, lint/tool modules, patched SDK adapter, fixtures, and the source files used to identify its implementation. Keep the archive together so the binary and checks have the same revision.
+GoReleaser builds the CLI for macOS and Linux on amd64 and arm64, and creates archives with SHA-256 checksums. Each archive includes the shared Dagger module, lint/tool modules, patched SDK adapter with its `uv.lock`, fixtures, and the source files used to identify its implementation. Keep the archive together so the binary and checks have the same revision.
 
 Using Go 1.27.1 and GoReleaser 2.18.1, validate and build locally:
 
@@ -16,18 +16,16 @@ Snapshot builds create files in `dist/` and publish nothing.
 Publication is a tag, prepared by a release pull request:
 
 1. In one pull request, rename `## [Unreleased]` in `CHANGELOG.md` to
-   `## [X.Y.Z] - YYYY-MM-DD` above a fresh empty `[Unreleased]`, and update every
-   consumer example that pins Levenshtein (`wangjohn/levenshtein@vX.Y.Z` and
-   `--branch vX.Y.Z`) to the new version. `scripts/test-doc-pins` fails the
-   pull request if any example names a different version than the newest
-   changelog entry.
+   `## [X.Y.Z] - YYYY-MM-DD` above a fresh empty `[Unreleased]`. Leave the
+   consumer examples on the previous release: they pin its commit SHA, and the
+   new release has none yet.
 2. Merge it, then push an annotated tag on the merge commit.
    `.github/workflows/release.yml` does the rest:
 
 ```sh
-git tag -a v0.1.0 -m 'Levenshtein v0.1.0'
-git tag -a runner/lint/v0.1.0 -m 'Levenshtein v0.1.0 linter module'
-git push origin v0.1.0 runner/lint/v0.1.0
+git tag -a vX.Y.Z -m 'Levenshtein vX.Y.Z'
+git tag -a runner/lint/vX.Y.Z -m 'Levenshtein vX.Y.Z linter module'
+git push origin vX.Y.Z runner/lint/vX.Y.Z
 ```
 
 The second tag versions the nested `runner/lint` module, so
@@ -36,11 +34,23 @@ resolves to the same revision as the release
 ([running the linter directly](checks.md#running-the-linter-directly)). It
 does not match the workflow's `v*` filter, so it publishes no archives.
 
-Tag promptly after the merge: until the tag exists, the documented examples
-name a version GitHub cannot resolve.
+3. In a second pull request, move every consumer example to the new release:
+   `wangjohn/levenshtein@<sha> # vX.Y.Z`, where `<sha>` is
+   `git rev-list -n1 vX.Y.Z`, and `--branch vX.Y.Z`. Run
+   `scripts/test-doc-pins --latest` before opening it: it fails until every
+   example names the newest release.
 
-The workflow checks out the full history, builds with the pinned Go from
-`.go-version`, installs the pinned syft, and runs `goreleaser release --clean`.
+On every pull request, `scripts/test-doc-pins` checks that each action pin is a
+full commit SHA with its tag as a comment, that it names a tagged release in
+`CHANGELOG.md`, and that the SHA is the commit the tag names. It does not
+require the newest release, so pushing a tag never fails open pull requests;
+only `--latest`, in step 3, does.
+
+The workflow first runs `scripts/release-on-main`, which refuses a tag that is
+not `vX.Y.Z`, whose version is not a release in `CHANGELOG.md`, or whose commit
+`main` does not contain, so a tag pushed on an unreviewed commit publishes
+nothing. It then builds with the pinned Go from `.go-version`, installs the
+pinned syft, and runs `goreleaser release --clean`.
 The GitHub release then holds:
 
 - the four platform archives (`linux`/`darwin` × `amd64`/`arm64`), each with the
@@ -51,21 +61,52 @@ The GitHub release then holds:
   `gh attestation verify <file> --repo wangjohn/levenshtein` checks.
 
 Nothing else is automated: the tag is created by a person, and a release is only
-as reviewed as the commit it points at. `release-smoke` in the self-checks
+as reviewed as the commit it points at, which the workflow requires to be on
+`main`. `release-smoke` in the self-checks
 workflow validates `.goreleaser.yaml` and builds the same archives as a snapshot
 on every ready pull request, so a tag is not the first time the configuration
 runs.
 
 ## Pinning a release
 
-A consumer may pin a published tag instead of a commit SHA. A tag is readable in
-a diff and is what release notes name; a SHA cannot be moved. Either is a
-deliberate, reviewed update. Do not pin a branch.
-
-A tag also names the GitHub Action at the repository root: `uses:
-wangjohn/levenshtein@vX.Y.Z` runs that release's checks, and Dependabot's
-`github-actions` ecosystem proposes the next one. See
+Pin the release's commit SHA with its tag as a comment, as the examples do:
+`uses: wangjohn/levenshtein@<sha> # vX.Y.Z`, where `<sha>` is
+`git rev-list -n1 vX.Y.Z`. A SHA cannot be moved; the comment keeps the pin
+readable in a diff and names the release notes. Pinning the tag itself
+(`@vX.Y.Z`) also works but trusts the tag not to move. Either is a deliberate,
+reviewed update, and Dependabot's `github-actions` ecosystem proposes the next
+release, SHA and comment included. Do not pin a branch. See
 [GitHub Actions](consumer-ci.md#github-actions).
+
+## Protecting release tags
+
+A release is only as trustworthy as its tag. The release workflow already
+refuses a tag that `main` does not contain; two repository settings, which a
+workflow cannot change, stop a tag from being moved or deleted once pushed.
+An admin applies them:
+
+1. Create the tag rulesets in `.github/rulesets/proposed`: `tags.json` blocks
+   updating, force-pushing and deleting any `v*` tag, for everyone, and
+   `tags-creation.json` lets only the admin and maintain roles create one.
+
+   ```sh
+   gh api --method POST repos/wangjohn/levenshtein/rulesets --input .github/rulesets/proposed/tags.json
+   gh api --method POST repos/wangjohn/levenshtein/rulesets --input .github/rulesets/proposed/tags-creation.json
+   ```
+
+   Then, in a pull request, move both files up to `.github/rulesets/` so
+   `scripts/test-rulesets --live` compares them with what GitHub enforces.
+   Until then that script only checks that the proposals are well formed.
+2. Turn on immutable releases, so a published release's tag and assets cannot
+   change either:
+
+   ```sh
+   gh api --method PUT repos/wangjohn/levenshtein/immutable-releases
+   ```
+
+   `gh api repos/wangjohn/levenshtein/immutable-releases` reports
+   `"enabled": true` once it is on. It applies to releases published after it
+   is enabled.
 
 After extracting an archive, run the binary with explicit paths:
 

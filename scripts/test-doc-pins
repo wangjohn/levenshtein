@@ -1,19 +1,71 @@
 #!/usr/bin/env bash
+# Check the Levenshtein pins in consumer examples and templates:
+#
+#   uses: wangjohn/levenshtein@<the tag's full commit SHA> # vX.Y.Z
+#   git clone --branch vX.Y.Z https://github.com/wangjohn/levenshtein
+#
+# Usage: test-doc-pins [--latest]
+#
+# Every run requires each pin to have that form, to name a release in
+# CHANGELOG.md that has been tagged, and, for an action pin, to name the commit
+# that tag points at. A SHA is immutable where a tag can be moved, and the
+# comment keeps it readable. Tags are read locally, or from the published
+# repository when the checkout has none; a tag neither answers for is an error,
+# never a skipped check, so CI fetches tags before running this.
+#
+# --latest also requires every pin to name the newest release in CHANGELOG.md.
+# Ordinary pull requests do not: a pushed tag must not fail every open pull
+# request until the examples move. The release process runs it in the pull
+# request that moves them (docs/releases.md).
 set -euo pipefail
 root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+remote=${LEVENSHTEIN_TAGS_REMOTE:-https://github.com/wangjohn/levenshtein.git}
 
-# Consumer examples and templates must pin the newest release in CHANGELOG.md,
-# so a release pull request that moves the changelog also moves every
-# copy-paste example.
-# docs/releases.md describes that process with vX.Y.Z placeholders.
-latest=$(sed -nE 's/^## \[([0-9]+\.[0-9]+\.[0-9]+)\].*/\1/p' "$root/CHANGELOG.md" | head -n 1)
+latest_mode=false
+case ${1:-} in
+  '') ;;
+  --latest) latest_mode=true ;;
+  *)
+    echo 'usage: scripts/test-doc-pins [--latest]' >&2
+    exit 2
+    ;;
+esac
+
+releases=$(sed -nE 's/^## \[([0-9]+\.[0-9]+\.[0-9]+)\].*/\1/p' "$root/CHANGELOG.md")
+latest=$(sed -n 1p <<<"$releases")
 if [[ -z $latest ]]; then
   echo 'CHANGELOG.md names no released version' >&2
   exit 1
 fi
 
+# tag_commit VERSION prints the commit vVERSION names, "absent" when the tag
+# does not exist, or "unknown" when neither a local tag nor the remote answers.
+tag_commit() {
+  local tag=v$1 listing commit
+  if commit=$(git -C "$root" rev-parse --verify --quiet "refs/tags/$tag^{commit}"); then
+    echo "$commit"
+    return
+  fi
+  if ! listing=$(git ls-remote --tags "$remote" "refs/tags/$tag" "refs/tags/$tag^{}" 2> /dev/null); then
+    echo unknown
+    return
+  fi
+  if [[ -z $listing ]]; then
+    echo absent
+    return
+  fi
+  # An annotated tag lists its peeled commit as tag^{}; a lightweight one only
+  # itself.
+  commit=$(awk -v peeled="refs/tags/$tag^{}" '$2 == peeled { print $1 }' <<<"$listing")
+  if [[ -z $commit ]]; then
+    commit=$(awk '{ print $1; exit }' <<<"$listing")
+  fi
+  echo "$commit"
+}
+
+# shellcheck disable=SC2016 # the backquotes end Markdown code spans
 pins=$(git -C "$root" grep -noE \
-  -e 'wangjohn/levenshtein@[^[:space:]`]+' \
+  -e 'wangjohn/levenshtein@[^[:space:]`]+( # [^[:space:]`]+)?' \
   -e '--branch [^[:space:]]+ https://github\.com/wangjohn/levenshtein' \
   -- '*.md' 'templates/**' ':!CHANGELOG.md' ':!docs/releases.md' || true)
 if [[ -z $pins ]]; then
@@ -21,10 +73,65 @@ if [[ -z $pins ]]; then
   exit 1
 fi
 
-stale=$(grep -vE "(@|--branch )v${latest//./\\.}( |$)" <<< "$pins" || true)
-if [[ -n $stale ]]; then
-  echo "Documentation pins must name v$latest, the newest release in CHANGELOG.md:" >&2
-  echo "$stale" >&2
-  exit 1
+status=0
+action_pins=$(grep -F 'wangjohn/levenshtein@' <<<"$pins" || true)
+malformed=$(grep -vE 'wangjohn/levenshtein@[0-9a-f]{40} # v[0-9]+\.[0-9]+\.[0-9]+$' <<<"$action_pins" || true)
+if [[ -n $malformed ]]; then
+  echo 'Action pins must name the release commit SHA with its tag as a comment (wangjohn/levenshtein@<sha> # vX.Y.Z):' >&2
+  echo "$malformed" >&2
+  status=1
 fi
-echo "Documentation pins name v$latest"
+malformed=$(grep -F -- '--branch ' <<<"$pins" | grep -vE -- '--branch v[0-9]+\.[0-9]+\.[0-9]+ ' || true)
+if [[ -n $malformed ]]; then
+  echo 'Clone examples must name a release tag (--branch vX.Y.Z):' >&2
+  echo "$malformed" >&2
+  status=1
+fi
+
+versions=$({
+  sed -nE 's/.*wangjohn\/levenshtein@[0-9a-f]{40} # v([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' <<<"$action_pins"
+  sed -nE 's/.*--branch v([0-9]+\.[0-9]+\.[0-9]+) https:.*/\1/p' <<<"$pins"
+} | sort -u)
+for version in $versions; do
+  named=$(grep -E -e "# v${version//./\\.}\$" -e "--branch v${version//./\\.} " <<<"$pins" || true)
+  if ! grep -qxF -- "$version" <<<"$releases"; then
+    echo "These pins name v$version, which is not a release in CHANGELOG.md:" >&2
+    echo "$named" >&2
+    status=1
+    continue
+  fi
+  commit=$(tag_commit "$version")
+  case $commit in
+    absent)
+      echo "These pins name v$version, which is not tagged:" >&2
+      echo "$named" >&2
+      status=1
+      ;;
+    unknown)
+      echo "Cannot check the pins that name v$version: no local tag, and $remote did not answer. Fetch the tags (git fetch --tags) and rerun." >&2
+      status=1
+      ;;
+    *)
+      wrong=$(grep -F "# v$version" <<<"$action_pins" | grep -vF "wangjohn/levenshtein@$commit # v$version" || true)
+      if [[ -n $wrong ]]; then
+        echo "v$version is commit $commit; these pins name another:" >&2
+        echo "$wrong" >&2
+        status=1
+      fi
+      ;;
+  esac
+done
+
+if [[ $latest_mode == true ]]; then
+  stale=$(grep -vE -e "# v${latest//./\\.}\$" -e "--branch v${latest//./\\.} " <<<"$pins" || true)
+  if [[ -n $stale ]]; then
+    echo "These pins must name v$latest, the newest release in CHANGELOG.md:" >&2
+    echo "$stale" >&2
+    status=1
+  fi
+fi
+
+if (( status == 0 )); then
+  echo "Documentation pins name tagged releases: v$(tr '\n' ' ' <<<"$versions" | sed 's/ $//; s/ /, v/g')$([[ $latest_mode == true ]] && echo ", the newest")"
+fi
+exit "$status"

@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# Run the root module's integration tests: the Test functions in files with the
+# `//go:build integration` constraint.
+#
+# Usage: test-integration native|dagger
+#
+#   native  every integration test except those listed in dagger_tests below,
+#           on the host with no container runtime
+#   dagger  exactly the tests in dagger_tests, which need a Dagger engine
+#
+# The tests are found, not listed, so a new integration test runs in CI by
+# default: natively, unless it is added to dagger_tests.
+set -euo pipefail
+root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$root"
+
+dagger_tests=(
+  TestDaggerSourceBoundary
+  TestMutationKeepsTheSharedDaggerSession
+)
+
+mode=${1:-}
+if [[ $mode != native && $mode != dagger ]]; then
+  echo 'usage: scripts/test-integration native|dagger' >&2
+  exit 2
+fi
+
+# "package TestName" for every integration test in the root module.
+# shellcheck disable=SC2016 # a go list template, not shell expansions
+template='{{$dir := .Dir}}{{$path := .ImportPath}}{{range .TestGoFiles}}{{$path}} {{$dir}}/{{.}}{{"\n"}}{{end}}{{range .XTestGoFiles}}{{$path}} {{$dir}}/{{.}}{{"\n"}}{{end}}'
+found=$(go list -tags=integration -f "$template" ./... |
+  while read -r package file; do
+    [[ -n $file ]] || continue
+    grep -q '^//go:build integration$' "$file" || continue
+    sed -nE 's/^func (Test[A-Za-z0-9_]+)\(.*/\1/p' "$file" | sed "s|^|$package |"
+  done | sort -u)
+if [[ -z $found ]]; then
+  echo 'No integration tests found; update this script' >&2
+  exit 1
+fi
+
+is_dagger() {
+  local name=$1 listed
+  for listed in "${dagger_tests[@]}"; do
+    [[ $name == "$listed" ]] && return 0
+  done
+  return 1
+}
+
+for listed in "${dagger_tests[@]}"; do
+  if ! awk '{print $2}' <<<"$found" | grep -qxF -- "$listed"; then
+    echo "scripts/test-integration lists $listed as a Dagger test, but no integration test has that name" >&2
+    exit 1
+  fi
+done
+
+packages=()
+names=()
+seen=' '
+while read -r package name; do
+  if is_dagger "$name"; then
+    [[ $mode == dagger ]] || continue
+  else
+    [[ $mode == native ]] || continue
+  fi
+  names+=("$name")
+  if [[ $seen != *" $package "* ]]; then
+    packages+=("$package")
+    seen+="$package "
+  fi
+done <<<"$found"
+
+if (( ${#names[@]} == 0 )); then
+  echo "No $mode integration tests found; update this script" >&2
+  exit 1
+fi
+pattern=$(IFS='|'; echo "^(${names[*]})\$")
+echo "Running ${#names[@]} $mode integration tests: ${names[*]}"
+go test -tags=integration -count=1 -run "$pattern" "${packages[@]}"

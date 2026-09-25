@@ -1,21 +1,18 @@
 #!/usr/bin/env bash
 # Put the pinned Dagger CLI on PATH for a CI job.
 #
-# Usage: ci-dagger-cli <cache-hit true|false>
+# Usage: ci-dagger-cli
 #
-# The composite action .github/actions/setup-dagger restores $RUNNER_TEMP/levenshtein-bin
-# from the Actions cache first. On a hit with a working binary this script only
-# prints its version; otherwise it installs the reviewed release through
-# scripts/install-dagger. Either way the directory is appended to GITHUB_PATH.
+# The composite action .github/actions/setup-dagger restores the Dagger release
+# archive into $RUNNER_TEMP/levenshtein-dagger-archive from the Actions cache
+# first. The cache holds the archive, never an executable: scripts/install-dagger
+# checks it against scripts/dagger-checksums.txt on every run, downloads it
+# again when it is missing or does not match, and installs the binary from it
+# into $RUNNER_TEMP/levenshtein-bin, which is appended to GITHUB_PATH.
 set -euo pipefail
 
 root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-cache_hit=${1:-false}
-bin="${RUNNER_TEMP:?RUNNER_TEMP is set by GitHub Actions}/levenshtein-bin"
+temp=${RUNNER_TEMP:?RUNNER_TEMP is set by GitHub Actions}
 
-if [[ $cache_hit == true && -x "$bin/dagger" ]]; then
-  "$bin/dagger" version
-else
-  "$root/scripts/install-dagger" "$bin"
-fi
-echo "$bin" >>"${GITHUB_PATH:?GITHUB_PATH is set by GitHub Actions}"
+DAGGER_ARCHIVE_DIR="$temp/levenshtein-dagger-archive" "$root/scripts/install-dagger" "$temp/levenshtein-bin"
+echo "$temp/levenshtein-bin" >>"${GITHUB_PATH:?GITHUB_PATH is set by GitHub Actions}"

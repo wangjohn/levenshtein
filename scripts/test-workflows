@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# Policy checks on the workflows that actionlint and zizmor do not make:
+#
+#   1. one pin per action: every copy of a third-party action in the workflows,
+#      composite actions, action.yml, the templates and the documentation names
+#      the same commit, so an example a consumer copies never lags the pins
+#      Dependabot keeps current here. Dependabot updates the workflows, the
+#      composite actions and the workflow template, not the Markdown;
+#      scripts/sync-action-pins copies its pins there;
+#   2. a workflow that runs on push or schedule and does not cancel in progress
+#      groups its runs by commit: GitHub keeps one pending run per concurrency
+#      group and cancels the others, even with cancel-in-progress off;
+#   3. every workflow holding a required check (.github/rulesets) runs on
+#      merge_group, so a merge queue never waits on a check that cannot report;
+#   4. secrets are never workflow- or job-level env, where every step, including
+#      those that run code from a pull request, can read them.
+#
+# Workflows are formatted with two-space indentation, which this relies on.
+set -euo pipefail
+root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$root"
+status=0
+problem() {
+  echo "$*" >&2
+  status=1
+}
+
+shopt -s nullglob
+workflows=(.github/workflows/*.yml)
+if (( ${#workflows[@]} == 0 )); then
+  echo 'No workflows found; update this check' >&2
+  exit 1
+fi
+
+# 1. One pin per action. Levenshtein's own pin is scripts/test-doc-pins' job.
+sync_hint=false
+pins=$(grep -rnoE 'uses: [A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+@[0-9a-f]{40}( # [^[:space:]`]+)?' \
+  .github action.yml templates README.md docs || true)
+if [[ -z $pins ]]; then
+  echo 'No pinned actions found; update this check' >&2
+  exit 1
+fi
+while IFS= read -r action; do
+  versions=$(grep -F "uses: $action@" <<<"$pins" | sed -E 's/^[^:]+:[0-9]+:uses: [^@]+@//' | sort -u)
+  if (( $(wc -l <<<"$versions") > 1 )); then
+    problem "$action is pinned to more than one commit:"
+    grep -F "uses: $action@" <<<"$pins" | sed 's/^/  /' >&2
+    sync_hint=true
+  fi
+done < <(sed -E 's/^[^:]+:[0-9]+:uses: ([^@]+)@.*/\1/' <<<"$pins" | sort -u)
+if [[ $sync_hint == true ]]; then
+  echo 'To copy the workflow pins into the templates and documentation, run:' >&2
+  echo '  ./scripts/sync-action-pins' >&2
+fi
+
+# 2. Concurrency groups keyed by commit outside pull requests.
+for workflow in "${workflows[@]}"; do
+  if ! grep -qE '^  (push|schedule|merge_group|workflow_dispatch):' "$workflow"; then
+    continue
+  fi
+  group=$(awk '/^concurrency:/ { in_c = 1; next } /^[^ #]/ { in_c = 0 } in_c && /^  group:/ { sub(/^  group:[[:space:]]*/, ""); print }' "$workflow")
+  cancel=$(awk '/^concurrency:/ { in_c = 1; next } /^[^ #]/ { in_c = 0 } in_c && /^  cancel-in-progress:/ { sub(/^  cancel-in-progress:[[:space:]]*/, ""); print }' "$workflow")
+  if [[ -n $group && $cancel != true && $group != *github.sha* && $group != *github.run_id* ]]; then
+    problem "$workflow: concurrency group \"$group\" must include github.sha for events other than pull_request; GitHub cancels all but one pending run per group"
+  fi
+done
+
+# 3. Required checks run in a merge queue.
+required=$(jq -r '.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context' .github/rulesets/*.json | sort -u)
+for workflow in "${workflows[@]}"; do
+  holds=$(awk '
+    /^jobs:/ { in_jobs = 1; next }
+    /^[^ #]/ { in_jobs = 0 }
+    in_jobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { job = $1; sub(/:$/, "", job); print job }
+    in_jobs && /^    name:/ { sub(/^    name:[[:space:]]*/, ""); gsub(/^["\047]|["\047]$/, ""); print }
+  ' "$workflow" | grep -xF -f <(printf '%s\n' "$required") || true)
+  if [[ -n $holds ]] && ! grep -qE '^  merge_group:' "$workflow"; then
+    problem "$workflow: holds required checks ($(tr '\n' ' ' <<<"$holds")) but does not run on merge_group"
+  fi
+done
+
+# 4. Secrets only in step env or with.
+for workflow in "${workflows[@]}"; do
+  leaks=$(awk '
+    /^env:/ { scope = "workflow"; next }
+    /^[^ #]/ { scope = "" }
+    /^    env:/ { scope = "job"; next }
+    /^    [A-Za-z0-9_-]+:/ { scope = "" }
+    /^  [A-Za-z0-9_-]+:/ { if (scope == "job") scope = "" }
+    scope != "" && /secrets\./ { print FILENAME ":" FNR ": " $0 }
+  ' "$workflow")
+  if [[ -n $leaks ]]; then
+    problem "Secrets must be step env, not workflow or job env:"$'\n'"$leaks"
+  fi
+done
+
+if (( status == 0 )); then
+  echo 'Workflow pins, concurrency, merge queue triggers and secret scopes pass'
+fi
+exit "$status"

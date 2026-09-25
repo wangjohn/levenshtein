@@ -1,19 +1,21 @@
 name: Set up the pinned Dagger CLI
 description: >-
-  Restore the reviewed Dagger CLI from the Actions cache, install it from the
-  checked-in checksums on a miss, and add it to PATH. Used by the lint, tests and
+  Restore the reviewed Dagger release archive from the Actions cache, verify it
+  against the checked-in checksums (downloading it on a miss or a mismatch),
+  install the CLI from it, and add it to PATH. Used by the lint, tests and
   mutation jobs in verify.yml and by vulnerabilities.yml.
 
 runs:
   using: composite
   steps:
-    - name: Cache pinned Dagger CLI
-      id: dagger-cli
+    # The cache holds the release archive, not the binary, so every run
+    # verifies what it installs against scripts/dagger-checksums.txt.
+    - name: Cache pinned Dagger archive
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: ${{ runner.temp }}/levenshtein-bin
-        key: dagger-cli-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.dagger-version', 'scripts/dagger-checksums.txt') }}
+        path: ${{ runner.temp }}/levenshtein-dagger-archive
+        key: dagger-archive-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.dagger-version', 'scripts/dagger-checksums.txt') }}
     # The shell lives in scripts/ci-dagger-cli so shellcheck covers it.
     - name: Install pinned Dagger
       shell: bash
-      run: ./scripts/ci-dagger-cli "${{ steps.dagger-cli.outputs.cache-hit }}"
+      run: ./scripts/ci-dagger-cli

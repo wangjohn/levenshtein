@@ -6,8 +6,18 @@
 # tests/fixtures/python/.python-version (uv python install) and
 # tests/fixtures/python/.uv-version (the uv release downloaded below). Refresh
 # scripts/fixture-checksums.txt whenever .uv-version changes.
+#
+# Usage: install-fixture-tools [--uv-only] [DESTINATION]
+#
+# --uv-only installs just the reviewed uv, which scripts/test-sdk-lock uses to
+# check the patched Go SDK's lock, without the Rust and Python toolchains.
 set -euo pipefail
 root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+uv_only=false
+if [[ ${1:-} == --uv-only ]]; then
+  uv_only=true
+  shift
+fi
 destination=${1:-"$HOME/.local/bin"}
 case "$(uname -s)-$(uname -m)" in
   Darwin-x86_64) triple=x86_64-apple-darwin ;;
@@ -35,7 +45,9 @@ fi
 python_version=$(read_pin tests/fixtures/python/.python-version) || exit 2
 uv_version=$(read_pin tests/fixtures/python/.uv-version) || exit 2
 
-command -v rustup >/dev/null || { echo 'Install rustup first: https://rustup.rs' >&2; exit 2; }
+if [[ $uv_only == false ]]; then
+  command -v rustup >/dev/null || { echo 'Install rustup first: https://rustup.rs' >&2; exit 2; }
+fi
 mkdir -p "$destination"
 temporary=$(mktemp -d)
 trap 'rm -rf "$temporary"' EXIT
@@ -55,6 +67,10 @@ if hashlib.sha256(archive.read_bytes()).hexdigest() != expected:
 PY
 tar -xzf "$temporary/$archive" -C "$temporary"
 install -m 0755 "$temporary/uv-$triple/uv" "$destination/uv"
+if [[ $uv_only == true ]]; then
+  echo "uv installed. Add $destination to PATH."
+  exit 0
+fi
 rustup toolchain install "$rust_version" --profile minimal
 "$destination/uv" python install "$python_version"
 echo "Fixture tools installed. Add $destination and the rustup proxy directory to PATH."
