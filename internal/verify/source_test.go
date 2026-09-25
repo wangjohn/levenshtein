@@ -7,6 +7,14 @@ import (
 	"testing"
 )
 
+// validateFiles validates the Dagger import of inputs less excludes, enumerated
+// from the filesystem.
+func validateFiles(t *testing.T, source string, inputs, excludes []string) error {
+	t.Helper()
+	_, err := importExcludes(t.Context(), fileSet{Root: source, Inputs: inputs, Excludes: excludes, Discovery: DiscoveryFilesystem})
+	return err
+}
+
 func TestDaggerInputsAreLiteralPaths(t *testing.T) {
 	for _, input := range []string{"../personal", "/private", "services/*", "!personal", "[ab]", "{a,b}", "a?", "a\nb"} {
 		if _, err := daggerIncludes([]string{input}); err == nil {
@@ -28,7 +36,7 @@ func TestDaggerSourceRejectsAliasesButDoesNotInspectExcludedTrees(t *testing.T) 
 	if err := os.Symlink(t.TempDir(), filepath.Join(source, "personal", "external")); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateDaggerSource(source, []string{"product", "missing.go"}, nil); err != nil {
+	if err := validateFiles(t, source, []string{"product", "missing.go"}, nil); err != nil {
 		t.Fatalf("inspected excluded content or rejected optional missing input: %v", err)
 	}
 
@@ -45,15 +53,15 @@ func TestDaggerSourceRejectsAliasesButDoesNotInspectExcludedTrees(t *testing.T) 
 			defer func() { _ = os.Remove(path) }()
 
 			for _, input := range []string{alias, filepath.Join(alias, "missing.go")} {
-				if err := validateDaggerSource(source, []string{input}, nil); err == nil || !strings.Contains(err.Error(), "symlink") {
+				if err := validateFiles(t, source, []string{input}, nil); err == nil || !strings.Contains(err.Error(), "symlink") {
 					t.Fatalf("accepted symlink input %q: %v", input, err)
 				}
 			}
 			if alias == "product/alias" {
-				if err := validateDaggerSource(source, []string{"product"}, nil); err == nil {
+				if err := validateFiles(t, source, []string{"product"}, nil); err == nil {
 					t.Fatal("accepted a symlink nested inside the allowed directory")
 				}
-				if err := validateDaggerSource(source, []string{"product"}, []string{"product/alias"}); err != nil {
+				if err := validateFiles(t, source, []string{"product"}, []string{"product/alias"}); err != nil {
 					t.Fatalf("excluded subtree still inspected: %v", err)
 				}
 			}

@@ -25,6 +25,38 @@ Consumers pin a release tag, or its commit SHA, as described in
   every community-rule entry as stale, and `--write-baseline` deleted them;
   a check whose `lint.checks` turned a rule off (such as `-unparam`) did the
   same to that rule's entries. Such entries are now neither stale nor removed.
+- Native checks in one run execute in parallel again, up to `--jobs`. Each
+  check took the workspace file lock through its own handle, which also
+  blocks the same process, so every native check ran alone, even read-only
+  ones and cache hits. Read-only kinds (the shared Go kinds and
+  `semantic-lint`) now overlap, `command` checks still run alone, a cache hit
+  with no artifacts to restore takes no workspace lock, and another process
+  on the same source still waits. A check cancelled while it waits for the
+  workspace is reported as `cancelled` instead of `error`.
+- Git input discovery lists the work tree again after every check and every
+  preparation or build stage, not only after a passing check. A failed check,
+  or a preparation that generates files into its build's inputs, could leave
+  untracked files that a later key in the same run did not see, so a stale
+  result or build could be reused.
+- A native shared Go check's cache key covers the Go settings that change
+  what it reports, such as `GOFLAGS`, `GOEXPERIMENT`, `CGO_ENABLED`, `CC`, and
+  the architecture levels, including values set with `go env -w`. Before, only
+  the Go version, OS, and architecture were, so `go env -w
+  GOFLAGS=-tags=integration` reused results computed without the tag. Module
+  download settings such as `GOPROXY` and `GOPRIVATE` still do not affect the
+  key. Existing native shared Go results are recomputed once.
+- A native `command` check or stage that exits 0 but leaves a background
+  process holding its output, as `sh -c 'server & echo ok'` or a daemonizing
+  build tool can, passes with a `detached-output` warning instead of failing
+  with `exec: WaitDelay expired before I/O complete`. The leftover process is
+  still killed with the command's process group, which happens after every
+  run, not only on timeout as docs/architecture.md said; daemons that start
+  their own session are unaffected.
+- The file stat memo keeps working in repositories above roughly 280,000
+  files. Its single record outgrew the 64 MiB read limit, so it was written on
+  every run and never read back; it is now split across as many records as it
+  needs. A cache record over the limit is refused when written, and a result
+  too large to cache says so in its cache `reason`.
 - Tests that build throwaway git repositories no longer write to the
   repository `go test` was started from. They inherited `GIT_DIR`,
   `GIT_INDEX_FILE`, and `GIT_WORK_TREE`, which git exports to hooks, so the
@@ -68,6 +100,34 @@ Consumers pin a release tag, or its commit SHA, as described in
   flushes the cache, or closes the Dagger session. The first signal cancels
   the run as before; the second used to be swallowed until the process
   exited, so a hung teardown needed SIGKILL.
+- A reused result now covers every file its check read. Under `git` discovery
+  the cache key left gitignored files out while the checks still read them:
+  editing a gitignored generated `*.pb.go` or `vendor/` file replayed a cached
+  `go-vet` or `go-test` pass, and adding a secret to a gitignored file replayed
+  a cached `secrets` pass. The key, the Dagger import, and the files the
+  native scanners read now come from one enumeration. Under `git` discovery
+  the Dagger import leaves out the paths the repository's `.gitignore` files
+  ignore and `secrets`, `shell-lint`, and `deps-vuln` read only the listed
+  files. The Go kinds (`go-lint`, `go-vet`, `go-mod`, `go-test`, `go-http`,
+  `go-sql`, `go-vuln`, `go-imports`, `go-generate`, `go-apidiff`,
+  `go-mutation`) add the ignored paths the Go toolchain can load: ignored Go
+  and cgo sources and module files, whatever a `//go:embed` directive in
+  the directory or above could name, and `testdata`. An ignored directory
+  with no `.go` file in it and nothing embedding it, such as `node_modules`
+  or a build output, is left out of the key and the Dagger import, and a
+  symlink in the ignored content that is kept is hashed by its link text
+  rather than disabling result reuse. The Go kinds' keys change once, and
+  the native `go-generate` copy holds the same files.
+- A declared input that git discovery could not see no longer contributes
+  nothing to the key. An input spelled with different case than the
+  repository (`Src` for `src/` on a case-insensitive filesystem), or an
+  exclude spelled that way, is a configuration error when the run is planned.
+  An input reached through a symlinked directory follows the source symlink
+  rule on either discovery and disables result reuse, as the Dagger path
+  already refused it. An input inside a submodule or an untracked nested
+  repository is fingerprinted from disk.
+- Git discovery finds each input's paths by binary search in the sorted
+  listing instead of scanning the whole listing once per input.
 
 ## [0.2.0] - 2026-09-25
 
@@ -339,38 +399,6 @@ Consumers pin a release tag, or its commit SHA, as described in
   nilerr applied the directive itself and dropped the finding, so Staticcheck
   then reported the directive as matching nothing and the check failed either
   way. Upstream analyzers now leave `//lint:ignore` to Staticcheck.
-- Native checks in one run execute in parallel again, up to `--jobs`. Each
-  check took the workspace file lock through its own handle, which also
-  blocks the same process, so every native check ran alone, even read-only
-  ones and cache hits. Read-only kinds (the shared Go kinds and
-  `semantic-lint`) now overlap, `command` checks still run alone, a cache hit
-  with no artifacts to restore takes no workspace lock, and another process
-  on the same source still waits. A check cancelled while it waits for the
-  workspace is reported as `cancelled` instead of `error`.
-- Git input discovery lists the work tree again after every check and every
-  preparation or build stage, not only after a passing check. A failed check,
-  or a preparation that generates files into its build's inputs, could leave
-  untracked files that a later key in the same run did not see, so a stale
-  result or build could be reused.
-- A native shared Go check's cache key covers the Go settings that change
-  what it reports, such as `GOFLAGS`, `GOEXPERIMENT`, `CGO_ENABLED`, `CC`, and
-  the architecture levels, including values set with `go env -w`. Before, only
-  the Go version, OS, and architecture were, so `go env -w
-  GOFLAGS=-tags=integration` reused results computed without the tag. Module
-  download settings such as `GOPROXY` and `GOPRIVATE` still do not affect the
-  key. Existing native shared Go results are recomputed once.
-- A native `command` check or stage that exits 0 but leaves a background
-  process holding its output, as `sh -c 'server & echo ok'` or a daemonizing
-  build tool can, passes with a `detached-output` warning instead of failing
-  with `exec: WaitDelay expired before I/O complete`. The leftover process is
-  still killed with the command's process group, which happens after every
-  run, not only on timeout as docs/architecture.md said; daemons that start
-  their own session are unaffected.
-- The file stat memo keeps working in repositories above roughly 280,000
-  files. Its single record outgrew the 64 MiB read limit, so it was written on
-  every run and never read back; it is now split across as many records as it
-  needs. A cache record over the limit is refused when written, and a result
-  too large to cache says so in its cache `reason`.
 
 ## [0.1.0] - 2026-09-22
 

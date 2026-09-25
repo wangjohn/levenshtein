@@ -207,6 +207,9 @@ func (cfg Config) planCheck(source string, selected selection, rerunChecks bool)
 	if !slices.Contains(discoveryKinds, target.Discovery) {
 		return PlannedCheck{}, fmt.Errorf("target %q: unknown discovery %q", check.Target, target.Discovery)
 	}
+	if err := spelledAsOnDisk(source, append(slices.Clone(target.Inputs), target.Exclude...)); err != nil {
+		return PlannedCheck{}, fmt.Errorf("target %q: %w", check.Target, err)
+	}
 
 	if env.Executor == ExecutorDagger {
 		if _, err := daggerIncludes(target.Inputs); err != nil {

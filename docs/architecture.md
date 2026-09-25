@@ -37,7 +37,8 @@ described under [report and exit codes](#report-and-exit-codes).
   `inputs` (literal paths, not globs) used for both Dagger source import and
   cache fingerprinting, optional `exclude` paths dropped from both, and a
   `discovery` mode (`git` or `filesystem`) selecting how the files under those
-  inputs are enumerated.
+  inputs are enumerated. Under `git`, the Go kinds also cover the ignored
+  paths the Go toolchain can load.
 - **Environment**: an `executor` (`dagger` or `native`), plus native-only
   options such as `identity`, `env`, `pass_env`, and pinned `tools`.
 - **Check**: a `kind` (`go-lint`, `go-vet`, `go-mod`, `go-test`, `go-imports`,
@@ -176,9 +177,9 @@ general form of the zizmor download: `runner/toolchain.json` pins each release's
 download location, version, and per-platform asset with its SHA-256, and the
 binary's path when the asset is a `.tar.gz`; the runner's `runner/releases.go`
 reads the same pins for `dag.HTTP`. `secrets` builds gitleaks from
-`runner/tools` like `actionlint`. `internal/verify/visible.go` lists the files
-under a target's inputs less its excludes and the private `.git`/`.env` paths,
-which is what the Dagger path imports; `shell-lint` checks the scripts among
+`runner/tools` like `actionlint`. `internal/verify/visible.go` lists the
+target's file set (see [the result cache](#result-cache)) less the private
+`.git`/`.env` paths, which is what the Dagger path imports; `shell-lint` checks the scripts among
 them in place, and `secrets` and `deps-vuln`, whose tools scan a directory and
 discover configuration in it, copy them into a temporary directory and scan
 that. Without a cache
@@ -242,12 +243,37 @@ native `command` checks with `cache: true`), it:
    `git -c core.excludesFile= ls-files -z --cached --others
    --exclude-per-directory=.gitignore` (git found through absolute `PATH`
    entries only) once per source per process, and again after each check or
-   preparation/build stage executes, whatever its outcome, and `snapshot` walks only the listed paths that fall under each
-   input. A listed path that is a directory (a submodule's gitlink or an
-   untracked nested repository) is walked in full. A source outside a work
+   preparation/build stage executes, whatever its outcome. `snapshot` walks
+   only the listed paths that fall under each input, found by binary search in
+   the sorted listing. A listed path that is a directory (a submodule's gitlink
+   or an untracked nested repository), or one above a declared input, is walked
+   in full. A source outside a work
    tree, or a `git` that fails, falls back to the directory walk. The shared
    implementation always uses the directory walk, so a release archive with no
    work tree fingerprints like a checkout.
+
+   The enumeration is one `fileSet` (`internal/verify/enumerate.go`), and every
+   consumer of a target's files takes it from there, so a reused result covers
+   exactly what its check read: the fingerprint hashes it, `daggerSource`
+   imports it, and `visibleFiles` and `copyInputs` hand it to the native
+   readers. The same listing's `git ls-files --others --ignored --directory`
+   names the ignored paths, a wholly ignored directory as one entry; the walk
+   reports each one it leaves out as omitted, and the Dagger import excludes
+   exactly those, literally. Policy that differs between consumers is a named
+   filter over that one set: the private `.git`/`.env` paths are hashed but
+   never imported or scanned, and `shell-lint` and `deps-vuln` also skip
+   fixture and dependency directories. For the Go kinds (`goToolchainKinds`)
+   `goLoader` (`internal/verify/goload.go`) keeps the ignored paths the Go
+   toolchain can load, on the host and in the container alike: Go and cgo
+   sources, module files, what a `//go:embed` in the directory or above could
+   name, and `testdata`. It prunes an ignored directory with no `.go` file
+   below it by reading directory names only, memoized with the listing, and
+   records a symlink it keeps by its link text. Planning rejects an
+   input or exclude that resolves only under another spelling, and a symlink
+   above a declared input is refused like one inside it.
+   `TestFileSetConformance` and the integration test
+   `TestDaggerImportMatchesTheKey` hold the key's file set equal to what each
+   executor reads.
 
    Content hashes run concurrently (`errgroup`, bounded by `GOMAXPROCS`) and go
    through the process-wide stat memo in `internal/verify/statcache.go`, keyed

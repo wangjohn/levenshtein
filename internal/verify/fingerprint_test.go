@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -264,7 +265,10 @@ func gitRepository(t *testing.T) string {
 
 // Git discovery hashes what the work tree knows about: tracked and untracked
 // files, never ignored ones, and never a tracked path that is not on disk. A
-// submodule is listed as a single gitlink, so its contents are walked.
+// submodule is listed as a single gitlink, so its contents are walked. Leaving
+// ignored files out is sound only because the executors leave them out too
+// (TestFileSetConformance); the Go kinds, whose toolchain can load ignored
+// files, add those it can (TestGoKindKeySkipsUnloadableIgnoredTrees).
 func TestGitDiscoveryFollowsTheWorkTree(t *testing.T) {
 	root := gitRepository(t)
 	runGit(t, root, "update-index", "--add", "--cacheinfo", "160000,0123456789abcdef0123456789abcdef01234567,sub")
@@ -298,69 +302,42 @@ func TestGitDiscoveryFollowsTheWorkTree(t *testing.T) {
 	// A tracked file that is not on disk is absent rather than "missing", and no
 	// directory has an entry of its own except the walked submodule, so the same
 	// content in a fresh clone fingerprints the same way.
-	dir, err := os.OpenRoot(root)
+	entries, err := snapshotEntries(t.Context(), git)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = dir.Close() }()
-	listed, ok := gitFiles(t.Context(), root)
-	if !ok {
-		t.Fatal("git listing unavailable inside a work tree")
-	}
-
-	entries := map[string]string{}
-	var files []hashTarget
-	if err := walkListing(dir, listed, ".", git, entries, &files); err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 || entries["sub"] != "directory" {
-		t.Fatalf("git discovery recorded directories or missing paths: %v", entries)
-	}
-	hashed := map[string]bool{}
-	for _, file := range files {
-		hashed[filepath.ToSlash(file.Path)] = true
-	}
-	for _, name := range []string{".gitignore", "tracked.go", "untracked.go", "sub/lib.go"} {
-		if !hashed[name] {
-			t.Fatalf("%s was not enumerated: %v", name, hashed)
+	var names []string
+	for name, value := range entries {
+		if value == "directory" && name != "sub" || value == "missing" {
+			t.Fatalf("git discovery recorded %s as %s", name, value)
 		}
+		names = append(names, filepath.ToSlash(name))
 	}
-	for _, name := range []string{"removed.go", "generated/client.go"} {
-		if hashed[name] {
-			t.Fatalf("%s should not be enumerated: %v", name, hashed)
-		}
+	slices.Sort(names)
+	if want := []string{".gitignore", "sub", "sub/lib.go", "tracked.go", "untracked.go"}; !slices.Equal(names, want) {
+		t.Fatalf("git discovery enumerated %v, want %v", names, want)
 	}
 }
 
 // A declared input that exists nowhere is still recorded as missing, so adding
 // it later invalidates the cache exactly as the filesystem walk does. A declared
-// input the work tree ignores exists, and so contributes nothing at all.
+// input the work tree ignores exists, and so contributes nothing at all: no
+// executor under git discovery reads it either.
 func TestGitDiscoveryRecordsMissingButNotIgnoredInputs(t *testing.T) {
 	root := gitRepository(t)
 	stats.configure(t.TempDir())
-	req := snapshotRequest{Root: root, Discovery: DiscoveryGit}
-	dir, err := os.OpenRoot(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = dir.Close() }()
-	listed, ok := gitFiles(t.Context(), root)
-	if !ok {
-		t.Fatal("git listing unavailable inside a work tree")
-	}
 
 	for _, tt := range []struct {
 		path string
-		want string
-	}{{path: "optional.go", want: "missing"}, {path: "generated", want: ""}, {path: "removed.go", want: ""}} {
+		want map[string]string
+	}{{path: "optional.go", want: map[string]string{"optional.go": "missing"}}, {path: "generated", want: map[string]string{}}, {path: "removed.go", want: map[string]string{}}} {
 		t.Run(tt.path, func(t *testing.T) {
-			entries := map[string]string{}
-			var files []hashTarget
-			if err := walkListing(dir, listed, tt.path, req, entries, &files); err != nil {
+			entries, err := snapshotEntries(t.Context(), snapshotRequest{Root: root, Paths: []string{tt.path}, Discovery: DiscoveryGit})
+			if err != nil {
 				t.Fatal(err)
 			}
-			if entries[tt.path] != tt.want || len(files) != 0 {
-				t.Fatalf("entries = %v, files = %v", entries, files)
+			if !maps.Equal(entries, tt.want) {
+				t.Fatalf("entries = %v, want %v", entries, tt.want)
 			}
 		})
 	}
@@ -431,19 +408,24 @@ func TestTargetExcludeLeavesPathsOutOfTheFingerprint(t *testing.T) {
 	}
 }
 
+// Every kind keeps the target's discovery, the Go kinds included: a Go kind
+// widens git discovery itself with the ignored paths its toolchain can load.
 func TestPlanValidatesDiscoveryAndExclude(t *testing.T) {
-	const config = `{"version":1,"targets":{"app":{"dir":".","inputs":["."]%s}},"environments":{"go":{"executor":"dagger"}},"checks":{"lint":{"kind":"go-lint","target":"app","environment":"go"}},"runs":{"branch":{"checks":["lint"]}}}`
+	const config = `{"version":1,"targets":{"app":{"dir":".","inputs":["."]%s}},"environments":{"go":{"executor":"dagger"}},"checks":{"lint":{"kind":%q,"target":"app","environment":"go"}},"runs":{"branch":{"checks":["lint"]}}}`
 	for _, tt := range []struct {
 		name   string
+		kind   CheckKind
 		target string
 		want   DiscoveryKind
 	}{
-		{name: "default", want: DiscoveryGit},
-		{name: "explicit filesystem", target: `,"discovery":"filesystem"`, want: DiscoveryFilesystem},
-		{name: "explicit git", target: `,"discovery":"git","exclude":["node_modules","build"]`, want: DiscoveryGit},
+		{name: "default", kind: CheckSecrets, want: DiscoveryGit},
+		{name: "explicit filesystem", kind: CheckSecrets, target: `,"discovery":"filesystem"`, want: DiscoveryFilesystem},
+		{name: "explicit git", kind: CheckSecrets, target: `,"discovery":"git","exclude":["node_modules","build"]`, want: DiscoveryGit},
+		{name: "Go kind by default", kind: CheckGoLint, want: DiscoveryGit},
+		{name: "Go kind with explicit filesystem", kind: CheckGoTest, target: `,"discovery":"filesystem"`, want: DiscoveryFilesystem},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg, err := Parse([]byte(fmt.Sprintf(config, tt.target)))
+			cfg, err := Parse([]byte(fmt.Sprintf(config, tt.target, tt.kind)))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -459,7 +441,7 @@ func TestPlanValidatesDiscoveryAndExclude(t *testing.T) {
 
 	for _, target := range []string{`,"discovery":"svn"`, `,"exclude":["build/**"]`, `,"exclude":["../outside"]`, `,"exclude":["."]`} {
 		t.Run(target, func(t *testing.T) {
-			cfg, err := Parse([]byte(fmt.Sprintf(config, target)))
+			cfg, err := Parse([]byte(fmt.Sprintf(config, target, CheckGoLint)))
 			if err != nil {
 				t.Fatal(err)
 			}

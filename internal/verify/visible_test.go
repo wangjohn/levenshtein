@@ -7,6 +7,12 @@ import (
 	"testing"
 )
 
+// visibleRequest is a request whose target declares inputs less excludes over
+// source, enumerated from the filesystem.
+func visibleRequest(source string, inputs, excludes []string) Request {
+	return Request{Source: source, PlannedCheck: PlannedCheck{Target: Target{Dir: ".", Inputs: inputs, Exclude: excludes, Discovery: DiscoveryFilesystem}}}
+}
+
 // A check that reads the target's files sees what the Dagger path imports:
 // declared inputs less excludes, private files, and symlinks.
 func TestVisibleFilesMatchTheDaggerImport(t *testing.T) {
@@ -18,7 +24,7 @@ func TestVisibleFilesMatchTheDaggerImport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	files, err := visibleFiles(source, []string{"app", "docs", "top.sh", "missing", "app"}, []string{filepath.Join("app", "build")}, nil)
+	files, err := visibleFiles(t.Context(), visibleRequest(source, []string{"app", "docs", "top.sh", "missing", "app"}, []string{filepath.Join("app", "build")}), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

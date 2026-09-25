@@ -51,7 +51,7 @@ func TestShellInputsSkipFixturesAndHonorOneRootConfiguration(t *testing.T) {
 		writeTestFile(t, filepath.Join(source, filepath.FromSlash(path)), content)
 	}
 
-	files, err := visibleFiles(source, []string{"."}, []string{"excluded"}, sourceSkipDir)
+	files, err := visibleFiles(t.Context(), visibleRequest(source, []string{"."}, []string{"excluded"}), sourceSkipDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestShellInputsSkipFixturesAndHonorOneRootConfiguration(t *testing.T) {
 	}
 
 	writeTestFile(t, filepath.Join(source, "shellcheckrc"), "disable=SC2086\n")
-	files, err = visibleFiles(source, []string{"."}, nil, sourceSkipDir)
+	files, err = visibleFiles(t.Context(), visibleRequest(source, []string{"."}, nil), sourceSkipDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestShellInputsSkipADeclaredInputUnderTestdata(t *testing.T) {
 	source := t.TempDir()
 	writeTestFile(t, filepath.Join(source, "runner", "testdata", "bad", "run.sh"), "cd /nowhere\n")
 
-	files, err := visibleFiles(source, []string{filepath.Join("runner", "testdata", "bad")}, nil, sourceSkipDir)
+	files, err := visibleFiles(t.Context(), visibleRequest(source, []string{filepath.Join("runner", "testdata", "bad")}, nil), sourceSkipDir)
 	if err != nil {
 		t.Fatal(err)
 	}
