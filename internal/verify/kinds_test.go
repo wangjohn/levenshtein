@@ -2,7 +2,6 @@ package verify
 
 import (
 	"context"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -13,34 +12,44 @@ import (
 // shared Go kinds are the only ones both executors own; a repository chooses
 // between them with the environment.
 func TestEveryCheckKindHasACompleteExecutor(t *testing.T) {
+	seen := map[CheckKind]bool{}
 	for _, kind := range checkKinds {
-		dagger := daggerFunctions[kind] != "" // Planning tests the value, not key presence.
-		native, ok := nativeKinds[kind]
-		if !dagger && !ok {
+		native, ok := nativeKindOf(kind)
+		if daggerFunction(kind) == "" && !ok {
 			t.Errorf("%s is owned by no executor", kind)
-		}
-		if dagger && ok != sharedGoChecks[kind] {
-			t.Errorf("%s is owned by both executors but is not a shared Go check", kind)
 		}
 		if ok && (native.validate == nil || native.rerunReady == nil || native.execute == nil) {
 			t.Errorf("%s: native kind entries need validate, rerunReady, and execute", kind)
 		}
+		if specOf(kind).summary == "" {
+			t.Errorf("%s needs a summary for docs/check-kinds.md", kind)
+		}
+		if seen[kind] {
+			t.Errorf("%s is described twice", kind)
+		}
+		seen[kind] = true
 	}
-	for kind := range sharedGoChecks {
-		if daggerFunctions[kind] == "" || nativeKinds[kind].execute == nil {
-			t.Errorf("%s must be runnable by both executors", kind)
+}
+
+// Only a command check may write to the workspace it runs in; every other
+// kind can share it.
+func TestOnlyCommandChecksWriteTheirWorkspace(t *testing.T) {
+	for _, kind := range checkKinds {
+		if readOnlyWorkspace(kind) == (kind == CheckCommand) {
+			t.Errorf("%s: readOnlyWorkspace = %v", kind, readOnlyWorkspace(kind))
 		}
 	}
-	for kind := range nativeKinds {
-		if !slices.Contains(checkKinds, kind) {
-			t.Errorf("%s is registered but missing from checkKinds", kind)
+}
+
+// sharedGoKinds lists the kinds either executor runs, in kindSpecs order.
+func sharedGoKinds() []CheckKind {
+	var kinds []CheckKind
+	for _, kind := range checkKinds {
+		if sharedGoCheck(kind) {
+			kinds = append(kinds, kind)
 		}
 	}
-	for kind := range daggerFunctions {
-		if !slices.Contains(checkKinds, kind) {
-			t.Errorf("%s is registered but missing from checkKinds", kind)
-		}
-	}
+	return kinds
 }
 
 func TestNativeExecutorNamesItsKindsForUnknownCheck(t *testing.T) {

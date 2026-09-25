@@ -39,27 +39,6 @@ func (d *Dagger) Close() error {
 	return nil
 }
 
-// These are the Dagger functions supported by both planning and execution.
-var daggerFunctions = map[CheckKind]string{
-	CheckGoLint:           "goLintReport",
-	CheckSelfTest:         "selfTest",
-	CheckGoVet:            "sharedCheck",
-	CheckGoMod:            "sharedCheck",
-	CheckGoTest:           "sharedCheck",
-	CheckGoHTTP:           "sharedCheck",
-	CheckGoSQL:            "sharedCheck",
-	CheckGoVuln:           "sharedCheck",
-	CheckWorkflowLint:     "sharedCheck",
-	CheckWorkflowSecurity: "sharedCheck",
-	CheckShellLint:        "sharedCheck",
-	CheckSecrets:          "sharedCheck",
-	CheckDepsVuln:         "sharedCheck",
-	CheckGoMutation:       "goMutation",
-	CheckGoImports:        "goImports",
-	CheckGoGenerate:       "goGenerate",
-	CheckGoApidiff:        "goApidiff",
-}
-
 func (d *Dagger) Execute(ctx context.Context, req Request) Result {
 	if req.Check.Kind == CheckGoMutation {
 		return d.executeMutation(ctx, req)
@@ -196,9 +175,6 @@ func (d *Dagger) executeTests(parent context.Context, req Request) Result {
 	return result
 }
 
-// reporting are the kinds whose Dagger function returns a report on a pass.
-var reporting = map[CheckKind]bool{CheckGoLint: true, CheckGoMutation: true}
-
 // daggerArgs are what one function call needs beyond the request: the
 // go-mutation arguments, and where a function that returns a report puts it.
 type daggerArgs struct {
@@ -216,8 +192,8 @@ type mutationArgs struct {
 }
 
 func (d *Dagger) execute(ctx context.Context, req Request, args *daggerArgs) error {
-	function, ok := daggerFunctions[req.Check.Kind]
-	if !ok {
+	function := daggerFunction(req.Check.Kind)
+	if function == "" {
 		return fmt.Errorf("unsupported Dagger check %q", req.Check.Kind)
 	}
 
@@ -269,7 +245,7 @@ func (d *Dagger) execute(ctx context.Context, req Request, args *daggerArgs) err
 	if mutation := args.mutation; mutation != nil {
 		query = query.Arg("files", mutation.files).Arg("lines", mutation.lines).Arg("accepted", mutation.accepted).Arg("tags", mutation.tags)
 	}
-	if args.report != nil && reporting[req.Check.Kind] {
+	if args.report != nil && reportsOnPass(req.Check.Kind) {
 		query = query.Bind(args.report)
 	}
 	return query.Execute(ctx)
@@ -365,7 +341,7 @@ func extensionWarnings(extensions map[string]any) []Warning {
 
 // Generate freshness outside Dagger's cached function invocation.
 func executionNonce(req Request) string {
-	if req.RerunChecks || alwaysFresh[req.Check.Kind] != "" {
+	if req.RerunChecks || alwaysFreshReason(req.Check.Kind) != "" {
 		return rand.Text()
 	}
 	return ""

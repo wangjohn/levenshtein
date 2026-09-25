@@ -297,7 +297,7 @@ func implementation(ctx context.Context, req Request) (string, error) {
 	// pinned tools (runner/tools) on either executor, so all of runner/ decides
 	// its verdict. Without it, bumping the pinned checkout to a revision that
 	// adds rules would reuse results the new rules never saw.
-	runner := req.Environment.Executor == ExecutorDagger || sharedGoChecks[req.Check.Kind]
+	runner := req.Environment.Executor == ExecutorDagger || sharedGoCheck(req.Check.Kind)
 	key := implementationKey{Shared: req.Shared, Executor: req.Environment.Executor, Runner: runner}
 	if memoized, ok := implementations.Load(key); ok {
 		return memoized.(string), nil
@@ -368,7 +368,7 @@ func fingerprint(ctx context.Context, req Request) (string, error) {
 // OS and architecture join the key. Other native kinds contribute nothing, so
 // their existing cache entries keep their identity.
 func hostToolchain(ctx context.Context, req Request, env []string) (string, error) {
-	if !sharedGoChecks[req.Check.Kind] {
+	if !sharedGoCheck(req.Check.Kind) {
 		return "", nil
 	}
 

@@ -36,7 +36,7 @@ func requiredOptions(check Check) Check {
 // Dagger-only.
 func TestNativeEnvironmentAcceptsSharedGoChecks(t *testing.T) {
 	env := nativeGoEnvironment()
-	for kind := range sharedGoChecks {
+	for _, kind := range sharedGoKinds() {
 		t.Run(string(kind), func(t *testing.T) {
 			if err := validateCheck(requiredOptions(Check{Kind: kind}), env); err != nil {
 				t.Fatalf("rejected a native shared Go check: %v", err)
@@ -201,8 +201,9 @@ func TestLintChecksAreInTheResultKey(t *testing.T) {
 // A fresh run needs nothing declared for these kinds: they bypass their own
 // analysis caches themselves.
 func TestSharedGoChecksAreReadyForFreshRuns(t *testing.T) {
-	for kind := range sharedGoChecks {
-		if err := nativeKinds[kind].rerunReady(Check{Kind: kind}); err != nil {
+	for _, kind := range sharedGoKinds() {
+		native, _ := nativeKindOf(kind)
+		if err := native.rerunReady(Check{Kind: kind}); err != nil {
 			t.Errorf("%s: %v", kind, err)
 		}
 	}
@@ -460,7 +461,7 @@ func TestSharedGoCheckKeyCoversTheRunner(t *testing.T) {
 		return out
 	}
 
-	for kind := range sharedGoChecks {
+	for _, kind := range sharedGoKinds() {
 		for _, executor := range []ExecutorKind{ExecutorNative, ExecutorDagger} {
 			if got := keys(kind, executor); got[0] == got[1] {
 				t.Errorf("%s on %s: a different runner/toolchain.json kept the same key", kind, executor)

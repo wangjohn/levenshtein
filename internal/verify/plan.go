@@ -158,12 +158,13 @@ func (cfg Config) planCheck(source string, selected selection, rerunChecks bool)
 		return PlannedCheck{}, fmt.Errorf("check %q: %w", id, err)
 	}
 	if rerunChecks && env.Executor == ExecutorNative {
-		if err := nativeKinds[check.Kind].rerunReady(check); err != nil {
+		kind, _ := nativeKindOf(check.Kind)
+		if err := kind.rerunReady(check); err != nil {
 			return PlannedCheck{}, fmt.Errorf("check %q: %w", id, err)
 		}
 	}
 
-	if (check.Kind == CheckWorkflowLint || check.Kind == CheckWorkflowSecurity || check.Kind == CheckShellLint || check.Kind == CheckSecrets || check.Kind == CheckDepsVuln) && target.Dir != "." {
+	if rootOnly(check.Kind) && target.Dir != "." {
 		return PlannedCheck{}, fmt.Errorf("check %q: %s requires a repository-root target", id, check.Kind)
 	}
 
