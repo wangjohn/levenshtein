@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"io"
@@ -14,8 +15,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/wangjohn/levenshtein/runner/lint/policy"
+	"honnef.co/go/tools/analysis/lint"
 	"honnef.co/go/tools/config"
 )
 
@@ -58,7 +61,8 @@ func checkExcluded(flags *flag.FlagSet, checks []string, status int, stdout, std
 		return status
 	}
 
-	names, err := excludedFiles(flags.Lookup("tags").Value.String(), flags.Args())
+	tests := flags.Lookup("tests").Value.String() == "true"
+	names, err := excludedFiles(flags.Lookup("tags").Value.String(), tests, flags.Args())
 	if err != nil {
 		toolError(stderr, err)
 		if status != 0 {
@@ -124,8 +128,9 @@ func selected(checks []string, dir string) (bool, error) {
 
 // excludedFiles lists, in order, every Go file that go list reports as left
 // out of the packages matching patterns under the run's build tags, with the
-// default build context otherwise, as Staticcheck loads them.
-func excludedFiles(tags string, patterns []string) ([]string, error) {
+// default build context otherwise, as Staticcheck loads them. Test files are
+// left out too when the run checks no tests (-tests=false).
+func excludedFiles(tags string, tests bool, patterns []string) ([]string, error) {
 	args := []string{"list", "-e", "-json=Dir,IgnoredGoFiles"}
 	if tags != "" {
 		args = append(args, "-tags", tags)
@@ -151,6 +156,9 @@ func excludedFiles(tags string, patterns []string) ([]string, error) {
 			return nil, fmt.Errorf("reading go list output: %w", err)
 		}
 		for _, base := range pkg.IgnoredGoFiles {
+			if !tests && strings.HasSuffix(base, "_test.go") {
+				continue
+			}
 			names = append(names, filepath.Join(pkg.Dir, base))
 		}
 	}
@@ -159,18 +167,41 @@ func excludedFiles(tags string, patterns []string) ([]string, error) {
 }
 
 // unformattedFile reports whether LV1005 reports an excluded file: one that is
-// not generated, by the rule the analyzer uses, and not what gofmt writes. A
-// file whose package clause does not parse counts as formatted, as it does
-// for the analyzer.
+// not generated, by the rule the analyzer uses, not suppressed by a directive,
+// and not what gofmt writes. A file that does not parse counts as formatted,
+// as it does for the analyzer: gofmt cannot format it either.
 func unformattedFile(name string) (bool, error) {
 	source, err := os.ReadFile(name)
 	if err != nil {
 		return false, err
 	}
 	fset := token.NewFileSet()
-	header, parseErr := parser.ParseFile(fset, name, source, parser.PackageClauseOnly|parser.ParseComments)
-	generated := parseErr == nil && policy.Generated(fset, header)
-	return !generated && !policy.Formatted(source), nil
+	file, parseErr := parser.ParseFile(fset, name, source, parser.ParseComments|parser.SkipObjectResolution)
+	if parseErr != nil || policy.Generated(fset, file) || ignored(fset, file) {
+		return false, nil
+	}
+	return !policy.Formatted(source), nil
+}
+
+// ignored reports whether a directive suppresses LV1005's finding at the start
+// of a file, as Staticcheck matches one for a compiled file: a
+// //lint:file-ignore, or a //lint:ignore on the node at line 1, that names the
+// rule by a case-insensitive glob and gives a reason.
+func ignored(fset *token.FileSet, file *ast.File) bool {
+	for _, directive := range lint.ParseDirectives([]*ast.File{file}, fset) {
+		// Staticcheck reports a directive without a reason and applies none.
+		wholeFile := directive.Command == "file-ignore"
+		firstLine := directive.Command == "ignore" && fset.Position(directive.Node.Pos()).Line == 1
+		if len(directive.Arguments) < 2 || (!wholeFile && !firstLine) {
+			continue
+		}
+		for check := range strings.SplitSeq(directive.Arguments[0], ",") {
+			if matched, _ := filepath.Match(strings.ToLower(check), strings.ToLower(policy.Formatting.Name)); matched {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // printFinding prints LV1005's finding for the start of a file exactly as
