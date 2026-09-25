@@ -145,7 +145,7 @@ Consumers pin a release tag, or its commit SHA, as described in
   linter checks them after Staticcheck's run, outside its cache, so formatting
   one clears its finding on the next run and editing one re-lints no package.
   Their findings appear in `text` and `json` output only
-  ([details](docs/rules.md#formatted-files-lv1005)).
+  ([details](docs/checks.md#formatted-files-lv1005)).
 - `//lint:ignore recvcheck`, `//lint:ignore unparam`, and
   `//lint:ignore gochecksumtype` suppress a finding that exists in only one of
   a package's builds, with or without its tests, instead of being reported as
