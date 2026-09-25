@@ -122,7 +122,7 @@ func TestPinsAgree(t *testing.T) {
 		}
 	}
 
-	for _, line := range strings.Split(strings.TrimSpace(readPinFile(t, "../scripts/dagger-checksums.txt")), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(readPinFile(t, "../scripts/dagger-checksums.txt")), "\n") {
 		if !strings.Contains(line, "dagger_v"+dagger+"_") {
 			t.Errorf("scripts/dagger-checksums.txt must name only Dagger %s archives: %q", dagger, line)
 		}
@@ -147,7 +147,7 @@ func TestToolsModuleKeepsEveryToolAtItsPin(t *testing.T) {
 	}
 
 	var built []string
-	for _, tool := range strings.Fields(block[1]) {
+	for tool := range strings.FieldsSeq(block[1]) {
 		module := ""
 		for path := range pinned.Tools.Modules {
 			if tool == path || strings.HasPrefix(tool, path+"/") {

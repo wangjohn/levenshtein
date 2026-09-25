@@ -70,7 +70,6 @@ func Selects(pattern, code string) bool {
 	pattern = strings.ToLower(pattern)
 	code = strings.ToLower(code)
 
-	//lint:ignore LV1001 patterns are free-form user input; these are two spellings of one wildcard, not an enum.
 	if pattern == "*" || pattern == "all" {
 		return true
 	}

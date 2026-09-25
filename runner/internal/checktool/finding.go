@@ -41,11 +41,16 @@ type Run struct {
 // finding codes it with its kind.
 type Kind string
 
-// The kinds whose results this package reads differently from the rest.
+// The kinds of the checks whose tools this package reads.
 const (
+	KindGoVet            Kind = "go-vet"
 	KindGoMod            Kind = "go-mod"
 	KindGoTest           Kind = "go-test"
 	KindGoVuln           Kind = "go-vuln"
+	KindGoImports        Kind = "go-imports"
+	KindGoGenerate       Kind = "go-generate"
+	KindGoApidiff        Kind = "go-apidiff"
+	KindWorkflowLint     Kind = "workflow-lint"
 	KindWorkflowSecurity Kind = "workflow-security"
 	KindDepsVuln         Kind = "deps-vuln"
 )

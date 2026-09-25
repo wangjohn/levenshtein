@@ -28,7 +28,7 @@ func TestGocheckReportRefusesAnythingButACleanReport(t *testing.T) {
 	}
 
 	for _, tc := range table.Cases {
-		findings, notes, err := GocheckReport("go-imports", Run{ExitCode: tc.Exit, Stdout: tc.Stdout, Stderr: tc.Stderr})
+		findings, notes, err := GocheckReport(KindGoImports, Run{ExitCode: tc.Exit, Stdout: tc.Stdout, Stderr: tc.Stderr})
 		switch tc.Want {
 		case verdictPass:
 			if err != nil || len(findings) != 0 || len(notes) != tc.Notes {

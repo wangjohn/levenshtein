@@ -31,13 +31,13 @@ func TestToolExitKeepsOnlyTheDocumentedFailure(t *testing.T) {
 		output    string
 		wantError bool
 	}{
-		{kind: "go-vet", code: 1, output: "copylocks: copies lock value"},
-		{kind: "workflow-lint", code: 1, output: "unknown job"},
+		{kind: KindGoVet, code: 1, output: "copylocks: copies lock value"},
+		{kind: KindWorkflowLint, code: 1, output: "unknown job"},
 		{kind: KindGoVuln, code: 3, output: "reachable vulnerability"},
 		{kind: KindGoVuln, code: 1, output: "database unavailable", wantError: true},
-		{kind: "workflow-lint", code: 3, output: "configuration error", wantError: true},
-		{kind: "go-vet", code: 1, wantError: true},
-		{kind: "go-vet", code: 137, output: "killed", wantError: true},
+		{kind: KindWorkflowLint, code: 3, output: "configuration error", wantError: true},
+		{kind: KindGoVet, code: 1, wantError: true},
+		{kind: KindGoVet, code: 137, output: "killed", wantError: true},
 	} {
 		findings, err := ToolExit(tc.kind, "app", Run{ExitCode: tc.code, Stderr: tc.output})
 		if (err != nil) != tc.wantError {
@@ -49,10 +49,10 @@ func TestToolExitKeepsOnlyTheDocumentedFailure(t *testing.T) {
 		}
 	}
 
-	if findings, err := ToolExit("go-vet", "app", Run{}); err != nil || len(findings) != 0 {
+	if findings, err := ToolExit(KindGoVet, "app", Run{}); err != nil || len(findings) != 0 {
 		t.Fatalf("a clean run is not a finding: %v %v", findings, err)
 	}
-	findings, err := ToolExit("go-vet", "app", Run{ExitCode: 1, Stdout: " out ", Stderr: "err\n"})
+	findings, err := ToolExit(KindGoVet, "app", Run{ExitCode: 1, Stdout: " out ", Stderr: "err\n"})
 	if err != nil || len(findings) != 1 || findings[0].Message != "out \nerr" {
 		t.Fatalf("a finding keeps stdout then stderr: %+v %v", findings, err)
 	}

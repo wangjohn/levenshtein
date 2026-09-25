@@ -198,7 +198,7 @@ func (n *Native) goVet(ctx context.Context, req Request, work goRun) ([]finding,
 	if err != nil {
 		return nil, run, err
 	}
-	findings, err := toolFindings(checktool.ToolExit(checktool.Kind(CheckGoVet), req.Target.Dir, checktool.Run(run)))
+	findings, err := toolFindings(checktool.ToolExit(checktool.KindGoVet, req.Target.Dir, checktool.Run(run)))
 	return findings, run, err
 }
 
@@ -244,7 +244,7 @@ func (n *Native) goVuln(ctx context.Context, req Request, work goRun) ([]finding
 	if err != nil {
 		return nil, run, err
 	}
-	findings, err := toolFindings(checktool.ToolExit(checktool.Kind(CheckGoVuln), req.Target.Dir, checktool.Run(run)))
+	findings, err := toolFindings(checktool.ToolExit(checktool.KindGoVuln, req.Target.Dir, checktool.Run(run)))
 	return findings, run, err
 }
 
@@ -262,7 +262,7 @@ func (n *Native) workflowLint(ctx context.Context, req Request, work goRun) ([]f
 	if err != nil {
 		return nil, run, err
 	}
-	findings, err := toolFindings(checktool.ToolExit(checktool.Kind(CheckWorkflowLint), req.Target.Dir, checktool.Run(run)))
+	findings, err := toolFindings(checktool.ToolExit(checktool.KindWorkflowLint, req.Target.Dir, checktool.Run(run)))
 	return findings, run, err
 }
 
