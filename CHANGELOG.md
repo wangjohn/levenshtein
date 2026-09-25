@@ -11,6 +11,13 @@ Consumers pin a release tag, or its commit SHA, as described in
 
 ### Added
 
+- The linter runs with nothing but `go`:
+  `go run github.com/wangjohn/levenshtein/runner/lint/cmd/levenshtein-lint@latest ./...`
+  from a module's root reports the shipped `go-lint` rules with no checkout,
+  container, or config. Release tags gain a `runner/lint/vX.Y.Z` companion so
+  the same command can pin a release
+  ([details](docs/checks.md#running-the-linter-directly)).
+
 - Community lint rules: a top-level `rule_modules` object pins lint rules
   published as ordinary Go modules, which run beside the shipped rules in every
   Dagger `go-lint` check and report into the same results. Each rule reports as
@@ -217,6 +224,11 @@ Consumers pin a release tag, or its commit SHA, as described in
 
 ### Changed
 
+- `levenshtein-lint` run without `-checks` selects the shipped rules from
+  `runner/toolchain.json` instead of Staticcheck's default, which also turned
+  on the opt-in `gocognit` and `deferInLoop`. `-checks=inherit` still defers
+  to `staticcheck.conf`. `verify` always passes `-checks`, so its results are
+  unchanged.
 - The Dagger CLI path calls `goLintReport`, which returns a passing check's
   advisory findings and warnings; `goLint` stays the Dagger check.
 - Both linters register only the rules a check selects and guard each one:

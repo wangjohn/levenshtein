@@ -26,8 +26,15 @@ Publication is a tag, prepared by a release pull request:
 
 ```sh
 git tag -a v0.1.0 -m 'Levenshtein v0.1.0'
-git push origin v0.1.0
+git tag -a runner/lint/v0.1.0 -m 'Levenshtein v0.1.0 linter module'
+git push origin v0.1.0 runner/lint/v0.1.0
 ```
+
+The second tag versions the nested `runner/lint` module, so
+`go run github.com/wangjohn/levenshtein/runner/lint/cmd/levenshtein-lint@vX.Y.Z`
+resolves to the same revision as the release
+([running the linter directly](checks.md#running-the-linter-directly)). It
+does not match the workflow's `v*` filter, so it publishes no archives.
 
 Tag promptly after the merge: until the tag exists, the documented examples
 name a version GitHub cannot resolve.

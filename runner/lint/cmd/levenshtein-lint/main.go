@@ -534,6 +534,11 @@ func linting(flags *flag.FlagSet) bool {
 func run(args []string) int {
 	command := lintcmd.NewCommand("levenshtein-lint")
 	command.ParseFlags(args)
+	if err := selectShipped(command.FlagSet()); err != nil {
+		fmt.Fprintf(os.Stderr, "levenshtein-lint: %s\n", err)
+		return 2
+	}
+
 	families := staticcheckFamilies()
 	bare := slices.Concat(
 		upstream(resources()...),

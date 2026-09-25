@@ -405,13 +405,19 @@ For an exceptional interop requirement, use Staticcheck's normal directive with 
 
 A suppression is a permanent decision about one site. Findings a repository already had when it adopted the rules, and means to fix, belong in its [baseline](configuration.md#baseline) instead, which accepts them only until they are fixed.
 
-You can run the same linter directly without Dagger. The selection below is the shipped default; append the patterns a repository's check adds, such as `,gocognit` to [opt in to gocognit](#opt-in-complexity-gocognit) or `,deferInLoop` to [opt in to deferInLoop](#opt-in-resources-deferinloop), to reproduce what its `go-lint` check reports:
+### Running the linter directly
+
+The linter is an ordinary Go command in its own module, `runner/lint`, so it runs without a checkout, Dagger, or `levenshtein.json`. From the root of the module to lint:
 
 ```sh
-(cd /path/to/levenshtein/runner/lint && go build -o /tmp/levenshtein-lint ./cmd/levenshtein-lint)
-cd /path/to/consumer
-/tmp/levenshtein-lint -checks='all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-gocognit,-deferInLoop' ./...
+go run github.com/wangjohn/levenshtein/runner/lint/cmd/levenshtein-lint@latest ./...
 ```
+
+Without `-checks` it runs the shipped selection, `all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-gocognit,-deferInLoop`, the same list `runner/toolchain.json` gives every `go-lint` check. `-checks` replaces that list. To reproduce a repository's `go-lint` check, pass the shipped list followed by the patterns the check adds, such as `,gocognit` to [opt in to gocognit](#opt-in-complexity-gocognit) or `,deferInLoop` to [opt in to deferInLoop](#opt-in-resources-deferinloop). `-checks=inherit` defers to a `staticcheck.conf` instead. The other Staticcheck flags work as usual: `-f=json` or `-f=sarif` for machine-readable output, `-list-checks`, and `-explain CODE`.
+
+The module needs Go 1.27.1 or later; `go` 1.21 or later downloads that toolchain itself as long as `GOTOOLCHAIN` allows it, which is the default. A direct run is the `go-lint` rules and nothing else: no `go vet`, baseline, community rules, result cache, or text-format hints, which `./verify` adds. Its Staticcheck analysis cache is Staticcheck's own, under the user cache directory.
+
+`@latest` resolves to the newest `runner/lint/vX.Y.Z` tag, or to the newest commit on `main` while there is none. To pin one revision, name a commit (`@<sha>`) or a `runner/lint/vX.Y.Z` tag, which [a release](releases.md#publishing-a-release) creates beside `vX.Y.Z`; `go install` with the same argument keeps a binary on `PATH`. From a checkout, `(cd runner/lint && go build -o /tmp/levenshtein-lint ./cmd/levenshtein-lint)` builds the same command.
 
 ## Named checks and suggested runs
 
