@@ -335,7 +335,7 @@ Result caching follows the kind rather than a `command.cache` flag these checks 
 
 ## Semantic lint
 
-`semantic-lint` is a native check with no command. It diffs the working tree against a base branch, asks a pinned Jev model the shared question catalog, and records advisory findings. Its optional `semantic` object accepts `base`, `model`, and `timeout`; it reads `TYPESAFE_API_KEY` from the host environment without `pass_env`, and it is never cached. See [semantic lint](semantic-lint.md) for the questions, key handling, and limits.
+`semantic-lint` is a native check with no command. It diffs the working tree against a base branch, asks a pinned Jev model the shared question catalog, and records advisory findings. Its optional `semantic` object accepts `base`, `model`, `timeout`, and the request budgets `max_requests` and `max_input_chars`; it reads `TYPESAFE_API_KEY` from the host environment without `pass_env`, and it is never cached. See [semantic lint](semantic-lint.md) for the questions, key handling, and limits.
 
 ## Mutation testing
 

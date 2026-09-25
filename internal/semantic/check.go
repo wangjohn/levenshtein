@@ -1,6 +1,7 @@
 package semantic
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -30,7 +32,18 @@ type Options struct {
 	Base        string
 	Client      Client
 	Concurrency int
+	// MaxRequests and MaxInputChars bound what one run sends; zero selects
+	// DefaultMaxRequests and DefaultMaxInputChars.
+	MaxRequests   int
+	MaxInputChars int
 }
+
+// The default budgets keep a large refactor to about as many requests as the
+// default five-minute timeout can answer, and to a bounded bill.
+const (
+	DefaultMaxRequests   = 60
+	DefaultMaxInputChars = 1_500_000
+)
 
 // Finding is a judgment that crossed its threshold.
 type Finding struct {
@@ -70,8 +83,14 @@ type Report struct {
 	InputTokens int        `json:"input_tokens"`
 	Findings    []Finding  `json:"findings"`
 	Judgments   []Judgment `json:"judgments"`
-	Missing     []string   `json:"missing,omitempty"`
-	Notes       []string   `json:"notes,omitempty"`
+	// Missing names each question that was asked and not answered, as
+	// "path:line symbol question".
+	Missing []string `json:"missing,omitempty"`
+	// Skipped names each state the budgets left unsent.
+	Skipped []string `json:"skipped,omitempty"`
+	// Errors are the distinct reasons requests failed.
+	Errors []string `json:"errors,omitempty"`
+	Notes  []string `json:"notes,omitempty"`
 }
 
 // pending maps a wire question back to the catalog entry and location it judges.
@@ -129,12 +148,21 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 		report.Notes = append(report.Notes, "no reviewable Go or Markdown changes against "+change.BaseRef)
 		return report, nil
 	}
-
-	responses, err := askAll(ctx, opts, requests)
-	if err != nil {
-		return report, err
+	requests, skipped, note := withinBudget(requests, opts)
+	if note != "" {
+		report.Notes = append(report.Notes, note)
+		report.Skipped = skipped
 	}
+
+	// A failed request costs only its own questions: the rest are composed,
+	// and its questions are reported as unanswered with the reason.
+	responses, errs := askAll(ctx, opts, requests)
 	for i, r := range requests {
+		if errs[i] != nil {
+			report.Errors = appendUnique(report.Errors, failure(errs[i]))
+			compose(&report, r, nil)
+			continue
+		}
 		response := responses[i]
 		report.Requests++
 		report.InputTokens += response.Usage.InputTokens
@@ -151,24 +179,85 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 		return severityRank(report.Findings[i].Severity) < severityRank(report.Findings[j].Severity)
 	})
 	sort.Strings(report.Missing)
+	report.Missing = slices.Compact(report.Missing)
 	return report, nil
 }
 
-// askAll sends requests with bounded concurrency and stops at the first failure.
-// Responses keep request order so composition stays deterministic.
-func askAll(ctx context.Context, opts Options, requests []request) ([]wireResponse, error) {
+// withinBudget keeps each request, in order, that still fits both budgets,
+// and names the rest in one note rather than sending them.
+func withinBudget(requests []request, opts Options) ([]request, []string, string) {
+	maxRequests := cmp.Or(opts.MaxRequests, DefaultMaxRequests)
+	maxChars := cmp.Or(opts.MaxInputChars, DefaultMaxInputChars)
+
+	var kept []request
+	var skipped []string
+	chars := 0
+	limit := ""
+	for _, r := range requests {
+		size := r.chars()
+		switch {
+		case len(kept) >= maxRequests:
+			limit = cmp.Or(limit, fmt.Sprintf("max_requests (%d)", maxRequests))
+		case chars+size > maxChars:
+			limit = cmp.Or(limit, fmt.Sprintf("max_input_chars (%d)", maxChars))
+		default:
+			kept = append(kept, r)
+			chars += size
+			continue
+		}
+		skipped = appendUnique(skipped, r.label())
+	}
+	if len(skipped) == 0 {
+		return kept, nil, ""
+	}
+	return kept, skipped, fmt.Sprintf("%d of %d requests were not sent because they would exceed %s; raise the budget in the check's semantic options to judge %s", len(requests)-len(kept), len(requests), limit, strings.Join(firstN(skipped, 5), ", "))
+}
+
+func firstN(values []string, n int) []string {
+	if len(values) <= n {
+		return values
+	}
+	return append(slices.Clone(values[:n]), fmt.Sprintf("%d more", len(values)-n))
+}
+
+func appendUnique(values []string, value string) []string {
+	if slices.Contains(values, value) {
+		return values
+	}
+	return append(values, value)
+}
+
+// failure words a request error for the report; the check's own deadline is
+// the common case and deserves a plain name.
+func failure(err error) string {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timed out before every request was answered"
+	case errors.Is(err, context.Canceled):
+		return "cancelled before every request was answered"
+	}
+	return err.Error()
+}
+
+// askAll sends requests with bounded concurrency. Each request succeeds or
+// fails on its own; once ctx ends, the requests not yet sent fail with its
+// error. Responses and errors keep request order so composition stays
+// deterministic.
+func askAll(ctx context.Context, opts Options, requests []request) ([]wireResponse, []error) {
 	workers := opts.Concurrency
 	if workers <= 0 {
 		workers = defaultConcurrency
 	}
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 
 	responses := make([]wireResponse, len(requests))
 	errs := make([]error, len(requests))
 	slots := make(chan struct{}, workers)
 	var wg sync.WaitGroup
 	for i, r := range requests {
+		if err := ctx.Err(); err != nil {
+			errs[i] = err
+			continue
+		}
 		select {
 		case slots <- struct{}{}:
 		case <-ctx.Done():
@@ -179,29 +268,11 @@ func askAll(ctx context.Context, opts Options, requests []request) ([]wireRespon
 		go func(i int, r request) {
 			defer wg.Done()
 			defer func() { <-slots }()
-			response, err := opts.Client.Ask(ctx, r.state, r.questions)
-			if err != nil {
-				errs[i] = err
-				cancel()
-				return
-			}
-			responses[i] = response
+			responses[i], errs[i] = opts.Client.Ask(ctx, r.state, r.questions)
 		}(i, r)
 	}
 	wg.Wait()
-
-	// Report the failure that caused cancellation, not the cancellations it produced.
-	for _, err := range errs {
-		if err != nil && !errors.Is(err, context.Canceled) {
-			return nil, err
-		}
-	}
-	for _, err := range errs {
-		if err != nil {
-			return nil, err
-		}
-	}
-	return responses, nil
+	return responses, errs
 }
 
 func buildRequests(opts Options, change Change, prefix string) ([]request, []string) {
@@ -261,8 +332,12 @@ func buildRequests(opts Options, change Change, prefix string) ([]request, []str
 		}
 	}
 
+	// The change-level request goes first, so a tight budget still judges the
+	// change as a whole before any single hunk.
 	if r, ok := changeRequest(change, prefix, truncate(docsDiff.String(), maxDocsDiffChars), addedSymbols, addedKeys); ok {
-		requests, notes = keep(requests, notes, r)
+		var first []request
+		first, notes = keep(nil, notes, r)
+		requests = append(first, requests...)
 	}
 	return requests, notes
 }
@@ -675,6 +750,40 @@ func (r *request) size() int {
 	return len(data)
 }
 
+// chars is what the request sends: the state and every question.
+func (r *request) chars() int {
+	questions, _ := json.Marshal(r.questions)
+	return r.size() + len(questions)
+}
+
+// label names what a request judges: a file and symbol, or the change.
+func (r *request) label() string {
+	for _, p := range r.pending {
+		if p.path != "" {
+			return strings.TrimSpace(p.path + " " + p.symbol)
+		}
+	}
+	return "change"
+}
+
+// label names one judged location, as path:line symbol question. A commit
+// question names its commit, and the other change questions name the change.
+func (p pending) label() string {
+	location := p.path
+	if p.line > 0 {
+		location = fmt.Sprintf("%s:%d", location, p.line)
+	}
+	switch {
+	case p.path != "" && p.symbol != "":
+		location += " " + p.symbol
+	case p.symbol != "":
+		location = "commit " + p.symbol
+	case location == "":
+		location = "change"
+	}
+	return location + " " + p.question.ID
+}
+
 func compose(report *Report, r request, answers map[string]Answer) {
 	ids := make([]string, 0, len(r.pending))
 	for id := range r.pending {
@@ -687,7 +796,7 @@ func compose(report *Report, r request, answers map[string]Answer) {
 		answer, ok := answers[id]
 		value, confidence, valid := answerValue(p.question, answer)
 		if !ok || !valid {
-			report.Missing = append(report.Missing, id)
+			report.Missing = append(report.Missing, p.label())
 			continue
 		}
 
@@ -766,8 +875,11 @@ func Summary(report Report) string {
 		}
 		fmt.Fprintf(&b, "  %-9s %-30s %s  %.2f vs %.2f  %s\n", f.Severity, f.Question, strings.TrimSpace(location), f.Value, f.Threshold, f.Message)
 	}
-	for _, id := range report.Missing {
-		fmt.Fprintf(&b, "  unanswered %s\n", id)
+	for _, label := range report.Missing {
+		fmt.Fprintf(&b, "  unanswered %s\n", label)
+	}
+	for _, reason := range report.Errors {
+		fmt.Fprintf(&b, "  request failed: %s\n", reason)
 	}
 	for _, note := range report.Notes {
 		fmt.Fprintf(&b, "  note: %s\n", note)
@@ -790,15 +902,5 @@ func keep(requests []request, notes []string, r request) ([]request, []string) {
 	if r.oversize == "" {
 		return append(requests, r), notes
 	}
-	label := "change"
-	for _, p := range r.pending {
-		if p.path != "" {
-			label = p.path
-			if p.symbol != "" {
-				label += " " + p.symbol
-			}
-			break
-		}
-	}
-	return requests, append(notes, fmt.Sprintf("%s was not judged: %s", label, r.oversize))
+	return requests, append(notes, fmt.Sprintf("%s was not judged: %s", r.label(), r.oversize))
 }

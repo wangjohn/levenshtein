@@ -66,6 +66,11 @@ type Client struct {
 	APIKey  string
 	Model   string
 	HTTP    *http.Client
+	// AttemptTimeout bounds one request, so a stalled connection is retried
+	// instead of holding the check until its own timeout. Zero means 90 seconds.
+	AttemptTimeout time.Duration
+	// sleep waits between attempts; tests replace it to skip the wait.
+	sleep func(context.Context, time.Duration) error
 }
 
 // APIError reports a definitive rejection that retrying cannot fix.
@@ -78,19 +83,34 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("TypeSafe API returned HTTP %d: %s", e.Status, e.Body)
 }
 
-const maxAttempts = 3
+const (
+	maxAttempts           = 3
+	defaultAttemptTimeout = 90 * time.Second
+)
 
 // Ask evaluates every question against one state in a single parallel pass.
-// Rate limiting, overload, and gateway failures are retried; other failures are returned.
+// Rate limiting, overload, server and gateway failures, and a stalled attempt
+// are retried; other failures are returned.
 func (c Client) Ask(ctx context.Context, state any, questions map[string]wireQuestion) (wireResponse, error) {
 	body, err := json.Marshal(wireRequest{State: state, Model: c.Model, Questions: questions})
 	if err != nil {
 		return wireResponse{}, err
 	}
+	sleep := c.sleep
+	if sleep == nil {
+		sleep = sleepContext
+	}
 
 	var last error
-	for range maxAttempts {
-		response, retryAfter, err := c.post(ctx, body)
+	var delay time.Duration
+	for attempt := range maxAttempts {
+		// Only wait before another attempt; after the last there is none.
+		if attempt > 0 {
+			if err := sleep(ctx, delay); err != nil {
+				return wireResponse{}, err
+			}
+		}
+		response, retryAfter, err := c.attempt(ctx, body)
 		if err == nil {
 			return response, nil
 		}
@@ -98,15 +118,37 @@ func (c Client) Ask(ctx context.Context, state any, questions map[string]wireQue
 		if retryAfter < 0 {
 			return wireResponse{}, err
 		}
-		timer := time.NewTimer(retryAfter)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return wireResponse{}, ctx.Err()
-		case <-timer.C:
-		}
+		delay = retryAfter
 	}
 	return wireResponse{}, fmt.Errorf("gave up after %d attempts: %w", maxAttempts, last)
+}
+
+// attempt posts once under the per-attempt timeout. Running out of that time,
+// as opposed to the caller's, is retryable.
+func (c Client) attempt(ctx context.Context, body []byte) (wireResponse, time.Duration, error) {
+	timeout := c.AttemptTimeout
+	if timeout <= 0 {
+		timeout = defaultAttemptTimeout
+	}
+	attemptCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	response, retryAfter, err := c.post(attemptCtx, body)
+	if err != nil && ctx.Err() == nil && attemptCtx.Err() != nil {
+		return wireResponse{}, time.Second, fmt.Errorf("TypeSafe API did not answer within %s", timeout)
+	}
+	return response, retryAfter, err
+}
+
+func sleepContext(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // noRedirectClient never follows a redirect, so the bearer token is only ever
@@ -152,7 +194,7 @@ func (c Client) post(ctx context.Context, body []byte) (wireResponse, time.Durat
 			return wireResponse{}, -1, fmt.Errorf("TypeSafe API returned malformed JSON: %w", err)
 		}
 		return response, 0, nil
-	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout, 529:
+	case http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout, 529:
 		return wireResponse{}, retryDelay(resp.Header.Get("Retry-After")), &APIError{Status: resp.StatusCode, Body: summary(data)}
 	default:
 		return wireResponse{}, -1, &APIError{Status: resp.StatusCode, Body: summary(data)}

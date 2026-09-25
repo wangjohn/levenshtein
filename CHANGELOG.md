@@ -9,6 +9,52 @@ Consumers pin a release tag, or its commit SHA, as described in
 
 ## [Unreleased]
 
+### Fixed
+
+- Tests that build throwaway git repositories no longer write to the
+  repository `go test` was started from. They inherited `GIT_DIR`,
+  `GIT_INDEX_FILE`, and `GIT_WORK_TREE`, which git exports to hooks, so the
+  lefthook `pre-push` run of `go test ./...` committed, switched branches, and
+  staged files in the pushing checkout. Every test now runs git through
+  `internal/testgit`, which drops every inherited `GIT_` variable, and a guard
+  test fails on a test file that runs git directly.
+- `go-mutation`, `go-apidiff`, and `semantic-lint` measure the change from
+  `origin/<base>` when it exists, and use the local branch only when it is the
+  same commit or ahead of it. A local `main` left behind after rebasing onto
+  `origin/main` used to set an old merge base, so the check judged, and
+  `semantic-lint` paid for, other people's commits.
+- When the base and `HEAD` share no commit, these checks now say so instead of
+  `git merge-base: exit status 1:`. In a shallow checkout, such as
+  `actions/checkout`'s default depth of one plus a shallow fetch of the base,
+  the message advises `fetch-depth: 0`.
+- `semantic-lint` reviews changed files whose names contain a space, a quote,
+  a backslash, or escaped non-ASCII bytes. Their diff headers kept git's
+  trailing tab or C quoting, so the files were classified as neither Go nor
+  Markdown and silently skipped, and commit summaries listed the raw header.
+- `semantic-lint` gives each API request 90 seconds and retries one that
+  stalls, instead of letting a hung connection use up the check's whole
+  timeout. HTTP 500 is retried like 502, 503, 504, and 429, and the client no
+  longer waits out a retry delay after its last attempt.
+- `semantic-lint` stays advisory when answers are missing. A question the API
+  omitted made the check `incomplete`, and one rejected request made it
+  `error`, both exiting 1; now unanswered questions and failed requests are
+  listed in the output (`details.missing`, `details.errors`) and the check
+  passes, unless requests were sent and not one question was answered. When
+  the check's timeout elapses mid-run, the answers already received are kept
+  instead of discarded. Unanswered questions are named as
+  `path:line symbol question`, once each, instead of by wire ids such as
+  `comment_explains_why#0` that repeat in every request.
+- `semantic-lint` bounds what one run sends: `max_requests` (default 60) and
+  `max_input_chars` (default 1,500,000) in the check's `semantic` object.
+  States beyond either budget are not sent and are named in a note and
+  `details.skipped`, and the change-level state is sent first. A large
+  refactor used to send hundreds of requests, run into the timeout, and
+  report nothing ([details](docs/semantic-lint.md#how-it-works)).
+- A second Ctrl-C or SIGTERM ends `verify` while it writes the report,
+  flushes the cache, or closes the Dagger session. The first signal cancels
+  the run as before; the second used to be swallowed until the process
+  exited, so a hung teardown needed SIGKILL.
+
 ## [0.2.0] - 2026-09-25
 
 ### Added

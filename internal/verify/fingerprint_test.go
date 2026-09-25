@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/wangjohn/levenshtein/internal/testgit"
 )
 
 // Every line is twelve bytes, so an edit can keep a file's size and prove the
@@ -225,8 +227,7 @@ func TestUnreadableStatRecordIsNotFatal(t *testing.T) {
 // configuration cannot shape a fixture.
 func runGit(t *testing.T, root string, args ...string) {
 	t.Helper()
-	cmd := exec.CommandContext(t.Context(), "git", args...)
-	cmd.Dir = root
+	cmd := testgit.Command(t.Context(), "git", root, args...)
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()}
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)

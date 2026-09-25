@@ -8,13 +8,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 	"unicode/utf8"
+
+	"github.com/wangjohn/levenshtein/internal/testgit"
 )
 
 func TestParseDiffZeroContext(t *testing.T) {
@@ -70,6 +73,105 @@ func TestParseDiffZeroContext(t *testing.T) {
 	}
 }
 
+// Git ends a name containing a space with a tab, quotes one with a quote even
+// with core.quotePath off, and with it on escapes non-ASCII bytes in octal.
+var awkwardHeaders = []struct {
+	header string
+	path   string
+}{
+	{"a/my file.go\t", "my file.go"},
+	{`"a/q\"uote.go"`, `q"uote.go`},
+	{`"a/caf\303\251.go"`, "café.go"},
+	{"a/café.go", "café.go"},
+}
+
+func TestParseDiffReadsAwkwardPaths(t *testing.T) {
+	for _, tc := range awkwardHeaders {
+		newSide := strings.Replace(tc.header, "a/", "b/", 1)
+		raw := strings.Join([]string{
+			"diff --git " + tc.header + " " + newSide,
+			"--- " + tc.header,
+			"+++ " + newSide,
+			"@@ -1 +1 @@",
+			"-old",
+			"+new",
+		}, "\n")
+
+		files, err := parseDiff(raw, func(string) bool { return true })
+
+		if err != nil || len(files) != 1 || files[0].Path != tc.path || files[0].Kind != FileSource {
+			t.Errorf("%s: %+v %v", tc.header, files, err)
+		}
+	}
+
+	deleted := "diff --git \"a/q\\\"uote.go\" \"b/q\\\"uote.go\"\ndeleted file mode 100644\n--- \"a/q\\\"uote.go\"\n+++ /dev/null\n@@ -1 +0,0 @@\n-package q\n"
+	if files, err := parseDiff(deleted, func(string) bool { return true }); err != nil || len(files) != 1 || files[0].Path != `q"uote.go` {
+		t.Errorf("a deleted file is named by its old side: %+v %v", files, err)
+	}
+}
+
+func TestParseCommitLogReadsAwkwardPaths(t *testing.T) {
+	for _, tc := range awkwardHeaders {
+		newSide := strings.Replace(tc.header, "a/", "b/", 1)
+		raw := strings.Join([]string{
+			commitRecord + "0123456789abcdef\x1fSubject",
+			"diff --git " + tc.header + " " + newSide,
+			"--- " + tc.header,
+			"+++ " + newSide,
+			"@@ -1 +1 @@",
+			"-old",
+			"+new",
+		}, "\n")
+
+		commits, err := parseCommitLog(raw)
+
+		if err != nil || len(commits) != 1 || len(commits[0].Files) != 1 || commits[0].Files[0] != tc.path {
+			t.Errorf("%s: %+v %v", tc.header, commits, err)
+		}
+	}
+}
+
+func TestLoadChangeReviewsFilesWithAwkwardNames(t *testing.T) {
+	names := []string{"pkg/my file.go", `pkg/q"uote.go`, "pkg/café.go"}
+	for _, quotePath := range []string{"true", "false"} {
+		t.Run("core.quotePath="+quotePath, func(t *testing.T) {
+			r := newRepo(t)
+			r.run(t, "config", "core.quotePath", quotePath)
+			for _, name := range names {
+				r.write(t, name, "package pkg\n")
+			}
+			r.run(t, "add", ".")
+			r.run(t, "commit", "--quiet", "-m", "base")
+			r.run(t, "switch", "--quiet", "-c", "feature")
+			for _, name := range names {
+				r.write(t, name, "package pkg\n\n// Added explains nothing.\nvar Added = 1\n")
+			}
+			r.run(t, "commit", "--quiet", "-am", "Edit awkward names")
+
+			change, err := loadChange(t.Context(), gitRunner{Git: r.git, Dir: r.dir, Env: r.env}, "main", func(string) bool { return true })
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			kinds := map[string]FileKind{}
+			for _, file := range change.Files {
+				kinds[file.Path] = file.Kind
+			}
+			if len(change.Commits) != 1 {
+				t.Fatalf("commits: %+v", change.Commits)
+			}
+			for _, name := range names {
+				if kinds[name] != FileSource {
+					t.Errorf("%s was not reviewed as Go: %v", name, kinds)
+				}
+				if !slices.Contains(change.Commits[0].Files, name) {
+					t.Errorf("%s missing from the commit's files: %v", name, change.Commits[0].Files)
+				}
+			}
+		})
+	}
+}
+
 const sampleSource = `package sample
 
 import (
@@ -95,8 +197,9 @@ func Fresh(path string, strict bool) error {
 }
 `
 
-func lineOf(src, needle string) int {
-	for i, line := range strings.Split(src, "\n") {
+// lineOf is the line of sampleSource that contains needle.
+func lineOf(needle string) int {
+	for i, line := range strings.Split(sampleSource, "\n") {
 		if strings.Contains(line, needle) {
 			return i + 1
 		}
@@ -105,8 +208,8 @@ func lineOf(src, needle string) int {
 }
 
 func TestGoUnitsSelectItemsFromAddedLines(t *testing.T) {
-	start := lineOf(sampleSource, "// Fresh documents")
-	end := lineOf(sampleSource, "return nil // trailing note") + 1
+	start := lineOf("// Fresh documents")
+	end := lineOf("return nil // trailing note") + 1
 	hunks := []Hunk{{NewStart: start, NewLines: end - start + 1, Diff: "@@ fresh @@\n"}}
 
 	units := goUnits("sample.go", []byte(sampleSource), hunks)
@@ -125,7 +228,7 @@ func TestGoUnitsSelectItemsFromAddedLines(t *testing.T) {
 		t.Fatalf("errors: %+v", unit.Errors)
 	}
 
-	untouched := goUnits("sample.go", []byte(sampleSource), []Hunk{{NewStart: lineOf(sampleSource, `return errors.New`), NewLines: 1}})
+	untouched := goUnits("sample.go", []byte(sampleSource), []Hunk{{NewStart: lineOf(`return errors.New`), NewLines: 1}})
 	if len(untouched) != 1 || untouched[0].Symbol != "Existing" || untouched[0].New || !untouched[0].IsFunc {
 		t.Fatalf("edited existing function must not count as new: %+v", untouched)
 	}
@@ -275,26 +378,14 @@ type repo struct {
 
 func newRepo(t *testing.T) repo {
 	t.Helper()
-	git, err := exec.LookPath("git")
-	if err != nil {
-		t.Skip("git is not installed")
-	}
-	dir := t.TempDir()
-	// Isolate git configuration without changing HOME; Apple's git shim reads its license state from there.
-	env := append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
-	r := repo{dir: dir, git: git, env: env}
+	r := repo{dir: t.TempDir(), git: testgit.Path(t), env: testgit.Env()}
 	r.run(t, "init", "--quiet", "--initial-branch=main")
 	return r
 }
 
 func (r repo) run(t *testing.T, args ...string) {
 	t.Helper()
-	cmd := exec.CommandContext(t.Context(), r.git, args...)
-	cmd.Dir = r.dir
-	cmd.Env = r.env
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
+	testgit.Run(t, r.git, r.dir, args...)
 }
 
 func (r repo) write(t *testing.T, path, content string) {
@@ -402,7 +493,7 @@ func TestRunReportsUnansweredQuestions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(report.Missing) != 1 || report.Missing[0] != "scope_creep" {
+	if len(report.Missing) != 1 || report.Missing[0] != "change scope_creep" {
 		t.Fatalf("missing: %+v", report.Missing)
 	}
 	highDirection := map[string]bool{"scope_creep": true, "unscoped_guarantee": true, "duplicates_package_helper": true}
@@ -413,6 +504,162 @@ func TestRunReportsUnansweredQuestions(t *testing.T) {
 	}
 	if len(report.Findings) == 0 {
 		t.Fatal("low probabilities must fire the positive-phrased questions")
+	}
+}
+
+// Wire ids such as comment_explains_why#0 repeat in every request, so the
+// report names the location and symbol each unanswered question judged.
+func TestRunNamesWhereAnUnansweredItemIs(t *testing.T) {
+	r := changedRepo(t)
+	r.write(t, "pkg/other.go", "package sample\n\nfunc Other() {\n\t// Other keeps a comment of its own.\n\t_ = 1\n}\n")
+	jev := &fakeJev{noul: 0.9, score: 0, drop: "comment_explains_why#0"}
+	server := httptest.NewServer(jev.handler(t))
+	defer server.Close()
+
+	report, err := Run(t.Context(), runOptions(r, server))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	freshness := fmt.Sprintf("pkg/sample.go:%d Fresh comment_explains_why", lineOf("// Freshness concerns"))
+	want := []string{"pkg/other.go:4 Other comment_explains_why", freshness}
+	if !slices.Equal(report.Missing, want) {
+		t.Fatalf("missing = %q, want %q", report.Missing, want)
+	}
+	if summary := Summary(report); !strings.Contains(summary, "unanswered "+freshness) {
+		t.Fatalf("summary must name the location: %s", summary)
+	}
+}
+
+// labelledJev answers like fakeJev, but rejects any request whose state is for
+// a path in reject, and stalls on one in stall until the request is abandoned.
+func labelledJev(t *testing.T, reject, stall string, release <-chan struct{}) (http.HandlerFunc, *atomic.Int32) {
+	t.Helper()
+	var calls atomic.Int32
+	return func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		var req wireRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode: %v", err)
+		}
+		state, _ := req.State.(map[string]any)
+		file, _ := state["file"].(map[string]any)
+		path, _ := file["path"].(string)
+		switch path {
+		case "":
+		case reject:
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"state too large"}`))
+			return
+		case stall:
+			select {
+			case <-r.Context().Done():
+			case <-release:
+			}
+			return
+		}
+		answers := map[string]Answer{}
+		for id, q := range req.Questions {
+			value := 0.9
+			if q.Type == PrimitiveScore {
+				answers[id] = Answer{Type: PrimitiveScore, Score: &value, Confidence: &value}
+				continue
+			}
+			answers[id] = Answer{Type: PrimitiveNoul, Noul: &value}
+		}
+		_ = json.NewEncoder(w).Encode(wireResponse{Model: DefaultModel, Answers: answers, Usage: wireUsage{InputTokens: 10}})
+	}, &calls
+}
+
+func TestRunKeepsTheAnswersOfRequestsThatSucceeded(t *testing.T) {
+	r := changedRepo(t)
+	handler, _ := labelledJev(t, "pkg/sample.go", "", nil)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	report, err := Run(t.Context(), runOptions(r, server))
+	if err != nil {
+		t.Fatalf("one rejected request must not discard the rest: %v", err)
+	}
+
+	if len(report.Judgments) == 0 || len(report.Missing) == 0 {
+		t.Fatalf("judgments %d, missing %v", len(report.Judgments), report.Missing)
+	}
+	for _, missing := range report.Missing {
+		if !strings.HasPrefix(missing, "pkg/sample.go:") {
+			t.Errorf("only the rejected file's questions are unanswered: %v", report.Missing)
+		}
+	}
+	if len(report.Errors) != 1 || !strings.Contains(report.Errors[0], "HTTP 400") {
+		t.Fatalf("errors = %q", report.Errors)
+	}
+}
+
+func TestRunReturnsPartialResultsWhenItsDeadlinePasses(t *testing.T) {
+	r := changedRepo(t)
+	release := make(chan struct{})
+	handler, _ := labelledJev(t, "", "pkg/sample.go", release)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	defer close(release)
+	opts := runOptions(r, server)
+	opts.Concurrency = 1
+
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	report, err := Run(ctx, opts)
+	if err != nil {
+		t.Fatalf("a deadline mid-run must keep what was answered: %v", err)
+	}
+
+	if len(report.Judgments) == 0 {
+		t.Fatal("answers received before the deadline were discarded")
+	}
+	stalled := false
+	for _, missing := range report.Missing {
+		stalled = stalled || strings.HasPrefix(missing, "pkg/sample.go")
+	}
+	if !stalled || len(report.Errors) == 0 || !strings.Contains(strings.Join(report.Errors, " "), "timed out") {
+		t.Fatalf("missing %v, errors %q", report.Missing, report.Errors)
+	}
+}
+
+func TestRunStaysWithinItsBudgets(t *testing.T) {
+	r := changedRepo(t)
+	handler, calls := labelledJev(t, "", "", nil)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	opts := runOptions(r, server)
+	opts.MaxRequests = 1
+	report, err := Run(t.Context(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if calls.Load() != 1 || report.Requests != 1 {
+		t.Fatalf("max_requests 1 sent %d requests", calls.Load())
+	}
+	if len(report.Skipped) == 0 || len(report.Missing) != 0 {
+		t.Fatalf("requests over the budget are skipped, not unanswered: skipped %v missing %v", report.Skipped, report.Missing)
+	}
+	if !strings.Contains(strings.Join(report.Notes, " "), "max_requests") {
+		t.Fatalf("notes must name the budget: %q", report.Notes)
+	}
+	// The change-level request is sent first, so a tight budget still judges
+	// the change as a whole.
+	for _, j := range report.Judgments {
+		if j.Path != "" {
+			t.Fatalf("the change-level request must win the only slot: %+v", j)
+		}
+	}
+
+	opts.MaxRequests = 0
+	opts.MaxInputChars = 1
+	calls.Store(0)
+	report, err = Run(t.Context(), opts)
+	if err != nil || calls.Load() != 0 || len(report.Skipped) == 0 || !strings.Contains(strings.Join(report.Notes, " "), "max_input_chars") {
+		t.Fatalf("an input budget below every request sends none: calls %d %+v %v", calls.Load(), report, err)
 	}
 }
 
@@ -507,7 +754,7 @@ func TestClientRetriesRateLimitsButNotRejections(t *testing.T) {
 	jev := &fakeJev{noul: 0.5, statuses: []int{http.StatusServiceUnavailable, http.StatusTooManyRequests, http.StatusOK}}
 	server := httptest.NewServer(jev.handler(t))
 	defer server.Close()
-	client := Client{BaseURL: server.URL, APIKey: "test-key", Model: DefaultModel}
+	client := Client{BaseURL: server.URL, APIKey: "test-key", Model: DefaultModel, sleep: recordSleeps(new([]time.Duration))}
 	questions := map[string]wireQuestion{"q": {Type: PrimitiveNoul, Instructions: "x"}}
 
 	response, err := client.Ask(context.Background(), "state", questions)
@@ -525,6 +772,75 @@ func TestClientRetriesRateLimitsButNotRejections(t *testing.T) {
 	var apiErr *APIError
 	if _, err := client.Ask(context.Background(), "state", questions); !errors.As(err, &apiErr) || apiErr.Status != http.StatusUnauthorized {
 		t.Fatalf("rejection must not retry: %v", err)
+	}
+}
+
+// recordSleeps stands in for the retry wait and records each delay.
+func recordSleeps(delays *[]time.Duration) func(context.Context, time.Duration) error {
+	return func(_ context.Context, delay time.Duration) error {
+		*delays = append(*delays, delay)
+		return nil
+	}
+}
+
+func TestClientDoesNotWaitAfterTheLastAttempt(t *testing.T) {
+	jev := &fakeJev{statuses: []int{http.StatusServiceUnavailable, http.StatusServiceUnavailable, http.StatusServiceUnavailable}}
+	server := httptest.NewServer(jev.handler(t))
+	defer server.Close()
+	var delays []time.Duration
+	client := Client{BaseURL: server.URL, APIKey: "test-key", Model: DefaultModel, sleep: recordSleeps(&delays)}
+
+	_, err := client.Ask(t.Context(), "state", map[string]wireQuestion{"q": {Type: PrimitiveNoul}})
+
+	if err == nil || !strings.Contains(err.Error(), "gave up after 3 attempts") || jev.calls.Load() != 3 {
+		t.Fatalf("err=%v calls=%d", err, jev.calls.Load())
+	}
+	if len(delays) != 2 {
+		t.Fatalf("waits = %v, want one between each pair of attempts and none after the last", delays)
+	}
+}
+
+func TestClientRetriesServerErrors(t *testing.T) {
+	jev := &fakeJev{noul: 0.5, statuses: []int{http.StatusInternalServerError, http.StatusBadGateway, http.StatusOK}}
+	server := httptest.NewServer(jev.handler(t))
+	defer server.Close()
+	var delays []time.Duration
+	client := Client{BaseURL: server.URL, APIKey: "test-key", Model: DefaultModel, sleep: recordSleeps(&delays)}
+
+	response, err := client.Ask(t.Context(), "state", map[string]wireQuestion{"q": {Type: PrimitiveNoul}})
+
+	if err != nil || response.Answers["q"].Noul == nil || jev.calls.Load() != 3 {
+		t.Fatalf("a 500 must be retried: %+v %v calls=%d", response, err, jev.calls.Load())
+	}
+}
+
+// A connection that accepts the request and never answers costs one attempt,
+// not the whole run's deadline.
+func TestClientRetriesAStalledAttempt(t *testing.T) {
+	var calls atomic.Int32
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			select {
+			case <-r.Context().Done():
+			case <-release:
+			}
+			return
+		}
+		score := 0.5
+		_ = json.NewEncoder(w).Encode(wireResponse{Model: DefaultModel, Answers: map[string]Answer{"q": {Type: PrimitiveNoul, Noul: &score}}})
+	}))
+	defer server.Close()
+	defer close(release)
+	var delays []time.Duration
+	client := Client{BaseURL: server.URL, APIKey: "test-key", Model: DefaultModel, AttemptTimeout: 100 * time.Millisecond, sleep: recordSleeps(&delays)}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	response, err := client.Ask(ctx, "state", map[string]wireQuestion{"q": {Type: PrimitiveNoul}})
+
+	if err != nil || response.Answers["q"].Noul == nil || calls.Load() != 2 {
+		t.Fatalf("a stalled attempt must be retried: %+v %v calls=%d", response, err, calls.Load())
 	}
 }
 
