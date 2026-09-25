@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -68,6 +69,105 @@ func TestParseDiffZeroContext(t *testing.T) {
 	}
 	if gone := files[2]; gone.Path != "gone.go" || gone.Status != FileDeleted {
 		t.Fatalf("deleted file: %+v", gone)
+	}
+}
+
+// Git ends a name containing a space with a tab, quotes one with a quote even
+// with core.quotePath off, and with it on escapes non-ASCII bytes in octal.
+var awkwardHeaders = []struct {
+	header string
+	path   string
+}{
+	{"a/my file.go\t", "my file.go"},
+	{`"a/q\"uote.go"`, `q"uote.go`},
+	{`"a/caf\303\251.go"`, "café.go"},
+	{"a/café.go", "café.go"},
+}
+
+func TestParseDiffReadsAwkwardPaths(t *testing.T) {
+	for _, tc := range awkwardHeaders {
+		newSide := strings.Replace(tc.header, "a/", "b/", 1)
+		raw := strings.Join([]string{
+			"diff --git " + tc.header + " " + newSide,
+			"--- " + tc.header,
+			"+++ " + newSide,
+			"@@ -1 +1 @@",
+			"-old",
+			"+new",
+		}, "\n")
+
+		files, err := parseDiff(raw, func(string) bool { return true })
+
+		if err != nil || len(files) != 1 || files[0].Path != tc.path || files[0].Kind != FileSource {
+			t.Errorf("%s: %+v %v", tc.header, files, err)
+		}
+	}
+
+	deleted := "diff --git \"a/q\\\"uote.go\" \"b/q\\\"uote.go\"\ndeleted file mode 100644\n--- \"a/q\\\"uote.go\"\n+++ /dev/null\n@@ -1 +0,0 @@\n-package q\n"
+	if files, err := parseDiff(deleted, func(string) bool { return true }); err != nil || len(files) != 1 || files[0].Path != `q"uote.go` {
+		t.Errorf("a deleted file is named by its old side: %+v %v", files, err)
+	}
+}
+
+func TestParseCommitLogReadsAwkwardPaths(t *testing.T) {
+	for _, tc := range awkwardHeaders {
+		newSide := strings.Replace(tc.header, "a/", "b/", 1)
+		raw := strings.Join([]string{
+			commitRecord + "0123456789abcdef\x1fSubject",
+			"diff --git " + tc.header + " " + newSide,
+			"--- " + tc.header,
+			"+++ " + newSide,
+			"@@ -1 +1 @@",
+			"-old",
+			"+new",
+		}, "\n")
+
+		commits, err := parseCommitLog(raw)
+
+		if err != nil || len(commits) != 1 || len(commits[0].Files) != 1 || commits[0].Files[0] != tc.path {
+			t.Errorf("%s: %+v %v", tc.header, commits, err)
+		}
+	}
+}
+
+func TestLoadChangeReviewsFilesWithAwkwardNames(t *testing.T) {
+	names := []string{"pkg/my file.go", `pkg/q"uote.go`, "pkg/café.go"}
+	for _, quotePath := range []string{"true", "false"} {
+		t.Run("core.quotePath="+quotePath, func(t *testing.T) {
+			r := newRepo(t)
+			r.run(t, "config", "core.quotePath", quotePath)
+			for _, name := range names {
+				r.write(t, name, "package pkg\n")
+			}
+			r.run(t, "add", ".")
+			r.run(t, "commit", "--quiet", "-m", "base")
+			r.run(t, "switch", "--quiet", "-c", "feature")
+			for _, name := range names {
+				r.write(t, name, "package pkg\n\n// Added explains nothing.\nvar Added = 1\n")
+			}
+			r.run(t, "commit", "--quiet", "-am", "Edit awkward names")
+
+			change, err := loadChange(t.Context(), gitRunner{Git: r.git, Dir: r.dir, Env: r.env}, "main", func(string) bool { return true })
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			kinds := map[string]FileKind{}
+			for _, file := range change.Files {
+				kinds[file.Path] = file.Kind
+			}
+			if len(change.Commits) != 1 {
+				t.Fatalf("commits: %+v", change.Commits)
+			}
+			for _, name := range names {
+				if kinds[name] != FileSource {
+					t.Errorf("%s was not reviewed as Go: %v", name, kinds)
+				}
+				if !slices.Contains(change.Commits[0].Files, name) {
+					t.Errorf("%s missing from the commit's files: %v", name, change.Commits[0].Files)
+				}
+			}
+		})
 	}
 }
 

@@ -225,7 +225,7 @@ func changedLines(diff string) map[string][]Range {
 		if name, ok := strings.CutPrefix(line, "+++ "); ok && header {
 			header = false
 			path = ""
-			if name, ok := strings.CutPrefix(headerName(name), "b/"); ok {
+			if name, ok := strings.CutPrefix(HeaderName(name), "b/"); ok {
 				path = name
 				lines[path] = []Range{}
 			}
@@ -247,11 +247,12 @@ func changedLines(diff string) map[string][]Range {
 	return lines
 }
 
-// headerName reads the path from a "+++ " header. Git ends the name with a tab
-// when it contains a space, and quotes it C-style, even with core.quotePath
-// off, when it contains a quote, a backslash, or a control character. Go's
-// string syntax reads those escapes, octal ones included.
-func headerName(name string) string {
+// HeaderName reads the path, prefix included, from what follows "--- " or
+// "+++ " in a diff header. Git ends the name with a tab when it contains a
+// space, and quotes it C-style, even with core.quotePath off, when it contains
+// a quote, a backslash, or a control character. Go's string syntax reads those
+// escapes, octal ones included, so core.quotePath's escaped UTF-8 reads too.
+func HeaderName(name string) string {
 	name = strings.TrimSuffix(name, "\t")
 	if strings.HasPrefix(name, `"`) {
 		if unquoted, err := strconv.Unquote(name); err == nil {

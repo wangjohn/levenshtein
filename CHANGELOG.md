@@ -281,6 +281,10 @@ Consumers pin a release tag, or its commit SHA, as described in
   `git merge-base: exit status 1:`. In a shallow checkout, such as
   `actions/checkout`'s default depth of one plus a shallow fetch of the base,
   the message advises `fetch-depth: 0`.
+- `semantic-lint` reviews changed files whose names contain a space, a quote,
+  a backslash, or escaped non-ASCII bytes. Their diff headers kept git's
+  trailing tab or C quoting, so the files were classified as neither Go nor
+  Markdown and silently skipped, and commit summaries listed the raw header.
 
 ## [0.1.0] - 2026-09-22
 
