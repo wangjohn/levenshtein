@@ -278,6 +278,13 @@ Consumers pin a release tag, or its commit SHA, as described in
   or a preparation that generates files into its build's inputs, could leave
   untracked files that a later key in the same run did not see, so a stale
   result or build could be reused.
+- A native shared Go check's cache key covers the Go settings that change
+  what it reports, such as `GOFLAGS`, `GOEXPERIMENT`, `CGO_ENABLED`, `CC`, and
+  the architecture levels, including values set with `go env -w`. Before, only
+  the Go version, OS, and architecture were, so `go env -w
+  GOFLAGS=-tags=integration` reused results computed without the tag. Module
+  download settings such as `GOPROXY` and `GOPRIVATE` still do not affect the
+  key. Existing native shared Go results are recomputed once.
 
 ## [0.1.0] - 2026-09-22
 

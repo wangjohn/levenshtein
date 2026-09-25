@@ -200,8 +200,12 @@ produces the same `{"findings": [...]}` `Details` envelope as `daggerResult`,
 with locations relative to the source root, so a report does not say which
 executor produced it. Because the host's Go is not covered by any snapshot,
 `fingerprint` adds its `go env GOVERSION GOOS GOARCH` to the cache key for
-these kinds only, and the shared implementation snapshot covers `runner/` for
-them on either executor.
+these kinds only, with the settings that change what a build reports
+(`GOFLAGS`, `GOEXPERIMENT`, `CGO_ENABLED`, the C compilers and their flags,
+and the architecture levels, `toolchainSettings` in `gotools.go`) whether they
+come from the environment or a `go env -w`; module download settings such as
+`GOPROXY` and `GOPRIVATE` stay out of it. The shared implementation snapshot
+covers `runner/` for them on either executor.
 
 `internal/verify/command.go` builds the actual `os/exec.Cmd` with a minimal
 inherited environment (`PATH`, `HOME`, `TMPDIR`, `TMP`, `TEMP`, `SystemRoot`,
@@ -225,7 +229,8 @@ native `command` checks with `cache: true`), it:
    native shared Go checks also `runner`), the check
    definition itself, `runtime.GOOS`/`GOARCH`, (for native checks) the
    resolved environment variables, and (for native shared Go checks only) the
-   host toolchain's `go env GOVERSION GOOS GOARCH`.
+   host toolchain's `go env GOVERSION GOOS GOARCH` and result-changing Go
+   settings.
 
    Which files the declared inputs cover is decided by the target's
    `discovery`. `internal/verify/discovery.go` runs
