@@ -265,6 +265,20 @@ Consumers pin a release tag, or its commit SHA, as described in
   nilerr applied the directive itself and dropped the finding, so Staticcheck
   then reported the directive as matching nothing and the check failed either
   way. Upstream analyzers now leave `//lint:ignore` to Staticcheck.
+- The `verify` launcher exits 2, the setup-error status, for every failure
+  before the CLI runs: an unset `HOME` with no `XDG_CACHE_HOME`, a cache
+  directory it cannot create, or an unreadable or empty `.go-version` used to
+  exit 1, which means a check failed and made the Claude Stop hook block the
+  agent.
+- The `verify` launcher builds the CLI for the host whatever the caller's Go
+  settings: `GOOS`, `GOARCH`, `GOEXPERIMENT` and the like are dropped and
+  `GOFLAGS` is replaced for the build only, so a cross-compiling shell no
+  longer gets a binary it cannot run and `GOFLAGS=-mod=vendor` no longer breaks
+  the build. The CLI itself now receives the caller's environment unchanged,
+  without the launcher's `GOWORK` and `GOTOOLCHAIN`.
+- Concurrent `verify` launchers no longer rebuild the CLI in place: each builds
+  to a temporary file and renames it over the binary, so none can run a
+  half-written one.
 
 ## [0.1.0] - 2026-09-22
 
