@@ -75,7 +75,8 @@ func sourceReferences(t *testing.T) []reference {
 			return err
 		}
 		ext := filepath.Ext(name)
-		if !sourceExtensions[ext] && !(ext == "" && bytes.HasPrefix(data, []byte("#!"))) {
+		script := ext == "" && bytes.HasPrefix(data, []byte("#!"))
+		if !sourceExtensions[ext] && !script {
 			return nil
 		}
 		rel, err := filepath.Rel(repoRoot, p)
