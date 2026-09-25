@@ -101,7 +101,9 @@ func matchDirectives(pass *analysis.Pass, directives []lint.Directive, deciding 
 
 // ignores returns the //lint:ignore directives in files that name the
 // analyzer, matched as Staticcheck matches a finding's code: a
-// case-insensitive glob per comma-separated name.
+// case-insensitive glob per comma-separated name. A directive without a
+// reason is left out: Staticcheck reports it as malformed and applies none,
+// so a finding under it would be reported rather than hidden.
 func ignores(pass *analysis.Pass, files []*ast.File) []lint.Directive {
 	var commented []*ast.File
 	for _, file := range files {
@@ -112,7 +114,7 @@ func ignores(pass *analysis.Pass, files []*ast.File) []lint.Directive {
 
 	var named []lint.Directive
 	for _, directive := range lint.ParseDirectives(commented, pass.Fset) {
-		if directive.Command != "ignore" || len(directive.Arguments) == 0 {
+		if directive.Command != "ignore" || len(directive.Arguments) < 2 {
 			continue
 		}
 		for check := range strings.SplitSeq(directive.Arguments[0], ",") {

@@ -37,6 +37,7 @@ func TestToolchainIdentityCoversResultChangingGoSettings(t *testing.T) {
 		"GOFLAGS":      "GOFLAGS=-tags=integration\n",
 		"GOEXPERIMENT": "GOEXPERIMENT=jsonv2\n",
 		"CC":           "CC=/nonexistent/cc\n",
+		"GOFIPS140":    "GOFIPS140=latest\n",
 	} {
 		if identity(settings, nil) == base {
 			t.Errorf("go env -w %s did not change the toolchain identity", name)
@@ -44,5 +45,8 @@ func TestToolchainIdentityCoversResultChangingGoSettings(t *testing.T) {
 	}
 	if identity("", map[string]string{"CGO_ENABLED": "0"}) == identity("", map[string]string{"CGO_ENABLED": "1"}) {
 		t.Error("CGO_ENABLED did not change the toolchain identity")
+	}
+	if identity("", map[string]string{"GODEBUG": "panicnil=1"}) == base {
+		t.Error("GODEBUG did not change the toolchain identity")
 	}
 }

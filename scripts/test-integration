@@ -15,6 +15,7 @@ root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$root"
 
 dagger_tests=(
+  TestDaggerImportMatchesTheKey
   TestDaggerSourceBoundary
   TestMutationKeepsTheSharedDaggerSession
 )
@@ -25,14 +26,19 @@ if [[ $mode != native && $mode != dagger ]]; then
   exit 2
 fi
 
-# "package TestName" for every integration test in the root module.
+# "package TestName imports" for every integration test in the root module,
+# where imports is "dagger" when its file imports the Dagger SDK.
 # shellcheck disable=SC2016 # a go list template, not shell expansions
 template='{{$dir := .Dir}}{{$path := .ImportPath}}{{range .TestGoFiles}}{{$path}} {{$dir}}/{{.}}{{"\n"}}{{end}}{{range .XTestGoFiles}}{{$path}} {{$dir}}/{{.}}{{"\n"}}{{end}}'
 found=$(go list -tags=integration -f "$template" ./... |
   while read -r package file; do
     [[ -n $file ]] || continue
     grep -q '^//go:build integration$' "$file" || continue
-    sed -nE 's/^func (Test[A-Za-z0-9_]+)\(.*/\1/p' "$file" | sed "s|^|$package |"
+    imports=-
+    if grep -qF '"dagger.io/dagger"' "$file"; then
+      imports=dagger
+    fi
+    sed -nE 's/^func (Test[A-Za-z0-9_]+)\(.*/\1/p' "$file" | sed "s|\$| $imports|; s|^|$package |"
   done | sort -u)
 if [[ -z $found ]]; then
   echo 'No integration tests found; update this script' >&2
@@ -54,10 +60,19 @@ for listed in "${dagger_tests[@]}"; do
   fi
 done
 
+# A test whose file imports the Dagger SDK connects to an engine, which the
+# native step, run before the pinned Dagger CLI is installed, must not start.
+while read -r _ name imports; do
+  if [[ $imports == dagger ]] && ! is_dagger "$name"; then
+    echo "$name is in a file that imports the Dagger SDK; list it in dagger_tests in scripts/test-integration" >&2
+    exit 1
+  fi
+done <<<"$found"
+
 packages=()
 names=()
 seen=' '
-while read -r package name; do
+while read -r package name _; do
   if is_dagger "$name"; then
     [[ $mode == dagger ]] || continue
   else

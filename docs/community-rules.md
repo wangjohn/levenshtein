@@ -8,12 +8,10 @@ and report into the same results, with `//lint:ignore`, selection patterns,
 and result caching working as they do for the shipped rules.
 
 This page is the how-to, for [rule authors](#for-rule-authors) and
-[consumers](#for-consumers). Rule modules are implemented on the main branch
-and ship with the next release after v0.1.0; the catalog of published modules,
-`./verify rules`, native execution, and private modules are still proposals.
-The
-[design](design/community-rules.md) covers the problem, how the community
-linter is built, the catalog, and the phasing.
+[consumers](#for-consumers). Rule modules shipped in v0.2.0; the catalog of
+published modules, `./verify rules`, native execution, and private modules are
+still proposals. The [design](design/community-rules.md) covers the problem,
+how the community linter is built, the catalog, and the phasing.
 
 | Term | Meaning |
 | --- | --- |
@@ -39,7 +37,7 @@ The module never imports Levenshtein; rules are plain `go/analysis` analyzers,
 so they also work in golangci-lint, nogo, and `singlechecker`. The contract only
 grows by optional exports. A breaking change would get a new package name, with
 both supported for at least a year. The contract is unstable (`v0`) until
-phase 1 ships.
+Levenshtein 1.0 ([versioning](versioning.md#what-10-means)).
 
 A module keeps the exports it has published, too. The shared
 [`go-apidiff`](check-kinds-guide.md#api-compatibility) check fails a change that removes or

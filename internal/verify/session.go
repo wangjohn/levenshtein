@@ -21,6 +21,14 @@ type Session struct {
 	implementations sync.Map
 	// listings memoizes one git listing per source (see listing).
 	listings sync.Map
+	// listingMu orders relists against memoizing a listing: listingEpochs
+	// counts each source's relists, so a listing git produced before a relist
+	// is never memoized after it.
+	listingMu     sync.Mutex
+	listingEpochs map[string]uint64
+	// listingFetched, when set, is called after git lists a source and before
+	// the listing is memoized. Tests use it to change the tree in between.
+	listingFetched func(source string)
 	// toolchains memoizes one Go toolchain identity per resolved go binary and
 	// environment (see toolchainIdentity).
 	toolchains sync.Map
@@ -43,7 +51,7 @@ func NewSession(cache *Cache) *Session {
 }
 
 func newSession(dir string, limit int) *Session {
-	return &Session{stats: newStatStore(dir, limit), workspaces: processWorkspaces}
+	return &Session{stats: newStatStore(dir, limit), listingEpochs: map[string]uint64{}, workspaces: processWorkspaces}
 }
 
 // Flush persists the file stat memo beside the result records, so the next run

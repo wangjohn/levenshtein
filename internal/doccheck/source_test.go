@@ -49,6 +49,37 @@ func TestSourceDocLinksResolve(t *testing.T) {
 	}
 }
 
+// releasedDocLinks are the documentation links that released versions put in
+// findings, hints, and error messages. Those binaries keep printing them, and
+// every one resolves against main, so a heading they name has to stay, if only
+// as a pointer, after the current code stops linking to it.
+var releasedDocLinks = []string{
+	// v0.2.0: finding URLs and LV hints.
+	"docs/checks.md#go-lint-rules",
+	"docs/checks.md#typed-choices-lv1001",
+	"docs/checks.md#construct-value-records-together-lv1002",
+	"docs/checks.md#one-field-per-line-lv1003",
+	"docs/checks.md#a-blank-line-between-declarations-lv1004",
+	"docs/checks.md#formatted-files-lv1005",
+	"docs/checks.md#tests-that-can-fail-lv1006",
+	"docs/community-rules.md#ignore-directives",
+	// v0.2.0: error messages.
+	"docs/checks.md#generated-code",
+	"docs/community-rules.md#the-contract",
+	"docs/community-rules.md#upgrades-and-withdrawals",
+	"docs/configuration.md#baseline",
+}
+
+func TestReleasedDocLinksResolve(t *testing.T) {
+	docs := loadDocs(t)
+
+	for _, target := range releasedDocLinks {
+		if problem := resolve(docs, "", "/"+target); problem != "" {
+			t.Errorf("%q, linked from a released version: %s", target, problem)
+		}
+	}
+}
+
 // sourceReferences collects the documentation links in the repository's
 // source files. Links by URL are collected everywhere, testdata included,
 // since fixtures such as runner/testdata/core-urls.json pin real URLs. Bare

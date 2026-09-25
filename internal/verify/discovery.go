@@ -50,12 +50,27 @@ func (s *Session) listing(ctx context.Context, source string) *gitListing {
 		return memoized.(*gitListing)
 	}
 
+	s.listingMu.Lock()
+	epoch := s.listingEpochs[source]
+	s.listingMu.Unlock()
+
 	found, err := listGit(ctx, source)
+	if hook := s.listingFetched; hook != nil {
+		hook(source)
+	}
 	if err != nil {
 		// A cancelled or failed git run says nothing about the work tree, so it
 		// is not memoized: the next snapshot asks git again rather than walking
 		// the filesystem for the rest of the run.
 		return &gitListing{note: "git input discovery failed, so inputs were enumerated from the filesystem: " + err.Error()}
+	}
+
+	// A check that created files relisted while git ran, so this view may
+	// predate them. It serves this caller, but is not the run's.
+	s.listingMu.Lock()
+	defer s.listingMu.Unlock()
+	if s.listingEpochs[source] != epoch {
+		return found
 	}
 	memoized, _ := s.listings.LoadOrStore(source, found)
 	return memoized.(*gitListing)
@@ -72,6 +87,10 @@ func (s *Session) gitFiles(ctx context.Context, source string) ([]string, bool) 
 // A check can create files, and a result must not be cached under a key that
 // could not see them.
 func (s *Session) relist(source string) {
+	s.listingMu.Lock()
+	defer s.listingMu.Unlock()
+
+	s.listingEpochs[source]++
 	s.listings.Delete(source)
 }
 
