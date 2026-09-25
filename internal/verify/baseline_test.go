@@ -348,6 +348,40 @@ func TestBaselineJudgesEntriesACheckCouldProduce(t *testing.T) {
 	}
 }
 
+// A Dagger check with rule modules runs rules no pattern names by their
+// current code: the community linter's own lvrules_* codes, which every such
+// check runs, and a rule a module still selects by its old name. Their
+// entries still accept the findings and go stale when fixed.
+func TestBaselineJudgesCommunityCodesNoPatternNames(t *testing.T) {
+	check := lintCheck("lint", ".")
+	check.Environment.Executor = ExecutorDagger
+	check.RuleModules = []PlannedRuleModule{{Path: "example.com/errs", Version: "v1.0.0", Namespace: "errs", Select: []string{"errs_old"}}}
+	baseline := Baseline{Path: testBaselinePath, Entries: []BaselineEntry{
+		lintEntry("a.go", "errs_new", "renamed rule", 1),
+		lintEntry("a.go", "lvrules_mixed", "mixed directive", 1),
+		lintEntry("b.go", "lvrules_renamed", "fixed since", 1),
+	}}
+	found := failedResult("lint",
+		lintFinding("a.go", 3, "errs_new", "renamed rule"),
+		lintFinding("a.go", 5, "errs_new", "renamed rule"),
+		lintFinding("a.go", 7, "lvrules_mixed", "mixed directive"),
+	)
+	report := reportOf([]PlannedCheck{check}, found)
+
+	applied := baseline.Apply(report)
+	if applied.Baseline.Baselined != 2 || applied.Baseline.Stale != 1 {
+		t.Fatalf("both entries accept their findings and the fixed one is stale: %+v", applied.Baseline)
+	}
+	recorded, _, err := baseline.Record(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []BaselineEntry{lintEntry("a.go", "errs_new", "renamed rule", 2), lintEntry("a.go", "lvrules_mixed", "mixed directive", 1)}
+	if !slices.Equal(recorded.Entries, want) {
+		t.Fatalf("recorded %+v, want %+v", recorded.Entries, want)
+	}
+}
+
 func TestBaselineLeavesAdvisoryFindingsAlone(t *testing.T) {
 	check := lintCheck("lint", ".")
 	advisory := lintFinding("a.go", 4, "ACME001", "prefer the helper")

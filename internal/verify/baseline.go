@@ -213,10 +213,20 @@ func completed(result Result) bool {
 }
 
 // covers reports whether a completed check judges an entry: same kind, same
-// target directory, and a code the check could have reported.
+// target directory, and a code the check reported or could have reported.
+// What it reported settles the question, because couldReport cannot see
+// everything that decides a selection, such as a module's renamed rules.
 func covers(check PlannedCheck, result Result, entry BaselineEntry) bool {
-	return check.Check.Kind == entry.Kind && check.Target.Dir == entry.Dir && couldReport(check, result, entry.Code)
+	if check.Check.Kind != entry.Kind || check.Target.Dir != entry.Dir {
+		return false
+	}
+	reported := slices.ContainsFunc(detailFindings(result.Details), func(f finding) bool { return f.Code == entry.Code })
+	return reported || couldReport(check, result, entry.Code)
 }
+
+// communityLinterNamespace is the namespace of the community linter's own
+// codes, such as lvrules_mixed; runner/community defines them.
+const communityLinterNamespace = "lvrules"
 
 // couldReport reports whether a go-lint check ran the rule behind a code. A
 // check that skipped its rule modules ran no community rule, and one whose
@@ -231,8 +241,12 @@ func couldReport(check PlannedCheck, result Result, code string) bool {
 	if !isCommunityPattern(code) {
 		return allowed(append([]string{"all"}, check.Check.coreLintChecks()...), code)
 	}
-	if slices.ContainsFunc(result.Warnings, func(w Warning) bool { return w.Kind == WarningRuleModulesSkipped }) {
+	if len(check.RuleModules) == 0 || slices.ContainsFunc(result.Warnings, func(w Warning) bool { return w.Kind == WarningRuleModulesSkipped }) {
 		return false
+	}
+	// Every check that runs the community linter selects its own codes.
+	if patternNamespace(code) == communityLinterNamespace {
+		return true
 	}
 	var patterns []string
 	for _, module := range check.RuleModules {
