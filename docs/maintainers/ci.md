@@ -41,8 +41,9 @@ includes the shared [`go-mod` check](../check-kinds-guide.md#module-manifests)
 left out because `dagger develop` rewrites its manifest.
 
 The Go tests stay steps of the `tests` job, which runs `go test -race` over the
-root module (with a coverage profile) and `runner/lint`. `levenshtein.json` has
-a native [`go-test`](../check-kinds-guide.md#tests) run over the same two modules for local
+root module (with a coverage profile), `runner/lint`, `runner/community`, and,
+through `scripts/test-example-rules`, `examples/rule-module`. `levenshtein.json` has
+a native [`go-test`](../check-kinds-guide.md#tests) run over the same modules for local
 use, but no CI run includes it, because it would run those tests a second time.
 
 The same `branch` run includes the shared

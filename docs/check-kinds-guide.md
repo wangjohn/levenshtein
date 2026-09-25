@@ -69,7 +69,7 @@ The kinds with pages of their own are [`go-mutation`](mutation.md), [`semantic-l
 - **Flags and scope.** Build tags, `-short`, `-run` filters, a subset of packages, coverage profiles, or `-count` for flake hunting are all `command` arguments; `go-test` takes no options.
 - **Live state.** A `command` check leaves result caching off unless it opts in with `cache: true`, so tests that reach the network or other external state are re-executed on every run; give `go test` `-count=1` there so its own cache does not answer either.
 
-A repository whose CI already runs `go test -race` over the same modules gains nothing from also adding `go-test` to that job's run. Levenshtein itself is one: its CI `tests` job runs `go test -race ./...` over the root module and `runner/lint` on every event, so its `levenshtein.json` defines a native `go-test` run over the whole repository and `runner/lint` for local use and leaves it out of `branch`, `pre-merge`, and `main`. `runner`, whose tests need a Dagger session, is not a target.
+A repository whose CI already runs `go test -race` over the same modules gains nothing from also adding `go-test` to that job's run. Levenshtein itself is one: its CI `tests` job runs `go test -race ./...` over the root module, `runner/lint`, `runner/community`, and `examples/rule-module` on every event, so its `levenshtein.json` defines a native `go-test` run over the same modules for local use and leaves it out of `branch`, `pre-merge`, and `main`. `runner`, whose tests need a Dagger session, is not a target.
 
 ### Import boundaries
 
