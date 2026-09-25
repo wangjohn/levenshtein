@@ -31,7 +31,7 @@ Consumers pin a release tag, or its commit SHA, as described in
   ([docs/agents.md](docs/agents.md#stop-keep-working-while-the-run-fails)).
 - The workflow template and the consumer examples pin the action by the
   release's commit SHA with the version as a comment
-  (`wangjohn/levenshtein@<sha> # v0.1.0`), and `scripts/test-doc-pins` checks
+  (`wangjohn/levenshtein@<sha> # vX.Y.Z`), and `scripts/test-doc-pins` checks
   that the SHA is the one the tag names. Releases now update the examples in a
   pull request after the tag, checked with `scripts/test-doc-pins --latest`
   ([docs/releases.md](docs/releases.md)).
