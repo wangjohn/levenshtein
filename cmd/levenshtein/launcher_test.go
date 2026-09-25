@@ -196,19 +196,23 @@ func TestConcurrentLaunchersShareTheBinary(t *testing.T) {
 	cache := t.TempDir()
 	env := append(launcherEnvWithout(os.Environ(), "GOOS", "GOARCH", "GOFLAGS", "GOEXPERIMENT"), "XDG_CACHE_HOME="+cache, "GOCACHE="+launcherGoCache(t), "GOPROXY=off")
 
+	// Only the test's own goroutine may stop it, so the launchers report back
+	// instead of calling runLauncher.
 	var wg sync.WaitGroup
-	codes := make([]int, 6)
-	outputs := make([]string, len(codes))
-	for i := range codes {
+	errs := make([]error, 6)
+	outputs := make([][]byte, len(errs))
+	for i := range errs {
 		wg.Go(func() {
-			codes[i], outputs[i] = runLauncher(t, filepath.Join(root, "verify"), env, "branch")
+			cmd := exec.CommandContext(t.Context(), filepath.Join(root, "verify"), "branch")
+			cmd.Env = env
+			outputs[i], errs[i] = cmd.CombinedOutput()
 		})
 	}
 	wg.Wait()
 
-	for i, code := range codes {
-		if code != 0 || !strings.Contains(outputs[i], "args=--shared ") {
-			t.Errorf("launcher %d: exit %d\n%s", i, code, outputs[i])
+	for i, err := range errs {
+		if err != nil || !strings.Contains(string(outputs[i]), "args=--shared ") {
+			t.Errorf("launcher %d: %v\n%s", i, err, outputs[i])
 		}
 	}
 	bins, err := filepath.Glob(filepath.Join(cache, "levenshtein", "bin", "*", "*"))
@@ -242,7 +246,7 @@ func TestLauncherSetupFailuresExitTwo(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(broken, "cmd", "levenshtein", "main.go"), []byte("package main\n\nfunc main() {"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	base := append(launcherEnvWithout(os.Environ(), "HOME", "XDG_CACHE_HOME"), "GOCACHE="+launcherGoCache(t), "GOPROXY=off")
+	base := append(launcherEnvWithout(os.Environ(), "XDG_CACHE_HOME"), "GOCACHE="+launcherGoCache(t), "GOPROXY=off")
 
 	for name, tc := range map[string]struct {
 		root string
@@ -251,7 +255,7 @@ func TestLauncherSetupFailuresExitTwo(t *testing.T) {
 	}{
 		"no HOME or XDG_CACHE_HOME": {
 			root: fakeLauncherRoot(t),
-			env:  base,
+			env:  launcherEnvWithout(base, "HOME"),
 			want: "Set HOME or XDG_CACHE_HOME",
 		},
 		"a cache directory that cannot be created": {
