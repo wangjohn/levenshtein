@@ -9,6 +9,8 @@ Consumers pin a release tag, or its commit SHA, as described in
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-25
+
 ### Added
 
 - The linter runs with nothing but `go`:
@@ -353,5 +355,6 @@ gave a consumer.
 - Pinned the Dagger wrapper's logging dependencies through a patched SDK
   generator so GO-2026-4985 stays fixed across regeneration (#8).
 
-[Unreleased]: https://github.com/wangjohn/levenshtein/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/wangjohn/levenshtein/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/wangjohn/levenshtein/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/wangjohn/levenshtein/releases/tag/v0.1.0
