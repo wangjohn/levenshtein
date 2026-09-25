@@ -47,7 +47,7 @@ Before 1.0, only the newest release is supported. A fix, security fixes included
 
 ## When you bump your pin
 
-A newer Levenshtein can report findings the old one did not: new analyzers, a new check in a default run (such as `go-mod`, which the release after 0.1.0 adds to the defaults of repositories without a `levenshtein.json`), or a newer Staticcheck. Read the changelog entries between your old and new versions, especially the upgrade notes, then choose how to adopt them:
+A newer Levenshtein can report findings the old one did not: new analyzers, a new check in a default run (such as `go-mod`, which 0.2.0 added to the defaults of repositories without a `levenshtein.json`), or a newer Staticcheck. Read the changelog entries between your old and new versions, especially the upgrade notes, then choose how to adopt them:
 
 - **Fix them in the same pull request** that moves the pin, when there are few.
 - **Record them in a [baseline](configuration.md#baseline)** with `verify main --write-baseline`, so the pin moves now and the findings are fixed later. New findings still fail, and the file only shrinks.

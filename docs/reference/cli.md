@@ -21,7 +21,7 @@ Flags may come before or after `RUN`. The [configuration reference](config.md) l
 | `--shared DIR` | `$LEVENSHTEIN_SHARED_ROOT`; the launcher passes its own checkout | The pinned Levenshtein checkout or extracted archive whose checks run. Needed unless `--dry-run` or `--render` is given |
 | `--cache-dir DIR` | `levenshtein/verification-v1` under the user cache directory (`~/Library/Caches` on macOS, `$XDG_CACHE_HOME` or `~/.cache` on Linux) | Where results, preparation records, the file stat memo, helper tools, and the Staticcheck cache live. It must be outside both the source and the shared checkout. See [local caching](../configuration.md#local-caching) |
 | `--jobs N` | `0` | How many checks run at once. `0` keeps the built-in cap, the smaller of four and `GOMAXPROCS`; any other value replaces it |
-| `--dry-run` | off | Print the plan as JSON and run nothing. Starts no executor, so it needs no container runtime. Takes no `--format` or `--write-baseline` |
+| `--dry-run` | off | Print the plan as JSON and run nothing. Starts no executor, so it needs no container runtime. Takes no `--format` other than `json`, and no `--write-baseline` |
 | `--format FORMAT` | `json` | `json`, `text`, `github`, or `sarif`. See [output formats](#output-formats) |
 | `--path-prefix DIR` | none | A directory joined in front of every path in `text`, `github`, and `sarif` output, for a source that is a subdirectory of the checkout that annotations and SARIF locations are relative to. It must be a relative path inside the checkout, and it is an error with `json` |
 | `--render REPORT` | none | Write a saved JSON report, from a file or `-` for standard input, in `--format`, and run nothing. See [rendering a saved report](#rendering-a-saved-report) |
@@ -29,7 +29,7 @@ Flags may come before or after `RUN`. The [configuration reference](config.md) l
 | `--write-baseline` | off | Run without the baseline, print the report, then rewrite the configured baseline file from it. See [baseline commands](../configuration.md#commands) |
 | `-h`, `--help` | | Print usage and exit `0` |
 
-Combinations that would mean nothing are errors (exit `2`): `--render` with a run, `--dry-run`, or a baseline flag; `--dry-run` with `--format` or `--write-baseline`; and `--write-baseline` with `--no-baseline`.
+Combinations that would mean nothing are errors (exit `2`): `--render` with a run, `--dry-run`, or a baseline flag; `--dry-run` with a `--format` other than `json` or with `--write-baseline`; `--write-baseline` with `--no-baseline`; and `--path-prefix` with `json`.
 
 ## Exit codes
 
