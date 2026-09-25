@@ -8,6 +8,7 @@ import (
 )
 
 func TestHintFor(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		f    finding
@@ -28,6 +29,7 @@ func TestHintFor(t *testing.T) {
 }
 
 func TestWithHintsKeepsExistingHints(t *testing.T) {
+	t.Parallel()
 	check := lintCheck("lint", ".")
 	given := finding{Code: "errcheck", Message: "m", Location: location{File: "a.go", Line: 1}, Hint: "already said"}
 	report := WithHints(reportOf([]PlannedCheck{check}, failedResult("lint", given, lintFinding("b.go", 1, "LV1005", "m"))))
@@ -41,6 +43,7 @@ func TestWithHintsKeepsExistingHints(t *testing.T) {
 // Every rule link must land on a heading docs/rules.md has, using GitHub's
 // anchor for it: lowercase, punctuation dropped, spaces as hyphens.
 func TestRuleDocsAnchorsExist(t *testing.T) {
+	t.Parallel()
 	data, err := os.ReadFile("../../docs/rules.md")
 	if err != nil {
 		t.Fatal(err)

@@ -7,6 +7,7 @@ import (
 )
 
 func TestContainedPathsAllowOnlyRelativeInternalAliases(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	target := filepath.Join(root, "app")
 	if err := os.Mkdir(target, 0755); err != nil {

@@ -50,6 +50,7 @@ func awaitWritersGone(t *testing.T, fd int) {
 // The shell hands the FIFO to a background descendant and says so before it
 // blocks; the kill must then reach that descendant, which still holds it.
 func TestNativeTimeoutKillsProcessGroup(t *testing.T) {
+	t.Parallel()
 	req := nativeRequest(t)
 	reader := holdFIFO(t, req.Source)
 	req.Check.Command.Args = []string{"/bin/sh", "-c", "exec 3>hold; sleep 30 & exec 3>&-; touch started; wait"}
@@ -69,6 +70,7 @@ func TestNativeTimeoutKillsProcessGroup(t *testing.T) {
 // as a daemonizing build tool can, passed. The report says what happened, and
 // the straggler is killed with the rest of the process group.
 func TestNativeBackgroundOutputHolderStillPasses(t *testing.T) {
+	t.Parallel()
 	req := nativeRequest(t)
 	reader := holdFIFO(t, req.Source)
 	req.Check.Command.Args = []string{"/bin/sh", "-c", "exec 3>hold; sleep 30 & exec 3>&-; echo ok"}

@@ -19,6 +19,7 @@ import (
 const semanticConfig = `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"host":{"executor":"native"}},"checks":{"semantic":{"kind":"semantic-lint","target":"app","environment":"host"%s}},"runs":{"branch":{"checks":["semantic"]},"audit":{"checks":["semantic"],"rerun_checks":true}}}`
 
 func TestSemanticLintConfiguration(t *testing.T) {
+	t.Parallel()
 	for _, extra := range []string{``, `,"semantic":{"base":"develop","model":"jev-1.13.0","timeout":"2m"}`} {
 		cfg, err := Parse([]byte(strings.Replace(semanticConfig, "%s", extra, 1)))
 		if err != nil {
@@ -77,6 +78,7 @@ func TestSemanticLintConfiguration(t *testing.T) {
 // configuration could otherwise perform: levenshtein.json travels with the pull
 // request, so a declared origin would choose where the CI secret is sent.
 func TestSemanticLintRejectsCommittedCredentials(t *testing.T) {
+	t.Parallel()
 	environment := `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"host":{"executor":"native"%s}},"checks":{"semantic":{"kind":"semantic-lint","target":"app","environment":"host"}},"runs":{"branch":{"checks":["semantic"]}}}`
 
 	for name, data := range map[string]string{
@@ -105,6 +107,7 @@ func TestSemanticLintRejectsCommittedCredentials(t *testing.T) {
 }
 
 func TestSemanticOriginRequiresHTTPSOffLoopback(t *testing.T) {
+	t.Parallel()
 	for _, raw := range []string{"https://api.typesafe.ai/", "http://127.0.0.1:8080", "http://localhost:9/v1", "http://[::1]:9"} {
 		if _, err := semanticOrigin(raw); err != nil {
 			t.Fatalf("%s rejected: %v", raw, err)
@@ -368,6 +371,7 @@ func TestSemanticLintAppliesItsBudgets(t *testing.T) {
 }
 
 func TestSemanticLintBudgetsMustBePositive(t *testing.T) {
+	t.Parallel()
 	for _, extra := range []string{`,"semantic":{"max_requests":-1}`, `,"semantic":{"max_input_chars":-5}`} {
 		cfg, err := Parse([]byte(strings.Replace(semanticConfig, "%s", extra, 1)))
 		if err != nil {
@@ -393,6 +397,7 @@ func TestSemanticLintBudgetsMustBePositive(t *testing.T) {
 
 // Committed PATH or GIT_* values would pick which git produces the diff.
 func TestSemanticLintRejectsCommittedGitEnvironment(t *testing.T) {
+	t.Parallel()
 	environment := `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"host":{"executor":"native"%s}},"checks":{"semantic":{"kind":"semantic-lint","target":"app","environment":"host"}},"runs":{"branch":{"checks":["semantic"]}}}`
 	for name, extra := range map[string]string{
 		"PATH":    `,"env":{"PATH":"tools"}`,

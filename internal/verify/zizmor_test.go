@@ -12,6 +12,7 @@ import (
 )
 
 func TestZizmorInputsNameWorkflowsActionsAndDependabot(t *testing.T) {
+	t.Parallel()
 	source := t.TempDir()
 	for _, path := range []string{
 		".github/workflows/ci.yml",
@@ -58,6 +59,7 @@ func TestZizmorInputsNameWorkflowsActionsAndDependabot(t *testing.T) {
 // fingerprint covers, so an undeclared or excluded file can neither change
 // the verdict nor leave a cached result stale.
 func TestZizmorInputsStayWithinTheTargetInputs(t *testing.T) {
+	t.Parallel()
 	source := t.TempDir()
 	for _, path := range []string{
 		".github/workflows/ci.yml",
@@ -80,6 +82,7 @@ func TestZizmorInputsStayWithinTheTargetInputs(t *testing.T) {
 }
 
 func TestZizmorInputsRefuseAnEmptyAudit(t *testing.T) {
+	t.Parallel()
 	source := t.TempDir()
 	writeTestFile(t, filepath.Join(source, "README.md"), "nothing to audit\n")
 
@@ -90,6 +93,7 @@ func TestZizmorInputsRefuseAnEmptyAudit(t *testing.T) {
 
 // Host settings must not change what the audit reads or how it runs.
 func TestZizmorEnvDropsHostSettingsAndCredentials(t *testing.T) {
+	t.Parallel()
 	env := zizmorEnv([]string{"PATH=/bin", "ZIZMOR_CONFIG=/elsewhere.yml", "ZIZMOR_OFFLINE=false", "GH_TOKEN=secret", "GITHUB_TOKEN=secret", "GH_HOST=example.com", "HOME=/home/user"})
 	if !slices.Equal(env, []string{"PATH=/bin", "HOME=/home/user"}) {
 		t.Fatalf("unexpected zizmor environment: %v", env)
@@ -98,6 +102,7 @@ func TestZizmorEnvDropsHostSettingsAndCredentials(t *testing.T) {
 
 // zizmor's own GitHub Action runs the same release for the online audits.
 func TestZizmorPinMatchesTheAction(t *testing.T) {
+	t.Parallel()
 	pin, err := readReleasePin("../..", releaseZizmor)
 	if err != nil {
 		t.Fatal(err)

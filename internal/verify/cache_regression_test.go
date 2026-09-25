@@ -8,6 +8,7 @@ import (
 )
 
 func TestReviewFreshFailureInvalidatesOldSuccess(t *testing.T) {
+	t.Parallel()
 	req := cacheRequest(t)
 	executor := &countingExecutor{status: StatusPassed}
 	runner := CachedExecutor{Cache: &Cache{Dir: t.TempDir()}, Executor: executor}
@@ -31,8 +32,10 @@ func TestReviewFreshFailureInvalidatesOldSuccess(t *testing.T) {
 // memoized per root, so each side of the comparison uses its own checkout
 // rather than editing one in place.
 func TestReviewDaggerImplementationFilesAreInputs(t *testing.T) {
+	t.Parallel()
 	for _, file := range []string{"runner/extra.go", "sdk/patched-go/src/patched_go/__init__.py"} {
 		t.Run(file, func(t *testing.T) {
+			t.Parallel()
 			req := cacheRequest(t)
 			req.Environment.Executor = ExecutorDagger
 			before, err := fingerprint(t.Context(), req)
@@ -64,6 +67,7 @@ func TestReviewDaggerImplementationFilesAreInputs(t *testing.T) {
 // fingerprints of one check must not re-read go.mod, cmd, internal and the
 // Dagger runtime, and the memo must not leak between separate checkouts.
 func TestSharedImplementationIsSnapshotOncePerCheckout(t *testing.T) {
+	t.Parallel()
 	req := cacheRequest(t)
 	req.Environment.Executor = ExecutorDagger
 	req.session = sessionAt("")
@@ -99,6 +103,7 @@ func TestSharedImplementationIsSnapshotOncePerCheckout(t *testing.T) {
 }
 
 func TestReviewInputsChangedDuringCacheLockWait(t *testing.T) {
+	t.Parallel()
 	req := cacheRequest(t)
 	req.Environment.Executor = ExecutorDagger
 	executor := &countingExecutor{status: StatusPassed}
@@ -128,6 +133,7 @@ func TestReviewInputsChangedDuringCacheLockWait(t *testing.T) {
 // run's memoized git listing has to forget them as surely as it does after a
 // pass, or the other target's next lookup hits a key that cannot see them.
 func TestFailedCheckFilesAreSeenByLaterChecks(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	other := cacheRequest(t)
 	other.session = sessionAt("")
@@ -160,6 +166,7 @@ func TestFailedCheckFilesAreSeenByLaterChecks(t *testing.T) {
 // Otherwise the build is recorded under a key that omits the generated file,
 // and a later run without that file reuses a build that was made with it.
 func TestBuildKeySeesFilesItsPreparationCreated(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	req := nativeRequest(t)
 	req.session = sessionAt("")

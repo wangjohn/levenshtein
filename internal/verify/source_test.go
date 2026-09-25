@@ -16,6 +16,7 @@ func validateFiles(t *testing.T, source string, inputs, excludes []string) error
 }
 
 func TestDaggerInputsAreLiteralPaths(t *testing.T) {
+	t.Parallel()
 	for _, input := range []string{"../personal", "/private", "services/*", "!personal", "[ab]", "{a,b}", "a?", "a\nb"} {
 		if _, err := daggerIncludes([]string{input}); err == nil {
 			t.Errorf("accepted pattern or escaping input %q", input)

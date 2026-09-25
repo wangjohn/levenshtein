@@ -136,6 +136,7 @@ func TestGoKindKeySkipsUnloadableIgnoredTrees(t *testing.T) {
 // ignored file is in neither, so adding a secret to one cannot replay a pass
 // over a scan that read it.
 func TestVisibleFilesLeaveOutIgnoredFiles(t *testing.T) {
+	t.Parallel()
 	root := fileSetRepository(t)
 	req := Request{Source: root, PlannedCheck: planFor(t, root, CheckSecrets, ExecutorNative)}
 
@@ -153,6 +154,7 @@ func TestVisibleFilesLeaveOutIgnoredFiles(t *testing.T) {
 // case-insensitive filesystem but matches nothing git lists; it must not
 // silently contribute nothing to the key.
 func TestMisspelledInputIsRejected(t *testing.T) {
+	t.Parallel()
 	root := fileSetRepository(t)
 	probe, err := os.Lstat(filepath.Join(root, "PKG"))
 	if err != nil || !probe.IsDir() {
@@ -178,6 +180,7 @@ func TestMisspelledInputIsRejected(t *testing.T) {
 // discovery it follows the source symlink policy, which disables result reuse,
 // rather than hashing nothing (git) or the link target's files (filesystem).
 func TestInputThroughASymlinkFollowsTheSymlinkPolicy(t *testing.T) {
+	t.Parallel()
 	root := fileSetRepository(t)
 	if err := os.Symlink("pkg", filepath.Join(root, "link")); err != nil {
 		t.Fatal(err)
@@ -186,6 +189,7 @@ func TestInputThroughASymlinkFollowsTheSymlinkPolicy(t *testing.T) {
 
 	for _, discovery := range discoveryKinds {
 		t.Run(string(discovery), func(t *testing.T) {
+			t.Parallel()
 			_, err := sessionAt("").snapshot(t.Context(), snapshotRequest{Root: root, Paths: []string{filepath.Join("link", "lib.go")}, Discovery: discovery})
 			if err == nil || !strings.Contains(err.Error(), "symlink") {
 				t.Fatalf("an input through a symlink was fingerprinted: %v", err)
@@ -197,6 +201,7 @@ func TestInputThroughASymlinkFollowsTheSymlinkPolicy(t *testing.T) {
 // git lists an untracked nested repository as one path, so an input inside it
 // has nothing listed under it; its files must still enter the key.
 func TestInputInsideANestedRepositoryIsFingerprinted(t *testing.T) {
+	t.Parallel()
 	root := fileSetRepository(t)
 	writeFile(t, filepath.Join(root, "nested", "lib.go"), sourceOne)
 	runGit(t, filepath.Join(root, "nested"), "init")
@@ -349,6 +354,7 @@ func TestFileSetConformance(t *testing.T) {
 // hold the input itself and everything below it, and nothing that merely
 // shares its first bytes.
 func TestListedUnderFindsExactlyAnInputsPaths(t *testing.T) {
+	t.Parallel()
 	sep := string(filepath.Separator)
 	listed := []string{"a", "a-b", "a.go", "a" + sep + "x", "a" + sep + "y" + sep + "z", "ab", "b" + sep + "a"}
 	slices.Sort(listed)

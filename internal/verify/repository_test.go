@@ -12,6 +12,7 @@ import (
 // changes the key even when the shared checkout, whose runner/ is also hashed,
 // is elsewhere.
 func TestSelfVerificationFingerprintsTheGeneratedSDK(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	cfg, err := Load("../..")
 	if err != nil {

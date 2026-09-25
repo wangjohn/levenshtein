@@ -40,6 +40,7 @@ func ruleModulesConfig(t *testing.T, modules, lint string) Config {
 }
 
 func TestRuleModulesArePlannedForGoLintChecksOnly(t *testing.T) {
+	t.Parallel()
 	cfg := ruleModulesConfig(t, "", "")
 
 	plan, err := cfg.Plan(t.TempDir(), "branch")
@@ -74,6 +75,7 @@ func TestRuleModulesArePlannedForGoLintChecksOnly(t *testing.T) {
 // A result key covers the pins, so moving a pin reruns the check, and a check
 // without rule modules keeps the key it had before rule modules existed.
 func TestRuleModulesArePartOfTheResultKey(t *testing.T) {
+	t.Parallel()
 	cfg := ruleModulesConfig(t, "", "")
 	plan, err := cfg.Plan(t.TempDir(), "branch")
 	if err != nil {
@@ -97,6 +99,7 @@ func TestRuleModulesArePartOfTheResultKey(t *testing.T) {
 }
 
 func TestRuleModulesRejectWhatCannotBePinnedOrSelected(t *testing.T) {
+	t.Parallel()
 	const acme = "github.com/acme/lvrules-errors"
 	module := func(fields string) string { return `{"` + acme + `": {` + fields + `}}` }
 	for _, test := range []struct {
@@ -124,6 +127,7 @@ func TestRuleModulesRejectWhatCannotBePinnedOrSelected(t *testing.T) {
 		{"invalid module path", `{"not a path": {"version": "v1.0.0", "namespace": "errs", "select": ["errs_*"]}}`, "", `rule_modules "not a path"`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			cfg := ruleModulesConfig(t, test.modules, test.lint)
 
 			_, err := cfg.Plan(t.TempDir(), "branch")
@@ -136,6 +140,7 @@ func TestRuleModulesRejectWhatCannotBePinnedOrSelected(t *testing.T) {
 }
 
 func TestTwoModulesCannotShareANamespace(t *testing.T) {
+	t.Parallel()
 	cfg := ruleModulesConfig(t, `{
 		"github.com/acme/lvrules-errors": {"version": "v1.4.0", "namespace": "errs", "select": ["errs_*"]},
 		"github.com/other/lvrules-errs": {"version": "v0.2.0", "namespace": "errs", "select": ["errs_*"]}}`, `{"checks": ["gocognit"]}`)
@@ -150,6 +155,7 @@ func TestTwoModulesCannotShareANamespace(t *testing.T) {
 // The example module in this repository may use its reserved namespace, and
 // pseudo-versions and /v2 paths are exact pins.
 func TestRuleModulesAcceptEveryExactPin(t *testing.T) {
+	t.Parallel()
 	cfg := ruleModulesConfig(t, `{
 		"github.com/wangjohn/levenshtein/examples/rule-module": {"version": "v0.0.0-20260901000000-abcdefabcdef", "namespace": "example", "select": ["example_*"]},
 		"github.com/acme/lvrules-errors/v2": {"version": "v2.0.1", "namespace": "errs", "select": ["errs_*"]}}`, `{"checks": ["-errs_wrapf"]}`)
@@ -175,6 +181,7 @@ type patternCases struct {
 }
 
 func TestCommunityPatternsMatchTheSharedTable(t *testing.T) {
+	t.Parallel()
 	data, err := os.ReadFile(filepath.Join("..", "..", "runner", "testdata", "community-patterns.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -209,6 +216,7 @@ func writeRuleModuleNotices(t *testing.T, notices string) string {
 }
 
 func TestAWithdrawnVersionIsAConfigurationError(t *testing.T) {
+	t.Parallel()
 	plan, err := ruleModulesConfig(t, "", "").Plan(t.TempDir(), "branch")
 	if err != nil {
 		t.Fatal(err)
@@ -237,12 +245,14 @@ func TestAWithdrawnVersionIsAConfigurationError(t *testing.T) {
 }
 
 func TestTheShippedRuleModuleListIsValid(t *testing.T) {
+	t.Parallel()
 	if _, err := ruleModuleNotices(filepath.Join("..", "..")); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestANativeGoLintCheckSaysItSkippedCommunityRules(t *testing.T) {
+	t.Parallel()
 	plan, err := ruleModulesConfig(t, "", "").Plan(t.TempDir(), "branch")
 	if err != nil {
 		t.Fatal(err)
@@ -264,6 +274,7 @@ func TestANativeGoLintCheckSaysItSkippedCommunityRules(t *testing.T) {
 }
 
 func TestLintReportsCarryAdvisoryFindingsAndWarnings(t *testing.T) {
+	t.Parallel()
 	passed := withLintReport(Result{Status: StatusPassed}, `{"findings": [{"code": "errs_sentinel", "message": "m", "location": {"file": "a.go", "line": 1, "column": 1}, "advisory": true}], "warnings": [{"kind": "rule-renamed", "message": "old name"}]}`)
 	quiet := withLintReport(Result{Status: StatusPassed}, `{"findings": [], "warnings": []}`)
 	broken := withLintReport(Result{Status: StatusPassed}, `not json`)
@@ -280,6 +291,7 @@ func TestLintReportsCarryAdvisoryFindingsAndWarnings(t *testing.T) {
 }
 
 func TestACheckErrorKeepsTheFindingsItHas(t *testing.T) {
+	t.Parallel()
 	err := &gqlerror.Error{Message: "Go policy lint failed", Extensions: map[string]any{
 		"levenshteinFindings": []map[string]any{{"code": "SA4006", "message": "m", "location": map[string]any{"file": "a.go", "line": 3, "column": 1}}},
 		"levenshteinError":    "errs_nopanic (github.com/acme/lvrules-errors@v1.4.0) failed on 3 packages: panic: boom",

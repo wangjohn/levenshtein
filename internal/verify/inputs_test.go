@@ -11,6 +11,7 @@ import (
 // audit alike. The fingerprint is taken over a scratch copy of the declared
 // inputs so the test never edits the checkout.
 func TestSelfConfigRootInputsIgnoreDocs(t *testing.T) {
+	t.Parallel()
 	root, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -22,6 +23,7 @@ func TestSelfConfigRootInputsIgnoreDocs(t *testing.T) {
 
 	for run, id := range map[string]string{"branch": "native-go-lint/root", "main": "go-lint/root"} {
 		t.Run(id, func(t *testing.T) {
+			t.Parallel()
 			rootInputsIgnoreDocs(t, cfg, root, run, id)
 		})
 	}

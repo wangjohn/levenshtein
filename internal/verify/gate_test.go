@@ -66,6 +66,7 @@ func (e *rendezvousExecutor) Execute(ctx context.Context, req Request) Result {
 // Read-only native checks share the working tree, so one run executes them
 // side by side instead of queueing them behind a single workspace lock.
 func TestReadOnlyNativeChecksRunConcurrently(t *testing.T) {
+	t.Parallel()
 	req := nativeRequest(t)
 	var checks []PlannedCheck
 	for _, id := range []string{"vet-a", "vet-b"} {
@@ -91,6 +92,7 @@ func TestReadOnlyNativeChecksRunConcurrently(t *testing.T) {
 // A check that writes the working tree still excludes every other native
 // check, in this process and in another one holding the workspace file lock.
 func TestCommandChecksExcludeOtherNativeChecks(t *testing.T) {
+	t.Parallel()
 	req := cacheRequest(t)
 	cache := &Cache{Dir: t.TempDir()}
 	waits := waitingFor(t, &req)
@@ -131,6 +133,7 @@ func TestCommandChecksExcludeOtherNativeChecks(t *testing.T) {
 // Cancelling a check that is still waiting for its workspace reports it as
 // cancelled, wherever the wait happens.
 func TestCancelWhileWaitingForTheWorkspaceIsCancelled(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		hold func(t *testing.T, cache *Cache, source string) func()
@@ -162,6 +165,7 @@ func TestCancelWhileWaitingForTheWorkspaceIsCancelled(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			req := cacheRequest(t)
 			req.Check.Command.Cache = false
 			cache := &Cache{Dir: t.TempDir()}
@@ -187,6 +191,7 @@ func TestCancelWhileWaitingForTheWorkspaceIsCancelled(t *testing.T) {
 // for a check that holds the working tree; restoring artifacts writes the tree,
 // so that hit does.
 func TestCacheHitsEnterTheWorkspaceOnlyToRestoreArtifacts(t *testing.T) {
+	t.Parallel()
 	req := cacheRequest(t)
 	cache := &Cache{Dir: t.TempDir()}
 	executor := &countingExecutor{status: StatusPassed, artifact: "report.txt"}

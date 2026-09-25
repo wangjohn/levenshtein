@@ -38,6 +38,7 @@ func cacheRequest(t *testing.T) Request {
 }
 
 func TestResultCacheInvalidationAndFreshness(t *testing.T) {
+	t.Parallel()
 	req := cacheRequest(t)
 	cache := &Cache{Dir: t.TempDir()}
 	executor := &countingExecutor{status: StatusPassed}
@@ -88,6 +89,7 @@ func TestResultCacheInvalidationAndFreshness(t *testing.T) {
 }
 
 func TestCacheArtifactsCorruptionAndFailedResults(t *testing.T) {
+	t.Parallel()
 	req := cacheRequest(t)
 	req.Check.Command.Artifacts = []string{"report.txt"}
 	cache := &Cache{Dir: t.TempDir()}
@@ -124,6 +126,7 @@ func TestCacheArtifactsCorruptionAndFailedResults(t *testing.T) {
 }
 
 func TestPersistentPreparationAcrossExecutors(t *testing.T) {
+	t.Parallel()
 	req := cacheRequest(t)
 	req.Preparation = &Preparation{Command: []string{"/bin/sh", "-c", "echo prep >> count; printf environment > ready"}, Inputs: []string{"lock"}, Outputs: []string{"ready"}}
 	req.Check.Command.Args = []string{"/bin/sh", "-c", "test -f ready"}
@@ -153,6 +156,7 @@ func TestPersistentPreparationAcrossExecutors(t *testing.T) {
 }
 
 func TestCacheLockCancellation(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "lock")
 	unlock, err := lockFile(context.Background(), path, nil)
 	if err != nil {
@@ -168,6 +172,7 @@ func TestCacheLockCancellation(t *testing.T) {
 }
 
 func TestArtifactRestorationRejectsSymlink(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	outside := t.TempDir()
 	if err := os.Symlink(outside, filepath.Join(root, "alias")); err != nil {
@@ -179,6 +184,7 @@ func TestArtifactRestorationRejectsSymlink(t *testing.T) {
 }
 
 func TestRecordLayoutMatchesUntaggedEnvelope(t *testing.T) {
+	t.Parallel()
 	data := json.RawMessage(`{"Key":"untagged"}`)
 	untagged := `{"Checksum":"` + digest(data) + `","Data":` + string(data) + `}`
 	path := filepath.Join(t.TempDir(), "record.json")
@@ -204,6 +210,7 @@ func TestRecordLayoutMatchesUntaggedEnvelope(t *testing.T) {
 }
 
 func TestInputSymlinkDisablesResultCache(t *testing.T) {
+	t.Parallel()
 	req := cacheRequest(t)
 	if err := os.Symlink("input", filepath.Join(req.Source, "alias")); err != nil {
 		t.Fatal(err)
@@ -219,6 +226,7 @@ func TestInputSymlinkDisablesResultCache(t *testing.T) {
 }
 
 func TestUnpinnedEnvironmentDoesNotPersistPreparation(t *testing.T) {
+	t.Parallel()
 	req := cacheRequest(t)
 	req.Environment.Identity = ""
 	req.Preparation = &Preparation{Command: []string{"/bin/sh", "-c", "printf environment > ready"}, Inputs: []string{"lock"}, Outputs: []string{"ready"}}
@@ -241,6 +249,7 @@ func (e *verdictCachingExecutor) Execute(ctx context.Context, req Request) Resul
 }
 
 func TestFreshFailureBypassesUnderlyingVerdictCache(t *testing.T) {
+	t.Parallel()
 	req := cacheRequest(t)
 	req.Environment.Executor = ExecutorDagger
 	executor := &verdictCachingExecutor{}
@@ -267,6 +276,7 @@ func TestFreshFailureBypassesUnderlyingVerdictCache(t *testing.T) {
 // pinned toolchain identifies it; a native command is reused only when it opts
 // in with command.cache.
 func TestDaggerChecksAreCacheableWithoutOptingIn(t *testing.T) {
+	t.Parallel()
 	req := cacheRequest(t)
 	req.Check = Check{Kind: CheckGoHTTP}
 	req.Environment = Environment{Executor: ExecutorDagger}
@@ -288,6 +298,7 @@ func TestDaggerChecksAreCacheableWithoutOptingIn(t *testing.T) {
 
 // Without a result cache there is nothing to reuse, and nothing to lock.
 func TestNoCacheExecutesEveryTime(t *testing.T) {
+	t.Parallel()
 	req := cacheRequest(t)
 	executor := &countingExecutor{status: StatusPassed}
 	runner := CachedExecutor{Executor: executor}
@@ -301,6 +312,7 @@ func TestNoCacheExecutesEveryTime(t *testing.T) {
 // Native checks in one workspace share the working tree, so they take its
 // lock; a Dagger check runs on its own copy of the source and must not wait.
 func TestOnlyNativeChecksLockTheWorkspace(t *testing.T) {
+	t.Parallel()
 	req := cacheRequest(t)
 	cache := &Cache{Dir: t.TempDir()}
 	unlock, err := lockFile(t.Context(), filepath.Join(cache.Dir, "locks", "workspace-"+digest(req.Source)), nil)

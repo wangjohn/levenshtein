@@ -35,9 +35,11 @@ func requiredOptions(check Check) Check {
 // kinds themselves take no options beyond their own objects. self-test stays
 // Dagger-only.
 func TestNativeEnvironmentAcceptsSharedGoChecks(t *testing.T) {
+	t.Parallel()
 	env := nativeGoEnvironment()
 	for _, kind := range sharedGoKinds() {
 		t.Run(string(kind), func(t *testing.T) {
+			t.Parallel()
 			if err := validateCheck(requiredOptions(Check{Kind: kind}), env); err != nil {
 				t.Fatalf("rejected a native shared Go check: %v", err)
 			}
@@ -65,6 +67,7 @@ func TestNativeEnvironmentAcceptsSharedGoChecks(t *testing.T) {
 // A Dagger environment is unchanged: it still rejects command objects and the
 // native environment options.
 func TestDaggerEnvironmentIsUnchanged(t *testing.T) {
+	t.Parallel()
 	if err := validateCheck(Check{Kind: CheckGoLint}, Environment{Executor: ExecutorDagger}); err != nil {
 		t.Fatal(err)
 	}
@@ -87,9 +90,11 @@ func TestDaggerEnvironmentIsUnchanged(t *testing.T) {
 // either executor. Every other kind keeps its fixed rules, and an entry that is
 // not one pattern would change what the joined -checks flag means.
 func TestLintOptionsBelongToGoLint(t *testing.T) {
+	t.Parallel()
 	environments := []Environment{nativeGoEnvironment(), {Executor: ExecutorDagger}}
 	for _, env := range environments {
 		t.Run(string(env.Executor), func(t *testing.T) {
+			t.Parallel()
 			added := &LintCheck{Checks: []string{"gocognit", "-unparam", "SA5*", "all"}}
 			if err := validateCheck(Check{Kind: CheckGoLint, Lint: added}, env); err != nil {
 				t.Fatalf("rejected lint options on go-lint: %v", err)
@@ -133,6 +138,7 @@ func TestLintOptionsBelongToGoLint(t *testing.T) {
 // and the shape a repository might guess instead, a bare "checks" list on the
 // check, is an unknown field rather than silently ignored.
 func TestLintOptionsParseFromVersionOne(t *testing.T) {
+	t.Parallel()
 	const config = `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"lint":{"kind":"go-lint","target":"app","environment":"go",%s}},"runs":{"branch":{"checks":["lint"]}}}`
 
 	cfg, err := Parse(fmt.Appendf(nil, config, `"lint":{"checks":["gocognit","-unparam"]}`))
@@ -158,8 +164,10 @@ func TestLintOptionsParseFromVersionOne(t *testing.T) {
 // option keeps the key it had before the option existed, because the field is
 // left out of the key entirely.
 func TestLintChecksAreInTheResultKey(t *testing.T) {
+	t.Parallel()
 	for _, executor := range []ExecutorKind{ExecutorNative, ExecutorDagger} {
 		t.Run(string(executor), func(t *testing.T) {
+			t.Parallel()
 			req := nativeRequest(t)
 			req.Environment.Executor = executor
 			key := func(lint *LintCheck) string {
@@ -201,6 +209,7 @@ func TestLintChecksAreInTheResultKey(t *testing.T) {
 // A fresh run needs nothing declared for these kinds: they bypass their own
 // analysis caches themselves.
 func TestSharedGoChecksAreReadyForFreshRuns(t *testing.T) {
+	t.Parallel()
 	for _, kind := range sharedGoKinds() {
 		native, _ := nativeKindOf(kind)
 		if err := native.rerunReady(Check{Kind: kind}); err != nil {
@@ -212,6 +221,7 @@ func TestSharedGoChecksAreReadyForFreshRuns(t *testing.T) {
 // Result caching follows the kind, not a command object these checks do not
 // have; go-vuln stays uncacheable whichever executor runs it.
 func TestNativeGoChecksAreCacheableWithoutCommandOptions(t *testing.T) {
+	t.Parallel()
 	req := nativeRequest(t)
 	req.Check = Check{Kind: CheckGoLint, Target: "app", Environment: "host"}
 	req.Target.Inputs = []string{"input"}
@@ -279,6 +289,7 @@ func keyWithToolchain(t *testing.T, req Request, toolchain string) string {
 // host toolchain. Any other kind's key has no toolchain field at all, and for a
 // shared Go check adding the field is what separates its key from one without.
 func TestNativeGoFingerprintIncludesTheHostToolchain(t *testing.T) {
+	t.Parallel()
 	command := nativeRequest(t)
 
 	if toolchain, err := hostToolchain(t.Context(), command, nativeEnv(command, nil)); err != nil || toolchain != "" {
@@ -318,6 +329,7 @@ func TestNativeGoFingerprintIncludesTheHostToolchain(t *testing.T) {
 }
 
 func TestWorkflowArgumentsNameEveryFileAndOneConfig(t *testing.T) {
+	t.Parallel()
 	source := t.TempDir()
 	workflows := filepath.Join(source, ".github", "workflows")
 	if err := os.MkdirAll(workflows, 0755); err != nil {
@@ -361,6 +373,7 @@ func TestWorkflowArgumentsNameEveryFileAndOneConfig(t *testing.T) {
 }
 
 func TestGoEnvironmentPinsToolchainSelection(t *testing.T) {
+	t.Parallel()
 	base := []string{"PATH=/bin", "GOTOOLCHAIN=go1.9", "GOWORK=/elsewhere/go.work"}
 
 	analysis := analysisEnv(base, "/src/go.work")
@@ -434,6 +447,7 @@ func TestWorkspaceMatchesWhatTheContainerImports(t *testing.T) {
 // tools, so two checkouts that differ only there must not share a result.
 // Other kinds do not run them, and their keys must not move.
 func TestSharedGoCheckKeyCoversTheRunner(t *testing.T) {
+	t.Parallel()
 	checkouts := make([]string, 2)
 	for i, checks := range []string{`{"checks":["all"]}`, `{"checks":["all","-SA5001"]}`} {
 		checkouts[i] = t.TempDir()
@@ -502,6 +516,7 @@ func TestNativeGoCheckWithoutACacheLeavesNoToolDirectory(t *testing.T) {
 // that honored it, as go-vet does, could not load at all; go-mod still reports
 // the target's own untidy manifests.
 func TestNativeGoModIgnoresAWorkspace(t *testing.T) {
+	t.Parallel()
 	req := nativeRequest(t)
 	req.Target.Dir = "app"
 	writeTestFile(t, filepath.Join(req.Source, "go.work"), "go 1.27\n\nuse (\n\t./app\n\t./missing\n)\n")
@@ -530,6 +545,7 @@ func TestNativeGoModIgnoresAWorkspace(t *testing.T) {
 // that names the compiler rather than a pass or a wall of runtime/cgo build
 // failures.
 func TestNativeGoTestNeedsACCompiler(t *testing.T) {
+	t.Parallel()
 	req := nativeRequest(t)
 	req.Check = Check{Kind: CheckGoTest, Target: "app", Environment: "host"}
 	writeTestFile(t, filepath.Join(req.Source, "go.mod"), "module example.com/tiny\n\ngo 1.27\n")
@@ -561,6 +577,7 @@ func writeTestFile(t *testing.T, path, content string) {
 // go vet's findings fail the check, and a module with nothing to vet is an
 // error rather than an empty pass.
 func TestNativeGoVetReportsFindingsAndRefusesAnEmptyModule(t *testing.T) {
+	t.Parallel()
 	req := nativeRequest(t)
 	req.Check = Check{Kind: CheckGoVet, Target: "app", Environment: "host"}
 	writeTestFile(t, filepath.Join(req.Source, "go.mod"), "module example.com/tiny\n\ngo 1.27\n")
@@ -580,6 +597,7 @@ func TestNativeGoVetReportsFindingsAndRefusesAnEmptyModule(t *testing.T) {
 // With a result cache configured, native Go checks keep their tools in it; the
 // temporary directory is only for a run without one.
 func TestNativeToolsLiveInTheConfiguredCache(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	root, release, err := (&Native{Cache: &Cache{Dir: dir}}).cacheRoot()
 	if err != nil {

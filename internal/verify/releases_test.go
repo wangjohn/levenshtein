@@ -45,6 +45,7 @@ func writeReleasePin(t *testing.T, tool releaseTool, binary, name string, asset 
 // them once per cache, recovers from a changed cache file, and takes the
 // binary from inside an archive or uses the asset itself.
 func TestInstallReleaseVerifiesTheAssetBeforeUsingIt(t *testing.T) {
+	t.Parallel()
 	binary := []byte("#!/bin/sh\necho shellcheck 1.2.3\n")
 	archive := tarGz(t, "shellcheck-v1.2.3/shellcheck", binary)
 	var requests atomic.Int32
@@ -96,6 +97,7 @@ func TestInstallReleaseVerifiesTheAssetBeforeUsingIt(t *testing.T) {
 const releaseExample releaseTool = "example"
 
 func TestInstallReleaseUsesABinaryAssetAsIs(t *testing.T) {
+	t.Parallel()
 	binary := []byte("#!/bin/sh\necho example 1.2.3\n")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(binary)
@@ -119,6 +121,7 @@ func TestInstallReleaseUsesABinaryAssetAsIs(t *testing.T) {
 // zizmor's archives hold the binary at their root, and it is installed where
 // workflow-security has always kept it.
 func TestInstallReleaseTakesABinaryFromTheArchiveRoot(t *testing.T) {
+	t.Parallel()
 	binary := []byte("#!/bin/sh\necho zizmor 1.30.1\n")
 	archive := tarGz(t, "zizmor", binary)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -141,6 +144,7 @@ func TestInstallReleaseTakesABinaryFromTheArchiveRoot(t *testing.T) {
 }
 
 func TestInstallReleaseRefusesAnUnpinnedPlatform(t *testing.T) {
+	t.Parallel()
 	shared := t.TempDir()
 	writeTestFile(t, filepath.Join(shared, "runner", "toolchain.json"), `{"shellcheck":{"releases":"https://example.invalid","version":"1.2.3","binary":"shellcheck","assets":{"plan9/mips":{"name":"shellcheck.tar.gz","sha256":"`+strings.Repeat("0", 64)+`"}}}}`)
 
@@ -151,6 +155,7 @@ func TestInstallReleaseRefusesAnUnpinnedPlatform(t *testing.T) {
 }
 
 func TestReadReleasePinRefusesAPathOutsideTheArchive(t *testing.T) {
+	t.Parallel()
 	shared := t.TempDir()
 	writeTestFile(t, filepath.Join(shared, "runner", "toolchain.json"), `{"shellcheck":{"releases":"https://example.invalid","version":"1.2.3","binary":"../shellcheck","assets":{"linux/amd64":{"name":"shellcheck.tar.gz","sha256":"`+strings.Repeat("0", 64)+`"}}}}`)
 
@@ -161,6 +166,7 @@ func TestReadReleasePinRefusesAPathOutsideTheArchive(t *testing.T) {
 
 // An archive entry larger than the limit is refused rather than truncated.
 func TestUntarEntryRefusesAnEntryOverTheLimit(t *testing.T) {
+	t.Parallel()
 	archive := tarGz(t, "dir/tool", []byte("0123456789"))
 
 	if got, err := untarEntry(archive, "dir/tool", 10); err != nil || string(got) != "0123456789" {
@@ -176,6 +182,7 @@ func TestUntarEntryRefusesAnEntryOverTheLimit(t *testing.T) {
 
 // The shared checkout pins every platform the native executor runs on.
 func TestReleasePinsCoverNativePlatforms(t *testing.T) {
+	t.Parallel()
 	for _, tool := range []releaseTool{releaseShellCheck, releaseOSVScanner, releaseZizmor} {
 		pin, err := readReleasePin("../..", tool)
 		if err != nil {
@@ -211,6 +218,7 @@ func tarGz(t *testing.T, name string, content []byte) []byte {
 
 // A download may be exactly as large as its limit; one more byte is refused.
 func TestDownloadRefusesABodyOverItsLimit(t *testing.T) {
+	t.Parallel()
 	body := []byte("0123456789")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(body)

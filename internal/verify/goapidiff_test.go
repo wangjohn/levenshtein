@@ -174,6 +174,7 @@ func TestApidiffBaseRequiresTheModuleFileAmongTheInputs(t *testing.T) {
 // points is outside every fingerprint; Dagger still answers an identical
 // call from its own cache unless the run is fresh.
 func TestApidiffResultsAreNeverReusedByTheCLI(t *testing.T) {
+	t.Parallel()
 	for _, executor := range []ExecutorKind{ExecutorDagger, ExecutorNative} {
 		req := cacheRequest(t)
 		req.Check.Kind = CheckGoApidiff
@@ -202,6 +203,7 @@ func TestApidiffResultsAreNeverReusedByTheCLI(t *testing.T) {
 }
 
 func TestApidiffOptionsBelongToGoApidiff(t *testing.T) {
+	t.Parallel()
 	for _, env := range []Environment{nativeGoEnvironment(), {Executor: ExecutorDagger}} {
 		if err := validateCheck(Check{Kind: CheckGoApidiff, Apidiff: &ApidiffCheck{Base: "release/v1"}}, env); err != nil {
 			t.Errorf("%s: rejected a base branch: %v", env.Executor, err)
@@ -224,6 +226,7 @@ func TestApidiffOptionsBelongToGoApidiff(t *testing.T) {
 // output, and a summary beside any findings. A run without a verdict keeps
 // what the tool said.
 func TestApidiffResultNamesTheComparison(t *testing.T) {
+	t.Parallel()
 	base := apidiffBaseTree{Ref: "origin/main", Commit: "0123456789abcdef0123456789abcdef01234567"}
 	findings := findingsDetails([]finding{{Code: string(CheckGoApidiff), Message: "incompatible", Location: location{File: "a.go", Line: 3}}})
 
@@ -284,6 +287,7 @@ func TestApidiffBaseIgnoresArchiveAttributes(t *testing.T) {
 // A read that fails partway through a file is reported as that failure, not
 // as a file that ended early.
 func TestWriteArchivedReportsTheReadError(t *testing.T) {
+	t.Parallel()
 	failure := errors.New("pipe broke")
 	target := filepath.Join(t.TempDir(), "a.go")
 

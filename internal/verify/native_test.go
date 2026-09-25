@@ -18,12 +18,14 @@ func nativeRequest(t *testing.T) Request {
 }
 
 func TestNativeCommandOutcomes(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name   string
 		script string
 		status Status
 	}{{"pass", "printf hello; printf warning >&2", StatusPassed}, {"assertion", "printf failure; exit 3", StatusFailed}} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			req := nativeRequest(t)
 			req.Check.Command.Args = []string{"/bin/sh", "-c", tc.script}
 
@@ -74,6 +76,7 @@ func TestNativeEnvironmentAndArtifacts(t *testing.T) {
 }
 
 func TestShareCompatiblePreparation(t *testing.T) {
+	t.Parallel()
 	req := nativeRequest(t)
 	req.Environment.Identity = "shared-preparation-fixture"
 	req.Preparation = &Preparation{Command: []string{"/bin/sh", "-c", "echo prepare >> count; touch ready"}, Inputs: []string{"lock"}, Outputs: []string{"ready"}}
@@ -104,6 +107,7 @@ func TestShareCompatiblePreparation(t *testing.T) {
 }
 
 func TestNativeConfiguration(t *testing.T) {
+	t.Parallel()
 	cfg, err := Parse([]byte(`{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"host":{"executor":"native"}},"preparations":{"deps":{"command":["true"],"inputs":["lock"],"outputs":["env"]}},"checks":{"test":{"kind":"command","target":"app","environment":"host","command":{"args":["true"],"preparation":"deps"}}},"runs":{"branch":{"checks":["test"]}}}`))
 	if err != nil {
 		t.Fatal(err)
@@ -120,6 +124,7 @@ func TestNativeConfiguration(t *testing.T) {
 }
 
 func TestArtifactErrorRetainsOutput(t *testing.T) {
+	t.Parallel()
 	req := nativeRequest(t)
 	req.Check.Command.Artifacts = []string{"missing"}
 
@@ -130,6 +135,7 @@ func TestArtifactErrorRetainsOutput(t *testing.T) {
 }
 
 func TestRejectPreparationOutputAliases(t *testing.T) {
+	t.Parallel()
 	req := nativeRequest(t)
 	if err := os.Mkdir(filepath.Join(req.Source, "real"), 0755); err != nil {
 		t.Fatal(err)
@@ -147,6 +153,7 @@ func TestRejectPreparationOutputAliases(t *testing.T) {
 }
 
 func TestFreshRunRequiresNativeRerunArgs(t *testing.T) {
+	t.Parallel()
 	cfg := Config{Version: 1, Targets: map[string]Target{"app": {Dir: ".", Inputs: []string{"."}}}, Environments: map[string]Environment{"host": {Executor: ExecutorNative}}, Checks: map[string]Check{"test": {Kind: CheckCommand, Target: "app", Environment: "host", Command: &CommandCheck{Args: []string{"true"}}}}, Runs: map[string]Run{"audit": {Checks: []string{"test"}, RerunChecks: true}}}
 	if _, err := cfg.Plan(t.TempDir(), "audit"); err == nil {
 		t.Fatal("freshness was silently assumed for a generic command")

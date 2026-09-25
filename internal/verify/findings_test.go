@@ -13,6 +13,7 @@ import (
 // shipped selection a native go-lint reads must keep them off while leaving
 // the rest on.
 func TestShippedSelectionLeavesOptInRulesOff(t *testing.T) {
+	t.Parallel()
 	checks, err := sharedChecks(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -31,6 +32,7 @@ func TestShippedSelectionLeavesOptInRulesOff(t *testing.T) {
 // A location outside the source root, or one a tool already reported
 // relatively, is left exactly as the tool wrote it.
 func TestRepositoryPathOnlyRelativizesInsideTheSource(t *testing.T) {
+	t.Parallel()
 	for _, tt := range []struct {
 		root string
 		file string
@@ -50,6 +52,7 @@ func TestRepositoryPathOnlyRelativizesInsideTheSource(t *testing.T) {
 // A native finding carries everything checktool reported, so the executors
 // report the same thing, and an error or a pass carries no findings.
 func TestToolFindingsKeepEveryField(t *testing.T) {
+	t.Parallel()
 	found := checktool.Finding{Code: "errs_sentinel", Message: "m", Location: location{File: "a.go", Line: 2, Column: 3}, Source: "example.com/lvrules@v1.0.0", URL: "https://example.com/sentinel", Advisory: true}
 
 	findings, err := toolFindings([]checktool.Finding{found}, nil)
@@ -67,6 +70,7 @@ func TestToolFindingsKeepEveryField(t *testing.T) {
 }
 
 func TestFindingsDetailsMatchTheDaggerEnvelope(t *testing.T) {
+	t.Parallel()
 	details := findingsDetails([]finding{{Code: "SA5001", Message: "m", Location: location{File: "a.go", Line: 2, Column: 3}}})
 
 	for _, want := range []string{`"findings"`, `"code":"SA5001"`, `"file":"a.go"`, `"line":2`} {

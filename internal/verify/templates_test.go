@@ -17,6 +17,7 @@ const templatesDir = "../../templates"
 // The starter configuration must be one a consumer can use as it is: every
 // run plans against a repository with a Go module at its root.
 func TestStarterConfigurationPlans(t *testing.T) {
+	t.Parallel()
 	data, err := os.ReadFile(filepath.Join(templatesDir, "levenshtein.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -44,6 +45,7 @@ func TestStarterConfigurationPlans(t *testing.T) {
 }
 
 func TestClaudeSettingsTemplate(t *testing.T) {
+	t.Parallel()
 	data, err := os.ReadFile(filepath.Join(templatesDir, "claude", "settings.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -116,6 +118,7 @@ func runHook(t *testing.T, script, input string, env ...string) (int, string) {
 }
 
 func TestStopHookTemplate(t *testing.T) {
+	t.Parallel()
 	hookTools(t, "bash", "git", "jq")
 	// The hook passes git's top level, which resolves symbolic links such as
 	// macOS's /var -> /private/var above the temporary directory.
@@ -182,6 +185,7 @@ func TestStopHookTemplate(t *testing.T) {
 }
 
 func TestStopHookChecksUnpushedCommits(t *testing.T) {
+	t.Parallel()
 	hookTools(t, "bash", "git", "jq")
 	remote := t.TempDir()
 	project := t.TempDir()
@@ -252,6 +256,7 @@ func TestStopHookChecksUnpushedCommits(t *testing.T) {
 }
 
 func TestGofmtHookTemplate(t *testing.T) {
+	t.Parallel()
 	hookTools(t, "bash", "jq", "gofmt")
 	dir := t.TempDir()
 	write := func(name, body string) string {

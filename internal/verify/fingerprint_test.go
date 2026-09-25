@@ -63,6 +63,7 @@ func mustSnapshot(t *testing.T, session *Session, req snapshotRequest) string {
 // preserves every stat field is invisible within a process, and a change to any
 // one of size, modification time or inode is not.
 func TestFileStatMemoReusesOnlyIdenticalStats(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	path := filepath.Join(root, "input.go")
 	writeFile(t, path, sourceOne)
@@ -113,6 +114,7 @@ func TestFileStatMemoReusesOnlyIdenticalStats(t *testing.T) {
 // timestamps, such as Dagger's, do this routinely. The in-memory memo must
 // reread such a file rather than trust the stat.
 func TestFileStatMemoRereadsARacyFile(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	path := filepath.Join(root, "input.go")
 	writeFile(t, path, sourceOne)
@@ -134,6 +136,7 @@ func TestFileStatMemoRereadsARacyFile(t *testing.T) {
 // when the record was written well after the file settled; git's racy-index
 // window is what decides that.
 func TestPersistedStatCacheHonorsTheRacyWindow(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	settled := t.TempDir()
 	settledPath := filepath.Join(settled, "input.go")
@@ -202,6 +205,7 @@ func TestPersistedStatCacheHonorsTheRacyWindow(t *testing.T) {
 }
 
 func TestUnreadableStatRecordIsNotFatal(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "input.go"), sourceOne)
@@ -270,6 +274,7 @@ func gitRepository(t *testing.T) string {
 // (TestFileSetConformance); the Go kinds, whose toolchain can load ignored
 // files, add those it can (TestGoKindKeySkipsUnloadableIgnoredTrees).
 func TestGitDiscoveryFollowsTheWorkTree(t *testing.T) {
+	t.Parallel()
 	root := gitRepository(t)
 	runGit(t, root, "update-index", "--add", "--cacheinfo", "160000,0123456789abcdef0123456789abcdef01234567,sub")
 	writeFile(t, filepath.Join(root, "sub", "lib.go"), sourceOne)
@@ -324,6 +329,7 @@ func TestGitDiscoveryFollowsTheWorkTree(t *testing.T) {
 // input the work tree ignores exists, and so contributes nothing at all: no
 // executor under git discovery reads it either.
 func TestGitDiscoveryRecordsMissingButNotIgnoredInputs(t *testing.T) {
+	t.Parallel()
 	root := gitRepository(t)
 	session := sessionAt("")
 
@@ -332,6 +338,7 @@ func TestGitDiscoveryRecordsMissingButNotIgnoredInputs(t *testing.T) {
 		want map[string]string
 	}{{path: "optional.go", want: map[string]string{"optional.go": "missing"}}, {path: "generated", want: map[string]string{}}, {path: "removed.go", want: map[string]string{}}} {
 		t.Run(tt.path, func(t *testing.T) {
+			t.Parallel()
 			entries, err := session.snapshotEntries(t.Context(), snapshotRequest{Root: root, Paths: []string{tt.path}, Discovery: DiscoveryGit})
 			if err != nil {
 				t.Fatal(err)
@@ -345,6 +352,7 @@ func TestGitDiscoveryRecordsMissingButNotIgnoredInputs(t *testing.T) {
 
 // Outside a work tree git discovery is not an error, it is just unavailable.
 func TestGitDiscoveryFallsBackOutsideAWorkTree(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "input.go"), sourceOne)
 	session := sessionAt("")
@@ -363,6 +371,7 @@ func TestGitDiscoveryFallsBackOutsideAWorkTree(t *testing.T) {
 // work tree. The next lookup must ask git again rather than inherit a
 // filesystem walk for the rest of the run.
 func TestGitDiscoveryDoesNotMemoizeACancelledListing(t *testing.T) {
+	t.Parallel()
 	root := gitRepository(t)
 	session := sessionAt("")
 	cancelled, cancel := context.WithCancel(t.Context())
@@ -385,6 +394,7 @@ func TestGitDiscoveryDoesNotMemoizeACancelledListing(t *testing.T) {
 }
 
 func TestTargetExcludeLeavesPathsOutOfTheFingerprint(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "src", "main.go"), sourceOne)
 	writeFile(t, filepath.Join(root, "build", "out.bin"), sourceOne)
@@ -412,6 +422,7 @@ func TestTargetExcludeLeavesPathsOutOfTheFingerprint(t *testing.T) {
 // Every kind keeps the target's discovery, the Go kinds included: a Go kind
 // widens git discovery itself with the ignored paths its toolchain can load.
 func TestPlanValidatesDiscoveryAndExclude(t *testing.T) {
+	t.Parallel()
 	const config = `{"version":1,"targets":{"app":{"dir":".","inputs":["."]%s}},"environments":{"go":{"executor":"dagger"}},"checks":{"lint":{"kind":%q,"target":"app","environment":"go"}},"runs":{"branch":{"checks":["lint"]}}}`
 	for _, tt := range []struct {
 		name   string
@@ -426,6 +437,7 @@ func TestPlanValidatesDiscoveryAndExclude(t *testing.T) {
 		{name: "Go kind with explicit filesystem", kind: CheckGoTest, target: `,"discovery":"filesystem"`, want: DiscoveryFilesystem},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			cfg, err := Parse([]byte(fmt.Sprintf(config, tt.target, tt.kind)))
 			if err != nil {
 				t.Fatal(err)
@@ -442,6 +454,7 @@ func TestPlanValidatesDiscoveryAndExclude(t *testing.T) {
 
 	for _, target := range []string{`,"discovery":"svn"`, `,"exclude":["build/**"]`, `,"exclude":["../outside"]`, `,"exclude":["."]`} {
 		t.Run(target, func(t *testing.T) {
+			t.Parallel()
 			cfg, err := Parse([]byte(fmt.Sprintf(config, target, CheckGoLint)))
 			if err != nil {
 				t.Fatal(err)
@@ -508,6 +521,7 @@ func TestGitDiscoveryIgnoresRelativePathEntries(t *testing.T) {
 // post-execution fingerprint must see them, so the result is not cached under
 // a key that predates them.
 func TestFilesCreatedByACheckAreSeenAfterExecution(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	req := cacheRequest(t)
 	req.session = sessionAt("")
@@ -569,6 +583,7 @@ func TestPersistedEntryHashedWhileRacyIsDistrusted(t *testing.T) {
 // saw, and unseen entries whose file still has the recorded stat. An entry for
 // a deleted file is dropped.
 func TestFlushPrunesEntriesForGoneFiles(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	root := t.TempDir()
 	old := time.Now().Add(-time.Hour)
@@ -652,6 +667,7 @@ func BenchmarkFingerprint(b *testing.B) {
 // Only a git-discovery target explains a fallback; a filesystem target asked
 // for the walk and has nothing to explain.
 func TestDiscoveryNoteExplainsAnIgnoredSourceForGitDiscoveryOnly(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -672,6 +688,7 @@ func TestDiscoveryNoteExplainsAnIgnoredSourceForGitDiscoveryOnly(t *testing.T) {
 // The stat record is only a hint, but a write that fails must still be
 // reported rather than lost.
 func TestStatFlushReportsAWriteFailure(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	// A file where the stat directory belongs makes every record write fail.
 	writeFile(t, filepath.Join(dir, "stat"), "not a directory")

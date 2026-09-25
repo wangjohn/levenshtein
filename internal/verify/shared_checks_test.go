@@ -7,6 +7,7 @@ import (
 )
 
 func TestSharedChecksPlanFromVersionedConfiguration(t *testing.T) {
+	t.Parallel()
 	for _, data := range []string{
 		`{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"lint":{"kind":"go-lint","target":"app","environment":"go"},"vet":{"kind":"go-vet","target":"app","environment":"go"},"mod":{"kind":"go-mod","target":"app","environment":"go"},"test":{"kind":"go-test","target":"app","environment":"go"},"http":{"kind":"go-http","target":"app","environment":"go"},"sql":{"kind":"go-sql","target":"app","environment":"go"},"audit":{"kind":"go-vuln","target":"app","environment":"go"},"workflows":{"kind":"workflow-lint","target":"app","environment":"go"},"security":{"kind":"workflow-security","target":"app","environment":"go"}},"runs":{"custom":{"checks":["lint","vet","mod","test","http","sql","audit","workflows","security"]}}}`,
 		`{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"audit":{"kind":"go-vuln","target":"app","environment":"go"}},"runs":{"custom":{"checks":["audit"]}}}`,
@@ -28,6 +29,7 @@ func TestSharedChecksPlanFromVersionedConfiguration(t *testing.T) {
 }
 
 func TestVulnerabilityResultsNeverReuseSourceOnlyCache(t *testing.T) {
+	t.Parallel()
 	req := cacheRequest(t)
 	req.Check.Kind = CheckGoVuln
 	req.Environment.Executor = ExecutorDagger
@@ -66,6 +68,7 @@ func TestVulnerabilityResultsNeverReuseSourceOnlyCache(t *testing.T) {
 // so a go-mod verdict is never reused on either executor and its Dagger call is
 // never answered from Dagger's own cache.
 func TestModuleChecksNeverReuseAVerdict(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []ExecutorKind{ExecutorDagger, ExecutorNative} {
 		req := cacheRequest(t)
 		req.Check.Kind = CheckGoMod
@@ -99,6 +102,7 @@ func TestModuleChecksNeverReuseAVerdict(t *testing.T) {
 // declared inputs belong in a command check. A failure is never cached, and a
 // fresh run gets a nonce so Dagger re-executes it.
 func TestTestResultsAreReusedUntilAFreshRun(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []ExecutorKind{ExecutorDagger, ExecutorNative} {
 		req := cacheRequest(t)
 		req.Check.Kind = CheckGoTest
@@ -134,6 +138,7 @@ func TestTestResultsAreReusedUntilAFreshRun(t *testing.T) {
 }
 
 func TestRepositoryKindsRequireRootTarget(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []CheckKind{CheckWorkflowLint, CheckWorkflowSecurity, CheckShellLint, CheckSecrets, CheckDepsVuln} {
 		cfg, err := Parse([]byte(`{"version":1,"targets":{"app":{"dir":"nested","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"workflow":{"kind":"` + string(kind) + `","target":"app","environment":"go"}},"runs":{"branch":{"checks":["workflow"]}}}`))
 		if err != nil {
@@ -146,6 +151,7 @@ func TestRepositoryKindsRequireRootTarget(t *testing.T) {
 }
 
 func TestUnconfiguredRepoGetsSharedCheckDefaults(t *testing.T) {
+	t.Parallel()
 	source := t.TempDir()
 	cfg, err := Load(source)
 	if err != nil {

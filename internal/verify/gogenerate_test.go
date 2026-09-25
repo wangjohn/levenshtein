@@ -37,8 +37,10 @@ func listTree(t *testing.T, root string) []string {
 // repository ignores under git discovery: declared inputs only, without
 // excludes, .git, or private .env files, and a relative link stays a link.
 func TestCopyInputsCopiesWhatTheCheckMayRead(t *testing.T) {
+	t.Parallel()
 	for _, discovery := range []DiscoveryKind{DiscoveryFilesystem, DiscoveryGit} {
 		t.Run(string(discovery), func(t *testing.T) {
+			t.Parallel()
 			req := nativeRequest(t)
 			req.Target.Inputs = []string{"app", "go.work", "missing"}
 			req.Target.Exclude = []string{filepath.Join("app", "node_modules")}
@@ -87,6 +89,7 @@ func TestCopyInputsCopiesWhatTheCheckMayRead(t *testing.T) {
 // The copy is where generators run, so each file must arrive with its bytes
 // and its mode, and a file that cannot be copied must fail the copy.
 func TestCopyFileKeepsContentAndReportsFailures(t *testing.T) {
+	t.Parallel()
 	source := t.TempDir()
 	writeTestFile(t, filepath.Join(source, "gen.sh"), "#!/bin/sh\necho generated\n")
 	if err := os.Chmod(filepath.Join(source, "gen.sh"), 0o755); err != nil {
@@ -124,6 +127,7 @@ func TestCopyFileKeepsContentAndReportsFailures(t *testing.T) {
 // A generator writes through the links in its copy, so a link that leads out
 // of the copy could reach the working tree.
 func TestCopyInputsRefusesLinksOutOfTheCopy(t *testing.T) {
+	t.Parallel()
 	for name, link := range map[string]string{
 		"absolute": filepath.Join(t.TempDir(), "outside.go"),
 		"relative": filepath.Join("..", "..", "outside.go"),
@@ -145,6 +149,7 @@ func TestCopyInputsRefusesLinksOutOfTheCopy(t *testing.T) {
 // go-generate's generated files are judged against the declared inputs alone,
 // so its verdict is reused like go-vet's until a fresh run.
 func TestGenerateResultsAreReusedUntilAFreshRun(t *testing.T) {
+	t.Parallel()
 	if alwaysFreshReason(CheckGoGenerate) != "" || !sharedGoCheck(CheckGoGenerate) {
 		t.Fatal("go-generate must be cacheable on either executor")
 	}

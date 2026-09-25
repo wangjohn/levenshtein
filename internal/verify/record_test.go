@@ -27,6 +27,7 @@ func recordOfSize(t *testing.T, size int) string {
 // A record the reader would refuse is refused when it is written, instead of
 // being written and then silently failing every later read.
 func TestRecordLimitAppliesToWritesAndReads(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "record.json")
 
 	if err := writeRecord(path, recordOfSize(t, 512), 512); err != nil {
@@ -48,6 +49,7 @@ func TestRecordLimitAppliesToWritesAndReads(t *testing.T) {
 // A result too large to cache is still reported, and the report says why it
 // was not cached.
 func TestOversizedResultIsReportedAndNotCached(t *testing.T) {
+	t.Parallel()
 	req := cacheRequest(t)
 	req.Check.Command.Artifacts = []string{"report.txt"}
 	if err := os.WriteFile(filepath.Join(req.Source, "report.txt"), []byte(strings.Repeat("r", 2048)), 0600); err != nil {
@@ -64,6 +66,7 @@ func TestOversizedResultIsReportedAndNotCached(t *testing.T) {
 // The stat memo outgrows one record in a large repository. It is split across
 // records that each fit the limit, so every entry survives to the next run.
 func TestStatMemoAboveOneRecordSurvivesARestart(t *testing.T) {
+	t.Parallel()
 	const limit = 16 << 10
 	dir := t.TempDir()
 	root := t.TempDir()

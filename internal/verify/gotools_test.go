@@ -11,6 +11,7 @@ import (
 // report, so they must change the toolchain identity a native key carries.
 // Settings that only choose where modules come from must not.
 func TestToolchainIdentityCoversResultChangingGoSettings(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go is unavailable")
 	}

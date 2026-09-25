@@ -19,6 +19,7 @@ const (
 // documented kinds cannot drift from what the verifier does. Run with -update
 // to rewrite it.
 func TestCheckKindsDoc(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join("..", "..", "docs", "check-kinds.md")
 	data, err := os.ReadFile(path)
 	if err != nil {

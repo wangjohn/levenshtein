@@ -7,6 +7,7 @@ import (
 )
 
 func TestDepsEnvDropsHostSettings(t *testing.T) {
+	t.Parallel()
 	env := depsEnv([]string{"PATH=/bin", "OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=/elsewhere", "HTTPS_PROXY=http://proxy"})
 	if !slices.Equal(env, []string{"PATH=/bin", "HTTPS_PROXY=http://proxy"}) {
 		t.Fatalf("unexpected osv-scanner environment: %v", env)
@@ -17,6 +18,7 @@ func TestDepsEnvDropsHostSettings(t *testing.T) {
 // so like go-vuln its verdict is never reused on either executor and its
 // Dagger call is never answered from Dagger's own cache.
 func TestDependencyScansNeverReuseAVerdict(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []ExecutorKind{ExecutorDagger, ExecutorNative} {
 		req := cacheRequest(t)
 		req.Check.Kind = CheckDepsVuln
