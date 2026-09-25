@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -176,6 +177,12 @@ func TestSecondInterruptEndsAHungTeardown(t *testing.T) {
 	}
 	if runtime.GOOS == "windows" {
 		t.Skip("interrupts are not delivered as signals on Windows")
+	}
+	// A process started with interrupts ignored, as a background job or under
+	// nohup is, passes that on: once released, the helper ignores the second
+	// interrupt too, which is right for it and not what this test measures.
+	if signal.Ignored(os.Interrupt) {
+		t.Skip("interrupts are ignored in this process and its children")
 	}
 
 	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestSecondInterruptEndsAHungTeardown$")
