@@ -87,16 +87,16 @@ func observedKind(t *testing.T, kind CheckKind) kindRow {
 		}
 	}
 	_, isDefault := cfg.Checks[string(kind)]
-	_, native := nativeKinds[kind]
+	_, native := nativeKindOf(kind)
 	return kindRow{
-		Dagger:    daggerFunctions[kind],
+		Dagger:    daggerFunction(kind),
 		Native:    native,
-		Shared:    sharedGoChecks[kind],
-		Fresh:     alwaysFresh[kind],
-		Base:      baseDependent[kind],
-		Baseline:  baselineKinds[kind],
-		Located:   locatedKinds[kind],
-		Reporting: reporting[kind],
+		Shared:    sharedGoCheck(kind),
+		Fresh:     alwaysFreshReason(kind),
+		Base:      baseDependentReason(kind),
+		Baseline:  baselineKind(kind),
+		Located:   locatedKind(kind),
+		Reporting: reportsOnPass(kind),
 		RootOnly:  plansRootOnly(t, kind),
 		Default:   isDefault,
 		Runs:      runs,
@@ -109,7 +109,7 @@ func observedKind(t *testing.T, kind CheckKind) kindRow {
 func plansRootOnly(t *testing.T, kind CheckKind) bool {
 	t.Helper()
 	environment := "dagger"
-	if daggerFunctions[kind] == "" {
+	if daggerFunction(kind) == "" {
 		environment = "native"
 	}
 	check := Check{Kind: kind, Target: "nested", Environment: environment}

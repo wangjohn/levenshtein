@@ -153,7 +153,7 @@ func TestCopyInputsRefusesLinksOutOfTheCopy(t *testing.T) {
 // go-generate's generated files are judged against the declared inputs alone,
 // so its verdict is reused like go-vet's until a fresh run.
 func TestGenerateResultsAreReusedUntilAFreshRun(t *testing.T) {
-	if alwaysFresh[CheckGoGenerate] != "" || !sharedGoChecks[CheckGoGenerate] {
+	if alwaysFreshReason(CheckGoGenerate) != "" || !sharedGoCheck(CheckGoGenerate) {
 		t.Fatal("go-generate must be cacheable on either executor")
 	}
 	req := cacheRequest(t)

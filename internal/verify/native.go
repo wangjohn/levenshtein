@@ -20,7 +20,7 @@ func (n *Native) Execute(ctx context.Context, req Request) Result {
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		return Result{Status: StatusError, Error: "native execution currently supports macOS and Linux"}
 	}
-	kind, ok := nativeKinds[req.Check.Kind]
+	kind, ok := nativeKindOf(req.Check.Kind)
 	if !ok {
 		return Result{Status: StatusError, Error: fmt.Sprintf("native executor runs %s checks, not %q", nativeKindNames(), req.Check.Kind)}
 	}

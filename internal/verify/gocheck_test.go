@@ -120,8 +120,9 @@ func runnerFunctions(t *testing.T) map[string][]string {
 // only fail inside an engine. This pins the whole-module checks' calls.
 func TestWholeModuleChecksCallRunnerFunctionsThatExist(t *testing.T) {
 	functions := runnerFunctions(t)
-	for kind, function := range daggerFunctions {
-		if _, ok := functions[function]; !ok {
+	for _, kind := range checkKinds {
+		function := daggerFunction(kind)
+		if _, ok := functions[function]; function != "" && !ok {
 			t.Errorf("%s calls %s, which the runner does not export", kind, function)
 		}
 	}

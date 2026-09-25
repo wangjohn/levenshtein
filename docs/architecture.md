@@ -269,7 +269,7 @@ applied to the report after this layer, never to what it stores.
 
 `go-vuln` and `go-mod` are never cached: `CachedExecutor.Execute` forces
 `RerunChecks` and returns `CacheStatus: "disabled"` for them unconditionally
-(the `alwaysFresh` table in `kinds.go`), and the Dagger executor gives each
+(the `alwaysFresh` field of their `kindSpec` in `kinds.go`), and the Dagger executor gives each
 call a nonce; `sharedCheck` refuses either kind without one. Vulnerability
 data changes independently of source fingerprints, and `go mod verify`
 checks the module cache, which no fingerprint covers.
@@ -284,7 +284,7 @@ session with the run's context first, as `executeMutation` does.
 
 `go-mutation` and `go-apidiff` read git history on the host, which no
 fingerprint covers either, so `CachedExecutor.Execute` runs them without a
-result cache (the `baseDependent` table in `kinds.go`). Unlike `go-vuln`, they
+result cache (the `baseDependent` field of their `kindSpec` in `kinds.go`). Unlike `go-vuln`, they
 get a nonce only on a fresh run: what they read from history reaches Dagger as
 function arguments (the file list, or the exported base tree), so Dagger's own
 call cache stays sound. `go-imports` and `go-generate` are cached like

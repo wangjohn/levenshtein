@@ -33,22 +33,6 @@ type RenderOptions struct {
 	PathPrefix string
 }
 
-// locatedKinds report findings at a source location. Every other kind reports
-// one finding per module whose message carries the tool's own output, and
-// its location names the module directory rather than a file.
-var locatedKinds = map[CheckKind]bool{
-	CheckGoLint:     true,
-	CheckGoHTTP:     true,
-	CheckGoSQL:      true,
-	CheckGoMutation: true,
-	CheckGoImports:  true,
-	CheckGoGenerate: true,
-	CheckGoApidiff:  true,
-	CheckShellLint:  true,
-	CheckSecrets:    true,
-	CheckDepsVuln:   true,
-}
-
 // item is one check's result as the renderers see it: its findings sorted by
 // location, and whether each one names a file.
 type item struct {
@@ -58,7 +42,7 @@ type item struct {
 }
 
 func (it item) located(f finding) bool {
-	return locatedKinds[it.check.Check.Kind] || f.Code == baselineStaleCode
+	return locatedKind(it.check.Check.Kind) || f.Code == baselineStaleCode
 }
 
 // items pairs each result with its planned check, in plan order.

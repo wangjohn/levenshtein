@@ -48,7 +48,7 @@ func validateCheck(check Check, env Environment) error {
 		return fmt.Errorf("unsupported executor %q", env.Executor)
 	}
 
-	kind, ok := nativeKinds[check.Kind]
+	kind, ok := nativeKindOf(check.Kind)
 	if !ok {
 		return fmt.Errorf("native environments run %s checks, not %q", nativeKindNames(), check.Kind)
 	}
@@ -59,7 +59,7 @@ func validateCheck(check Check, env Environment) error {
 }
 
 func validateDaggerCheck(check Check, env Environment) error {
-	if daggerFunctions[check.Kind] == "" {
+	if daggerFunction(check.Kind) == "" {
 		return fmt.Errorf("unknown Dagger check %q", check.Kind)
 	}
 	if check.Command != nil || check.Semantic != nil {

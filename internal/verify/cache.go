@@ -193,7 +193,7 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 	// Some verdicts depend on state that changes independently of source
 	// fingerprints. Never reuse one, even when the consumer enables result
 	// caching.
-	if reason := alwaysFresh[req.Check.Kind]; reason != "" {
+	if reason := alwaysFreshReason(req.Check.Kind); reason != "" {
 		req.RerunChecks = true
 		result := c.Executor.Execute(ctx, req)
 		return result.withCache(CacheInfo{Status: CacheDisabled, Reason: reason})
@@ -203,14 +203,14 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 	// with, depend on where the base branch points, which no input fingerprint
 	// sees. Dagger still reuses a run whose arguments are all unchanged, so a
 	// repeat costs little.
-	if reason := baseDependent[req.Check.Kind]; reason != "" {
+	if reason := baseDependentReason(req.Check.Kind); reason != "" {
 		result := c.Executor.Execute(ctx, req)
 		return result.withCache(CacheInfo{Status: CacheDisabled, Reason: reason})
 	}
 
 	// A shared Go check is cacheable for the same reason a Dagger one is: its
 	// inputs and its tooling are both identified, whichever executor runs it.
-	eligible := req.Check.cacheable() || req.Environment.Executor == ExecutorDagger || sharedGoChecks[req.Check.Kind]
+	eligible := req.Check.cacheable() || req.Environment.Executor == ExecutorDagger || sharedGoCheck(req.Check.Kind)
 	if c.Cache == nil || !eligible {
 		result := c.Executor.Execute(ctx, req)
 		return result.withCache(CacheInfo{Status: CacheDisabled})

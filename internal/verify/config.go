@@ -303,20 +303,26 @@ const defaultTarget = "root"
 const defaultEnvironment = "go"
 
 // defaultConfig is the configuration a repository without levenshtein.json
-// receives: every shared Dagger check over the whole source tree, the branch
-// and pre-merge gates, a fresh main run, and one named run per check.
-// go-imports is left out because it has nothing to check without rules.
+// receives: a Dagger check over the whole source tree for every kind whose
+// descriptor says so, the branch and pre-merge gates, a fresh main run, and
+// one named run per check. go-imports is left out because it has nothing to
+// check without rules.
 func defaultConfig() Config {
-	lint, vet, mod, vuln := string(CheckGoLint), string(CheckGoVet), string(CheckGoMod), string(CheckGoVuln)
 	checks := map[string]Check{}
-	runs := map[string]Run{
-		"branch":    {Checks: []string{lint, vet, mod}},
-		"pre-merge": {Checks: []string{lint, vet, mod}},
-		"main":      {Checks: []string{lint, vet, mod, vuln}, RerunChecks: true},
+	gates := map[string][]string{}
+	runs := map[string]Run{}
+	for _, spec := range kindSpecs {
+		if !spec.defaultCheck {
+			continue
+		}
+		checks[string(spec.kind)] = Check{Kind: spec.kind, Target: defaultTarget, Environment: defaultEnvironment}
+		runs[string(spec.kind)] = Run{Checks: []string{string(spec.kind)}}
+		for _, gate := range spec.defaultRuns {
+			gates[gate] = append(gates[gate], string(spec.kind))
+		}
 	}
-	for _, kind := range []CheckKind{CheckGoLint, CheckGoVet, CheckGoMod, CheckGoTest, CheckGoHTTP, CheckGoSQL, CheckGoVuln, CheckWorkflowLint, CheckWorkflowSecurity, CheckShellLint, CheckSecrets, CheckDepsVuln, CheckGoGenerate, CheckGoApidiff} {
-		checks[string(kind)] = Check{Kind: kind, Target: defaultTarget, Environment: defaultEnvironment}
-		runs[string(kind)] = Run{Checks: []string{string(kind)}}
+	for _, gate := range defaultGates {
+		runs[gate] = Run{Checks: gates[gate], RerunChecks: gate == "main"}
 	}
 
 	return Config{
@@ -397,7 +403,7 @@ func migrationHint(data []byte) string {
 // retiredFieldHome says where a retired top-level check field went for the
 // check's kind, or that it no longer applies.
 func retiredFieldHome(kind CheckKind, field string) string {
-	if daggerFunctions[kind] != "" {
+	if daggerFunction(kind) != "" {
 		if field == "cache" {
 			return `"cache" no longer applies: Dagger results are always cached; remove it`
 		}

@@ -19,19 +19,6 @@ import (
 // from the file.
 const baselineStaleCode = "baseline-stale"
 
-// baselineKinds are the kinds whose findings each name one source location
-// and a message that does not repeat it. go-vet, workflow-lint and the other
-// tool kinds report one finding per module carrying the tool's whole output,
-// line numbers included, which no baseline entry could match across unrelated
-// edits; go-mutation has its own accepted-survivors file.
-var baselineKinds = map[CheckKind]bool{
-	CheckGoLint:    true,
-	CheckGoHTTP:    true,
-	CheckGoSQL:     true,
-	CheckGoImports: true,
-	CheckShellLint: true,
-}
-
 // Baseline is the checked-in record of findings a repository has accepted for
 // now. Path is repository-relative; lines holds the line of each entry in the
 // file it was read from, so a stale entry can be reported where it is.
@@ -157,7 +144,7 @@ func parseBaseline(data []byte) ([]BaselineEntry, []int, error) {
 }
 
 func validateEntry(entry BaselineEntry) error {
-	if !baselineKinds[entry.Kind] {
+	if !baselineKind(entry.Kind) {
 		return fmt.Errorf("kind %q cannot be baselined; only %s findings can", entry.Kind, baselineKindNames())
 	}
 	if !relative(entry.Dir) {
@@ -173,15 +160,6 @@ func validateEntry(entry BaselineEntry) error {
 		return fmt.Errorf("count must be at least 1")
 	}
 	return nil
-}
-
-func baselineKindNames() string {
-	names := make([]string, 0, len(baselineKinds))
-	for kind := range baselineKinds {
-		names = append(names, string(kind))
-	}
-	slices.Sort(names)
-	return strings.Join(names, ", ")
 }
 
 // entryLines finds the line each entry of the findings array starts on. The
@@ -284,7 +262,7 @@ func (b Baseline) Apply(report Report) Report {
 
 	for i, result := range results {
 		check, ok := checks[result.ID]
-		if !ok || !baselineKinds[check.Check.Kind] || !completed(result) {
+		if !ok || !baselineKind(check.Check.Kind) || !completed(result) {
 			continue
 		}
 
@@ -329,7 +307,7 @@ func (b Baseline) Apply(report Report) Report {
 
 	for i, result := range results {
 		check, ok := checks[result.ID]
-		if !ok || !baselineKinds[check.Check.Kind] || !completed(result) {
+		if !ok || !baselineKind(check.Check.Kind) || !completed(result) {
 			continue
 		}
 		results[i] = judged(result, stale[i])
@@ -405,7 +383,7 @@ func (b Baseline) Record(report Report) (Baseline, BaselineChange, error) {
 	for _, result := range report.Results {
 		check := checks[result.ID]
 		findings := detailFindings(result.Details)
-		if !baselineKinds[check.Check.Kind] {
+		if !baselineKind(check.Check.Kind) {
 			if result.Status == StatusFailed {
 				change.Unrecorded = append(change.Unrecorded, result.ID)
 			}
