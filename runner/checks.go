@@ -91,8 +91,7 @@ func goContainer(tools toolchain) *dagger.Container {
 
 // untrustedGoContainer is the pinned Go image with caches of its own, for the
 // steps that run the repository's code. A tool such a step needs is built in
-// goContainer and copied in, or, where it is built here, is only ever trusted
-// by that step.
+// goContainer and copied in (see pinnedToolBinary), never built here.
 func untrustedGoContainer(tools toolchain) *dagger.Container {
 	return goContainerWith(tools, cacheUntrusted)
 }
@@ -121,6 +120,14 @@ func withTool(ctr *dagger.Container, tool pinnedTool, output string) *dagger.Con
 	return ctr.WithDirectory(dir, dag.CurrentModule().Source().Directory(path.Join("tools", tool.Dir))).
 		WithWorkdir(dir).
 		WithExec([]string{"go", "build", "-trimpath", "-o", output, tool.Pkg})
+}
+
+// pinnedToolBinary is tool built alone in goContainer, for a container that
+// runs the repository's code and so must not build it: that code could have
+// changed the tool's sources in the untrusted caches on an earlier run.
+func pinnedToolBinary(tools toolchain, tool pinnedTool) *dagger.File {
+	output := path.Join("/usr/local/bin", tool.Dir)
+	return withTool(goContainer(tools), tool, output).File(output)
 }
 
 func executeCheck(ctx context.Context, source *dagger.Directory, module string, tools toolchain, check checkName, nonce string) ([]diagnostic, error) {
