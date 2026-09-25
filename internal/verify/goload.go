@@ -38,7 +38,8 @@ const vendorManifest = "modules.txt"
 //     out of every embed's reach;
 //   - testdata is what tests read by convention, so it is always loadable.
 //   - an import path resolves through a symlink to a directory, so which
-//     package it loads is the link's text.
+//     package it loads is the link's text; one that leaves the source leads
+//     to nothing the source holds, and is left out.
 //
 // Everything else ignored is left out. The residual risk is a test that opens
 // an ignored file outside testdata with a path of its own making, or cgo
@@ -71,14 +72,15 @@ func (l *goLoader) fileScope(rel string, info fs.FileInfo) pathScope {
 	return scopeOmitted
 }
 
-// directoryLink reports whether a path is a symlink to a directory. An import
-// path resolves through one, so which package it loads is the link's text.
-// The target is statted, never read, wherever it leads.
+// directoryLink reports whether a path is a symlink to a directory in the
+// source. An import path resolves through one, so which package it loads is
+// the link's text. The target is statted, never read. A link out of the
+// source, such as a Nix result link, is left out like the tree it leads to.
 func (l *goLoader) directoryLink(rel string, info fs.FileInfo) bool {
 	if info.Mode()&fs.ModeSymlink == 0 {
 		return false
 	}
-	target, err := os.Stat(filepath.Join(l.dir.Name(), rel))
+	target, err := l.dir.Stat(rel)
 	return err == nil && target.IsDir()
 }
 

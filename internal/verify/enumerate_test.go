@@ -171,6 +171,25 @@ func TestGoKindKeyCoversIgnoredDirectoryLinks(t *testing.T) {
 	}
 }
 
+// An ignored link out of the source, such as a Nix result link, names nothing
+// the key or the go-generate copy could hold, so it stays out of both rather
+// than failing the copy.
+func TestGoKindOmitsIgnoredLinksOutOfTheSource(t *testing.T) {
+	root := fileSetRepository(t)
+	writeFile(t, filepath.Join(root, ".gitignore"), "gen/\ndeps/\n*.log\n.env\nnode_modules/\n_build/\n*_generated.go\npkg/assets/\n*.out\n/result\n")
+	if err := os.Symlink(t.TempDir(), filepath.Join(root, "result")); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "add", ".gitignore")
+	relist(root)
+	req := Request{Source: root, PlannedCheck: planFor(t, root, CheckGoGenerate, ExecutorNative)}
+
+	err := copyInputs(t.Context(), req, t.TempDir())
+	if err != nil {
+		t.Fatalf("an ignored link out of the source failed the go-generate copy: %v", err)
+	}
+}
+
 // With a vendor directory the go command builds from vendor/modules.txt,
 // refusing a tree whose manifest disagrees with go.mod, so an edit to an
 // ignored manifest must change a Go kind's key.
