@@ -22,12 +22,13 @@ says which interfaces are versioned and what to expect when you bump your pin.
   [CLI reference](docs/reference/cli.md), [troubleshooting](docs/troubleshooting.md),
   a [versioning policy](docs/versioning.md), a [glossary](docs/glossary.md),
   and a [comparison with golangci-lint](docs/faq.md#levenshtein-or-golangci-lint).
-  A test in the root module fails when a relative link or `#anchor` in any
-  Markdown file does not resolve.
+  Tests in the root module fail when a relative link or `#anchor` in any
+  Markdown file, or a documentation link in code, configuration, or scripts,
+  does not resolve, and when the docs index misses a page.
 - The release workflow publishes only a `vX.Y.Z` tag whose commit `main`
   contains and whose version `CHANGELOG.md` releases (`scripts/release-on-main`).
-  [docs/releases.md](docs/releases.md#protecting-release-tags) has the tag
-  rulesets and immutable-release setting an admin can apply.
+  [docs/maintainers/releases.md](docs/maintainers/releases.md#protecting-release-tags)
+  has the tag rulesets and immutable-release setting an admin can apply.
 
 ### Changed
 
@@ -60,7 +61,7 @@ says which interfaces are versioned and what to expect when you bump your pin.
   (`wangjohn/levenshtein@<sha> # v0.1.0`), and `scripts/test-doc-pins` checks
   that the SHA is the one the tag names. Releases now update the examples in a
   pull request after the tag, checked with `scripts/test-doc-pins --latest`
-  ([docs/releases.md](docs/releases.md)).
+  ([docs/maintainers/releases.md](docs/maintainers/releases.md#publishing-a-release)).
 - Levenshtein's own CI: concurrency groups are per commit outside pull
   requests, so GitHub no longer cancels queued `main` runs; `dependency-review`
   reports in a merge queue; every `integration`-tagged Go test runs, natively

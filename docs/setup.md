@@ -42,6 +42,10 @@ Dependency resolution follows Go's defaults: use `vendor/` when enabled by the m
 
 [Go lint rules](rules.md) lists every rule `go-lint` enforces and why.
 
+### What the rules catch
+
+Moved to [Go lint rules](rules.md#rules-on-by-default).
+
 ## Configure a repo
 
 A single Go module at the source root works without configuration. For multiple modules or custom runs, add a version 1 `levenshtein.json` to that repo; [configuration](configuration.md) is the guide, and the [configuration reference](reference/config.md) lists every field.
@@ -63,6 +67,10 @@ Moved to [developing Levenshtein](maintainers/development.md#initial-measurement
 ## Pinned dependencies
 
 Moved to [developing Levenshtein](maintainers/development.md#pinned-dependencies).
+
+## Standalone planning and configuration
+
+Moved to [configuration](configuration.md) and the [CLI reference](reference/cli.md).
 
 ## Dagger integration
 
