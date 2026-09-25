@@ -267,6 +267,9 @@ Consumers pin a release tag, or its commit SHA, as described in
   an `lvrules_mixed` finding at any line; the runner now drops a core
   unused-directive finding only when the source at that position holds a
   directive that really mixes core and community codes.
+- [docs/community-rules.md](docs/community-rules.md) no longer describes the
+  `lvrules-template` repository and the `lvrules-check` action as available;
+  both are still planned, so rule authors start from `examples/rule-module`.
 - [docs/consumer-ci.md](docs/consumer-ci.md) no longer says there is no shared
   `go-test` check, and its list of what is available names `go-test`,
   `workflow-security`, and `go-mutation`.

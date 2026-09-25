@@ -113,17 +113,21 @@ appears in findings, patterns, and `//lint:ignore errs_nopanic <reason>`.
 
 ### Getting started
 
-1. `gonew github.com/wangjohn/lvrules-template github.com/you/lvrules-errors`
-   copies the template and rewrites the module path. Choose a namespace; the
-   template's CI fails while it is still `example`. Until the template
-   repository is published (phase 0), copy
-   [`examples/rule-module`](../examples/rule-module) instead.
+1. Copy [`examples/rule-module`](../examples/rule-module), rewrite its module
+   path, and choose a namespace; Levenshtein refuses `example` for any other
+   module. A published `lvrules-template` repository is planned (phase 0, not
+   yet done). Once it exists,
+   `gonew github.com/wangjohn/lvrules-template github.com/you/lvrules-errors`
+   will copy it and rewrite the module path, and its CI will fail while the
+   namespace is still `example`.
 2. Write the analyzer and add it to `Analyzers()`.
 3. Add fixtures under `testdata/src` with a `// want` comment on every expected
    finding, plus clean cases. Break the rule once to check that the test fails.
-4. CI runs the reusable `lvrules-check` action. It builds the module into a
-   community linter for each Levenshtein release you list and runs it on your
-   fixtures.
+4. Run the tests in your own CI. A reusable `lvrules-check` action is planned
+   (phase 0, not yet done): it will build the module into a community linter
+   for each Levenshtein release you list and run it on your fixtures. Until
+   then, `scripts/test-example-rules` shows how this repository does that for
+   the example module.
 5. Tag `v0.1.0` with release notes, name the repository `lvrules-<topic>`, and
    add the `levenshtein-lint-rules` topic.
 6. From phase 2, open a pull request to the catalog.
