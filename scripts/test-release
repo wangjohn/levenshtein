@@ -23,8 +23,9 @@ for source in "$root"/runner/*.go; do
 done
 # Dagger's Python runtime installs the SDK adapter from these files, and
 # without uv.lock it resolves the adapter's dependencies from PyPI on every
-# run, so every tracked file ships.
+# run, so every tracked file but its .gitignore ships.
 while IFS= read -r file; do
+  [[ $(basename -- "$file") == .gitignore ]] && continue
   test -f "$shared/$file" || { echo "Archive missing $file; add it to .goreleaser.yaml" >&2; exit 1; }
 done < <(git -C "$root" ls-files sdk/patched-go)
 # Run only the extracted binary and sources, outside the repository checkout.
