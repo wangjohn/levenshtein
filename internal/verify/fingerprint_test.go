@@ -383,6 +383,29 @@ func TestGitDiscoveryDoesNotMemoizeACancelledListing(t *testing.T) {
 	}
 }
 
+// A listing that git produced before a check created files, but that finishes
+// after the check relisted, would put the stale view back for every later key
+// in the run. It serves its own caller and is not memoized.
+func TestGitDiscoveryDoesNotMemoizeAListingARelistOvertook(t *testing.T) {
+	root := gitRepository(t)
+	relist(root)
+	listingFetched = func(source string) {
+		listingFetched = nil
+		writeFile(t, filepath.Join(source, "created.go"), sourceOne)
+		relist(source)
+	}
+	t.Cleanup(func() { listingFetched = nil })
+
+	if listed, _ := gitFiles(t.Context(), root); slices.Contains(listed, "created.go") {
+		t.Fatal("the overtaken listing saw a file created after git listed")
+	}
+
+	listed, ok := gitFiles(t.Context(), root)
+	if !ok || !slices.Contains(listed, "created.go") {
+		t.Fatalf("a listing overtaken by relist was memoized: %v, %v", listed, ok)
+	}
+}
+
 func TestTargetExcludeLeavesPathsOutOfTheFingerprint(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "src", "main.go"), sourceOne)

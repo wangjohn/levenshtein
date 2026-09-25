@@ -246,7 +246,7 @@ func (s fileSet) walkIgnored(dir *os.Root, ignored []string, input string, loade
 		case info.IsDir():
 			err = loader.walk(rel, s.Excludes, visit)
 		default:
-			err = visit(rel, info, loader.fileScope(rel))
+			err = visit(rel, info, loader.fileScope(rel, info))
 		}
 		if err != nil {
 			return err

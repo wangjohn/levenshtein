@@ -18,6 +18,10 @@ var goSourceExtensions = []string{".go", ".c", ".cc", ".cxx", ".cpp", ".m", ".h"
 // goModuleFiles are read wherever they sit: a nested module, a workspace.
 var goModuleFiles = []string{"go.mod", "go.sum", "go.work", "go.work.sum"}
 
+// vendorManifest is the file the go command builds a vendored module or
+// workspace from, and checks against go.mod, in a directory named vendor.
+const vendorManifest = "modules.txt"
+
 // goLoader decides which paths the work tree ignores the Go toolchain can
 // still load, so a Go toolchain file set hashes them and leaves out the rest.
 //
@@ -33,6 +37,9 @@ var goModuleFiles = []string{"go.mod", "go.sum", "go.work", "go.work.sum"}
 //     path with no //go:embed directive in any .go file of those directories is
 //     out of every embed's reach;
 //   - testdata is what tests read by convention, so it is always loadable.
+//   - an import path resolves through a symlink to a directory, so which
+//     package it loads is the link's text; one that leaves the source leads
+//     to nothing the source holds, and is left out.
 //
 // Everything else ignored is left out. The residual risk is a test that opens
 // an ignored file outside testdata with a path of its own making, or cgo
@@ -51,13 +58,30 @@ func newGoLoader(dir *os.Root, scans *sync.Map) *goLoader {
 	return &goLoader{dir: dir, scans: scans, embeds: map[string]bool{}}
 }
 
-// fileScope classifies an ignored file.
-func (l *goLoader) fileScope(rel string) pathScope {
+// fileScope classifies an ignored file, or a symlink, whose info is its Lstat.
+func (l *goLoader) fileScope(rel string, info fs.FileInfo) pathScope {
 	name := filepath.Base(rel)
-	if slices.Contains(goSourceExtensions, filepath.Ext(name)) || slices.Contains(goModuleFiles, name) || inTestdata(rel) || l.embedded(filepath.Dir(rel)) {
+	switch {
+	case slices.Contains(goSourceExtensions, filepath.Ext(name)), slices.Contains(goModuleFiles, name):
+		return scopeIgnored
+	case name == vendorManifest && filepath.Base(filepath.Dir(rel)) == "vendor":
+		return scopeIgnored
+	case inTestdata(rel), l.embedded(filepath.Dir(rel)), l.directoryLink(rel, info):
 		return scopeIgnored
 	}
 	return scopeOmitted
+}
+
+// directoryLink reports whether a path is a symlink to a directory in the
+// source. An import path resolves through one, so which package it loads is
+// the link's text. The target is statted, never read. A link out of the
+// source, such as a Nix result link, is left out like the tree it leads to.
+func (l *goLoader) directoryLink(rel string, info fs.FileInfo) bool {
+	if info.Mode()&fs.ModeSymlink == 0 {
+		return false
+	}
+	target, err := l.dir.Stat(rel)
+	return err == nil && target.IsDir()
 }
 
 // walk reports what an ignored directory holds that the toolchain can load. A
@@ -90,7 +114,7 @@ func (l *goLoader) walk(root string, excludes []string, visit visitFunc) error {
 			return err
 		}
 		if !info.IsDir() {
-			return skipOnlyDirs(visit(rel, info, l.fileScope(rel)), info)
+			return skipOnlyDirs(visit(rel, info, l.fileScope(rel, info)), info)
 		}
 		if bearing[rel] || inTestdata(rel) || l.embedded(rel) {
 			return nil

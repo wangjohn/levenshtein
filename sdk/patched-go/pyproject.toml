@@ -3,7 +3,7 @@ name = "patched-go"
 version = "0.1.0"
 requires-python = ">=3.14"
 # dagger-io matches the engine in .dagger-version, and uv.lock pins every other
-# dependency with hashes. scripts/test-sdk-security keeps all three in step.
+# dependency with hashes. scripts/test-sdk-lock keeps all three in step.
 dependencies = ["dagger-io==0.21.9"]
 
 [build-system]

@@ -37,9 +37,8 @@ says which interfaces are versioned and what to expect when you bump your pin.
   `runner/tools` module to `runner/tools/<tool>`, each with a single `tool`
   directive, so a Dependabot update of one tool needs no manual pin edit and
   cannot move a version another is built with. Every tool still links exactly
-  the module versions it did before. `runner/toolchain.json` no longer repeats
-  the tools' versions, and Dependabot proposes each tool's updates in a pull
-  request of its own.
+  the module versions it did before, and Dependabot proposes each tool's
+  updates in a pull request of its own.
 - **The documentation moved.** `docs/checks.md` is now a short landing page:
   the rules `go-lint` enforces are in [docs/rules.md](docs/rules.md), the
   evidence and the analyzers left off in
@@ -58,7 +57,7 @@ says which interfaces are versioned and what to expect when you bump your pin.
   ([docs/agents.md](docs/agents.md#stop-keep-working-while-the-run-fails)).
 - The workflow template and the consumer examples pin the action by the
   release's commit SHA with the version as a comment
-  (`wangjohn/levenshtein@<sha> # v0.1.0`), and `scripts/test-doc-pins` checks
+  (`wangjohn/levenshtein@<sha> # vX.Y.Z`), and `scripts/test-doc-pins` checks
   that the SHA is the one the tag names. Releases now update the examples in a
   pull request after the tag, checked with `scripts/test-doc-pins --latest`
   ([docs/maintainers/releases.md](docs/maintainers/releases.md#publishing-a-release)).
@@ -115,8 +114,8 @@ says which interfaces are versioned and what to expect when you bump your pin.
   untracked files that a later key in the same run did not see, so a stale
   result or build could be reused.
 - A native shared Go check's cache key covers the Go settings that change
-  what it reports, such as `GOFLAGS`, `GOEXPERIMENT`, `CGO_ENABLED`, `CC`, and
-  the architecture levels, including values set with `go env -w`. Before, only
+  what it reports, such as `GOFLAGS`, `GOEXPERIMENT`, `GOFIPS140`, `GODEBUG`,
+  `CGO_ENABLED`, `CC`, and the architecture levels, including values set with `go env -w`. Before, only
   the Go version, OS, and architecture were, so `go env -w
   GOFLAGS=-tags=integration` reused results computed without the tag. Module
   download settings such as `GOPROXY` and `GOPRIVATE` still do not affect the
@@ -251,13 +250,15 @@ says which interfaces are versioned and what to expect when you bump your pin.
   files. The Go kinds (`go-lint`, `go-vet`, `go-mod`, `go-test`, `go-http`,
   `go-sql`, `go-vuln`, `go-imports`, `go-generate`, `go-apidiff`,
   `go-mutation`) add the ignored paths the Go toolchain can load: ignored Go
-  and cgo sources and module files, whatever a `//go:embed` directive in
-  the directory or above could name, and `testdata`. An ignored directory
-  with no `.go` file in it and nothing embedding it, such as `node_modules`
-  or a build output, is left out of the key and the Dagger import, and a
-  symlink in the ignored content that is kept is hashed by its link text
-  rather than disabling result reuse. The Go kinds' keys change once, and
-  the native `go-generate` copy holds the same files.
+  and cgo sources, module files and `vendor/modules.txt`, whatever a
+  `//go:embed` directive in the directory or above could name, `testdata`, and
+  symlinks to directories in the source, through which an import path
+  resolves. An ignored directory with no `.go` file in it and nothing
+  embedding it, such as `node_modules` or a build output, is left out of the
+  key and the Dagger import, and a symlink in the ignored content that is kept
+  is hashed by its link text rather than disabling result reuse. The Go
+  kinds' keys change once, and the native `go-generate` copy holds the same
+  files.
 - A declared input that git discovery could not see no longer contributes
   nothing to the key. An input spelled with different case than the
   repository (`Src` for `src/` on a case-insensitive filesystem), or an
@@ -277,7 +278,10 @@ says which interfaces are versioned and what to expect when you bump your pin.
   `levenshtein-gocheck`, and the pinned tools, so a malicious test could edit a
   linter's module source in the cache and change later linter builds on a
   persistent engine. The tool-build volumes are renamed too, so an engine that
-  ran older checks starts them clean.
+  ran older checks starts them clean. The tools those steps need, gremlins and
+  `levenshtein-gocheck`, are built from the tool-build volumes and copied in.
+  The three steps still share their own volumes, across repositories, on one
+  engine.
 
 ## [0.2.0] - 2026-09-25
 
