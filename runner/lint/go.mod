@@ -14,6 +14,7 @@ require (
 	github.com/ckaznocha/intrange v0.3.1
 	github.com/curioswitch/go-reassign v0.3.0
 	github.com/go-critic/go-critic v0.15.0
+	github.com/gostaticanalysis/comment v1.5.0
 	github.com/gostaticanalysis/nilerr v0.1.2
 	github.com/jingyugao/rowserrcheck v1.1.1
 	github.com/kisielk/errcheck v1.20.0
@@ -54,7 +55,6 @@ require (
 	github.com/go-toolsmith/typep v1.1.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/gostaticanalysis/analysisutil v0.7.1 // indirect
-	github.com/gostaticanalysis/comment v1.5.0 // indirect
 	github.com/quasilyte/go-ruleguard v0.4.5 // indirect
 	github.com/quasilyte/gogrep v0.5.0 // indirect
 	github.com/quasilyte/regex/syntax v0.0.0-20210819130434-b3f0c404a727 // indirect

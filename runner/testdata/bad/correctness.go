@@ -52,6 +52,13 @@ func Nilerr() error {
 	return nil
 }
 
+// nilerr: a directive whose line has no nilerr finding matches nothing, so
+// Staticcheck reports it as unused.
+func StaleNilerrIgnore() error {
+	//lint:ignore nilerr the error is already handled
+	return work()
+}
+
 // durationcheck: multiplying two durations scales by nanoseconds.
 func Durationcheck(wait time.Duration) time.Duration {
 	return wait * time.Second

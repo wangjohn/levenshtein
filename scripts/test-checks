@@ -70,6 +70,9 @@ expect_failure bad "$expected" "$temporary/lint" -checks="$checks" ./...
 # and is marked generated: its findings must still report, against the original.
 reported '^cgo/cgo\.go:[0-9]+:[0-9]+: .*\(SA4006\)$' 'SA4006 in the hand-written cgo file'
 reported '^cgo/cgo\.go:[0-9]+:[0-9]+: .*\(exhaustive\)$' 'exhaustive in the hand-written cgo file'
+# good/ignored.go suppresses a nilerr finding with //lint:ignore; a nilerr
+# directive with no finding under it must still be reported as unused.
+reported "^correctness\\.go:58:2: this linter directive didn't match anything; should it be removed\\? \\(staticcheck\\)\$" 'unused //lint:ignore nilerr'
 if grep -q '^/' "$temporary/output"; then
   cat "$temporary/output" >&2
   echo "A bad finding points outside the fixture, such as into the build cache" >&2
