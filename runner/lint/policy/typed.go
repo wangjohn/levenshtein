@@ -53,7 +53,7 @@ func runTypedValues(pass *analysis.Pass) (any, error) {
 			if value.Value == nil || value.Value.Kind() != constant.String || constant.StringVal(value.Value) == "" {
 				return true
 			}
-			if !enumType(value.Type) {
+			if !enumType(pass, value.Type) {
 				return true
 			}
 			switch expr := expr.(type) {
@@ -82,12 +82,17 @@ func discriminator(name string) bool {
 	}
 }
 
-func enumType(t types.Type) bool {
+// enumType reports whether t is a defined string type of the module being
+// linted with at least one constant of its own. A type from another module is
+// left alone even when its package declares constants: a library such as
+// Kubernetes names a few well-known values of corev1.ResourceName, but any
+// spelling is valid and the module being linted cannot add constants to it.
+func enumType(pass *analysis.Pass, t types.Type) bool {
 	if t == nil {
 		return false
 	}
 	named, ok := types.Unalias(t).(*types.Named)
-	if !ok || !types.Identical(named.Underlying(), types.Typ[types.String]) || named.Obj().Pkg() == nil {
+	if !ok || !types.Identical(named.Underlying(), types.Typ[types.String]) || named.Obj().Pkg() == nil || !inModule(pass, named.Obj().Pkg()) {
 		return false
 	}
 	scope := named.Obj().Pkg().Scope()
@@ -97,4 +102,15 @@ func enumType(t types.Type) bool {
 		}
 	}
 	return false
+}
+
+// inModule reports whether pkg belongs to the module being linted, judged by
+// import path, so a nested module under the same path counts as the same one.
+// Without a module, as in GOPATH mode, every package counts.
+func inModule(pass *analysis.Pass, pkg *types.Package) bool {
+	if pass.Module == nil || pass.Module.Path == "" {
+		return true
+	}
+	module := pass.Module.Path
+	return pkg.Path() == module || strings.HasPrefix(pkg.Path(), module+"/")
 }

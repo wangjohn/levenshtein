@@ -167,14 +167,21 @@ func checkConstruction(pass *analysis.Pass, body *ast.BlockStmt) {
 			}
 		default:
 			// Control flow and closures can observe or escape a value. Be conservative;
-			// still inspect fresh construction inside their individual blocks.
+			// still inspect fresh construction inside their individual blocks. A
+			// switch or select case holds its statements without a block of its own.
 			consume(n)
 			ast.Inspect(n, func(child ast.Node) bool {
-				if _, ok := child.(*ast.FuncLit); ok {
+				switch c := child.(type) {
+				case *ast.FuncLit:
 					return false
-				}
-				if block, ok := child.(*ast.BlockStmt); ok {
-					checkConstruction(pass, block)
+				case *ast.BlockStmt:
+					checkConstruction(pass, c)
+					return false
+				case *ast.CaseClause:
+					checkConstruction(pass, &ast.BlockStmt{List: c.Body})
+					return false
+				case *ast.CommClause:
+					checkConstruction(pass, &ast.BlockStmt{List: c.Body})
 					return false
 				}
 				return true

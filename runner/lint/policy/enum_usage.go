@@ -88,7 +88,7 @@ func checkEnumUsage(pass *analysis.Pass, node ast.Node) bool {
 	}
 	if !types.Identical(t, types.Typ[types.String]) {
 		// Existing enums are checked expression by expression by runTypedValues.
-		if enumType(t) {
+		if enumType(pass, t) {
 			return false
 		}
 		allTyped := true

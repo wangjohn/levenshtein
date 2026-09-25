@@ -73,6 +73,15 @@ reported '^cgo/cgo\.go:[0-9]+:[0-9]+: .*\(exhaustive\)$' 'exhaustive in the hand
 # good/ignored.go suppresses a nilerr finding with //lint:ignore; a nilerr
 # directive with no finding under it must still be reported as unused.
 reported "^correctness\\.go:58:2: this linter directive didn't match anything; should it be removed\\? \\(staticcheck\\)\$" 'unused //lint:ignore nilerr'
+# good/builds.go suppresses recvcheck and unparam findings that exist in only
+# one of the package's builds, with and without tests. Directives for those
+# rules that match nothing in any build must still be reported, in a package
+# with tests and in one without.
+reported "^builds\\.go:8:1: this linter directive didn't match anything; should it be removed\\? \\(staticcheck\\)\$" 'unused //lint:ignore recvcheck'
+reported "^builds\\.go:18:1: this linter directive didn't match anything; should it be removed\\? \\(staticcheck\\)\$" 'unused //lint:ignore unparam'
+reported "^notests/notests\\.go:7:1: this linter directive didn't match anything; should it be removed\\? \\(staticcheck\\)\$" 'unused //lint:ignore recvcheck without tests'
+# The default build leaves integration.go out, but gofmt checks it, so LV1005 does too.
+reported '^integration\.go:1:1: file is not gofmt-formatted; run gofmt -w \(LV1005\)$' 'LV1005 in a file the build ignores'
 if grep -q '^/' "$temporary/output"; then
   cat "$temporary/output" >&2
   echo "A bad finding points outside the fixture, such as into the build cache" >&2
@@ -90,4 +99,23 @@ expect_failure defer-loop deferInLoop "$temporary/lint" -checks="$checks,deferIn
 expect_failure httpmux-legacy httpmux "$temporary/lint" -checks="$checks" ./...
 fails vet-bad go vet ./...
 reported 'passes lock by value' 'passes lock by value'
+
+# Staticcheck caches a package's results by the files the build compiles, and
+# LV1005 also reads the files the build leaves out. Formatting only such a file
+# must clear its finding on the next run from the same cache.
+cached="$temporary/cached"
+mkdir -p "$cached/module"
+printf 'module example.com/cached\n\ngo 1.27.1\n' > "$cached/module/go.mod"
+printf 'package cached\n' > "$cached/module/cached.go"
+printf '//go:build integration\n\npackage cached\nvar  x = 1\n' > "$cached/module/integration.go"
+if (cd "$cached/module" && STATICCHECK_CACHE="$cached/cache" "$temporary/lint" -checks=LV1005 ./...) > "$temporary/output" 2>&1; then
+  echo "an unformatted file the build ignores unexpectedly passed" >&2
+  exit 1
+fi
+reported '^integration\.go:1:1: .*\(LV1005\)$' 'LV1005 in a file the build ignores'
+printf '//go:build integration\n\npackage cached\n\nvar x = 1\n' > "$cached/module/integration.go"
+if ! (cd "$cached/module" && STATICCHECK_CACHE="$cached/cache" "$temporary/lint" -checks=LV1005 ./...); then
+  echo "a cached LV1005 finding outlived the fix to a file the build ignores" >&2
+  exit 1
+fi
 echo 'Expanded check regression fixtures passed'

@@ -399,6 +399,31 @@ Consumers pin a release tag, or its commit SHA, as described in
   nilerr applied the directive itself and dropped the finding, so Staticcheck
   then reported the directive as matching nothing and the check failed either
   way. Upstream analyzers now leave `//lint:ignore` to Staticcheck.
+- LV1002 checks structs built inside `switch`, type switch, and `select`
+  cases. A case holds its statements without a block of its own, so
+  `var s S; s.A = 1` inside one went unreported.
+- LV1006 checks a test whose parameter names `testing.T` through an alias, as
+  in `type T = testing.T; func TestX(t *T)`, which go test runs, and no longer
+  counts `t.Failed()` as a way to fail: it only reads the test's state.
+- LV1001 asks for typed constants only for string types declared in the
+  module being linted. Converting a literal to a library's open-ended type,
+  such as `corev1.ResourceName("nvidia.com/gpu")`, was reported because the
+  library declares a few constants of it.
+- LV1005 checks the Go files the default build leaves out, such as
+  `foo_windows.go` and files behind `//go:build integration` or
+  `//go:build ignore`, which `gofmt -l` checks and LV1005 skipped. The
+  linter keys Staticcheck's cache on those files too, so formatting one clears
+  its finding on the next run.
+- `//lint:ignore recvcheck`, `//lint:ignore unparam`, and
+  `//lint:ignore gochecksumtype` suppress a finding that exists in only one of
+  a package's builds, with or without its tests, instead of being reported as
+  matching nothing by the other build. One build now decides each rule's
+  findings on non-test files: the build with tests for `recvcheck`, and the
+  build without them for `unparam` and `gochecksumtype`, so a test's calls no
+  longer change what `unparam` reports and a test's fake variant no longer
+  makes a sum type's switches incomplete. A directive that matches nothing is
+  still reported. The `//lint:file-ignore unparam` workaround is no longer
+  needed.
 
 ## [0.1.0] - 2026-09-22
 
