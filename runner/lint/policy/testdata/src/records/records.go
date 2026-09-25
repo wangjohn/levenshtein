@@ -107,3 +107,43 @@ func loop() {
 		r.Count = i
 	}
 }
+
+func switched(kind int) {
+	switch kind {
+	case 1:
+		var r Result // want "construct r with a struct literal"
+		r.Count = 1
+		consume(&r)
+	default:
+		r := Result{} // want "construct r with a struct literal"
+		r.Count = 2
+		consume(&r)
+	}
+}
+func typeSwitched(value any) {
+	switch value.(type) {
+	case int:
+		var r Result // want "construct r with a struct literal"
+		r.Count = 1
+		consume(&r)
+	}
+}
+func selected(ready chan int) {
+	select {
+	case n := <-ready:
+		var r Result // want "construct r with a struct literal"
+		r.Count = n
+		consume(&r)
+	default:
+		r := Result{}
+		consume(&r)
+		r.Count = 3
+	}
+}
+func switchedExisting(kind int, r Result) {
+	switch kind {
+	case 1:
+		r.Count = 1
+	}
+	consume(&r)
+}

@@ -265,6 +265,9 @@ Consumers pin a release tag, or its commit SHA, as described in
   nilerr applied the directive itself and dropped the finding, so Staticcheck
   then reported the directive as matching nothing and the check failed either
   way. Upstream analyzers now leave `//lint:ignore` to Staticcheck.
+- LV1002 checks structs built inside `switch`, type switch, and `select`
+  cases. A case holds its statements without a block of its own, so
+  `var s S; s.A = 1` inside one went unreported.
 
 ## [0.1.0] - 2026-09-22
 
