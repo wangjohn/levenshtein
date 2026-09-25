@@ -30,6 +30,7 @@ var quietMethods = map[string]bool{
 	"Cleanup":     true,
 	"Context":     true,
 	"Deadline":    true,
+	"Failed":      true,
 	"Helper":      true,
 	"Log":         true,
 	"Logf":        true,
@@ -90,21 +91,23 @@ func testFunction(pass *analysis.Pass, fn *ast.FuncDecl) bool {
 	if len(params) != 1 || len(params[0].Names) > 1 {
 		return false
 	}
-	pointer, ok := pass.TypesInfo.TypeOf(params[0].Type).(*types.Pointer)
+	pointer, ok := types.Unalias(pass.TypesInfo.TypeOf(params[0].Type)).(*types.Pointer)
 	return ok && testingNamed(pointer.Elem(), "T")
 }
 
 // testingTB reports whether typ is *testing.T or testing.TB, the values whose
 // methods report a test failure.
 func testingTB(typ types.Type) bool {
-	if pointer, ok := typ.(*types.Pointer); ok {
+	if pointer, ok := types.Unalias(typ).(*types.Pointer); ok {
 		return testingNamed(pointer.Elem(), "T")
 	}
 	return testingNamed(typ, "TB")
 }
 
+// testingNamed reports whether typ is the named type in package testing, seen
+// through aliases such as type T = testing.T, which go test accepts as *T.
 func testingNamed(typ types.Type, name string) bool {
-	named, ok := typ.(*types.Named)
+	named, ok := types.Unalias(typ).(*types.Named)
 	if !ok || named.Obj().Pkg() == nil {
 		return false
 	}

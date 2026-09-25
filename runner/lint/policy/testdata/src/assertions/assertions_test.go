@@ -178,3 +178,39 @@ func BenchmarkDouble(b *testing.B) {
 		Double(2)
 	}
 }
+
+// T is an alias go test accepts: it checks that a test takes *T or *pkg.T by
+// name only.
+type T = testing.T
+
+func TestAliasedLogsOnly(t *T) { // want "TestAliasedLogsOnly has no assertion"
+	t.Log(Double(2))
+}
+
+func TestAliasedSkips(t *T) {
+	t.Skip("never runs") // want "TestAliasedSkips always skips"
+}
+
+func TestAliasedAsserts(t *T) {
+	if Double(2) != 4 {
+		t.Error("wrong")
+	}
+}
+
+func TestAliasedHelperAsserts(t *T) {
+	check(t, Double(2))
+}
+
+func check(t testing.TB, got int) {
+	t.Helper()
+	if got != 4 {
+		t.Error("wrong")
+	}
+}
+
+func TestReadsFailedOnly(t *testing.T) { // want "TestReadsFailedOnly has no assertion"
+	Double(2)
+	if t.Failed() {
+		t.Log("failed")
+	}
+}

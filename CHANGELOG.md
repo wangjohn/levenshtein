@@ -268,6 +268,9 @@ Consumers pin a release tag, or its commit SHA, as described in
 - LV1002 checks structs built inside `switch`, type switch, and `select`
   cases. A case holds its statements without a block of its own, so
   `var s S; s.A = 1` inside one went unreported.
+- LV1006 checks a test whose parameter names `testing.T` through an alias, as
+  in `type T = testing.T; func TestX(t *T)`, which go test runs, and no longer
+  counts `t.Failed()` as a way to fail: it only reads the test's state.
 
 ## [0.1.0] - 2026-09-22
 
