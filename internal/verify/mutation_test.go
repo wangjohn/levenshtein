@@ -295,3 +295,17 @@ func TestMutationStdoutSummarizesAPassingRun(t *testing.T) {
 		t.Errorf("a pass must keep its uncovered list in the details: %s", details)
 	}
 }
+
+func TestMutationStdoutShowsTheRunnersWarnings(t *testing.T) {
+	warning := "4 of 4 covered mutants in slow timed out under a 20s limit; they count as caught, so check that its tests finish well within that limit"
+	summary := `{"killed":1,"lived":0,"unchanged_survivors":0,"accepted":0,"not_covered":0,"timed_out":4,"not_viable":0,"skipped":0,"warnings":["` + warning + `"],"files":["fast/fast.go","slow/slow.go"]}`
+
+	stdout, _ := mutationStdout(summary, "Go files changed since main", nil)
+
+	// A pass whose timeouts may hide a weak test has to say so where a person
+	// reads the result, not only in the details.
+	want := "Go files changed since main: 2 files mutated; 1 killed, 4 timed out, 0 survived on changed lines, 0 survived elsewhere, 0 accepted, 0 not covered\nwarning: " + warning
+	if stdout != want {
+		t.Errorf("stdout = %q, want %q", stdout, want)
+	}
+}

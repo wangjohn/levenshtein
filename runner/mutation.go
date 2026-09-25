@@ -5,12 +5,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"maps"
 	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	"dagger/levenshtein/internal/dagger"
 
@@ -18,19 +23,39 @@ import (
 )
 
 // Gremlins settings that decide results. A fixed worker count keeps load, and
-// so the per-mutant time limits, the same from one machine to the next; the
-// coefficient scales each limit from the coverage run's duration, which a warm
-// build cache makes short enough to time out every mutant at the default of 3.
+// so the per-mutant time limits, the same from one machine to the next. Each
+// limit is the coverage run's duration times the coefficient.
 const (
 	gremlinsWorkers     = "2"
-	gremlinsTimeoutCoef = "10"
+	gremlinsTimeoutCoef = 10
 	gremlinsReportDir   = "/report"
 	gremlinsReportPath  = gremlinsReportDir + "/out.json"
 	gremlinsNoResults   = "No results to report."
 
+	// gremlinsGoFlags makes gremlins' coverage run and every mutant's test run
+	// execute the tests. The build cache persists between runs, and a coverage
+	// run that replays go test's cached result takes milliseconds, which would
+	// set limits too short for the tests to finish.
+	gremlinsGoFlags = "-count=1"
+
+	// mutantTimeFloor is the shortest per-mutant limit whose timeouts count as
+	// caught. Before its tests start, a mutant's run recompiles the package and
+	// links a test binary, which takes seconds on a shared CI runner even with
+	// a warm build cache; a shorter limit can end a run that would not hang.
+	mutantTimeFloor = 10 * time.Second
+
+	// gremlinsAttempts bounds how often gremlins runs with a raised
+	// coefficient when a limit fell below the floor and a mutant timed out.
+	gremlinsAttempts = 3
+
 	// minTimeoutsForIncomplete is how many covered mutants have to time out,
 	// with none killed or surviving, before the run is blamed on the machine.
 	minTimeoutsForIncomplete = 3
+
+	// minTimeoutsForWarning is how many of a package's covered mutants have to
+	// time out, and be at least half of them, before the summary warns that
+	// its tests may be slower than the limit rather than hung by the mutants.
+	minTimeoutsForWarning = 2
 
 	// defaultAcceptedPath matches the CLI default and the +default below.
 	defaultAcceptedPath = ".levenshtein/mutation-accepted.json"
@@ -76,20 +101,28 @@ type acceptedFile struct {
 
 // acceptedEntry matches a surviving mutant by the text of its line rather than
 // the line number, so edits elsewhere in the file do not break the match.
+// Function and Occurrence narrow an entry whose text appears on more than one
+// line: Function names the enclosing function, as Name or Type.Method, and
+// Occurrence counts lines with that text from the top of the file, or of the
+// function when Function is set, starting at 1.
 type acceptedEntry struct {
-	File    string `json:"file"`
-	Mutator string `json:"mutator"`
-	Line    string `json:"line"`
-	Reason  string `json:"reason"`
+	File       string `json:"file"`
+	Mutator    string `json:"mutator"`
+	Line       string `json:"line"`
+	Function   string `json:"function,omitempty"`
+	Occurrence int    `json:"occurrence,omitempty"`
+	Reason     string `json:"reason"`
 }
 
-// mutationRun is what one gremlins invocation produced.
+// mutationRun is what one gremlins invocation produced, and the coefficient it
+// ran with, which with the coverage time in Stdout gives each mutant's limit.
 type mutationRun struct {
-	ExitCode int
-	Stdout   string
-	Stderr   string
-	Report   string
-	Reported bool
+	ExitCode    int
+	Stdout      string
+	Stderr      string
+	Report      string
+	Reported    bool
+	Coefficient int
 }
 
 // mutationSummary is returned on every completed run, so a person sees the
@@ -106,6 +139,7 @@ type mutationSummary struct {
 	Uncovered       []mutationMutant `json:"uncovered,omitempty"`
 	UnchangedList   []mutationMutant `json:"unchanged,omitempty"`
 	TimedOutMutants []mutationMutant `json:"timed_out_mutants,omitempty"`
+	Warnings        []string         `json:"warnings,omitempty"`
 	Files           []string         `json:"files"`
 }
 
@@ -164,6 +198,9 @@ func parseAccepted(data string, present bool) ([]acceptedEntry, error) {
 		if strings.TrimSpace(entry.Reason) == "" {
 			return nil, fmt.Errorf("accepted survivor #%d (%s, %s) needs a reason", i+1, entry.File, entry.Mutator)
 		}
+		if entry.Occurrence < 0 {
+			return nil, fmt.Errorf("accepted survivor #%d (%s, %s) needs an occurrence of 1 or more", i+1, entry.File, entry.Mutator)
+		}
 	}
 	return file.Accepted, nil
 }
@@ -216,8 +253,10 @@ func exclusions(all, selected []string) []string {
 // A survivor fails the check only on a line the change wrote, so a pull request
 // is not failed for gaps it inherited; other survivors are listed in the
 // summary. A timed-out mutant counts as caught, the way PIT and Stryker count
-// it: a mutation that makes the code hang is one the tests noticed. A run is
-// incomplete only when every covered mutant timed out, and there were enough of
+// it: a mutation that makes the code hang is one the tests noticed. That holds
+// only for a limit of at least mutantTimeFloor; a timeout under a shorter one,
+// or under a limit the run did not report, makes the run incomplete. A run is
+// also incomplete when every covered mutant timed out, and there were enough of
 // them that deliberate hangs are an unlikely explanation; that points at the
 // machine rather than the code.
 func decideMutation(run mutationRun, in mutationInput) (mutationVerdict, error) {
@@ -244,6 +283,8 @@ func decideMutation(run mutationRun, in mutationInput) (mutationVerdict, error) 
 	}
 	var lived, timedOut []mutationMutant
 	mutated := map[string]bool{}
+	covered := map[string]int{}
+	timedOutIn := map[string]int{}
 	for _, file := range report.Files {
 		if !selected[file.FileName] {
 			return mutationVerdict{}, fmt.Errorf("gremlins mutated %q, which was not selected", file.FileName)
@@ -254,14 +295,18 @@ func decideMutation(run mutationRun, in mutationInput) (mutationVerdict, error) 
 			switch m.Status {
 			case mutationKilled:
 				summary.Killed++
+				covered[path.Dir(mutant.File)]++
 			case mutationLived:
 				lived = append(lived, mutant)
+				covered[path.Dir(mutant.File)]++
 			case mutationNotCovered:
 				summary.NotCovered++
 				summary.Uncovered = append(summary.Uncovered, mutant)
 			case mutationTimedOut:
 				summary.TimedOut++
 				timedOut = append(timedOut, mutant)
+				covered[path.Dir(mutant.File)]++
+				timedOutIn[path.Dir(mutant.File)]++
 				summary.TimedOutMutants = append(summary.TimedOutMutants, mutant)
 			case mutationNotViable:
 				summary.NotViable++
@@ -275,14 +320,21 @@ func decideMutation(run mutationRun, in mutationInput) (mutationVerdict, error) 
 		}
 	}
 
-	// An entry is used when it matches a survivor. An entry for a file this
-	// run mutated that matches no mutant at all is stale.
-	used := make([]bool, len(in.Accepted))
+	// Every entry is matched against the whole report first: one that fits
+	// survivors on more than one line accepts none of them, and one whose
+	// mutants are all caught no longer describes a survivor.
+	limit, measured := run.limit()
+	trusted := measured && limit >= mutantTimeFloor
+	index := newSourceIndex(in.Sources)
+	matches := make([]entryMatch, len(in.Accepted))
+	for i, entry := range in.Accepted {
+		matches[i] = matchEntry(report, index, entry, trusted)
+	}
+
 	var findings []diagnostic
 	for _, mutant := range sortedMutants(lived) {
 		text := sourceLine(in.Sources, mutant)
-		if i := acceptedIndex(in.Accepted, mutant, text); i >= 0 {
-			used[i] = true
+		if accepts(in.Accepted, matches, index, mutant) {
 			summary.Accepted++
 			continue
 		}
@@ -299,33 +351,127 @@ func decideMutation(run mutationRun, in mutationInput) (mutationVerdict, error) 
 		})
 	}
 	for i, entry := range in.Accepted {
-		if used[i] || !mutated[entry.File] || matchesAnyMutant(report, in.Sources, entry) {
+		if !mutated[entry.File] {
+			continue // Entries for files this run did not mutate are not judged.
+		}
+		match := matches[i]
+		described := fmt.Sprintf("accepted survivor for %s (%s, %q)", entry.File, entry.Mutator, entry.Line)
+		code := "go-mutation-stale"
+		var message string
+		switch {
+		case len(match.Survivors) == 1, len(match.Survivors) == 0 && match.Pending:
 			continue
+		case len(match.Survivors) > 1:
+			code = "go-mutation-ambiguous"
+			message = fmt.Sprintf("%s matches survivors on lines %s; add \"function\" or \"occurrence\" to name one", described, joinLines(match.Survivors))
+		case match.Caught:
+			message = described + " is now caught by a test; remove it"
+		default:
+			message = described + " no longer matches a mutant; remove it"
 		}
 		findings = append(findings, diagnostic{
-			Code:     "go-mutation-stale",
-			Message:  fmt.Sprintf("accepted survivor for %s (%s, %q) no longer matches a mutant; remove it", entry.File, entry.Mutator, entry.Line),
-			Location: location{File: in.AcceptedPath, Line: entryLine(in.AcceptedText, entry.Line)},
+			Code:     code,
+			Message:  message,
+			Location: location{File: in.AcceptedPath, Line: entryLine(in.AcceptedText, in.Accepted, i)},
 		})
 	}
+
 	// Hangs are deterministic, so a few mutants that all hang is a result, not
 	// an environment failure; incomplete would fail that change on every run,
-	// with nothing the accepted file could clear.
+	// with nothing the accepted file could clear. A timeout under a limit too
+	// short to trust is different: the tests may never have started.
 	survivors := summary.Lived + summary.Unchanged + summary.Accepted
-	incomplete := summary.TimedOut >= minTimeoutsForIncomplete && summary.Killed == 0 && survivors == 0
+	short := summary.TimedOut > 0 && !trusted
+	incomplete := short || summary.TimedOut >= minTimeoutsForIncomplete && summary.Killed == 0 && survivors == 0
 	if incomplete {
+		reason := "like every other covered mutant"
+		if short {
+			reason = "under a limit gremlins did not report"
+			if measured {
+				reason = fmt.Sprintf("under a %s limit, shorter than the %s floor", limit, mutantTimeFloor)
+			}
+		}
 		for _, mutant := range sortedMutants(timedOut) {
 			findings = append(findings, diagnostic{
 				Code:     "go-mutation-timeout",
-				Message:  fmt.Sprintf("%s mutant timed out, like every other covered mutant, so the run gave no verdict: %s", mutant.Mutator, sourceLine(in.Sources, mutant)),
+				Message:  fmt.Sprintf("%s mutant timed out %s, so the run gave no verdict: %s", mutant.Mutator, reason, sourceLine(in.Sources, mutant)),
 				Location: location{File: moduleFile(in.Module, mutant.File), Line: mutant.Line, Column: mutant.Column},
 			})
 		}
+	} else {
+		summary.Warnings = timeoutWarnings(covered, timedOutIn, limit)
 	}
 	summary.Uncovered = sortedMutants(summary.Uncovered)
 	summary.UnchangedList = sortedMutants(summary.UnchangedList)
 	summary.TimedOutMutants = sortedMutants(summary.TimedOutMutants)
 	return mutationVerdict{Findings: findings, Incomplete: incomplete, Summary: summary}, nil
+}
+
+// timeoutWarnings names each package where timeouts were at least half of the
+// covered mutants. They still count as caught, but so many hangs more often
+// mean tests slower than the limit than mutations that all loop forever.
+func timeoutWarnings(covered, timedOut map[string]int, limit time.Duration) []string {
+	var warnings []string
+	for _, dir := range slices.Sorted(maps.Keys(timedOut)) {
+		n := timedOut[dir]
+		if n < minTimeoutsForWarning || 2*n < covered[dir] {
+			continue
+		}
+		warnings = append(warnings, fmt.Sprintf("%d of %d covered mutants in %s timed out under a %s limit; they count as caught, so check that its tests finish well within that limit", n, covered[dir], dir, limit))
+	}
+	return warnings
+}
+
+// coverageDone finds the duration gremlins prints when its coverage run ends;
+// the go command's own output can come between the two parts.
+var coverageDone = regexp.MustCompile(`Gathering coverage\.\.\.[\s\S]*?\bdone in (\S+)`)
+
+// coverageTime reads how long gremlins' coverage run took from its output.
+func coverageTime(stdout string) (time.Duration, bool) {
+	match := coverageDone.FindStringSubmatch(stdout)
+	if match == nil {
+		return 0, false
+	}
+	elapsed, err := time.ParseDuration(match[1])
+	return elapsed, err == nil
+}
+
+// limit is the time each mutant's tests had: gremlins multiplies its coverage
+// time by the coefficient.
+func (r mutationRun) limit() (time.Duration, bool) {
+	elapsed, ok := coverageTime(r.Stdout)
+	if !ok || r.Coefficient < 1 {
+		return 0, false
+	}
+	return elapsed * time.Duration(r.Coefficient), true
+}
+
+// longerCoefficient returns the coefficient to run gremlins again with when
+// this run timed out a mutant under a limit below mutantTimeFloor. It aims at
+// twice the floor, so a rerun whose coverage is somewhat faster still clears
+// it; the higher limit costs time only for mutants that do hang.
+func longerCoefficient(run mutationRun) (int, bool) {
+	var report gremlinsReport
+	if run.ExitCode != 0 || !run.Reported || json.Unmarshal([]byte(run.Report), &report) != nil {
+		return 0, false
+	}
+	timedOut := slices.ContainsFunc(report.Files, func(file gremlinsFile) bool {
+		return slices.ContainsFunc(file.Mutations, func(m gremlinsMutation) bool { return m.Status == mutationTimedOut })
+	})
+	elapsed, measured := coverageTime(run.Stdout)
+	if limit, _ := run.limit(); !timedOut || !measured || limit >= mutantTimeFloor {
+		return 0, false
+	}
+	elapsed = max(elapsed, time.Millisecond)
+	return int((2*mutantTimeFloor + elapsed - 1) / elapsed), true
+}
+
+func joinLines(lines []int) string {
+	text := make([]string, len(lines))
+	for i, line := range lines {
+		text[i] = strconv.Itoa(line)
+	}
+	return strings.Join(text, ", ")
 }
 
 // onChangedLine reports whether a mutant sits on a line the change wrote. Nil
@@ -386,43 +532,176 @@ func sourceLine(sources map[string][]string, mutant mutationMutant) string {
 	return strings.TrimSpace(lines[mutant.Line-1])
 }
 
-func acceptedIndex(accepted []acceptedEntry, mutant mutationMutant, text string) int {
-	return slices.IndexFunc(accepted, func(entry acceptedEntry) bool {
-		return entry.File == mutant.File && entry.Mutator == mutant.Mutator && strings.TrimSpace(entry.Line) == text
-	})
+// entryMatch is what one accepted entry fits in a run: the distinct lines of
+// the survivors it matches, and whether it matches mutants a test caught or
+// mutants no test judged.
+type entryMatch struct {
+	Survivors []int
+	Caught    bool
+	Pending   bool
 }
 
-// matchesAnyMutant keeps an entry that names a mutant this run killed or could
-// not cover from being called stale: the survivor it describes may come back.
-func matchesAnyMutant(report gremlinsReport, sources map[string][]string, entry acceptedEntry) bool {
+// matchEntry matches an entry against every mutant of its file. A timeout
+// counts as caught only under a trusted limit.
+func matchEntry(report gremlinsReport, index sourceIndex, entry acceptedEntry, trusted bool) entryMatch {
+	var survivors []int
+	caught := false
+	pending := false
 	for _, file := range report.Files {
 		if file.FileName != entry.File {
 			continue
 		}
 		for _, m := range file.Mutations {
-			mutant := mutationMutant{File: file.FileName, Line: m.Line, Column: m.Column, Mutator: m.Type}
-			if m.Type == entry.Mutator && sourceLine(sources, mutant) == strings.TrimSpace(entry.Line) {
-				return true
+			if !index.matches(entry, mutationMutant{File: file.FileName, Line: m.Line, Column: m.Column, Mutator: m.Type}) {
+				continue
 			}
+			switch m.Status {
+			case mutationLived:
+				survivors = append(survivors, m.Line)
+			case mutationKilled:
+				caught = true
+			case mutationTimedOut:
+				caught = caught || trusted
+				pending = pending || !trusted
+			case mutationNotCovered, mutationNotViable, mutationSkipped, mutationRunnable:
+				pending = true
+			}
+		}
+	}
+	slices.Sort(survivors)
+	return entryMatch{Survivors: slices.Compact(survivors), Caught: caught, Pending: pending}
+}
+
+// accepts reports whether an entry that fits survivors on a single line
+// matches this one.
+func accepts(entries []acceptedEntry, matches []entryMatch, index sourceIndex, mutant mutationMutant) bool {
+	for i, entry := range entries {
+		if len(matches[i].Survivors) == 1 && index.matches(entry, mutant) {
+			return true
 		}
 	}
 	return false
 }
 
-// entryLine finds the line of the accepted file that holds an entry's source
-// text, so a stale finding points at the entry to delete.
-func entryLine(text, line string) int {
+// sourceIndex holds what an accepted entry matches on besides the mutator:
+// each line's trimmed text and the function that encloses it.
+type sourceIndex struct {
+	sources   map[string][]string
+	functions map[string][]string
+}
+
+func newSourceIndex(sources map[string][]string) sourceIndex {
+	functions := map[string][]string{}
+	for file, lines := range sources {
+		functions[file] = enclosingFunctions(file, lines)
+	}
+	return sourceIndex{sources: sources, functions: functions}
+}
+
+func (s sourceIndex) text(file string, line int) string {
+	return sourceLine(s.sources, mutationMutant{File: file, Line: line})
+}
+
+func (s sourceIndex) function(file string, line int) string {
+	names := s.functions[file]
+	if line < 1 || line > len(names) {
+		return ""
+	}
+	return names[line-1]
+}
+
+// occurrence counts the lines up to and including line that have its text,
+// only within its function when scoped.
+func (s sourceIndex) occurrence(file string, line int, scoped bool) int {
+	text := s.text(file, line)
+	function := s.function(file, line)
+	count := 0
+	for other := 1; other <= line; other++ {
+		if s.text(file, other) == text && (!scoped || s.function(file, other) == function) {
+			count++
+		}
+	}
+	return count
+}
+
+func (s sourceIndex) matches(entry acceptedEntry, mutant mutationMutant) bool {
+	if entry.File != mutant.File || entry.Mutator != mutant.Mutator || strings.TrimSpace(entry.Line) != s.text(mutant.File, mutant.Line) {
+		return false
+	}
+	if entry.Function != "" && s.function(mutant.File, mutant.Line) != entry.Function {
+		return false
+	}
+	return entry.Occurrence == 0 || s.occurrence(mutant.File, mutant.Line, entry.Function != "") == entry.Occurrence
+}
+
+// enclosingFunctions names the function around each line of a file, as Name or
+// Type.Method, or "" outside any function. A file that does not parse names
+// none, so an entry that needs a function matches nothing in it.
+func enclosingFunctions(file string, lines []string) []string {
+	names := make([]string, len(lines))
+	fset := token.NewFileSet()
+	parsed, err := parser.ParseFile(fset, file, strings.Join(lines, "\n"), parser.SkipObjectResolution)
+	if err != nil {
+		return names
+	}
+	for _, decl := range parsed.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+		name := functionName(fn)
+		for line := fset.Position(fn.Pos()).Line; line <= fset.Position(fn.End()).Line && line <= len(names); line++ {
+			names[line-1] = name
+		}
+	}
+	return names
+}
+
+func functionName(fn *ast.FuncDecl) string {
+	if fn.Recv == nil || len(fn.Recv.List) == 0 {
+		return fn.Name.Name
+	}
+	receiver := fn.Recv.List[0].Type
+	if star, ok := receiver.(*ast.StarExpr); ok {
+		receiver = star.X
+	}
+	switch generic := receiver.(type) {
+	case *ast.IndexExpr:
+		receiver = generic.X
+	case *ast.IndexListExpr:
+		receiver = generic.X
+	}
+	if ident, ok := receiver.(*ast.Ident); ok {
+		return ident.Name + "." + fn.Name.Name
+	}
+	return fn.Name.Name
+}
+
+// entryLine finds the line of the accepted file that holds an entry, so a
+// finding points at the entry to change. Entries can share their text, so it
+// skips one matching line for each earlier entry with the same text.
+func entryLine(text string, entries []acceptedEntry, i int) int {
 	// Encode the way a person writes the file: json.Marshal would escape the
 	// < and > that comparisons are full of.
 	var encoded strings.Builder
 	encoder := json.NewEncoder(&encoded)
 	encoder.SetEscapeHTML(false)
-	_ = encoder.Encode(line) // A string always encodes.
+	_ = encoder.Encode(entries[i].Line) // A string always encodes.
 	quoted := strings.TrimSpace(encoded.String())
-	for i, candidate := range strings.Split(text, "\n") {
-		if strings.Contains(candidate, quoted) {
-			return i + 1
+	skip := 0
+	for _, earlier := range entries[:i] {
+		if earlier.Line == entries[i].Line {
+			skip++
 		}
+	}
+	for n, candidate := range strings.Split(text, "\n") {
+		if !strings.Contains(candidate, quoted) {
+			continue
+		}
+		if skip == 0 {
+			return n + 1
+		}
+		skip--
 	}
 	return 1
 }
@@ -516,11 +795,22 @@ func mutate(ctx context.Context, source *dagger.Directory, module string, tools 
 		return mutationVerdict{}, err
 	}
 	in.Lines = lines
-	run, err := runGremlins(ctx, source, module, tools, exclusions(all, files), tags, nonce)
-	if err != nil {
-		return mutationVerdict{}, err
+	patterns := exclusions(all, files)
+
+	// A fast coverage run makes limits too short to trust, and only a run
+	// that timed out a mutant under one needs to be repeated.
+	coefficient := gremlinsTimeoutCoef
+	for attempt := 1; ; attempt++ {
+		run, err := runGremlins(ctx, source, module, tools, patterns, tags, nonce, coefficient)
+		if err != nil {
+			return mutationVerdict{}, err
+		}
+		longer, retry := longerCoefficient(run)
+		if !retry || attempt == gremlinsAttempts {
+			return decideMutation(run, in)
+		}
+		coefficient = longer
 	}
-	return decideMutation(run, in)
 }
 
 // mutationSources reads what the verdict compares against: each selected
@@ -568,7 +858,7 @@ func mutationSources(ctx context.Context, source *dagger.Directory, module strin
 // runGremlins builds the pinned gremlins and runs it once from the module root.
 // One invocation means one coverage pass; gremlins then tests each mutant
 // against its own package only.
-func runGremlins(ctx context.Context, source *dagger.Directory, module string, tools toolchain, patterns []string, tags, nonce string) (mutationRun, error) {
+func runGremlins(ctx context.Context, source *dagger.Directory, module string, tools toolchain, patterns []string, tags, nonce string, coefficient int) (mutationRun, error) {
 	ctr := goContainer(tools).
 		WithDirectory("/tools", dag.CurrentModule().Source().Directory("tools")).
 		WithWorkdir("/tools").
@@ -577,19 +867,13 @@ func runGremlins(ctx context.Context, source *dagger.Directory, module string, t
 		WithDirectory(gremlinsReportDir, dag.Directory()).
 		WithWorkdir(path.Join("/src", module)).
 		WithEnvVariable("NO_COLOR", "1")
+	// Gremlins passes its environment to every go command it runs.
+	ctr = ctr.WithEnvVariable("GOFLAGS", gremlinsGoFlags)
 	if nonce != "" {
 		ctr = ctr.WithEnvVariable("LEVENSHTEIN_RUN_NONCE", nonce)
 	}
 
-	command := []string{"gremlins", "unleash", ".", "--workers", gremlinsWorkers, "--timeout-coefficient", gremlinsTimeoutCoef, "--output", gremlinsReportPath}
-	if tags != "" {
-		command = append(command, "--tags", tags)
-	}
-	for _, pattern := range patterns {
-		command = append(command, "-E", pattern)
-	}
-
-	checked := ctr.WithExec(command, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
+	checked := ctr.WithExec(gremlinsCommand(coefficient, tags, patterns), dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
 	exitCode, err := checked.ExitCode(ctx)
 	if err != nil {
 		return mutationRun{}, err
@@ -606,7 +890,7 @@ func runGremlins(ctx context.Context, source *dagger.Directory, module string, t
 	if err != nil {
 		return mutationRun{}, err
 	}
-	run := mutationRun{ExitCode: exitCode, Stdout: stdout, Stderr: stderr}
+	run := mutationRun{ExitCode: exitCode, Stdout: stdout, Stderr: stderr, Coefficient: coefficient}
 	if !slices.Contains(entries, path.Base(gremlinsReportPath)) {
 		return run, nil
 	}
@@ -614,5 +898,17 @@ func runGremlins(ctx context.Context, source *dagger.Directory, module string, t
 	if err != nil {
 		return mutationRun{}, err
 	}
-	return mutationRun{ExitCode: exitCode, Stdout: stdout, Stderr: stderr, Report: report, Reported: true}, nil
+	return mutationRun{ExitCode: exitCode, Stdout: stdout, Stderr: stderr, Report: report, Reported: true, Coefficient: coefficient}, nil
+}
+
+// gremlinsCommand is one gremlins invocation over the module.
+func gremlinsCommand(coefficient int, tags string, patterns []string) []string {
+	command := []string{"gremlins", "unleash", ".", "--workers", gremlinsWorkers, "--timeout-coefficient", strconv.Itoa(coefficient), "--output", gremlinsReportPath}
+	if tags != "" {
+		command = append(command, "--tags", tags)
+	}
+	for _, pattern := range patterns {
+		command = append(command, "-E", pattern)
+	}
+	return command
 }
