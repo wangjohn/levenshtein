@@ -2,7 +2,7 @@
 
 Shared, pinned Go lint and verification for many repos.
 
-A comprehensive, carefully chosen set of Go lint rules, run by one `./verify` command that gives the same result locally, in CI, and for coding agents. The name comes from Levenshtein distance, the number of single-character edits between two strings. <!-- TODO(maintainer): confirm or replace this explanation of the name. -->
+A comprehensive, carefully chosen set of Go lint rules, run by one `./verify` command that gives the same result locally, in CI, and for coding agents. The name comes from Levenshtein distance, the number of single-character edits between two strings: the project gives coding agents a way to write code that stays a short edit distance from high-quality, maintainable code, and a way to measure that distance explicitly.
 
 Coding agents write a lot of code quickly, and they fix whatever their tools point out. That makes lint rules more important than ever. Good rules will catch unchecked errors, leaked resources, and sloppy code before anyone reviews the change, and the agent fixes those problems on its own. When much of your code isn't written by hand, lint rules are the most reliable way to keep a repo clean and well written.
 
