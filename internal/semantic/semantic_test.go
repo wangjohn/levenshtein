@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/wangjohn/levenshtein/internal/testgit"
@@ -596,7 +597,7 @@ func TestClientRetriesRateLimitsButNotRejections(t *testing.T) {
 	jev := &fakeJev{noul: 0.5, statuses: []int{http.StatusServiceUnavailable, http.StatusTooManyRequests, http.StatusOK}}
 	server := httptest.NewServer(jev.handler(t))
 	defer server.Close()
-	client := Client{BaseURL: server.URL, APIKey: "test-key", Model: DefaultModel}
+	client := Client{BaseURL: server.URL, APIKey: "test-key", Model: DefaultModel, sleep: recordSleeps(new([]time.Duration))}
 	questions := map[string]wireQuestion{"q": {Type: PrimitiveNoul, Instructions: "x"}}
 
 	response, err := client.Ask(context.Background(), "state", questions)
@@ -614,6 +615,75 @@ func TestClientRetriesRateLimitsButNotRejections(t *testing.T) {
 	var apiErr *APIError
 	if _, err := client.Ask(context.Background(), "state", questions); !errors.As(err, &apiErr) || apiErr.Status != http.StatusUnauthorized {
 		t.Fatalf("rejection must not retry: %v", err)
+	}
+}
+
+// recordSleeps stands in for the retry wait and records each delay.
+func recordSleeps(delays *[]time.Duration) func(context.Context, time.Duration) error {
+	return func(_ context.Context, delay time.Duration) error {
+		*delays = append(*delays, delay)
+		return nil
+	}
+}
+
+func TestClientDoesNotWaitAfterTheLastAttempt(t *testing.T) {
+	jev := &fakeJev{statuses: []int{http.StatusServiceUnavailable, http.StatusServiceUnavailable, http.StatusServiceUnavailable}}
+	server := httptest.NewServer(jev.handler(t))
+	defer server.Close()
+	var delays []time.Duration
+	client := Client{BaseURL: server.URL, APIKey: "test-key", Model: DefaultModel, sleep: recordSleeps(&delays)}
+
+	_, err := client.Ask(t.Context(), "state", map[string]wireQuestion{"q": {Type: PrimitiveNoul}})
+
+	if err == nil || !strings.Contains(err.Error(), "gave up after 3 attempts") || jev.calls.Load() != 3 {
+		t.Fatalf("err=%v calls=%d", err, jev.calls.Load())
+	}
+	if len(delays) != 2 {
+		t.Fatalf("waits = %v, want one between each pair of attempts and none after the last", delays)
+	}
+}
+
+func TestClientRetriesServerErrors(t *testing.T) {
+	jev := &fakeJev{noul: 0.5, statuses: []int{http.StatusInternalServerError, http.StatusBadGateway, http.StatusOK}}
+	server := httptest.NewServer(jev.handler(t))
+	defer server.Close()
+	var delays []time.Duration
+	client := Client{BaseURL: server.URL, APIKey: "test-key", Model: DefaultModel, sleep: recordSleeps(&delays)}
+
+	response, err := client.Ask(t.Context(), "state", map[string]wireQuestion{"q": {Type: PrimitiveNoul}})
+
+	if err != nil || response.Answers["q"].Noul == nil || jev.calls.Load() != 3 {
+		t.Fatalf("a 500 must be retried: %+v %v calls=%d", response, err, jev.calls.Load())
+	}
+}
+
+// A connection that accepts the request and never answers costs one attempt,
+// not the whole run's deadline.
+func TestClientRetriesAStalledAttempt(t *testing.T) {
+	var calls atomic.Int32
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			select {
+			case <-r.Context().Done():
+			case <-release:
+			}
+			return
+		}
+		score := 0.5
+		_ = json.NewEncoder(w).Encode(wireResponse{Model: DefaultModel, Answers: map[string]Answer{"q": {Type: PrimitiveNoul, Noul: &score}}})
+	}))
+	defer server.Close()
+	defer close(release)
+	var delays []time.Duration
+	client := Client{BaseURL: server.URL, APIKey: "test-key", Model: DefaultModel, AttemptTimeout: 100 * time.Millisecond, sleep: recordSleeps(&delays)}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	response, err := client.Ask(ctx, "state", map[string]wireQuestion{"q": {Type: PrimitiveNoul}})
+
+	if err != nil || response.Answers["q"].Noul == nil || calls.Load() != 2 {
+		t.Fatalf("a stalled attempt must be retried: %+v %v calls=%d", response, err, calls.Load())
 	}
 }
 

@@ -285,6 +285,10 @@ Consumers pin a release tag, or its commit SHA, as described in
   a backslash, or escaped non-ASCII bytes. Their diff headers kept git's
   trailing tab or C quoting, so the files were classified as neither Go nor
   Markdown and silently skipped, and commit summaries listed the raw header.
+- `semantic-lint` gives each API request 90 seconds and retries one that
+  stalls, instead of letting a hung connection use up the check's whole
+  timeout. HTTP 500 is retried like 502, 503, 504, and 429, and the client no
+  longer waits out a retry delay after its last attempt.
 
 ## [0.1.0] - 2026-09-22
 

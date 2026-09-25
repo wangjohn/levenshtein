@@ -31,7 +31,7 @@ Mechanical conventions belong in analyzers, not here. Spacing, struct field layo
 3. **Ask.** Each state goes to the pinned model with all of its questions in one request, a few requests at a time. Oversized states drop package signatures, then truncate the declaration text, to stay inside the model's context.
 4. **Compose.** Answers are matched back to their question and location. Every judgment is recorded. Findings are the ones that crossed their threshold.
 
-The check passes whenever every question received an answer. It is `incomplete` when the response omits a question, and `error` when the API key is missing, the base branch cannot be found (including on a shallow clone), the API is unreachable or rejects the request, or the timeout elapses. Rate limiting and overload are retried a few times. Results are never cached: the model is pinned but not bitwise deterministic, and the cost of a rerun is a fraction of a cent.
+The check passes whenever every question received an answer. It is `incomplete` when the response omits a question, and `error` when the API key is missing, the base branch cannot be found (including on a shallow clone), the API is unreachable or rejects the request, or the timeout elapses. Rate limiting, overload, server errors (HTTP 500, 502, 503, 504), and a request that gets no answer within 90 seconds are retried twice. Results are never cached: the model is pinned but not bitwise deterministic, and the cost of a rerun is a fraction of a cent.
 
 ## Configure
 
