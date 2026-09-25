@@ -42,8 +42,8 @@ Consumers pin a release tag, or its commit SHA, as described in
   output. Levenshtein never applies one
   ([table](docs/configuration.md#fix-hints)).
 - A findings baseline: an optional top-level `baseline` file records existing
-  `go-lint`, `go-http`, `go-sql`, and `go-imports` findings by kind, target
-  directory, file, code, and normalized message, never by line. Recorded findings are reported
+  `go-lint`, `go-http`, `go-sql`, `go-imports`, and `shell-lint` findings by
+  kind, target directory, file, code, and normalized message, never by line. Recorded findings are reported
   as `baselined` and do not fail; new ones fail as before; an entry a check no
   longer matches fails as `baseline-stale` until it is deleted.
   `--write-baseline` records a run in which every check reached a verdict, as
@@ -125,6 +125,15 @@ Consumers pin a release tag, or its commit SHA, as described in
   enforces that a rule module keeps the exports it has published.
 - Levenshtein checks its own layering with `go-imports` in `branch`,
   `pre-merge`, `branch-dagger`, and `main`.
+- `shell-lint`, a shared check on both executors that runs ShellCheck 0.11.0
+  over `*.sh` and `*.bash` files and extensionless scripts with a sh, bash,
+  dash, or ksh shebang, skipping `testdata`, `vendor`, and `node_modules`. Each
+  warning or error is a finding with its `SC` code and location; `info` and
+  `style` are not reported. It honors one root `.shellcheckrc` and otherwise
+  reads none. The upstream release archive is pinned by SHA-256 per platform
+  and verified before it runs ([details](docs/checks.md#shell-scripts)).
+  It requires a repository-root target and is not in any default gate: add it
+  to runs of your own.
 - `go-lint` runs three more upstream analyzers: `unparam` (unused parameters
   and results of unexported functions), `musttag` (untagged fields in structs
   passed to JSON, XML, YAML, and TOML encoders and decoders), and `recvcheck`
@@ -213,6 +222,9 @@ Consumers pin a release tag, or its commit SHA, as described in
 - Levenshtein's own `branch`, `pre-merge`, `branch-dagger`, and `main` runs
   include `workflow-security`. `security.yml` keeps zizmor's GitHub Action for
   the online audits and now names the same inputs as the shared check.
+- Levenshtein's own `branch`, `pre-merge`, `branch-dagger`, and `main` runs
+  include `shell-lint` over `scripts/` and `verify`. It found no problem in
+  Levenshtein's own scripts.
 - Levenshtein's own `levenshtein.json` has a native `go-test` run over the
   repository and `runner/lint` for local use. It is not part of `branch`,
   `pre-merge`, or `main`, because CI's `tests` job already runs

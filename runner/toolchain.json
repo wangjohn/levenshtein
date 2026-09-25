@@ -24,5 +24,17 @@
       "linux/amd64": {"name": "zizmor-x86_64-unknown-linux-gnu.tar.gz", "sha256": "e65324f4430c2717591937edcec90ccbefaf14c174f8ec9415e03ca875b46e1a"},
       "linux/arm64": {"name": "zizmor-aarch64-unknown-linux-gnu.tar.gz", "sha256": "7ff1dce33bdd18fd2a4affe63bdd47efcccca97b2cec1c1863ec26e9e2647540"}
     }
+  },
+  "shellcheck": {
+    "comment": "shell-lint runs this upstream release on either executor, downloading the asset for the host or engine platform and checking its SHA-256 before anything in it runs. Upstream publishes no checksum file: these are the SHA-256 digests of the downloaded .tar.gz assets, cross-checked by extracting the same binary from the .tar.xz assets, whose digests shellcheck-py's setup.cfg records independently. Refresh them the same way whenever version changes.",
+    "releases": "https://github.com/koalaman/shellcheck/releases/download",
+    "version": "0.11.0",
+    "binary": "shellcheck-v0.11.0/shellcheck",
+    "assets": {
+      "darwin/amd64": {"name": "shellcheck-v0.11.0.darwin.x86_64.tar.gz", "sha256": "c2c15e08df0e8fbc374c335b230a7ee958c313fa5714817a59aa59f1aa594f51"},
+      "darwin/arm64": {"name": "shellcheck-v0.11.0.darwin.aarch64.tar.gz", "sha256": "339b930feb1ea764467013cc1f72d09cd6b869ebf1013296ba9055ab2ffbd26f"},
+      "linux/amd64": {"name": "shellcheck-v0.11.0.linux.x86_64.tar.gz", "sha256": "b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6"},
+      "linux/arm64": {"name": "shellcheck-v0.11.0.linux.aarch64.tar.gz", "sha256": "68a8133197a50beb8803f8d42f9908d1af1c5540d4bb05fdfca8c1fa47decefc"}
+    }
   }
 }

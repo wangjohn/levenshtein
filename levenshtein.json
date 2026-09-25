@@ -41,6 +41,11 @@
       "workspace": ".",
       "inputs": [".github", "action.yml"]
     },
+    "scripts": {
+      "dir": ".",
+      "workspace": ".",
+      "inputs": ["scripts", "verify"]
+    },
     "repository": {
       "dir": ".",
       "workspace": ".",
@@ -61,6 +66,7 @@
     "go-vuln": {"kind": "go-vuln", "targets": ["root", "runner", "lint", "community"], "environment": "go"},
     "workflow-lint": {"kind": "workflow-lint", "target": "workflows", "environment": "go"},
     "workflow-security": {"kind": "workflow-security", "target": "actions", "environment": "go"},
+    "shell-lint": {"kind": "shell-lint", "target": "scripts", "environment": "go"},
     "self-test": {"kind": "self-test", "target": "root", "environment": "go"},
     "semantic-lint": {"kind": "semantic-lint", "target": "repository", "environment": "host"},
     "native-go-lint": {"kind": "go-lint", "targets": ["root", "runner", "lint", "community", "example"], "environment": "host-go"},
@@ -75,6 +81,7 @@
     "native-go-imports-lint": {"kind": "go-imports", "target": "lint", "environment": "host-go", "imports": {"rules": [{"packages": ["./..."], "deny": ["dagger.io/...", "dagger/..."], "reason": "the linter and levenshtein-gocheck build the same way on the host and in Dagger, so they never depend on the Dagger SDK"}, {"packages": ["./policy/..."], "allow": ["std", "golang.org/x/tools/go/..."], "reason": "the house rules are plain go/analysis analyzers, independent of Staticcheck and the upstream analyzers beside them"}, {"packages": ["./gocheck/..."], "allow": ["std", "golang.org/x/mod/..."], "reason": "levenshtein-gocheck needs no type checker or analyzer, so it stays a small, fast build"}]}},
     "go-apidiff": {"kind": "go-apidiff", "target": "example", "environment": "go"},
     "native-go-apidiff": {"kind": "go-apidiff", "target": "example", "environment": "host-go"},
+    "native-shell-lint": {"kind": "shell-lint", "target": "scripts", "environment": "host-go"},
     "go-mutation": {"kind": "go-mutation", "target": "repository", "environment": "go"},
     "go-mutation-lint": {"kind": "go-mutation", "target": "lint", "environment": "go", "mutation": {"accepted": "runner/lint/.levenshtein/mutation-accepted.json"}}
   },
@@ -90,12 +97,13 @@
     "go-vuln": {"checks": ["go-vuln"]},
     "workflow-lint": {"checks": ["native-workflow-lint"]},
     "workflow-security": {"checks": ["native-workflow-security"]},
+    "shell-lint": {"checks": ["native-shell-lint"]},
     "self-test": {"checks": ["self-test"]},
     "semantic-lint": {"checks": ["semantic-lint"]},
     "mutation": {"checks": ["go-mutation", "go-mutation-lint"]},
-    "branch": {"checks": ["native-go-lint", "native-go-vet", "native-go-mod", "native-go-imports", "native-go-imports-lint", "native-workflow-lint", "native-workflow-security"]},
-    "pre-merge": {"checks": ["native-go-lint", "native-go-vet", "native-go-mod", "native-go-imports", "native-go-imports-lint", "native-workflow-lint", "native-workflow-security", "self-test"]},
-    "branch-dagger": {"checks": ["go-lint", "go-vet", "go-mod", "go-imports", "go-imports-lint", "workflow-lint", "workflow-security"]},
-    "main": {"checks": ["go-lint", "go-vet", "go-mod", "go-imports", "go-imports-lint", "workflow-lint", "workflow-security", "self-test", "go-vuln"], "rerun_checks": true}
+    "branch": {"checks": ["native-go-lint", "native-go-vet", "native-go-mod", "native-go-imports", "native-go-imports-lint", "native-workflow-lint", "native-workflow-security", "native-shell-lint"]},
+    "pre-merge": {"checks": ["native-go-lint", "native-go-vet", "native-go-mod", "native-go-imports", "native-go-imports-lint", "native-workflow-lint", "native-workflow-security", "native-shell-lint", "self-test"]},
+    "branch-dagger": {"checks": ["go-lint", "go-vet", "go-mod", "go-imports", "go-imports-lint", "workflow-lint", "workflow-security", "shell-lint"]},
+    "main": {"checks": ["go-lint", "go-vet", "go-mod", "go-imports", "go-imports-lint", "workflow-lint", "workflow-security", "shell-lint", "self-test", "go-vuln"], "rerun_checks": true}
   }
 }

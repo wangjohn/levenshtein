@@ -25,6 +25,8 @@ archives:
       - runner/mutation.go
       - runner/zizmor.go
       - runner/gocheck.go
+      - runner/releases.go
+      - runner/shelllint.go
       - runner/community.go
       - runner/rule-modules.json
       - runner/go.mod
