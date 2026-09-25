@@ -6,12 +6,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/wangjohn/levenshtein/internal/testgit"
 )
 
 const semanticConfig = `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"host":{"executor":"native"}},"checks":{"semantic":{"kind":"semantic-lint","target":"app","environment":"host"%s}},"runs":{"branch":{"checks":["semantic"]},"audit":{"checks":["semantic"],"rerun_checks":true}}}`
@@ -130,18 +132,12 @@ func TestSemanticLintRequiresAPIKey(t *testing.T) {
 
 func gitRepo(t *testing.T) string {
 	t.Helper()
-	git, err := exec.LookPath("git")
-	if err != nil {
-		t.Skip("git is not installed")
-	}
+	git := testgit.Path(t)
+	testgit.Isolate(t) // The check runs git with the process environment.
 	dir := t.TempDir()
 	run := func(args ...string) {
-		cmd := exec.CommandContext(t.Context(), git, args...)
-		cmd.Dir = dir
-		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
+		t.Helper()
+		testgit.Run(t, git, dir, args...)
 	}
 	write := func(path, content string) {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, path)), 0755); err != nil {
@@ -284,6 +280,114 @@ func TestSemanticLintExecutesAdvisoryCheck(t *testing.T) {
 	result = (&Native{}).Execute(context.Background(), req)
 	if result.Status != StatusError || !strings.Contains(result.Error, "https") {
 		t.Fatalf("a plain-http origin off loopback must be refused: %+v", result)
+	}
+}
+
+// semanticServer answers every question with 0.9, except that it leaves out
+// the question omit and answers a request for a file path in reject with 400.
+// It counts the requests it receives.
+func semanticServer(t *testing.T, omit string, reject func(path string) bool) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		var req struct {
+			State     map[string]any            `json:"state"`
+			Questions map[string]map[string]any `json:"questions"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Error(err)
+		}
+		file, _ := req.State["file"].(map[string]any)
+		path, _ := file["path"].(string)
+		if reject(path) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"rejected"}`))
+			return
+		}
+		answers := map[string]any{}
+		for id, q := range req.Questions {
+			switch {
+			case id == omit:
+			case q["type"] == "score":
+				answers[id] = map[string]any{"type": "score", "score": 1.0, "confidence": 0.9}
+			default:
+				answers[id] = map[string]any{"type": "noul", "noul": 0.9}
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"model": "jev-1.13.0", "answers": answers, "usage": map[string]any{"input_tokens": 10}})
+	}))
+	t.Cleanup(server.Close)
+	return server, &calls
+}
+
+// The check is advisory: questions left unanswered are reported, and only a
+// run that got no answer at all is an error.
+func TestSemanticLintToleratesUnansweredQuestions(t *testing.T) {
+	source := gitRepo(t)
+	t.Setenv("TYPESAFE_API_KEY", "test")
+	t.Setenv("GITHUB_BASE_REF", "")
+	req := semanticRequest(t, source)
+
+	omitting, _ := semanticServer(t, "comment_explains_why#0", func(string) bool { return false })
+	t.Setenv("TYPESAFE_BASE_URL", omitting.URL)
+	result := (&Native{}).Execute(t.Context(), req)
+	if result.Status != StatusPassed || !strings.Contains(result.Stdout, "unanswered app/main.go:6 main comment_explains_why") {
+		t.Fatalf("an omitted answer must be reported, not fail the check: %+v", result)
+	}
+
+	rejectingCode, _ := semanticServer(t, "", func(path string) bool { return path != "" })
+	t.Setenv("TYPESAFE_BASE_URL", rejectingCode.URL)
+	result = (&Native{}).Execute(t.Context(), req)
+	if result.Status != StatusPassed || !strings.Contains(result.Stdout, "request failed: TypeSafe API returned HTTP 400") {
+		t.Fatalf("a rejected request must not discard the answered ones: %+v", result)
+	}
+
+	rejectingAll, _ := semanticServer(t, "", func(string) bool { return true })
+	t.Setenv("TYPESAFE_BASE_URL", rejectingAll.URL)
+	result = (&Native{}).Execute(t.Context(), req)
+	if result.Status != StatusError || !strings.Contains(result.Error, "no question was answered") || !strings.Contains(result.Error, "HTTP 400") {
+		t.Fatalf("a run without a single answer must be an error: %+v", result)
+	}
+}
+
+func TestSemanticLintAppliesItsBudgets(t *testing.T) {
+	source := gitRepo(t)
+	server, calls := semanticServer(t, "", func(string) bool { return false })
+	t.Setenv("TYPESAFE_API_KEY", "test")
+	t.Setenv("TYPESAFE_BASE_URL", server.URL)
+	t.Setenv("GITHUB_BASE_REF", "")
+	req := semanticRequest(t, source)
+	req.Check.Semantic.MaxRequests = 1
+
+	result := (&Native{}).Execute(t.Context(), req)
+
+	if result.Status != StatusPassed || calls.Load() != 1 || !strings.Contains(result.Stdout, "max_requests (1)") {
+		t.Fatalf("max_requests 1: calls %d %+v", calls.Load(), result)
+	}
+}
+
+func TestSemanticLintBudgetsMustBePositive(t *testing.T) {
+	for _, extra := range []string{`,"semantic":{"max_requests":-1}`, `,"semantic":{"max_input_chars":-5}`} {
+		cfg, err := Parse([]byte(strings.Replace(semanticConfig, "%s", extra, 1)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := cfg.Plan(t.TempDir(), "branch"); err == nil || !strings.Contains(err.Error(), "max_") {
+			t.Fatalf("%s accepted: %v", extra, err)
+		}
+	}
+
+	cfg, err := Parse([]byte(strings.Replace(semanticConfig, "%s", `,"semantic":{"max_requests":10,"max_input_chars":200000}`, 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := cfg.Plan(t.TempDir(), "branch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options := plan.Checks[0].Check.semanticOptions(); options.MaxRequests != 10 || options.MaxInputChars != 200000 {
+		t.Fatalf("budgets were not planned: %+v", options)
 	}
 }
 

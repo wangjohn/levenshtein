@@ -119,6 +119,10 @@ type SemanticCheck struct {
 	Base    string `json:"base,omitempty"`
 	Model   string `json:"model,omitempty"`
 	Timeout string `json:"timeout,omitempty"`
+	// MaxRequests and MaxInputChars cap what one run sends to the API; zero
+	// keeps the defaults.
+	MaxRequests   int `json:"max_requests,omitempty"`
+	MaxInputChars int `json:"max_input_chars,omitempty"`
 }
 
 // MutationScope selects which files a go-mutation check mutates.

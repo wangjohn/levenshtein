@@ -6,12 +6,13 @@ import (
 	"errors"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"testing/iotest"
+
+	"github.com/wangjohn/levenshtein/internal/testgit"
 )
 
 // historyRepo is a git repository for checks that read history: its main
@@ -21,28 +22,17 @@ import (
 // tip.
 func historyRepo(t *testing.T, base, head map[string]*string) string {
 	t.Helper()
-	git, err := exec.LookPath("git")
-	if err != nil {
-		t.Skip("git is not installed")
-	}
+	git := testgit.Path(t)
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	// apidiffBase runs git with the process environment, so isolate it there.
-	for name, value := range map[string]string{
-		"GIT_CONFIG_GLOBAL": os.DevNull, "GIT_CONFIG_NOSYSTEM": "1", "GITHUB_BASE_REF": "",
-		"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com",
-	} {
-		t.Setenv(name, value)
-	}
+	testgit.Isolate(t)
+	t.Setenv("GITHUB_BASE_REF", "")
 	run := func(args ...string) {
 		t.Helper()
-		cmd := exec.CommandContext(t.Context(), git, args...)
-		cmd.Dir = dir
-		if output, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, output)
-		}
+		testgit.Run(t, git, dir, args...)
 	}
 	apply := func(files map[string]*string) {
 		t.Helper()
