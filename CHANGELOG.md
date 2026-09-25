@@ -29,9 +29,8 @@ Consumers pin a release tag, or its commit SHA, as described in
   `runner/tools` module to `runner/tools/<tool>`, each with a single `tool`
   directive, so a Dependabot update of one tool needs no manual pin edit and
   cannot move a version another is built with. Every tool still links exactly
-  the module versions it did before. `runner/toolchain.json` no longer repeats
-  the tools' versions, and Dependabot proposes each tool's updates in a pull
-  request of its own.
+  the module versions it did before, and Dependabot proposes each tool's
+  updates in a pull request of its own.
 - The Claude Code Stop hook template blocks only the first attempt to stop in a
   turn by default, so an agent that cannot fix a finding, or meets one that
   predates its change, ends with a report instead of looping.
@@ -258,7 +257,10 @@ Consumers pin a release tag, or its commit SHA, as described in
   `levenshtein-gocheck`, and the pinned tools, so a malicious test could edit a
   linter's module source in the cache and change later linter builds on a
   persistent engine. The tool-build volumes are renamed too, so an engine that
-  ran older checks starts them clean.
+  ran older checks starts them clean. The tools those steps need, gremlins and
+  `levenshtein-gocheck`, are built from the tool-build volumes and copied in.
+  The three steps still share their own volumes, across repositories, on one
+  engine.
 
 ## [0.2.0] - 2026-09-25
 

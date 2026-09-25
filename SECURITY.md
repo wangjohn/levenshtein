@@ -17,7 +17,7 @@ This policy covers:
 
 Native `command` checks execute trusted repository code by design; they run as ordinary host processes with normal filesystem access and are not a sandbox. See [Configuration](docs/configuration.md#native-commands) for details.
 
-In Dagger, the checks that run repository code (`go-test`, `go-generate`, and `go-mutation`) use Go cache volumes separate from the ones the linters and pinned tools are built from; a way for repository code to change a tool build or another check's verdict through a shared cache is a Levenshtein vulnerability.
+In Dagger, the checks that run repository code (`go-test`, `go-generate`, and `go-mutation`) use Go cache volumes separate from the ones the linters and pinned tools are built from; a way for repository code to change a tool build, or the verdict of a check that does not run repository code, through a shared cache is a Levenshtein vulnerability. Those three checks share their volumes with one another, for every repository a Dagger engine runs, so code one of them runs can affect a later `go-test`, `go-generate`, or `go-mutation` result on the same engine; give repositories you do not trust an engine of their own.
 
 ## Community lint rules
 
