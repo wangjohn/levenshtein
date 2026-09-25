@@ -47,17 +47,44 @@ type gitListing struct {
 // matching the run-scoped view the implementation snapshot already takes.
 var gitListings sync.Map
 
+// listingEpochs counts each source's relists, so a listing git produced before
+// a relist is never memoized after it. listingMu orders the count against the
+// memo.
+var (
+	listingMu     sync.Mutex
+	listingEpochs = map[string]uint64{}
+)
+
+// listingFetched, when set, is called after git lists a source and before the
+// listing is memoized. Tests use it to change the tree in between.
+var listingFetched func(source string)
+
 func listing(ctx context.Context, source string) *gitListing {
 	if memoized, ok := gitListings.Load(source); ok {
 		return memoized.(*gitListing)
 	}
 
+	listingMu.Lock()
+	epoch := listingEpochs[source]
+	listingMu.Unlock()
+
 	found, err := listGit(ctx, source)
+	if hook := listingFetched; hook != nil {
+		hook(source)
+	}
 	if err != nil {
 		// A cancelled or failed git run says nothing about the work tree, so it
 		// is not memoized: the next snapshot asks git again rather than walking
 		// the filesystem for the rest of the run.
 		return &gitListing{note: "git input discovery failed, so inputs were enumerated from the filesystem: " + err.Error()}
+	}
+
+	// A check that created files relisted while git ran, so this view may
+	// predate them. It serves this caller, but is not the run's.
+	listingMu.Lock()
+	defer listingMu.Unlock()
+	if listingEpochs[source] != epoch {
+		return found
 	}
 	memoized, _ := gitListings.LoadOrStore(source, found)
 	return memoized.(*gitListing)
@@ -74,6 +101,10 @@ func gitFiles(ctx context.Context, source string) ([]string, bool) {
 // A check can create files, and a result must not be cached under a key that
 // could not see them.
 func relist(source string) {
+	listingMu.Lock()
+	defer listingMu.Unlock()
+
+	listingEpochs[source]++
 	gitListings.Delete(source)
 }
 

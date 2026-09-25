@@ -51,8 +51,8 @@ Consumers pin a release tag, or its commit SHA, as described in
   untracked files that a later key in the same run did not see, so a stale
   result or build could be reused.
 - A native shared Go check's cache key covers the Go settings that change
-  what it reports, such as `GOFLAGS`, `GOEXPERIMENT`, `CGO_ENABLED`, `CC`, and
-  the architecture levels, including values set with `go env -w`. Before, only
+  what it reports, such as `GOFLAGS`, `GOEXPERIMENT`, `GOFIPS140`, `GODEBUG`,
+  `CGO_ENABLED`, `CC`, and the architecture levels, including values set with `go env -w`. Before, only
   the Go version, OS, and architecture were, so `go env -w
   GOFLAGS=-tags=integration` reused results computed without the tag. Module
   download settings such as `GOPROXY` and `GOPRIVATE` still do not affect the
@@ -167,13 +167,15 @@ Consumers pin a release tag, or its commit SHA, as described in
   files. The Go kinds (`go-lint`, `go-vet`, `go-mod`, `go-test`, `go-http`,
   `go-sql`, `go-vuln`, `go-imports`, `go-generate`, `go-apidiff`,
   `go-mutation`) add the ignored paths the Go toolchain can load: ignored Go
-  and cgo sources and module files, whatever a `//go:embed` directive in
-  the directory or above could name, and `testdata`. An ignored directory
-  with no `.go` file in it and nothing embedding it, such as `node_modules`
-  or a build output, is left out of the key and the Dagger import, and a
-  symlink in the ignored content that is kept is hashed by its link text
-  rather than disabling result reuse. The Go kinds' keys change once, and
-  the native `go-generate` copy holds the same files.
+  and cgo sources, module files and `vendor/modules.txt`, whatever a
+  `//go:embed` directive in the directory or above could name, `testdata`, and
+  symlinks to directories in the source, through which an import path
+  resolves. An ignored directory with no `.go` file in it and nothing
+  embedding it, such as `node_modules` or a build output, is left out of the
+  key and the Dagger import, and a symlink in the ignored content that is kept
+  is hashed by its link text rather than disabling result reuse. The Go
+  kinds' keys change once, and the native `go-generate` copy holds the same
+  files.
 - A declared input that git discovery could not see no longer contributes
   nothing to the key. An input spelled with different case than the
   repository (`Src` for `src/` on a case-insensitive filesystem), or an
