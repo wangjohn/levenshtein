@@ -112,7 +112,8 @@ Consumers pin a release tag, or its commit SHA, as described in
   `go-sql`, `go-vuln`, `go-imports`, `go-generate`, `go-apidiff`,
   `go-mutation`) add the ignored paths the Go toolchain can load: ignored Go
   and cgo sources and module files, whatever a `//go:embed` directive in
-  the directory or above could name, and `testdata`. An ignored directory
+  the directory or above could name, `testdata`, and symlinks to
+  directories, through which an import path resolves. An ignored directory
   with no `.go` file in it and nothing embedding it, such as `node_modules`
   or a build output, is left out of the key and the Dagger import, and a
   symlink in the ignored content that is kept is hashed by its link text

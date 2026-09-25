@@ -262,13 +262,14 @@ native `command` checks with `cache: true`), it:
    exactly those, literally. Policy that differs between consumers is a named
    filter over that one set: the private `.git`/`.env` paths are hashed but
    never imported or scanned, and `shell-lint` and `deps-vuln` also skip
-   fixture and dependency directories. For the Go kinds (`goToolchainKinds`)
+   fixture and dependency directories. For the Go kinds (`kindSpec.goToolchain`)
    `goLoader` (`internal/verify/goload.go`) keeps the ignored paths the Go
    toolchain can load, on the host and in the container alike: Go and cgo
    sources, module files, what a `//go:embed` in the directory or above could
-   name, and `testdata`. It prunes an ignored directory with no `.go` file
-   below it by reading directory names only, memoized with the listing, and
-   records a symlink it keeps by its link text. Planning rejects an
+   name, `testdata`, and symlinks to directories. It prunes an ignored
+   directory with no `.go` file below it by reading directory names only,
+   memoized with the listing, and records a symlink it keeps by its link
+   text. Planning rejects an
    input or exclude that resolves only under another spelling, and a symlink
    above a declared input is refused like one inside it.
    `TestFileSetConformance` and the integration test

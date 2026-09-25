@@ -135,6 +135,42 @@ func TestGoKindKeySkipsUnloadableIgnoredTrees(t *testing.T) {
 	}
 }
 
+// An import path resolves through a symlinked directory, so retargeting an
+// ignored link from one tracked package to another changes what the Go
+// toolchain compiles, and must change a Go kind's key.
+func TestGoKindKeyCoversIgnoredDirectoryLinks(t *testing.T) {
+	root := fileSetRepository(t)
+	writeFile(t, filepath.Join(root, ".gitignore"), "gen/\ndeps/\n*.log\n.env\nnode_modules/\n_build/\n*_generated.go\npkg/assets/\n*.out\n/impl\n")
+	writeFile(t, filepath.Join(root, "impl_a", "a.go"), sourceOne)
+	writeFile(t, filepath.Join(root, "impl_b", "b.go"), sourceTwo)
+	if err := os.Symlink("impl_a", filepath.Join(root, "impl")); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "add", ".gitignore", "impl_a", "impl_b")
+	relist(root)
+	stats.configure(t.TempDir())
+	req := Request{Source: root, Shared: t.TempDir(), PlannedCheck: planFor(t, root, CheckGoVet, ExecutorNative)}
+
+	before, err := fingerprint(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(root, "impl")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("impl_b", filepath.Join(root, "impl")); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := fingerprint(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after == before {
+		t.Fatal("retargeting an ignored directory link left the go-vet key unchanged")
+	}
+}
+
 // A native scanner reads exactly what the key hashed: under git discovery an
 // ignored file is in neither, so adding a secret to one cannot replay a pass
 // over a scan that read it.
