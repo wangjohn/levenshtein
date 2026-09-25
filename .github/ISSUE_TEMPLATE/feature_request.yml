@@ -28,6 +28,6 @@ body:
     id: alternatives
     attributes:
       label: Existing tools you considered
-      description: Levenshtein prefers an established analyzer over a custom rule. See docs/dependencies.md.
+      description: Levenshtein prefers an established analyzer over a custom rule. For a new lint rule, use the new rule template instead; analyzers already measured and left out are listed at https://github.com/wangjohn/levenshtein/blob/main/docs/checks.md#considered-and-off.
     validations:
       required: false

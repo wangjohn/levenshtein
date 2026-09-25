@@ -1,0 +1,65 @@
+name: New lint rule
+description: Propose a rule for go-lint's shipped selection.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A rule turns on for every repository that bumps its pin, so it needs
+        evidence. CONTRIBUTING.md describes the bar under "Proposing a new
+        rule", and docs/checks.md lists every rule already on or measured and
+        left off. A rule Levenshtein will not ship can still run as a
+        community rule module (docs/community-rules.md).
+  - type: input
+    id: rule
+    attributes:
+      label: Rule
+      description: The analyzer or go-critic checker, with its module path and version, or "new house rule".
+      placeholder: github.com/example/analyzer v1.2.3
+    validations:
+      required: true
+  - type: textarea
+    id: bug
+    attributes:
+      label: The bug it catches
+      description: What goes wrong at run time in code the rule reports. A rule that enforces taste stays off.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: >-
+        Where you ran it and what it found: the codebases, the number of
+        findings, and how many were bugs, taste, or false alarms. Links to real
+        findings help most.
+    validations:
+      required: true
+  - type: textarea
+    id: bad
+    attributes:
+      label: Code it should flag
+      render: go
+    validations:
+      required: true
+  - type: textarea
+    id: good
+    attributes:
+      label: Similar code it must not flag
+      render: go
+    validations:
+      required: true
+  - type: textarea
+    id: settings
+    attributes:
+      label: Settings and scope
+      description: Any setting that should differ from the analyzer's default, and whether it should be on by default or opt-in.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: Checks
+      options:
+        - label: The rule is not already on or listed under "Considered and off" in docs/checks.md, or this issue says what has changed since it was measured.
+          required: true

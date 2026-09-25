@@ -5,9 +5,39 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project intends to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Consumers pin a release tag, or its commit SHA, as described in
-[docs/releases.md](docs/releases.md).
+[docs/releases.md](docs/releases.md). [docs/versioning.md](docs/versioning.md)
+says which interfaces are versioned and what to expect when you bump your pin.
 
 ## [Unreleased]
+
+### Upgrading from 0.1.0
+
+- **Configuration.** A `levenshtein.json` written for 0.1.0 is accepted
+  unchanged: every field it could use still exists, and the new ones (`lint`,
+  `rule_modules`, `baseline`, and the `imports` and `apidiff` objects) are
+  optional. `version` stays `1`.
+- **New default check.** A repository without a `levenshtein.json` now runs
+  `go-mod` in `branch`, `pre-merge`, and `main`. An untidy root module, or one
+  whose dependencies cannot be downloaded without credentials, fails where it
+  passed before. Tidy it, or add a `levenshtein.json` whose runs leave `go-mod`
+  out.
+- **New findings.** `go-lint` runs more than twenty analyzers and go-critic
+  checks 0.1.0 did not (listed under Added), now reports upstream findings in
+  cgo files it used to drop, and stops with an error on an analyzer failure
+  that used to pass silently. Expect new findings on the first run.
+- **go-mutation verdicts.** It now fails only on surviving mutants on lines
+  the branch changed, and counts timed-out mutants as caught (see Changed). A
+  pull request that failed on inherited survivors or on timeouts can pass.
+- **Staging the new findings.** To move the pin before fixing everything, add
+  a top-level `"baseline"` path and run `verify main --write-baseline` once
+  ([baseline](docs/configuration.md#baseline)), or turn a new rule off for now
+  with a `lint.checks` pattern such as `"-unparam"`
+  ([lint selection](docs/configuration.md#lint-selection)).
+- **GitHub Action.** Annotations are on by default and need no new permission;
+  set `annotations: false` to turn them off.
+- **JSON report.** Additive only: findings gain `advisory`, `url`, `hint`, and
+  `baselined`, results gain `warnings`, and the report gains a `baseline`
+  summary when one applies. The report `version` stays `1`.
 
 ### Added
 
@@ -474,6 +504,12 @@ Consumers pin a release tag, or its commit SHA, as described in
 - `levenshtein-lint` includes go-critic's `deferInLoop`, a `defer` inside a
   loop, off in the shipped selection like `gocognit`
   ([opt in](docs/checks.md#opt-in-resources-deferinloop)).
+- Documentation: a [docs index](docs/README.md), a
+  [CLI reference](docs/reference/cli.md), [troubleshooting](docs/troubleshooting.md),
+  a [versioning policy](docs/versioning.md), a [glossary](docs/glossary.md),
+  and a [comparison with golangci-lint](docs/faq.md#levenshtein-or-golangci-lint).
+  A test in the root module fails when a relative link or `#anchor` in any
+  Markdown file does not resolve.
 
 ### Changed
 
@@ -506,6 +542,19 @@ Consumers pin a release tag, or its commit SHA, as described in
   repository less its deliberately leaky fixture. Neither found a problem in
   Levenshtein's own files; its secrets-handling tests mark their made-up key
   with `gitleaks:allow`.
+- **`go-mutation` fails only on changed lines and counts timeouts as caught
+  (#44), which changes CI verdicts.** The CLI records the lines each modified
+  Go file changed, from a zero-context diff, and a surviving mutant fails the
+  check only on one of those lines; survivors elsewhere in a mutated file are
+  listed under `unchanged` in the summary and counted as `unchanged_survivors`.
+  An untracked file, and every file in `scope: "module"`, counts all its lines
+  as changed. A timed-out mutant now counts as caught and is listed under
+  `timed_out_mutants`. A run is `incomplete` only when three or more covered
+  mutants all timed out; before, any timeout made it `incomplete`
+  ([details](docs/mutation.md)).
+- Levenshtein's own CI runs `branch` and `pre-merge` on the native executor,
+  and keeps `main` and `self-test` in Dagger (#38). Its pull requests also run
+  `go-mutation` in a `mutation` job beside `semantic-lint` (#51).
 - Levenshtein's own `levenshtein.json` has a native `go-test` run over the
   repository and `runner/lint` for local use. It is not part of `branch`,
   `pre-merge`, or `main`, because CI's `tests` job already runs
@@ -513,6 +562,15 @@ Consumers pin a release tag, or its commit SHA, as described in
 
 ### Fixed
 
+- A run with a `go-mutation` check no longer breaks the Dagger checks after
+  it (#42). When `go-mutation` was the first check to start the shared Dagger
+  session, its timeout closed the session for every later check in the run,
+  which then failed with "connection reset by peer".
+- The file stat memo no longer trusts, within one process, a hash taken in the
+  same timestamp tick as the file's last write (#40). On a filesystem with
+  coarse timestamps, a same-size rewrite in that tick kept the old content's
+  fingerprint, so a cached result could be reused for different inputs. The
+  persisted memo already had this guard.
 - `musttag` no longer fails, unnoticed, on the test main `go test` generates
   for a package with tests; the new analyzer guard surfaced the swallowed
   error.

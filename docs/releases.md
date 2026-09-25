@@ -114,7 +114,7 @@ After extracting an archive, run the binary with explicit paths:
 /path/to/archive/levenshtein pre-merge --shared /path/to/archive --source /path/to/app
 ```
 
-The binary needs no host Go compiler. Go lint still needs a Docker-compatible runtime; the SDK downloads the pinned Dagger CLI when needed. Native checks require the tools declared by their configuration. `--dry-run` needs neither Dagger nor the native toolchain.
+The binary itself needs no host Go compiler. Checks bound to a Dagger environment, which includes every check of a repository with no `levenshtein.json`, need a Docker-compatible runtime; the SDK downloads the pinned Dagger CLI when needed. Checks bound to a [native environment](configuration.md#native-go-checks) need no container runtime but use the host's tools: the native Go checks need the Go version in the archive's `.go-version` on `PATH`, and native `command` checks need whatever their configuration declares. `--dry-run` needs neither.
 
 ## Archive smoke test
 

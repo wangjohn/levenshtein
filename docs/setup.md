@@ -1,6 +1,6 @@
 # Setup and usage
 
-Shared Go checks run pinned correctness, error handling, enum, resource, workflow, and vulnerability tools in Dagger. The runner accepts a source checkout and a named run; your existing CI supplies workers and decides when to invoke it. See [use from an application repo](consumer-ci.md) for local and CI examples. Native commands and local result/setup/build caching are supported. See [architecture](architecture.md) for how the runner works, and [the roadmap](roadmap.md) for planned work.
+Levenshtein's shared checks run pinned lint, vet, workflow, and vulnerability tools, either in Dagger containers or natively on the host. The runner accepts a source checkout and a named run; your existing CI supplies workers and decides when to invoke it. See [use from an application repo](consumer-ci.md) for local and CI examples, and [architecture](architecture.md) for how the runner works.
 
 ## Prerequisites
 
@@ -31,32 +31,25 @@ dagger develop --compat=skip
 
 ## Run checks
 
-From the Levenshtein checkout:
+From the Levenshtein checkout, point `--source` at the repository to verify. For a repository with no `levenshtein.json`, the runs are the zero-config defaults:
 
 ```sh
-./verify                       # branch: shared Go lint, vet, and module manifests
-./verify pre-merge             # selected lint, resource, workflow, and fixture checks
-./verify main                  # fresh audit, including vulnerability scans
-./verify go-lint --source /path/to/a/go/repo
-./verify pre-merge --dry-run    # print selected checks without running them
-./verify semantic-lint          # advisory Jev review; set TYPESAFE_API_KEY first
+./verify --source /path/to/app              # branch: go-lint, go-vet, go-mod
+./verify pre-merge --source /path/to/app    # the same three checks
+./verify main --source /path/to/app         # adds go-vuln, and skips the result cache
+./verify go-lint --source /path/to/app      # one check
+./verify pre-merge --source /path/to/app --dry-run   # print the plan without running it
 ```
 
-`--dry-run` plans in the standalone CLI without Dagger or its engine. A run name selects checks; it does not switch Git branches or fetch code. The passed source directory is what gets verified. CI supplies the PR/merge candidate or default-branch checkout.
+A repository with a `levenshtein.json` gets the runs it declares instead. Without `--source`, the launcher verifies the Levenshtein checkout itself, with its own `levenshtein.json`; see [develop the shared checks](#develop-the-shared-checks).
 
-Success prints a JSON report. Lint failures include native rule IDs, locations, and messages in the report; the process exits nonzero. Tool errors, invalid configuration, and modules with no Go packages fail rather than reporting an empty pass. Reports account for every selected check, including errors and cancelled or incomplete work. `--format text` prints one line per finding instead, and `--format github` or `sarif` writes annotations or a code scanning file (see [output formats](configuration.md#output-formats)). Durable result files and cross-run history are deferred.
+A run name selects checks; it does not switch Git branches or fetch code. The source directory is what gets verified, so CI supplies the pull request, merge candidate, or default-branch checkout.
+
+`verify` prints a JSON report and exits `0` when every check passes, `1` when one fails, and `2` when the command or configuration is wrong. Tool errors, invalid configuration, and modules with no Go packages fail rather than reporting an empty pass. The [CLI reference](reference/cli.md) lists every flag, output format, and exit code.
 
 Dependency resolution follows Go's defaults: use `vendor/` when enabled by the module or workspace, otherwise use read-only module resolution. Source filtering excludes `.git`, `.env`, and `.env.*` at every level, with an explicit exception for public `.env.example` templates so Go can embed them. Keep those templates free of secrets; other `.env.*` names remain excluded.
 
-### What the rules catch
-
-| Rule | Mistake |
-| --- | --- |
-| [SA5001](https://staticcheck.dev/docs/checks/#SA5001) | Deferring `Close` before checking whether opening the resource failed |
-| [SA5003](https://staticcheck.dev/docs/checks/#SA5003) | Deferring work inside an infinite loop that will never execute it |
-| [SA9001](https://staticcheck.dev/docs/checks/#SA9001) | Deferring cleanup inside a channel-range loop that may never finish |
-
-These are selected Staticcheck rules, not a complete resource-leak analysis. They do not flag every defer inside an ordinary slice or counted loop, prove every resource is closed, or enforce handling `Close` errors. The valid fixtures show error checking before `defer` and cleanup scoped to a function that returns each iteration.
+[Checks](checks.md) lists every lint rule and why it is on or off.
 
 ## Configure a repo
 
@@ -64,7 +57,7 @@ A single Go module at the source root works without configuration. For multiple 
 
 Use the [version 1 consumer example](consumer-ci.md#the-same-command-locally-and-in-ci) for explicit product targets, checks, and run selections. `inputs` restricts Dagger's imported source as well as its cache scope; include required manifests, local dependencies, and fixtures. Native command inputs only describe cache scope and do not restrict host access. See [source boundaries](configuration.md#source-boundaries).
 
-A configuration file replaces defaults. Paths are relative to the source root. Every selected check runs or reuses an eligible result; change-based selection is not implemented. Available shared kinds are listed in [shared checks](checks.md#named-checks-and-suggested-runs). Every configuration file declares `"version": 1`.
+A configuration file replaces defaults. Paths are relative to the source root. Every selected check runs or reuses an eligible result; change-based selection is not implemented. [Check kinds](check-kinds.md) lists every kind you can use. Every configuration file declares `"version": 1`.
 
 Version 1 runs use explicit `rerun_checks: true` for fresh audits, regardless of their name. Levenshtein's own `main` is configured that way. Audits bypass passing-verdict reuse while retaining compatible downloads and compiler caches. Vulnerability scans always execute against current advisory data. Add new checks explicitly to your configured full run during this pilot.
 
@@ -254,10 +247,6 @@ The generated Go SDK needs a Dagger session, including during unit tests. The de
 On an Intel Mac with a two-CPU, 4 GiB Colima VM, the first `pre-merge` run after SDK setup took **136 seconds**, including the Go image download and Staticcheck compilation. A repeat took **2.5 seconds**; a fresh `main` audit took **14 seconds**. A single fixture check took **1.8 seconds**. These are small-pilot measurements, not guarantees for application repos; initial CLI/VM installation and SDK setup are excluded.
 
 Before another repo adopts this setup, check out an explicit Levenshtein commit and invoke its launcher with `--source`. [Release archives](releases.md) package the CLI and shared checks together; automated publication and version-update PRs are later work.
-
-## Standalone planning and configuration
-
-The `./verify` launcher now builds a standalone Go CLI. Planning and configuration validation work without Dagger; execution of Go checks still uses the pinned Dagger module. The existing configuration remains supported, and [version 1 configuration](configuration.md) adds named targets, checks, environments, and explicit run freshness.
 
 ## Dagger integration
 
