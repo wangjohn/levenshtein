@@ -9,7 +9,7 @@ Exit `2` means `verify` stopped before verifying anything; the message on standa
 | `Go 1.27.1 could not be obtained` or `Building the Levenshtein CLI failed` (from the `./verify` launcher) | See [the pinned Go cannot be downloaded](#the-pinned-go-cannot-be-downloaded) |
 | `configuration needs "version": 1` | Add `"version": 1` to `levenshtein.json` |
 | An unknown field, or a hint that a field moved | The file was written for another release. Check the field against [configuration](configuration.md) for the revision you pin; an older release rejects fields added after it |
-| A target directory does not exist, or an input is a symlink | Paths are relative to `--source`. Declare real paths, not symlinks ([source boundaries](configuration.md#source-boundaries)) |
+| A target's `dir` or `workspace` does not exist, or reaches outside the source through a symlink | Paths are relative to `--source`. Declare real paths, not symlinks ([source boundaries](configuration.md#source-boundaries)) |
 | `run "<name>" is missing or empty` | The run is not in `levenshtein.json`. A file replaces the defaults, so `branch`, `pre-merge`, and `main` exist only if it declares them |
 | `set --shared to the pinned Levenshtein checkout` | Use the `./verify` launcher, which passes it, or pass `--shared` to a prebuilt binary |
 | `cache directory must be outside source and shared checkouts` | See [the cache directory](#the-cache-directory) |
@@ -44,10 +44,10 @@ See [module manifests](check-kinds-guide.md#module-manifests).
 
 ## Shallow clones
 
-`go-apidiff`, `go-mutation`, and `semantic-lint` compare the working tree with the merge base of a base branch: the check's own `base` option, else `GITHUB_BASE_REF`, else `main`. They look for the branch locally and then as `origin/<base>`. In a shallow clone neither exists, and the check is an error that says `the checkout is shallow`.
+`go-apidiff`, `go-mutation`, and `semantic-lint` compare the working tree with the merge base of a base branch: the check's own `base` option, else `GITHUB_BASE_REF`, else `main`. They use `origin/<base>`, or the local branch when it is the same commit or ahead of it. In a shallow clone the base branch can be missing, or present without the history that joins it to `HEAD`; either way the check is an error that names the shallow checkout.
 
 - On GitHub Actions, check out with `fetch-depth: 0`.
-- Elsewhere, fetch the base branch before running: `git fetch origin main`.
+- Elsewhere, fetch the base branch with enough history to reach the merge base before running, for example `git fetch --unshallow origin main`.
 
 ## The cache directory
 
