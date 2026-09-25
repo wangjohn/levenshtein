@@ -258,6 +258,10 @@ Consumers pin a release tag, or its commit SHA, as described in
   source instead of cgo's generated rewrite of it. Upstream findings in
   hand-written cgo files, which were all silently dropped, are now reported,
   and LV1005 no longer reports cgo's build-cache output as unformatted.
+- A community rule that sets a diagnostic `Category` now reports under its
+  code. Staticcheck dropped every such finding, while the report still listed
+  the rule as selected. Community rules also skip generated files, as core
+  rules do.
 - [docs/consumer-ci.md](docs/consumer-ci.md) no longer says there is no shared
   `go-test` check, and its list of what is available names `go-test`,
   `workflow-security`, and `go-mutation`.

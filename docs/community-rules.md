@@ -68,6 +68,11 @@ Each analyzer needs:
 Facts and suggested fixes are fine. Levenshtein reports findings; the module's
 own `singlechecker` wrapper applies fixes with `-fix`.
 
+Community rules report the way core rules do. Every finding reports under the
+rule's code, whatever `Category` the analyzer gives it. Findings in generated
+files, those with a `// Code generated ... DO NOT EDIT.` header, are dropped;
+the rule still runs on them, so the facts it exports stay correct.
+
 The module must build with the Go in `.go-version` and the Staticcheck in
 `runner/toolchain.json`. It may require newer versions of other dependencies,
 such as `golang.org/x/tools`, because community rules run in their own process.
