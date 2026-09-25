@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -191,7 +192,7 @@ func TestStopHookTemplate(t *testing.T) {
 	}
 
 	// Without jq the hook still blocks only the first stop.
-	noJQ := append(env, "FAKE_STATUS=1", "PATH="+toolsDir(t, "bash", "cat", "git"))
+	noJQ := append(slices.Clone(env), "FAKE_STATUS=1", "PATH="+toolsDir(t, "bash", "cat", "git"))
 	if code, stderr := runHook(t, "levenshtein-stop.sh", input, noJQ...); code != 2 || !strings.Contains(stderr, "branch run fails") {
 		t.Fatalf("without jq a failing run must still block the first stop: %d %s", code, stderr)
 	}
