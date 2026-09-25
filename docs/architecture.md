@@ -41,7 +41,7 @@ described under [report and exit codes](#report-and-exit-codes).
 - **Environment**: an `executor` (`dagger` or `native`), plus native-only
   options such as `identity`, `env`, `pass_env`, and pinned `tools`.
 - **Check**: a `kind` (`go-lint`, `go-vet`, `go-mod`, `go-test`, `go-imports`,
-  `go-generate`, `go-http`, `go-sql`, `go-vuln`, `workflow-lint`, `workflow-security`,
+  `go-generate`, `go-apidiff`, `go-http`, `go-sql`, `go-vuln`, `workflow-lint`, `workflow-security`,
   `self-test`, `command`, `semantic-lint`) bound to an
   environment and to either one `target` or a list of `targets`, plus
   kind-specific options for `command` and `semantic-lint` checks (see
@@ -84,7 +84,7 @@ a preparation stage.
 `internal/verify/dagger.go` holds one Dagger SDK session (`dagger.Client`)
 per CLI invocation and serves the pinned module in `runner/` once
 (`client.ModuleSource(shared).AsModule().Serve`). Each check calls a
-function on that session (`goLintReport`, `selfTest`, `goImports`, `goGenerate`, or `sharedCheck` for
+function on that session (`goLintReport`, `selfTest`, `goImports`, `goGenerate`, `goApidiff`, or `sharedCheck` for
 vet/mod/test/HTTP/SQL/vuln/workflow-lint/workflow-security) with a freshness nonce, plus the consumer
 source directory and module path for every kind except `selfTest`;
 `sharedCheck` also receives the check kind. Consumer inputs travel as
@@ -113,7 +113,7 @@ build, download, and lint containers behind it.
 
 `internal/verify/native.go` runs `command`, `semantic-lint`, and the shared Go
 kinds `go-lint`, `go-vet`, `go-mod`, `go-test`, `go-imports`, `go-generate`,
-`workflow-lint`, `workflow-security` and `go-vuln` as trusted host
+`go-apidiff`, `workflow-lint`, `workflow-security` and `go-vuln` as trusted host
 processes (macOS or Linux only). There is no sandbox, so native
 commands have full host access. Before running, `validateTools` executes each
 `Environment.Tool`'s version command and compares its trimmed stdout against
@@ -127,7 +127,7 @@ still match a recorded run, which requires the environment to declare an
 #### Shared Go kinds on the native executor
 
 `internal/verify/kinds.go` registers `go-lint`, `go-vet`, `go-mod`, `go-test`,
-`go-imports`, `go-generate`, `workflow-lint`, `workflow-security` and `go-vuln` for the native executor as well as the Dagger one; `self-test`,
+`go-imports`, `go-generate`, `go-apidiff`, `workflow-lint`, `workflow-security` and `go-vuln` for the native executor as well as the Dagger one; `self-test`,
 `go-http` and `go-sql` stay Dagger-only. `internal/verify/gotools.go` builds the
 helper binaries (`levenshtein-lint` from `runner/lint`, `actionlint` and
 `govulncheck` from `runner/tools`) out of the pinned shared checkout into
@@ -164,7 +164,13 @@ call cache as they key the CLI's fingerprint. `go-generate` runs the same
 command's `generate` mode, which runs `go generate ./...` and compares the tree
 before and after in a git repository kept outside it; natively the tree is a
 copy of the target's declared inputs (`copyInputs` in
-`internal/verify/gogenerate.go`), in Dagger the container's own `/src`. Without a cache
+`internal/verify/gogenerate.go`), in Dagger the container's own `/src`.
+`go-apidiff` resolves the merge base on the host, as `go-mutation` does, and
+exports the target's declared inputs at that commit from its objects
+(`apidiffBase` in `internal/verify/goapidiff.go`); the command's `apidiff` mode
+then drives the `apidiff` built from `runner/tools` over that tree and the
+source, natively, or in the runner's `goApidiff` function, which receives the
+exported tree as a directory argument. Without a cache
 directory, a check's tools go into a temporary directory removed when it
 finishes.
 
@@ -262,6 +268,15 @@ bounds a `go-test` query by the same thirty minutes `goCheckTimeout` gives a
 native shared Go check (`executeTests` in `dagger.go`), connecting the shared
 session with the run's context first, as `executeMutation` does.
 
+`go-mutation` and `go-apidiff` read git history on the host, which no
+fingerprint covers either, so `CachedExecutor.Execute` runs them without a
+result cache (the `baseDependent` table in `kinds.go`). Unlike `go-vuln`, they
+get a nonce only on a fresh run: what they read from history reaches Dagger as
+function arguments (the file list, or the exported base tree), so Dagger's own
+call cache stays sound. `go-imports` and `go-generate` are cached like
+`go-vet`; a `go-imports` check's rules are part of its `Check`, and so of its
+key.
+
 ## Report and exit codes
 
 `internal/verify/run.go`'s `Execute` returns a `Report` with the resolved
@@ -316,7 +331,7 @@ See [output formats](configuration.md#output-formats) and
   require newer versions of other dependencies without touching the core
   linter.
 - **`runner/tools/`** (`runner/tools/go.mod`): pins `actionlint`,
-  `govulncheck`, and `gremlins` via Go's `tool` directive, so their versions are locked
+  `govulncheck`, `gremlins`, and `apidiff` via Go's `tool` directive, so their versions are locked
   independently of the modules that build and run them.
 
 ## `sdk/patched-go`

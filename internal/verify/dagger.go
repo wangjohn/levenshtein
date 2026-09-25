@@ -54,6 +54,7 @@ var daggerFunctions = map[CheckKind]string{
 	CheckGoMutation:       "goMutation",
 	CheckGoImports:        "goImports",
 	CheckGoGenerate:       "goGenerate",
+	CheckGoApidiff:        "goApidiff",
 }
 
 func (d *Dagger) Execute(ctx context.Context, req Request) Result {
@@ -62,6 +63,9 @@ func (d *Dagger) Execute(ctx context.Context, req Request) Result {
 	}
 	if req.Check.Kind == CheckGoTest {
 		return d.executeTests(ctx, req)
+	}
+	if req.Check.Kind == CheckGoApidiff {
+		return d.executeApidiff(ctx, req)
 	}
 	// Only goLintReport binds a report here; every other function leaves it
 	// empty, which withLintReport passes through unchanged.

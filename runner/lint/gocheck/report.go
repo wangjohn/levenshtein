@@ -1,7 +1,7 @@
 // Package gocheck implements the shared checks that judge a whole Go module
-// rather than one package at a time: go-imports and go-generate. Both
-// executors run them through the levenshtein-gocheck command, so each verdict
-// is decided in exactly one place.
+// rather than one package at a time: go-imports, go-generate, and go-apidiff.
+// Both executors run them through the levenshtein-gocheck command, so each
+// verdict is decided in exactly one place.
 package gocheck
 
 import (
@@ -23,6 +23,7 @@ type Code string
 const (
 	CodeImports  Code = "go-imports"
 	CodeGenerate Code = "go-generate"
+	CodeApidiff  Code = "go-apidiff"
 )
 
 // Finding has the diagnostic shape every Levenshtein check reports, so the CLI

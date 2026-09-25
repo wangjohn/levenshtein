@@ -43,6 +43,7 @@ var locatedKinds = map[CheckKind]bool{
 	CheckGoMutation: true,
 	CheckGoImports:  true,
 	CheckGoGenerate: true,
+	CheckGoApidiff:  true,
 }
 
 // item is one check's result as the renderers see it: its findings sorted by

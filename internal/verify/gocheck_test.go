@@ -3,8 +3,12 @@ package verify
 import (
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -64,6 +68,72 @@ func TestGocheckReportAgreesWithTheRunner(t *testing.T) {
 			}
 		default:
 			t.Errorf("%s: unknown want %q", tc.Name, tc.Want)
+		}
+	}
+}
+
+// runnerFunctions reads the Dagger functions the runner module exports: its
+// exported methods on *Levenshtein, named as Dagger names them, with their
+// parameter names.
+func runnerFunctions(t *testing.T) map[string][]string {
+	t.Helper()
+	fset := token.NewFileSet()
+	files, err := filepath.Glob(filepath.Join("..", "..", "runner", "*.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	functions := map[string][]string{}
+	for _, name := range files {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, name, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Recv == nil || !fn.Name.IsExported() {
+				continue
+			}
+			star, ok := fn.Recv.List[0].Type.(*ast.StarExpr)
+			if !ok {
+				continue
+			}
+			if ident, ok := star.X.(*ast.Ident); !ok || ident.Name != "Levenshtein" {
+				continue
+			}
+			var params []string
+			for _, field := range fn.Type.Params.List {
+				for _, param := range field.Names {
+					params = append(params, param.Name)
+				}
+			}
+			functions[strings.ToLower(fn.Name.Name[:1])+fn.Name.Name[1:]] = params
+		}
+	}
+	return functions
+}
+
+// The Dagger executor calls runner functions by name with named arguments,
+// which nothing compiles together, so a renamed function or argument would
+// only fail inside an engine. This pins the whole-module checks' calls.
+func TestWholeModuleChecksCallRunnerFunctionsThatExist(t *testing.T) {
+	functions := runnerFunctions(t)
+	for kind, function := range daggerFunctions {
+		if _, ok := functions[function]; !ok {
+			t.Errorf("%s calls %s, which the runner does not export", kind, function)
+		}
+	}
+	for function, args := range map[string][]string{
+		"goImports":  {"source", "rules", "module", "nonce"},
+		"goGenerate": {"source", "module", "nonce"},
+		"goApidiff":  {"source", "base", "module", "workspace", "nonce"},
+	} {
+		for _, arg := range args {
+			if !slices.Contains(functions[function], arg) {
+				t.Errorf("the executor passes %s to %s, whose parameters are %v", arg, function, functions[function])
+			}
 		}
 	}
 }

@@ -14,7 +14,7 @@
     "lint": {
       "dir": "runner/lint",
       "workspace": ".",
-      "inputs": ["runner/lint", "runner/testdata/selection.json", "runner/testdata/import-rules.json", "runner/testdata/imports-good", "runner/testdata/imports-bad", "runner/testdata/generate-fresh", "runner/testdata/generate-stale"]
+      "inputs": ["runner/lint", "runner/testdata/selection.json", "runner/testdata/import-rules.json", "runner/testdata/imports-good", "runner/testdata/imports-bad", "runner/testdata/generate-fresh", "runner/testdata/generate-stale", "runner/testdata/apidiff", "runner/tools"]
     },
     "community": {
       "dir": "runner/community",
@@ -73,6 +73,8 @@
     "go-imports-lint": {"kind": "go-imports", "target": "lint", "environment": "go", "imports": {"rules": [{"packages": ["./..."], "deny": ["dagger.io/...", "dagger/..."], "reason": "the linter and levenshtein-gocheck build the same way on the host and in Dagger, so they never depend on the Dagger SDK"}, {"packages": ["./policy/..."], "allow": ["std", "golang.org/x/tools/go/..."], "reason": "the house rules are plain go/analysis analyzers, independent of Staticcheck and the upstream analyzers beside them"}, {"packages": ["./gocheck/..."], "allow": ["std", "golang.org/x/mod/..."], "reason": "levenshtein-gocheck needs no type checker or analyzer, so it stays a small, fast build"}]}},
     "native-go-imports": {"kind": "go-imports", "target": "root", "environment": "host-go", "imports": {"rules": [{"packages": ["./internal/gitchange"], "allow": ["std"], "reason": "gitchange is the leaf verify and semantic share, so it depends on the standard library alone"}, {"packages": ["./internal/semantic/..."], "deny": ["./internal/verify/...", "./cmd/...", "dagger.io/..."], "reason": "semantic-lint is a library internal/verify calls; it must not reach back into the runner or depend on Dagger"}, {"packages": ["./cmd/..."], "deny": ["./internal/semantic/...", "./internal/gitchange/...", "dagger.io/..."], "reason": "the CLI drives every check through internal/verify, which owns Dagger"}]}},
     "native-go-imports-lint": {"kind": "go-imports", "target": "lint", "environment": "host-go", "imports": {"rules": [{"packages": ["./..."], "deny": ["dagger.io/...", "dagger/..."], "reason": "the linter and levenshtein-gocheck build the same way on the host and in Dagger, so they never depend on the Dagger SDK"}, {"packages": ["./policy/..."], "allow": ["std", "golang.org/x/tools/go/..."], "reason": "the house rules are plain go/analysis analyzers, independent of Staticcheck and the upstream analyzers beside them"}, {"packages": ["./gocheck/..."], "allow": ["std", "golang.org/x/mod/..."], "reason": "levenshtein-gocheck needs no type checker or analyzer, so it stays a small, fast build"}]}},
+    "go-apidiff": {"kind": "go-apidiff", "target": "example", "environment": "go"},
+    "native-go-apidiff": {"kind": "go-apidiff", "target": "example", "environment": "host-go"},
     "go-mutation": {"kind": "go-mutation", "target": "repository", "environment": "go"},
     "go-mutation-lint": {"kind": "go-mutation", "target": "lint", "environment": "go", "mutation": {"accepted": "runner/lint/.levenshtein/mutation-accepted.json"}}
   },
@@ -82,6 +84,7 @@
     "go-mod": {"checks": ["native-go-mod"]},
     "go-test": {"checks": ["native-go-test"]},
     "go-imports": {"checks": ["native-go-imports", "native-go-imports-lint"]},
+    "go-apidiff": {"checks": ["native-go-apidiff"]},
     "go-http": {"checks": ["go-http"]},
     "go-sql": {"checks": ["go-sql"]},
     "go-vuln": {"checks": ["go-vuln"]},

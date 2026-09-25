@@ -425,6 +425,7 @@ Runs select checks by name; existing CI still owns triggers and schedules.
 | `go-test` | `go test -race ./...` on the pinned toolchain: a failing test or a detected data race fails, a test that does not build is an error ([details](#tests)) | Its own run, for self-contained unit tests |
 | `go-imports` | Layering rules the repository declares: which of its packages may import which packages; each forbidden import is a finding at the import ([details](#import-boundaries)) | Branch and pre-merge, once configured |
 | `go-generate` | `go generate ./...` in a scratch copy: every file it would add, change, or delete is a finding with the diff ([details](#generated-code)) | Pre-merge, for repositories that commit generated code |
+| `go-apidiff` | apidiff between the branch's merge base and the working tree: every incompatible change to a library module's exported API is a finding at the declaration ([details](#api-compatibility)) | Pull requests to a library module, with the base branch fetched |
 | `go-http` | bodyclose alone, for a repo that wants the resource check without the rest | HTTP clients/services |
 | `go-sql` | sqlclosecheck alone, for a repo that wants the resource check without the rest | Database users |
 | `workflow-lint` | actionlint: GitHub Actions syntax and expressions | Repos with GitHub Actions |
@@ -530,6 +531,25 @@ The check runs `levenshtein-gocheck imports`, a small program built from `runner
 - **Workspaces.** The check runs `go generate ./...` in the target directory, in the same workspace `go-vet` sees: the copy's counterpart of the nearest declared `go.work`, or none.
 
 `go generate` has no `-run` filter or package list here; a repository that regenerates only part of its tree in CI can do that in a `command` check.
+
+### API compatibility
+
+`go-apidiff` fails a change that breaks a library module's importers. It compares the exported API of the target module at the merge base of `HEAD` with a base branch against the module in the working tree, using [apidiff](https://pkg.go.dev/golang.org/x/exp/cmd/apidiff) pinned in `runner/tools/go.mod`. Like `go-test`, it is not in the default `branch`, `pre-merge`, or `main` gates: a repository without `levenshtein.json` can run it by name (`verify go-apidiff`), and a configured one adds it to the run its pull requests use.
+
+```json
+"api": {"kind": "go-apidiff", "target": "lib", "environment": "go", "apidiff": {"base": "main"}}
+```
+
+The optional `apidiff` object accepts `base`, the branch whose merge base is compared with. It defaults, like [`go-mutation`'s](mutation.md#configure), to `GITHUB_BASE_REF`, else `main`, and is resolved locally, then as `origin/<base>`.
+
+- **What runs.** The CLI finds the merge base on the host, since neither the Dagger source nor the check has the repository's history, and exports the target's declared inputs at that commit, less its excludes and private files. The inputs must include the target's own `go.mod`, unexcluded; without it an existing module would look new at the base, so its absence is an error on both executors. It reads the committed files with `git ls-tree` and `git cat-file` rather than `git archive`, so `export-ignore` and `export-subst` attributes cannot drop or rewrite a package the base had. `levenshtein-gocheck apidiff` then runs `apidiff -m -w` in the module's directory of each tree to write its export data, and `apidiff -m` to compare the two. On the Dagger path the exported tree travels to the runner's `goApidiff` function as a directory argument beside the source.
+- **Findings and errors.** Every incompatible change is a finding with code `go-apidiff` carrying apidiff's own wording, such as `./units.Convert: changed from func(float64) float64 to func(float64, string) float64`. It is located at the declaration in the working tree: the method for a changed method, the type, function, variable, or constant otherwise, the package's first file for something removed, and the module's `go.mod` for a removed package. Compatible changes, such as additions, pass; they are listed in the report's output and under `details.summary.notes`, beside the base branch and merge base. A base branch that cannot be found, including in a shallow clone, a module that does not load on either side, and output apidiff's parser does not recognize are errors, never a pass.
+- **What is compared.** apidiff's module mode leaves out `internal` packages itself. It does compare `main` packages, whose exported names nothing can import, so the check drops every change to a package that was a command at the base and every addition to one that is a command now. Test files are not part of an API. A module that did not exist at the base passes with a note, and so does one whose module path changed, as it does for a new major version, since importers of the old path are unaffected.
+- **Caching.** Where the base branch points is outside every input fingerprint, so like `go-mutation`, a `go-apidiff` result is never reused by the CLI, on either executor. The exported base tree is a function argument, so Dagger still answers an identical call from its own cache; a fresh run passes a nonce. Loading both trees needs the module proxy for their dependencies.
+- **Workspaces.** The working tree is loaded with the `go.work` `go-vet` would see, and the base with its own copy of that file when it had one; otherwise both load with `GOWORK=off`.
+- **CI.** The checkout needs the base branch: use `fetch-depth: 0` in GitHub Actions, as for `go-mutation`.
+
+`go-apidiff` is how a promise that an API only grows is enforced rather than remembered. The [community rules contract](community-rules.md#the-contract) "only grows by optional exports", and a rule module's `lvrules` package has to keep every export Levenshtein compiles against; a release that removes or changes one is exactly an incompatible change. Levenshtein's own `levenshtein.json` defines a `go-apidiff` run over `examples/rule-module` for that reason. It is a named run rather than part of `branch`, because the lint job checks out a single commit.
 
 ### Workflow security
 
