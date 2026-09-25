@@ -82,12 +82,13 @@ done
 # 4. Secrets only in step env or with.
 for workflow in "${workflows[@]}"; do
   leaks=$(awk '
-    /^env:/ { scope = "workflow"; next }
     /^[^ #]/ { scope = "" }
-    /^    env:/ { scope = "job"; next }
     /^    [A-Za-z0-9_-]+:/ { scope = "" }
     /^  [A-Za-z0-9_-]+:/ { if (scope == "job") scope = "" }
-    scope != "" && /secrets\./ { print FILENAME ":" FNR ": " $0 }
+    # The env: line itself counts, for a flow mapping such as env: { K: ... }.
+    /^env:/ { scope = "workflow" }
+    /^    env:/ { scope = "job" }
+    scope != "" && /secrets[.[]/ { print FILENAME ":" FNR ": " $0 }
   ' "$workflow")
   if [[ -n $leaks ]]; then
     problem "Secrets must be step env, not workflow or job env:"$'\n'"$leaks"
