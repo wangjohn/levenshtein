@@ -213,8 +213,6 @@ func executeCheck(ctx context.Context, source *dagger.Directory, module string, 
 
 // runTool runs args in ctr and returns how the process finished, whatever its
 // exit code, with the container it ran in, which holds any report it wrote.
-// runGremlins and runCommunityLinter still spell this sequence out; moving
-// them onto runTool is left to a follow-up.
 func runTool(ctx context.Context, ctr *dagger.Container, args []string) (checktool.Run, *dagger.Container, error) {
 	checked := ctr.WithExec(args, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
 	exitCode, err := checked.ExitCode(ctx)
