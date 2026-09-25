@@ -4,8 +4,6 @@ Levenshtein is released as `vX.Y.Z` tags ([releases](releases.md)), and a consum
 
 The project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Before 1.0, the minor number plays the role of the major one: a `0.Y.0` release may break things, and a `0.Y.Z` patch release does not.
 
-> TODO(maintainer): confirm the pre-1.0 rules below, which are proposed policy rather than a commitment the project has made yet.
-
 ## What is versioned
 
 | Surface | Where it is defined | Version marker |
@@ -25,7 +23,7 @@ Anything else, such as the text of a finding's message, the Dagger module's func
 
 The configuration schema grows by optional fields. A field added to version 1 means nothing in a file that does not use it, so existing files keep their meaning and their cached results; `lint`, `rule_modules`, `baseline`, and the `imports` and `apidiff` objects were all added this way. A change that would give an existing file a different meaning, or reject one that used to be accepted, needs `"version": 2`.
 
-Proposed rules for the other surfaces before 1.0:
+The other surfaces follow one rule before 1.0: a patch release never adds a finding on code that has not changed. It holds only fixes that cannot make a passing repository fail, and documentation. Anything that can, including a newer Staticcheck or gitleaks, moves the minor number.
 
 | Change | Release | What the changelog says |
 | --- | --- | --- |
@@ -33,10 +31,19 @@ Proposed rules for the other surfaces before 1.0:
 | A new optional configuration field, flag, action input, or output | Minor | An entry under Added |
 | A removed or renamed flag, action input, output, or configuration field | Minor, after a release that warns about it | A deprecation entry one release ahead, then the removal |
 | A new required field, or an exit code that means something new | Minor | An upgrade note |
-| A bug fix that turns a silent pass into a finding | Patch or minor | An entry under Fixed that says findings may appear |
-| A tool version bump with no new default rule | Patch or minor | An entry under Changed |
+| A bug fix that turns a silent pass into a finding | Minor | An entry under Fixed that says findings may appear |
+| A tool version bump | Minor | An entry under Changed, and an upgrade note when it adds findings |
+| A fix that cannot add a finding, or a documentation change | Patch | An entry under Fixed |
 
-> TODO(maintainer): decide whether a removed flag or field gets one release of deprecation warnings first, as proposed above, and whether a tool bump can ship in a patch release.
+A removal or rename gets one minor release of warning first. The release before it lists the change under Deprecated in the changelog, and the removal lands in a later minor release. The same window applies to a rule Levenshtein ships: it is deprecated in one minor release and renamed or removed in a later one. A [community rule module](community-rules.md#renames-deprecation-and-graduation) can go further and keep answering to an old name through `Renamed`, which reports a `rule-renamed` warning.
+
+## Supported releases
+
+Before 1.0, only the newest release is supported. A fix, security fixes included, lands on `main` and ships in the next release, as a patch on the newest minor when it cannot add findings; it is not backported to older releases. Move your pin to get it.
+
+## What 1.0 means
+
+1.0 is the release after which these stop changing in incompatible ways without a major version: configuration schema version 1, JSON report version 1, the baseline file format, the CLI's flags and exit codes, the GitHub Action's inputs and outputs, and the community rule contract, which leaves `v0` then. The rule set and tool versions keep moving in minor releases after 1.0, under the rules above.
 
 ## When you bump your pin
 

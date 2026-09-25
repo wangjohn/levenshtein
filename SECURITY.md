@@ -10,7 +10,7 @@ You should get a response within 14 days.
 
 Levenshtein has not reached 1.0. Security fixes land on `main` and ship in the next release, and consumers get them by moving their pin to it.
 
-TODO(maintainer): say whether a fix is ever backported to an older release, or only the newest release is supported.
+Only the newest release is supported: fixes are not backported to older releases. See [supported releases](docs/versioning.md#supported-releases).
 
 ## Scope
 
