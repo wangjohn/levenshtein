@@ -6,7 +6,9 @@ Every page, grouped by what you are trying to do. New to Levenshtein? Read the [
 
 - [Project README](../README.md): what Levenshtein checks, an example, and a quick start
 - [FAQ](faq.md): Levenshtein or golangci-lint, Docker, and other languages
-- [Checks](checks.md): every lint rule and the evidence for turning it on or leaving it off
+- [Shared checks](checks.md): checks versus rules, and where each is documented
+- [Go lint rules](rules.md): every rule `go-lint` enforces, why, and how to suppress a finding
+- [Rule selection](rule-selection.md): how rules are chosen, the measurements, and every analyzer left off
 - [Versioning](versioning.md): what a release may change and what to expect when you bump your pin
 - [Changelog](../CHANGELOG.md): what each release changed
 
@@ -21,6 +23,7 @@ Every page, grouped by what you are trying to do. New to Levenshtein? Read the [
 ## Configure
 
 - [Configuration](configuration.md): targets, environments, checks, runs, the baseline, and caching
+- [Check kinds guide](check-kinds-guide.md): which run each kind belongs in, and how the tool-wrapping kinds behave
 - [Community lint rules](community-rules.md): run rules published as Go modules, or publish your own
 - [Mutation testing](mutation.md): the `go-mutation` check and its accepted-survivors file
 - [Semantic lint](semantic-lint.md) (experimental): an advisory review by a language model, through an external paid service
@@ -28,6 +31,7 @@ Every page, grouped by what you are trying to do. New to Levenshtein? Read the [
 ## Reference
 
 - [CLI reference](reference/cli.md): flags, the run argument, exit codes, and output formats
+- [Configuration reference](reference/config.md): every `levenshtein.json` field, its type, default, and the kinds it applies to
 - [Check kinds](check-kinds.md): every check kind, its executors, caching, baseline support, and default runs
 - [Glossary](glossary.md): target, workspace, executor, run, baseline, and the other terms the docs use
 
@@ -40,6 +44,13 @@ Every page, grouped by what you are trying to do. New to Levenshtein? Read the [
 ## Internals
 
 - [Architecture](architecture.md): how `verify` plans, executes, caches, and reports
+- [Community rules design](design/community-rules.md): how the community linter is built and run, the proposed catalog, and the phasing
 - [Dependencies](dependencies.md): the libraries Levenshtein builds on, and the Dagger SDK patch
 - [Language fixtures](language-fixtures.md): the Rust and Python fixtures that test the configuration interface
 - [Roadmap](roadmap.md): the internal pilot plan
+
+## Maintainers
+
+- [Developing Levenshtein](maintainers/development.md): pinned dependencies, the local development loop, and the Dagger integration
+- [Levenshtein's own CI](maintainers/ci.md): the self-check jobs, required checks, and cache trust
+- [Cutting a release](maintainers/releases.md): publishing, protecting tags, and the archive smoke test

@@ -155,9 +155,9 @@ Levenshtein is new and is being tried out on a few Go repos. The config format i
 [docs/README.md](docs/README.md) indexes every page. The ones most people need:
 
 - [Setup](docs/setup.md): install and run locally
-- [Checks](docs/checks.md): every rule and why it's on or off
+- [Go lint rules](docs/rules.md): every rule and why it's on, and [rule selection](docs/rule-selection.md) for the ones left off
 - [Check kinds](docs/check-kinds.md): every check, its executors, and its default runs
-- [Configuration](docs/configuration.md): targets, runs, commands, and caching
+- [Configuration](docs/configuration.md): targets, runs, commands, and caching, with every field in the [configuration reference](docs/reference/config.md)
 - [CLI reference](docs/reference/cli.md): flags, output formats, and exit codes
 - [Using it in CI](docs/consumer-ci.md): GitHub Actions and other providers
 - [Troubleshooting](docs/troubleshooting.md): common errors and what to do about them
