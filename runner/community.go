@@ -23,7 +23,8 @@ import (
 
 // ruleModule is one rule module a go-lint check runs, in the JSON the CLI
 // sends (internal/verify's PlannedRuleModule) and the community linter reads
-// (runner/community's ModuleConfig); change all three together.
+// (runner/community's ModuleConfig); change all three together. All three
+// round-trip testdata/rule-module.json.
 type ruleModule struct {
 	Path      string                       `json:"path"`
 	Version   string                       `json:"version"`
