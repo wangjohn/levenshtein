@@ -11,6 +11,8 @@ on:
       - '.dagger-version'
       - 'sdk/**'
       - 'scripts/test-sdk-security'
+      - 'scripts/test-sdk-lock'
+      - 'levenshtein.json'
       - '.github/workflows/vulnerabilities.yml'
   workflow_dispatch:
 
@@ -34,7 +36,14 @@ jobs:
           go-version-file: .go-version
       - name: Set up the pinned Dagger CLI
         uses: ./.github/actions/setup-dagger
-      - name: Verify SDK regeneration and scan the generated executable
+      # scripts/test-sdk-security checks the SDK adapter's lock with uv first.
+      - name: Install the reviewed uv
+        run: |
+          ./scripts/install-fixture-tools --uv-only "$RUNNER_TEMP/uv-bin"
+          echo "$RUNNER_TEMP/uv-bin" >> "$GITHUB_PATH"
+      - name: Verify SDK regeneration and scan the generated and tool executables
         run: ./scripts/test-sdk-security
       - name: Scan configured Go modules
         run: ./verify go-vuln
+      - name: Scan the SDK adapter's locked Python dependencies
+        run: ./verify deps-vuln

@@ -14,6 +14,18 @@ The adapter uses Python to avoid bootstrapping another Go module with the same
 vulnerable dependency override. Consumers still use the normal Levenshtein
 commands; they do not need Python installed on their host.
 
+## Locked dependencies
+
+Dagger's Python SDK runtime installs this adapter on every Dagger run, for
+Levenshtein and for every consumer. `pyproject.toml` pins `dagger-io` to the
+engine in `.dagger-version` and the `uv_build` backend exactly, and `uv.lock`
+pins everything else with hashes: with the lock present the runtime runs
+`uv lock` and `uv sync`, which install the locked versions instead of resolving
+PyPI at run time. `uv lock` re-resolves a lock that no longer matches
+`pyproject.toml`, so after changing either file run
+`uv lock --directory sdk/patched-go`; `scripts/test-sdk-lock` fails until the
+lock is current. Release archives ship the lock.
+
 ## Validation and removal
 
 Run `./scripts/test-sdk-security` from the repository root. It regenerates twice,
