@@ -244,8 +244,8 @@ native `command` checks with `cache: true`), it:
    The enumeration is one `fileSet` (`internal/verify/enumerate.go`), and every
    consumer of a target's files takes it from there, so a reused result covers
    exactly what its check read: the fingerprint hashes it, `daggerSource`
-   imports it, and `visibleFiles` hands it to the native
-   scanners. The same listing's `git ls-files --others --ignored --directory`
+   imports it, and `visibleFiles` and `copyInputs` hand it to the native
+   readers. The same listing's `git ls-files --others --ignored --directory`
    names the ignored paths, a wholly ignored directory as one entry; the walk
    reports each one it leaves out as omitted, and the Dagger import excludes
    exactly those, literally. Policy that differs between consumers is a named

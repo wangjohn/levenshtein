@@ -302,7 +302,8 @@ func TestFileSetConformance(t *testing.T) {
 	})
 
 	// The Go toolchain reads what it can load, so the key covers it and the
-	// Dagger import leaves out exactly the rest, on either executor.
+	// Dagger import leaves out exactly the rest, on either executor; the native
+	// go-generate copy holds the same files.
 	t.Run("Go kind", func(t *testing.T) {
 		for _, executor := range []ExecutorKind{ExecutorNative, ExecutorDagger} {
 			req := Request{Source: root, PlannedCheck: planFor(t, root, CheckGoVet, executor)}
@@ -313,6 +314,19 @@ func TestFileSetConformance(t *testing.T) {
 			if got := excludedPaths(t, req); !slices.Equal(got, want) {
 				t.Fatalf("%s: the Dagger import excludes %v, want %v", executor, got, want)
 			}
+		}
+
+		dest := t.TempDir()
+		req := Request{Source: root, PlannedCheck: planFor(t, root, CheckGoGenerate, ExecutorNative)}
+		if err := copyInputs(t.Context(), req, dest); err != nil {
+			t.Fatal(err)
+		}
+		var copied []string
+		for _, file := range listTree(t, dest) {
+			copied = append(copied, filepath.ToSlash(file))
+		}
+		if want := withoutPrivate(goFiles); !slices.Equal(copied, want) {
+			t.Fatalf("go-generate copied %v, want %v", copied, want)
 		}
 	})
 

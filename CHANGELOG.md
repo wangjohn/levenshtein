@@ -281,7 +281,8 @@ Consumers pin a release tag, or its commit SHA, as described in
   with no `.go` file in it and nothing embedding it, such as `node_modules`
   or a build output, is left out of the key and the Dagger import, and a
   symlink in the ignored content that is kept is hashed by its link text
-  rather than disabling result reuse. The Go kinds' keys change once.
+  rather than disabling result reuse. The Go kinds' keys change once, and
+  the native `go-generate` copy holds the same files.
 - A declared input that git discovery could not see no longer contributes
   nothing to the key. An input spelled with different case than the
   repository (`Src` for `src/` on a case-insensitive filesystem), or an
