@@ -472,10 +472,11 @@ jobs:
             jq -r '.results[] | .stdout, (select(.error != null) | "error: " + .error)' semantic-lint.json
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          # Exit 1 now means no question was answered at all, such as an API
-          # outage: warn instead of failing the advisory job. Exit 2 is a
-          # configuration error in this repository, which should stay red.
-          if [[ $status == 1 ]]; then
+          # A run that got no answer at all, such as during an API outage,
+          # warns instead of failing the advisory job. Every other exit 1, such
+          # as a base branch that cannot be found, and exit 2, a configuration
+          # error, is a problem in this repository and stays red.
+          if [[ $status == 1 ]] && jq -e 'all(.results[]; .status == "passed" or (.error // "" | startswith("no question was answered") or . == "semantic-lint timed out"))' semantic-lint.json > /dev/null; then
             echo '::warning title=Semantic lint::No question was answered; see the job summary.'
             exit 0
           fi
