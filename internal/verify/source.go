@@ -1,10 +1,12 @@
 package verify
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"dagger.io/dagger"
@@ -29,8 +31,7 @@ func daggerIncludes(inputs []string) ([]string, error) {
 		if input == "." {
 			includes = append(includes, "**")
 		} else {
-			path := filepath.ToSlash(input)
-			includes = append(includes, path, path+"/**")
+			includes = append(includes, subtreePatterns(filepath.ToSlash(input))...)
 		}
 	}
 	return includes, nil
@@ -52,75 +53,95 @@ func privateSourcePath(path string) bool {
 func daggerExcludes(excludes []string) []string {
 	out := []string{"**/.env", "**/.env.*", "!**/.env.example", "**/.git"}
 	for _, path := range excludes {
-		slash := filepath.ToSlash(path)
-		out = append(out, slash, slash+"/**")
+		out = append(out, subtreePatterns(filepath.ToSlash(path))...)
 	}
 	return out
 }
 
-// Reject aliases before asking Dagger to import files. A path inside an allowed
-// directory must not expose another part of the checkout through a symlink.
-func validateDaggerSource(source string, inputs, excludes []string) error {
-	dir, err := os.OpenRoot(source)
+// subtreePatterns match a path and everything below it.
+func subtreePatterns(pattern string) []string {
+	return []string{pattern, pattern + "/**"}
+}
+
+// daggerPatternMeta are the characters Dagger's include and exclude patterns
+// give a meaning; a backslash makes each literal.
+var daggerPatternMeta = strings.NewReplacer(`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`)
+
+// literalPattern is a pattern that matches exactly one repository path, however
+// the path is spelled. Declared paths are already literal; the paths git
+// reports as ignored can be named anything.
+func literalPattern(path string) string {
+	escaped := daggerPatternMeta.Replace(filepath.ToSlash(path))
+	if strings.HasPrefix(escaped, "!") {
+		escaped = `\` + escaped
+	}
+	return escaped
+}
+
+// ignoredExcludes are the exclude patterns that leave out what git discovery
+// leaves out: every ignored path that lies under, or holds, a declared input.
+// Without them the container would read ignored files the key never hashed.
+// They come from the same memoized listing the key enumerated.
+func ignoredExcludes(ctx context.Context, set fileSet) []string {
+	if set.Discovery != DiscoveryGit {
+		return nil
+	}
+	ignored, ok := gitIgnored(ctx, set.Root)
+	if !ok {
+		return nil
+	}
+
+	var out []string
+	for _, path := range ignored {
+		relevant := slices.ContainsFunc(set.Inputs, func(input string) bool { return under(path, input) || under(input, path) })
+		if relevant && !excluded(path, set.Excludes) {
+			out = append(out, subtreePatterns(literalPattern(path))...)
+		}
+	}
+	return out
+}
+
+// validateDaggerSource rejects aliases before asking Dagger to import files. A
+// path inside an allowed directory must not expose another part of the
+// checkout through a symlink. It inspects the enumeration the key hashes, less
+// the private files the import leaves out.
+func validateDaggerSource(ctx context.Context, set fileSet) error {
+	dir, err := os.OpenRoot(set.Root)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = dir.Close() }()
 
-	for _, input := range inputs {
-		if privateSourcePath(input) || excluded(input, excludes) {
-			continue
+	return set.walk(ctx, dir, func(rel string, info fs.FileInfo) error {
+		if info == nil {
+			return nil
 		}
-		prefix := ""
-		for part := range strings.SplitSeq(input, string(filepath.Separator)) {
-			prefix = filepath.Join(prefix, part)
-			info, err := dir.Lstat(prefix)
-			if os.IsNotExist(err) {
-				break
-			}
-			if err != nil {
-				return err
-			}
-			if info.Mode()&os.ModeSymlink != 0 {
-				return fmt.Errorf("Dagger input %q contains symlink %q; declare the real input path", input, prefix)
-			}
-		}
-
-		err := fs.WalkDir(snapshotFS{FS: dir.FS(), root: dir}, filepath.ToSlash(input), func(path string, entry fs.DirEntry, err error) error {
-			if privateSourcePath(path) || excluded(filepath.FromSlash(path), excludes) {
-				if entry != nil && entry.IsDir() {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if os.IsNotExist(err) {
-				return nil
-			}
-			if err != nil {
-				return err
-			}
-			if entry.Type()&os.ModeSymlink != 0 {
-				return fmt.Errorf("Dagger input %q contains symlink %q; declare the real input path", input, path)
+		if privateSourcePath(rel) {
+			if info.IsDir() {
+				return fs.SkipDir
 			}
 			return nil
-		})
-		if err != nil {
-			return err
 		}
-	}
-	return nil
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("Dagger source contains symlink %q; declare the real input path or exclude the link", rel)
+		}
+		return nil
+	})
 }
 
-func daggerSource(client *dagger.Client, source string, inputs, excludes []string) (*dagger.Directory, error) {
-	includes, err := daggerIncludes(inputs)
+// daggerSource imports the check's file set: its declared inputs, less its
+// excludes, the private files, and under git discovery the paths git ignores.
+func daggerSource(ctx context.Context, client *dagger.Client, req Request) (*dagger.Directory, error) {
+	includes, err := daggerIncludes(req.Target.Inputs)
 	if err != nil {
 		return nil, err
 	}
-	if err := validateDaggerSource(source, inputs, excludes); err != nil {
+	set := targetFiles(req)
+	if err := validateDaggerSource(ctx, set); err != nil {
 		return nil, err
 	}
-	return client.Host().Directory(source, dagger.HostDirectoryOpts{
+	return client.Host().Directory(set.Root, dagger.HostDirectoryOpts{
 		Include: includes,
-		Exclude: daggerExcludes(excludes),
+		Exclude: append(daggerExcludes(set.Excludes), ignoredExcludes(ctx, set)...),
 	}), nil
 }

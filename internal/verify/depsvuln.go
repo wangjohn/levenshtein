@@ -23,7 +23,7 @@ const (
 )
 
 func (n *Native) depsVuln(ctx context.Context, req Request, work goRun) ([]finding, toolRun, error) {
-	files, err := visibleFiles(req.Source, req.Target.Inputs, req.Target.Exclude, sourceSkipDir)
+	files, err := visibleFiles(ctx, req, sourceSkipDir)
 	if err != nil {
 		return nil, toolRun{}, err
 	}

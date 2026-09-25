@@ -325,7 +325,7 @@ func (d *Dagger) executeApidiff(parent context.Context, req Request) Result {
 	ctx, cancel := context.WithTimeout(parent, goCheckTimeout)
 	defer cancel()
 
-	source, err := daggerSource(d.client, req.Source, req.Target.Inputs, req.Target.Exclude)
+	source, err := daggerSource(ctx, d.client, req)
 	if err != nil {
 		return Result{Status: StatusError, Error: err.Error()}
 	}

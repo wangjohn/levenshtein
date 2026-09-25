@@ -114,7 +114,7 @@ func workspace(req Request, dir string) string {
 // target's inputs, which is what decides whether the Dagger path imports it.
 func declared(inputs []string, path string) bool {
 	for _, input := range inputs {
-		if input == "." || path == input || strings.HasPrefix(path, input+string(filepath.Separator)) {
+		if under(path, input) {
 			return true
 		}
 	}

@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -30,7 +29,7 @@ func excluded(path string, excludes []string) bool {
 		return true
 	}
 	for _, p := range excludes {
-		if path == p || strings.HasPrefix(path, p+string(filepath.Separator)) {
+		if under(path, p) {
 			return true
 		}
 	}
@@ -68,46 +67,51 @@ type hashTarget struct {
 // Snapshot hashes content, names and modes, including untracked files and missing
 // paths. Source symlinks disable result reuse; output snapshots retain link text.
 func snapshot(ctx context.Context, req snapshotRequest) (string, error) {
-	dir, err := os.OpenRoot(req.Root)
+	entries, err := snapshotEntries(ctx, req)
 	if err != nil {
-		return "", err
-	}
-	defer func() { _ = dir.Close() }() // Directory handle cleanup; writes are closed separately.
-
-	// Mutable outputs are generated files the work tree usually ignores, so they
-	// are always enumerated from the filesystem.
-	var listed []string
-	tracked := false
-	if req.Discovery == DiscoveryGit && !req.Outputs {
-		listed, tracked = gitFiles(ctx, req.Root)
-	}
-
-	entries := map[string]string{}
-	var files []hashTarget
-	for _, path := range req.Paths {
-		if !relative(path) {
-			return "", fmt.Errorf("invalid input %q", path)
-		}
-
-		var err error
-		if tracked {
-			err = walkListing(dir, listed, path, req, entries, &files)
-		} else {
-			err = walkTree(dir, path, req, entries, &files)
-		}
-		if err != nil {
-			return "", err
-		}
-	}
-	if err := hashFiles(req.Root, dir, files, entries); err != nil {
 		return "", err
 	}
 	return digest(entries), nil
 }
 
+// snapshotEntries is what snapshot digests: one entry per enumerated path,
+// keyed by its root-relative path.
+func snapshotEntries(ctx context.Context, req snapshotRequest) (map[string]string, error) {
+	dir, err := os.OpenRoot(req.Root)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = dir.Close() }() // Directory handle cleanup; writes are closed separately.
+
+	// Mutable outputs are generated files the work tree usually ignores, so they
+	// are always enumerated from the filesystem.
+	discovery := req.Discovery
+	if req.Outputs {
+		discovery = DiscoveryFilesystem
+	}
+	set := fileSet{Root: req.Root, Inputs: req.Paths, Excludes: req.Excludes, Discovery: discovery}
+
+	entries := map[string]string{}
+	var files []hashTarget
+	err = set.walk(ctx, dir, func(rel string, info fs.FileInfo) error {
+		return record(dir, req, rel, info, entries, &files)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := hashFiles(req.Root, dir, files, entries); err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
 // record classifies one enumerated path. Regular files are queued rather than
 // read, so every content hash in one snapshot can run at once.
 func record(dir *os.Root, req snapshotRequest, rel string, info fs.FileInfo, entries map[string]string, files *[]hashTarget) error {
+	if info == nil {
+		entries[rel] = "missing"
+		return nil
+	}
 	if info.Mode()&os.ModeSymlink != 0 {
 		if !req.Outputs {
 			return fmt.Errorf("source symlink %q requires fresh execution", rel)
@@ -129,80 +133,6 @@ func record(dir *os.Root, req snapshotRequest, rel string, info fs.FileInfo, ent
 
 	*files = append(*files, hashTarget{Path: rel, Info: info})
 	return nil
-}
-
-func walkTree(dir *os.Root, path string, req snapshotRequest, entries map[string]string, files *[]hashTarget) error {
-	return fs.WalkDir(snapshotFS{FS: dir.FS(), root: dir}, filepath.ToSlash(path), func(name string, entry fs.DirEntry, err error) error {
-		rel := filepath.FromSlash(name)
-		if excluded(rel, req.Excludes) {
-			if entry != nil && entry.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if os.IsNotExist(err) {
-			entries[rel] = "missing"
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		return record(dir, req, rel, info, entries, files)
-	})
-}
-
-// walkListing covers the declared input with the work tree's own file list.
-// Directories produce no entries of their own in this mode, and a tracked file
-// that is not on disk is skipped rather than recorded as missing, so a tree
-// matches a fresh clone of the same content.
-func walkListing(dir *os.Root, listed []string, path string, req snapshotRequest, entries map[string]string, files *[]hashTarget) error {
-	covered := false
-	for _, rel := range listed {
-		if path != "." && rel != path && !strings.HasPrefix(rel, path+string(filepath.Separator)) {
-			continue
-		}
-		covered = true
-		if excluded(rel, req.Excludes) {
-			continue
-		}
-
-		info, err := dir.Lstat(rel)
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-
-		// The listing names files, so a directory here is a submodule's gitlink or
-		// an untracked nested repository, whose contents git does not list. Walk
-		// it, or edits inside it would never change the fingerprint.
-		if info.IsDir() {
-			err = walkTree(dir, rel, req, entries, files)
-		} else {
-			err = record(dir, req, rel, info, entries, files)
-		}
-		if err != nil {
-			return err
-		}
-	}
-	if covered {
-		return nil
-	}
-
-	// A declared path git knows nothing about is still missing only when it is
-	// also absent from disk; an ignored directory contributes no entries.
-	_, err := dir.Lstat(path)
-	if os.IsNotExist(err) {
-		entries[path] = "missing"
-		return nil
-	}
-	return err
 }
 
 // hashFiles reads every queued file, bounded by the available parallelism. The
@@ -321,18 +251,25 @@ func implementation(ctx context.Context, req Request) (string, error) {
 	return impl, nil
 }
 
-func fingerprint(ctx context.Context, req Request) (string, error) {
+// keyedSource is the snapshot of the source a check's key covers: the
+// target's file set (see fileSet), widened by any stage inputs, less every
+// declared output.
+func keyedSource(req Request) snapshotRequest {
 	paths := append([]string{}, req.Target.Inputs...)
 	for _, stage := range req.stages() {
 		paths = append(paths, stage.definition.Inputs...)
 	}
 	sort.Strings(paths)
-	source, err := snapshot(ctx, snapshotRequest{
+	return snapshotRequest{
 		Root:      req.Source,
 		Paths:     paths,
 		Excludes:  append(outputPaths(req), req.Target.Exclude...),
 		Discovery: req.Target.Discovery,
-	})
+	}
+}
+
+func fingerprint(ctx context.Context, req Request) (string, error) {
+	source, err := snapshot(ctx, keyedSource(req))
 	if err != nil {
 		return "", err
 	}

@@ -39,7 +39,7 @@ func TestDaggerSourceBoundary(t *testing.T) {
 		}
 	}
 
-	directory, err := daggerSource(client, source, []string{"services/api", "contracts", "go.work", "optional.go"}, []string{"services/api/generated"})
+	directory, err := daggerSource(ctx, client, visibleRequest(source, []string{"services/api", "contracts", "go.work", "optional.go"}, []string{"services/api/generated"}))
 	if err != nil {
 		t.Fatal(err)
 	}

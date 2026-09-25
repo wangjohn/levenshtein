@@ -1,7 +1,7 @@
 package verify
 
 import (
-	"errors"
+	"context"
 	"fmt"
 	"io/fs"
 	"os"
@@ -11,41 +11,36 @@ import (
 )
 
 // visibleFiles lists the regular files a check over the whole source sees: the
-// files under the target's declared inputs, less its excludes and the private
-// paths (.git, .env files) the Dagger path never imports. That is exactly what
-// the Dagger path's source holds, so both executors read the same files. A
-// symlink is never followed; the Dagger path refuses one in a declared input.
-// skip, when set, drops every file below a directory it names, at any depth
-// from the repository root, including above a declared input. Paths are
-// repository-relative with forward slashes, sorted.
-func visibleFiles(source string, inputs, excludes []string, skip func(name string) bool) ([]string, error) {
+// target's file set (see fileSet), which is what its key hashed, less the
+// private paths (.git, .env files) the Dagger path never imports. That is
+// exactly what the Dagger path's source holds, so both executors read the same
+// files: under git discovery neither reads a file the work tree ignores. A
+// symlink is never followed; the key refuses to hash one and the Dagger path
+// refuses to import one. skip, when set, drops every file below a directory it
+// names, at any depth from the repository root, including above a declared
+// input. Paths are repository-relative with forward slashes, sorted.
+func visibleFiles(ctx context.Context, req Request, skip func(name string) bool) ([]string, error) {
+	dir, err := os.OpenRoot(req.Source)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = dir.Close() }() // Read-only directory handle.
+
 	seen := map[string]bool{}
-	for _, input := range inputs {
-		err := filepath.WalkDir(filepath.Join(source, input), func(path string, entry fs.DirEntry, err error) error {
-			if errors.Is(err, fs.ErrNotExist) {
-				return nil
+	err = targetFiles(req).walk(ctx, dir, func(rel string, info fs.FileInfo) error {
+		switch {
+		case info == nil:
+		case privateSourcePath(rel) || (info.IsDir() && skip != nil && skip(info.Name())):
+			if info.IsDir() {
+				return fs.SkipDir
 			}
-			if err != nil {
-				return err
-			}
-			rel, err := filepath.Rel(source, path)
-			if err != nil {
-				return err
-			}
-			if rel != "." && (privateSourcePath(rel) || excluded(rel, excludes) || (entry.IsDir() && skip != nil && skip(entry.Name()))) {
-				if entry.IsDir() {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if entry.Type().IsRegular() && !skippedDir(filepath.Dir(rel), skip) {
-				seen[filepath.ToSlash(rel)] = true
-			}
-			return nil
-		})
-		if err != nil {
-			return nil, err
+		case info.Mode().IsRegular() && !skippedDir(filepath.Dir(rel), skip):
+			seen[filepath.ToSlash(rel)] = true
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	files := make([]string, 0, len(seen))

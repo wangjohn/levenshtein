@@ -265,6 +265,30 @@ Consumers pin a release tag, or its commit SHA, as described in
   nilerr applied the directive itself and dropped the finding, so Staticcheck
   then reported the directive as matching nothing and the check failed either
   way. Upstream analyzers now leave `//lint:ignore` to Staticcheck.
+- A reused result now covers every file its check read. Under `git` discovery
+  the cache key left gitignored files out while the checks still read them:
+  editing a gitignored generated `*.pb.go` or `vendor/` file replayed a cached
+  `go-vet` or `go-test` pass, and adding a secret to a gitignored file replayed
+  a cached `secrets` pass. The key, the Dagger import, and the files the
+  native scanners read now come from one enumeration. Under `git` discovery
+  the Dagger import leaves out the paths the repository's `.gitignore` files
+  ignore and `secrets`, `shell-lint`, and `deps-vuln` read only the listed
+  files. The Go kinds (`go-lint`, `go-vet`, `go-mod`, `go-test`, `go-http`,
+  `go-sql`, `go-vuln`, `go-imports`, `go-generate`, `go-apidiff`,
+  `go-mutation`) always plan `"discovery": "filesystem"`, because the Go
+  toolchain reads ignored files in a package directory; their keys change
+  once, and a Go target whose inputs hold a large ignored tree such as
+  `node_modules` should `exclude` it.
+- A declared input that git discovery could not see no longer contributes
+  nothing to the key. An input spelled with different case than the
+  repository (`Src` for `src/` on a case-insensitive filesystem), or an
+  exclude spelled that way, is a configuration error when the run is planned.
+  An input reached through a symlinked directory follows the source symlink
+  rule on either discovery and disables result reuse, as the Dagger path
+  already refused it. An input inside a submodule or an untracked nested
+  repository is fingerprinted from disk.
+- Git discovery finds each input's paths by binary search in the sorted
+  listing instead of scanning the whole listing once per input.
 
 ## [0.1.0] - 2026-09-22
 

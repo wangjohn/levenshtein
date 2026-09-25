@@ -7,10 +7,9 @@ import (
 )
 
 // The runner module compiles against the generated Dagger SDK, which is
-// gitignored, so the runner target's git discovery never lists it. Levenshtein
-// verifies itself with one directory as both the shared checkout and the
-// source, and every shared Go check hashes all of the shared runner/ from the
-// filesystem, so an SDK edit still changes the key. This pins that layout.
+// gitignored, so git discovery never lists it. The Go kinds plan filesystem
+// discovery, so the source key itself covers the SDK: an edit changes the key
+// even when the shared checkout, whose runner/ is also hashed, is elsewhere.
 func TestSelfVerificationFingerprintsTheGeneratedSDK(t *testing.T) {
 	requireGit(t)
 	cfg, err := Load("../..")
@@ -55,10 +54,10 @@ func TestSelfVerificationFingerprintsTheGeneratedSDK(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s is not planned", id)
 		}
-		if check.Target.Discovery != DiscoveryGit {
-			t.Fatalf("%s: discovery is %q; this test pins the git-discovery layout", id, check.Target.Discovery)
+		if check.Target.Discovery != DiscoveryFilesystem {
+			t.Fatalf("%s: discovery is %q; a Go kind must enumerate what the toolchain reads", id, check.Target.Discovery)
 		}
-		req := Request{Source: root, Shared: root, PlannedCheck: check}
+		req := Request{Source: root, Shared: t.TempDir(), PlannedCheck: check}
 		key := func() string {
 			t.Helper()
 			// A new CLI process takes a new snapshot of the shared checkout.

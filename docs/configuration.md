@@ -117,13 +117,13 @@ An import pattern is a full import path with optional `...` wildcards, an entry 
 
 For Dagger checks, target `inputs` controls both the files imported into Dagger and source fingerprinting. Declare real, literal repository-relative files/directories, including local dependencies and workspace files outside the target directory. Optional missing paths are allowed; adding them later invalidates the cache. Glob and negation syntax is rejected.
 
-Only declared paths are imported. Within them, `.git`, `.env`, and `.env.*` are excluded, except public `.env.example` templates. Symlinks inside declared inputs or along their ancestors are rejected, including aliases to other directories inside the repo. Declare the real paths instead. The no-configuration defaults use `inputs: ["."]`, which imports the whole source tree subject to the exclusions above; use version 1 with explicit product paths for mixed product/private repos.
+Only declared paths are imported. Within them, `.git`, `.env`, and `.env.*` are excluded, except public `.env.example` templates, and so are the target's `exclude` paths and, under `git` [discovery](#input-discovery), the paths the repository's `.gitignore` files ignore. Symlinks inside declared inputs or along their ancestors are rejected, including aliases to other directories inside the repo. Declare the real paths instead. The no-configuration defaults use `inputs: ["."]`, which imports the whole source tree subject to the exclusions above; use version 1 with explicit product paths for mixed product/private repos.
 
 Native inputs only define cache identity. Native commands are trusted host processes with normal filesystem access; they are not sandboxed by the input list. Native relative symlinks may stay inside the repository, but disable completed-result reuse. Dagger's stricter rule prevents importing undeclared source through aliases.
 
 ### Input discovery
 
-A target's `discovery` says how the files under its `inputs` are enumerated for fingerprinting.
+A target's `discovery` says how the files under its `inputs` are enumerated. The one enumeration decides everything a check reads: the files its cache key hashes, the files the Dagger path imports, and the files `secrets`, `shell-lint`, and `deps-vuln` scan natively. The key never leaves out a file the check reads.
 
 | Mode | Enumerates |
 | --- | --- |
@@ -134,7 +134,13 @@ Git discovery keeps build output, dependency directories, and editor scratch fil
 
 **Only the repository's committed `.gitignore` files apply.** A personal `core.excludesFile`, the default `~/.config/git/ignore`, and `.git/info/exclude` are all ignored, so every developer and CI worker enumerates the same files for the same tree.
 
-Two consequences are worth stating. A file the repository's `.gitignore` files ignore is not part of the fingerprint, so a target whose real inputs are **generated and gitignored** must set `"discovery": "filesystem"`. And in git mode directories have no entries of their own and a tracked path that is absent from disk is skipped rather than recorded as `missing`, so a working tree and a fresh clone of the same content fingerprint identically. The exception is a submodule or an untracked nested repository: git lists it as a single path, so its directory is walked in full like the filesystem mode does. A declared input that exists neither in the work tree's list nor on disk is still recorded as `missing`, exactly as the filesystem walk records it.
+Some consequences are worth stating. A file the repository's `.gitignore` files ignore is not part of the fingerprint and is not read either: the Dagger import excludes every ignored path under the inputs, and the native scanners read only the listed files. A target whose real inputs are **generated and gitignored** must set `"discovery": "filesystem"`.
+
+**The Go kinds always enumerate from the filesystem.** `go-lint`, `go-vet`, `go-mod`, `go-test`, `go-http`, `go-sql`, `go-vuln`, `go-imports`, `go-generate`, `go-apidiff`, and `go-mutation` plan `"discovery": "filesystem"` whatever the target says, and the plan shows it. The Go toolchain reads every file in a package directory, and whatever a test or `//go:embed` opens, including gitignored generated code such as a `*.pb.go`, a `vendor/` tree, or a generated SDK, so no listing that leaves ignored files out describes what these checks read. Walking the filesystem costs more than asking git where large ignored trees sit under the inputs: on a synthetic tree with 30,000 ignored files in `node_modules`, a warm fingerprint took about 0.5 s instead of 8 ms. `exclude` such a directory from a Go target; the Go checks then neither hash nor, in Dagger, import it.
+
+A declared input or exclude must be spelled exactly as the repository spells it. On a case-insensitive filesystem `Src` opens `src/`, but git and the import and exclude rules compare exact names, so a path that resolves only under another spelling is a configuration error when the run is planned. An input reached through a symlinked directory is refused like a symlink inside an input: the check runs without result reuse, and the Dagger path rejects it.
+
+In git mode directories have no entries of their own and a tracked path that is absent from disk is skipped rather than recorded as `missing`, so a working tree and a fresh clone of the same content fingerprint identically. The exception is a submodule or an untracked nested repository: git lists it as a single path, so its directory, or a declared input inside it, is walked in full like the filesystem mode does. A declared input that exists neither in the work tree's list nor on disk is still recorded as `missing`, exactly as the filesystem walk records it.
 
 ### Excluding paths
 

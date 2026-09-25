@@ -19,12 +19,21 @@ import (
 // per run instead.
 //
 // The trade-off this records: a file the repository's .gitignore files ignore
-// is not part of the fingerprint, so a target whose real inputs are generated
-// and gitignored must declare "discovery": "filesystem".
+// is not part of the fingerprint, and so is not part of what the check reads
+// either: the Dagger import leaves out the ignored paths and the native
+// scanners read the listing. A target whose real inputs are generated and
+// gitignored must declare "discovery": "filesystem". The Go kinds always do
+// (see enumeratesFilesystem), because the Go toolchain reads ignored files in a
+// package directory whatever the listing says.
 type gitListing struct {
 	// files are source-relative paths, sorted, of everything git tracks or would
 	// add. Nil means the listing is unusable and callers walk the filesystem.
 	files []string
+	// ignored are the source-relative paths, sorted, of the untracked files the
+	// repository's .gitignore files ignore, a wholly ignored directory named
+	// once. Everything on disk is in files or in ignored, so excluding ignored
+	// from a directory import leaves exactly files.
+	ignored []string
 	// note explains an unexpected failure for the cache Reason. A directory that
 	// is simply not a work tree is ordinary and carries no note.
 	note string
@@ -55,6 +64,13 @@ func listing(ctx context.Context, source string) *gitListing {
 func gitFiles(ctx context.Context, source string) ([]string, bool) {
 	found := listing(ctx, source)
 	return found.files, found.files != nil
+}
+
+// gitIgnored reports the ignored paths under source, from the same memoized
+// listing gitFiles answers from, or false when the caller walks the filesystem.
+func gitIgnored(ctx context.Context, source string) ([]string, bool) {
+	found := listing(ctx, source)
+	return found.ignored, found.files != nil
 }
 
 // relist drops source's memoized listing so the next snapshot asks git again.
@@ -117,27 +133,12 @@ func listGit(ctx context.Context, source string) (*gitListing, error) {
 
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, path, "-c", "core.excludesFile=", "ls-files", "-z", "--cached", "--others", "--exclude-per-directory=.gitignore")
-	cmd.Dir = source
-	cmd.Env = env
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
-		if strings.Contains(stderr.String(), "not a git repository") {
-			return &gitListing{}, nil
-		}
-		return nil, errors.New(strings.TrimSpace(stderr.String() + " " + err.Error()))
+	files, outside, err := lsFiles(ctx, path, source, env, "--cached", "--others")
+	if err != nil {
+		return nil, err
 	}
-
-	var files []string
-	for name := range strings.SplitSeq(stdout.String(), "\x00") {
-		// An untracked nested repository is listed as its directory with a
-		// trailing slash; keep it so the snapshot walks into it.
-		path := filepath.FromSlash(strings.TrimSuffix(name, "/"))
-		if name == "" || !relative(path) {
-			continue
-		}
-		files = append(files, path)
+	if outside {
+		return &gitListing{}, nil
 	}
 	// An empty listing under a work tree means the source itself is ignored.
 	// Fingerprinting almost nothing would make unrelated trees look identical,
@@ -145,7 +146,41 @@ func listGit(ctx context.Context, source string) (*gitListing, error) {
 	if len(files) == 0 {
 		return &gitListing{note: "git lists no files under the source, so inputs were enumerated from the filesystem"}, nil
 	}
+	// The same rules, asked the other way round: what the listing leaves out.
+	// --directory names a wholly ignored directory once, so a dependency tree
+	// costs one entry, not one per file.
+	ignored, _, err := lsFiles(ctx, path, source, env, "--others", "--ignored", "--directory")
+	if err != nil {
+		return nil, err
+	}
+	return &gitListing{files: files, ignored: ignored}, nil
+}
 
-	sort.Strings(files)
-	return &gitListing{files: files}, nil
+// lsFiles runs git ls-files with the repository's own .gitignore rules and
+// returns the paths it prints, source-relative and sorted. outside reports a
+// source that is not in a work tree.
+func lsFiles(ctx context.Context, git, source string, env []string, args ...string) (paths []string, outside bool, err error) {
+	cmd := exec.CommandContext(ctx, git, append([]string{"-c", "core.excludesFile=", "ls-files", "-z", "--exclude-per-directory=.gitignore"}, args...)...)
+	cmd.Dir = source
+	cmd.Env = env
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		if strings.Contains(stderr.String(), "not a git repository") {
+			return nil, true, nil
+		}
+		return nil, false, errors.New(strings.TrimSpace(stderr.String() + " " + err.Error()))
+	}
+
+	for name := range strings.SplitSeq(stdout.String(), "\x00") {
+		// A directory is listed with a trailing slash: an untracked nested
+		// repository, which the enumeration walks into, or a wholly ignored one.
+		path := filepath.FromSlash(strings.TrimSuffix(name, "/"))
+		if name == "" || !relative(path) {
+			continue
+		}
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	return paths, false, nil
 }
