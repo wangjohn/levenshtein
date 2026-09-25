@@ -86,7 +86,11 @@ func (n *Native) stage(ctx context.Context, req Request, kind StageKind, stage *
 		return info, r
 	}
 
+	// A stage writes the tree, and the next key this run takes, the build's
+	// right after a preparation or any later check's, must see what it
+	// created, whether or not the stage succeeded.
 	result := command(ctx, filepath.Join(req.Source, req.Target.Workspace), stage.Command, env, stage.Timeout)
+	relist(req.Source)
 	if result.Status != StatusPassed {
 		failure := result.withOutcome(result.Status, string(kind)+": "+result.Error)
 		return info, &failure

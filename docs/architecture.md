@@ -231,8 +231,8 @@ native `command` checks with `cache: true`), it:
    `discovery`. `internal/verify/discovery.go` runs
    `git -c core.excludesFile= ls-files -z --cached --others
    --exclude-per-directory=.gitignore` (git found through absolute `PATH`
-   entries only) once per source per process, and again after each check
-   executes, and `snapshot` walks only the listed paths that fall under each
+   entries only) once per source per process, and again after each check or
+   preparation/build stage executes, whatever its outcome, and `snapshot` walks only the listed paths that fall under each
    input. A listed path that is a directory (a submodule's gitlink or an
    untracked nested repository) is walked in full. A source outside a work
    tree, or a `git` that fails, falls back to the directory walk. The shared

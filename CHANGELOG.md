@@ -273,6 +273,11 @@ Consumers pin a release tag, or its commit SHA, as described in
   with no artifacts to restore takes no workspace lock, and another process
   on the same source still waits. A check cancelled while it waits for the
   workspace is reported as `cancelled` instead of `error`.
+- Git input discovery lists the work tree again after every check and every
+  preparation or build stage, not only after a passing check. A failed check,
+  or a preparation that generates files into its build's inputs, could leave
+  untracked files that a later key in the same run did not see, so a stale
+  result or build could be reused.
 
 ## [0.1.0] - 2026-09-22
 
