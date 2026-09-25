@@ -47,11 +47,15 @@ const (
 	CheckCommand          CheckKind = "command"
 	CheckSemanticLint     CheckKind = "semantic-lint"
 	CheckGoMutation       CheckKind = "go-mutation"
+	CheckGoImports        CheckKind = "go-imports"
 )
 
 // checkKinds lists every kind, so tests can prove each one has exactly one
 // executor. Add new kinds here as well as to the executor that runs them.
-var checkKinds = []CheckKind{CheckGoLint, CheckGoVet, CheckGoMod, CheckGoTest, CheckGoHTTP, CheckGoSQL, CheckGoVuln, CheckWorkflowLint, CheckWorkflowSecurity, CheckSelfTest, CheckCommand, CheckSemanticLint, CheckGoMutation}
+var checkKinds = []CheckKind{
+	CheckGoLint, CheckGoVet, CheckGoMod, CheckGoTest, CheckGoHTTP, CheckGoSQL, CheckGoVuln, CheckWorkflowLint, CheckWorkflowSecurity, CheckSelfTest, CheckCommand, CheckSemanticLint, CheckGoMutation,
+	CheckGoImports,
+}
 
 // WarningKind names a problem a check result reports without failing. The
 // community linter reports the rule-* kinds; runner/community keeps copies of

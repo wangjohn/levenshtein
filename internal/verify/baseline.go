@@ -25,9 +25,10 @@ const baselineStaleCode = "baseline-stale"
 // line numbers included, which no baseline entry could match across unrelated
 // edits; go-mutation has its own accepted-survivors file.
 var baselineKinds = map[CheckKind]bool{
-	CheckGoLint: true,
-	CheckGoHTTP: true,
-	CheckGoSQL:  true,
+	CheckGoLint:    true,
+	CheckGoHTTP:    true,
+	CheckGoSQL:     true,
+	CheckGoImports: true,
 }
 
 // Baseline is the checked-in record of findings a repository has accepted for

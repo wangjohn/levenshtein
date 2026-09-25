@@ -52,6 +52,7 @@ var daggerFunctions = map[CheckKind]string{
 	CheckWorkflowLint:     "sharedCheck",
 	CheckWorkflowSecurity: "sharedCheck",
 	CheckGoMutation:       "goMutation",
+	CheckGoImports:        "goImports",
 }
 
 func (d *Dagger) Execute(ctx context.Context, req Request) Result {
@@ -247,6 +248,15 @@ func (d *Dagger) execute(ctx context.Context, req Request, args *daggerArgs) err
 			return err
 		}
 		query = query.Arg("ruleModules", modules)
+	}
+	// A go-imports check's rules are an argument too, so they key Dagger's
+	// call cache the way they key the CLI's fingerprint.
+	if req.Check.Kind == CheckGoImports {
+		rules, err := importRules(req.Check)
+		if err != nil {
+			return err
+		}
+		query = query.Arg("rules", rules)
 	}
 	if mutation := args.mutation; mutation != nil {
 		query = query.Arg("files", mutation.files).Arg("lines", mutation.lines).Arg("accepted", mutation.accepted).Arg("tags", mutation.tags)

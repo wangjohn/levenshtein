@@ -14,7 +14,7 @@
     "lint": {
       "dir": "runner/lint",
       "workspace": ".",
-      "inputs": ["runner/lint", "runner/testdata/selection.json"]
+      "inputs": ["runner/lint", "runner/testdata/selection.json", "runner/testdata/import-rules.json", "runner/testdata/imports-good", "runner/testdata/imports-bad"]
     },
     "community": {
       "dir": "runner/community",
@@ -69,6 +69,10 @@
     "native-go-test": {"kind": "go-test", "targets": ["repository", "lint", "community", "example"], "environment": "host-go"},
     "native-workflow-lint": {"kind": "workflow-lint", "target": "workflows", "environment": "host-go"},
     "native-workflow-security": {"kind": "workflow-security", "target": "actions", "environment": "host-go"},
+    "go-imports": {"kind": "go-imports", "target": "root", "environment": "go", "imports": {"rules": [{"packages": ["./internal/gitchange"], "allow": ["std"], "reason": "gitchange is the leaf verify and semantic share, so it depends on the standard library alone"}, {"packages": ["./internal/semantic/..."], "deny": ["./internal/verify/...", "./cmd/...", "dagger.io/..."], "reason": "semantic-lint is a library internal/verify calls; it must not reach back into the runner or depend on Dagger"}, {"packages": ["./cmd/..."], "deny": ["./internal/semantic/...", "./internal/gitchange/...", "dagger.io/..."], "reason": "the CLI drives every check through internal/verify, which owns Dagger"}]}},
+    "go-imports-lint": {"kind": "go-imports", "target": "lint", "environment": "go", "imports": {"rules": [{"packages": ["./..."], "deny": ["dagger.io/...", "dagger/..."], "reason": "the linter and levenshtein-gocheck build the same way on the host and in Dagger, so they never depend on the Dagger SDK"}, {"packages": ["./policy/..."], "allow": ["std", "golang.org/x/tools/go/..."], "reason": "the house rules are plain go/analysis analyzers, independent of Staticcheck and the upstream analyzers beside them"}, {"packages": ["./gocheck/..."], "allow": ["std", "golang.org/x/mod/..."], "reason": "levenshtein-gocheck needs no type checker or analyzer, so it stays a small, fast build"}]}},
+    "native-go-imports": {"kind": "go-imports", "target": "root", "environment": "host-go", "imports": {"rules": [{"packages": ["./internal/gitchange"], "allow": ["std"], "reason": "gitchange is the leaf verify and semantic share, so it depends on the standard library alone"}, {"packages": ["./internal/semantic/..."], "deny": ["./internal/verify/...", "./cmd/...", "dagger.io/..."], "reason": "semantic-lint is a library internal/verify calls; it must not reach back into the runner or depend on Dagger"}, {"packages": ["./cmd/..."], "deny": ["./internal/semantic/...", "./internal/gitchange/...", "dagger.io/..."], "reason": "the CLI drives every check through internal/verify, which owns Dagger"}]}},
+    "native-go-imports-lint": {"kind": "go-imports", "target": "lint", "environment": "host-go", "imports": {"rules": [{"packages": ["./..."], "deny": ["dagger.io/...", "dagger/..."], "reason": "the linter and levenshtein-gocheck build the same way on the host and in Dagger, so they never depend on the Dagger SDK"}, {"packages": ["./policy/..."], "allow": ["std", "golang.org/x/tools/go/..."], "reason": "the house rules are plain go/analysis analyzers, independent of Staticcheck and the upstream analyzers beside them"}, {"packages": ["./gocheck/..."], "allow": ["std", "golang.org/x/mod/..."], "reason": "levenshtein-gocheck needs no type checker or analyzer, so it stays a small, fast build"}]}},
     "go-mutation": {"kind": "go-mutation", "target": "repository", "environment": "go"},
     "go-mutation-lint": {"kind": "go-mutation", "target": "lint", "environment": "go", "mutation": {"accepted": "runner/lint/.levenshtein/mutation-accepted.json"}}
   },
@@ -77,6 +81,7 @@
     "go-vet": {"checks": ["native-go-vet"]},
     "go-mod": {"checks": ["native-go-mod"]},
     "go-test": {"checks": ["native-go-test"]},
+    "go-imports": {"checks": ["native-go-imports", "native-go-imports-lint"]},
     "go-http": {"checks": ["go-http"]},
     "go-sql": {"checks": ["go-sql"]},
     "go-vuln": {"checks": ["go-vuln"]},
@@ -85,9 +90,9 @@
     "self-test": {"checks": ["self-test"]},
     "semantic-lint": {"checks": ["semantic-lint"]},
     "mutation": {"checks": ["go-mutation", "go-mutation-lint"]},
-    "branch": {"checks": ["native-go-lint", "native-go-vet", "native-go-mod", "native-workflow-lint", "native-workflow-security"]},
-    "pre-merge": {"checks": ["native-go-lint", "native-go-vet", "native-go-mod", "native-workflow-lint", "native-workflow-security", "self-test"]},
-    "branch-dagger": {"checks": ["go-lint", "go-vet", "go-mod", "workflow-lint", "workflow-security"]},
-    "main": {"checks": ["go-lint", "go-vet", "go-mod", "workflow-lint", "workflow-security", "self-test", "go-vuln"], "rerun_checks": true}
+    "branch": {"checks": ["native-go-lint", "native-go-vet", "native-go-mod", "native-go-imports", "native-go-imports-lint", "native-workflow-lint", "native-workflow-security"]},
+    "pre-merge": {"checks": ["native-go-lint", "native-go-vet", "native-go-mod", "native-go-imports", "native-go-imports-lint", "native-workflow-lint", "native-workflow-security", "self-test"]},
+    "branch-dagger": {"checks": ["go-lint", "go-vet", "go-mod", "go-imports", "go-imports-lint", "workflow-lint", "workflow-security"]},
+    "main": {"checks": ["go-lint", "go-vet", "go-mod", "go-imports", "go-imports-lint", "workflow-lint", "workflow-security", "self-test", "go-vuln"], "rerun_checks": true}
   }
 }

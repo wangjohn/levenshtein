@@ -423,6 +423,7 @@ Runs select checks by name; existing CI still owns triggers and schedules.
 | `go-vet` | The pinned Go toolchain's default vet checks | Branch and pre-merge |
 | `go-mod` | `go mod tidy -diff` and `go mod verify`: manifests tidy, downloads matching `go.sum` ([details](#module-manifests)) | Branch and pre-merge |
 | `go-test` | `go test -race ./...` on the pinned toolchain: a failing test or a detected data race fails, a test that does not build is an error ([details](#tests)) | Its own run, for self-contained unit tests |
+| `go-imports` | Layering rules the repository declares: which of its packages may import which packages; each forbidden import is a finding at the import ([details](#import-boundaries)) | Branch and pre-merge, once configured |
 | `go-http` | bodyclose alone, for a repo that wants the resource check without the rest | HTTP clients/services |
 | `go-sql` | sqlclosecheck alone, for a repo that wants the resource check without the rest | Database users |
 | `workflow-lint` | actionlint: GitHub Actions syntax and expressions | Repos with GitHub Actions |
@@ -455,7 +456,7 @@ For example, an HTTP service can compose checks using the current versioned inte
 }
 ```
 
-Levenshtein's own `levenshtein.json` is a worked example of splitting executors: `branch` and `pre-merge` bind `go-lint`, `go-vet`, `go-mod`, `workflow-lint`, and `workflow-security` to a [native environment](configuration.md#native-go-checks) for speed, and `main` keeps the same kinds in Dagger as the daily hermetic audit. Its `go-mod` check covers the root module, `runner/lint`, and `runner/tools`, but not `runner`, whose `go.mod` `dagger develop` rewrites on every regeneration.
+Levenshtein's own `levenshtein.json` is a worked example of splitting executors: `branch` and `pre-merge` bind `go-lint`, `go-vet`, `go-mod`, `go-imports`, `workflow-lint`, and `workflow-security` to a [native environment](configuration.md#native-go-checks) for speed, and `main` keeps the same kinds in Dagger as the daily hermetic audit. Its `go-mod` check covers the root module, `runner/lint`, and `runner/tools`, but not `runner`, whose `go.mod` `dagger develop` rewrites on every regeneration. Its [import rules](#import-boundaries) keep `internal/gitchange` on the standard library alone, `internal/semantic` out of `internal/verify` and Dagger, and the CLI talking to `internal/verify` only; in `runner/lint`, nothing may import the Dagger SDK, the house rules depend on `golang.org/x/tools/go/...` alone, and `levenshtein-gocheck` on `golang.org/x/mod`.
 
 A check with [`targets`](configuration.md#one-check-several-targets) plans one check per target: `lint` becomes `lint/api` and `lint/worker`, while `http/api` selects a single target. Each Go check runs for its selected target. Use a repository-root target (`dir: "."`) for `workflow-lint` and `workflow-security`; a workflow-less repo should omit them. A repository without `levenshtein.json` gets these checks over a single whole-tree target. HTTP and SQL checks do not replace application tests. ShellCheck and Pyflakes integration is explicitly disabled so results do not depend on optional host tools.
 
@@ -489,6 +490,33 @@ Without a `levenshtein.json`, `go-mod` is part of the default `branch`, `pre-mer
 - **Live state.** A `command` check leaves result caching off unless it opts in with `cache: true`, so tests that reach the network or other external state are re-executed on every run; give `go test` `-count=1` there so its own cache does not answer either.
 
 A repository whose CI already runs `go test -race` over the same modules gains nothing from also adding `go-test` to that job's run. Levenshtein itself is one: its CI `tests` job runs `go test -race ./...` over the root module and `runner/lint` on every event, so its `levenshtein.json` defines a native `go-test` run over the whole repository and `runner/lint` for local use and leaves it out of `branch`, `pre-merge`, and `main`. `runner`, whose tests need a Dagger session, is not a target.
+
+### Import boundaries
+
+`go-imports` enforces a repository's own layering: which of its packages may import which packages. The rules are the repository's, so the check has no default and is in no default gate: a configured repository declares it with an `imports` object and adds it to its runs, as Levenshtein does for its own `internal/` packages and `runner/lint`.
+
+```json
+"layers": {"kind": "go-imports", "target": "app", "environment": "go", "imports": {"rules": [
+  {"packages": ["./internal/domain/..."], "allow": ["std", "./internal/domain/..."], "reason": "the domain model depends on nothing but the standard library"},
+  {"packages": ["./internal/store/..."], "deny": ["./internal/api/...", "net/http"], "tests": "exclude", "reason": "storage never reaches into transport"}
+]}}
+```
+
+Each rule names the packages it governs and what they may not import:
+
+- **`packages`** (required) are patterns relative to the target directory, spelled like the go command's: `.` is the target directory's own package, and `./internal/store/...` matches `internal/store` and every package below it. A pattern that matches no package makes the check an error when it runs, so a misspelled or moved package cannot leave a rule checking nothing.
+- **`deny`** lists import path patterns a governed package may not import. **`allow`**, when present, lists the only ones it may import. A rule needs at least one of the two, and when both match, `deny` wins, so `"allow": ["std"]` with `"deny": ["os/exec"]` admits the standard library except one package. An allow list usually names the layer itself, since a package importing its own siblings is an import like any other.
+- **Patterns** are full import paths with `...` wildcards, such as `github.com/aws/...`; entries starting with `./` resolved against the target directory's import path, so a rule survives a module rename; and `std`, the standard library as the go command decides it: an import path whose first element has no dot, other than the module's own packages and cgo's `"C"`.
+- **`tests`** is `include`, the default, or `exclude`. Included, the rule also judges `_test.go` files, the package's external `_test` package among them.
+- **`reason`** (required) is repeated in every finding the rule reports, so the person who hits it learns why the boundary exists.
+
+The check runs `levenshtein-gocheck imports`, a small program built from `runner/lint` on either executor, in the target directory. It lists the target's packages with `go list -find -json ./...`, which reads each package's files for the platform without resolving imports, then reads each file's import declarations with `go/parser`. It needs no module downloads and no type checking, so it costs about as much as `go list` itself.
+
+- **Findings and errors.** Every import a rule forbids is a finding with code `go-imports` at the import's own file, line, and column. The message names the importing package, the import, the `deny` entry that matched or the allow list it missed, and the rule's `reason`; an import that breaks two rules is reported once for each. Files carrying a generated-code header are skipped. Invalid rules are a configuration error when the run is planned; a package pattern that matches nothing, a target without a `go.mod` or without packages, a file whose imports do not parse, and a `go list` failure are errors when it runs, never a pass.
+- **Scope.** Only direct imports are judged: a package that reaches a denied package through an allowed one is not a finding, and the rule that governs the package in between is where that edge is caught. `go list` selects files for the platform and default build tags, so a file only another operating system or a build tag compiles is not judged; cgo files are judged whether or not the host has a C compiler. `testdata`, `vendor`, and nested modules are outside `./...`; give a nested module its own target.
+- **Why not a `go-lint` rule.** A layering rule needs no types, so running it in the linter's type-checking driver would only make it slower; its patterns are per-repository data rather than a rule selection; and refusing a pattern that matches no package needs the whole module's package list, which a per-package analyzer never sees.
+- **Caching.** A `go-imports` result is reused like `go-vet`'s: its key covers the target's declared inputs, its rules, the toolchain, and the shared implementation, so editing a rule runs the check again. Only a passing result is stored.
+- **Workspaces.** The check sees the same `go.work` as `go-vet`, following the target's declared inputs. Since nothing is resolved, the workspace decides only which module `./...` covers.
 
 ### Workflow security
 
