@@ -63,6 +63,25 @@ for file in "${rulesets[@]}"; do
     status=1
   fi
 done
+# .github/rulesets/proposed holds rulesets written for an admin to create
+# (docs/releases.md#protecting-release-tags). They are not enforced yet, so the
+# live comparison leaves them out; they must still be rulesets GitHub accepts
+# the shape of, with a name no committed ruleset uses. Once one is created,
+# move it up to .github/rulesets so the comparison covers it.
+for file in "$root"/.github/rulesets/proposed/*.json; do
+  if ! jq -e '(.name | type == "string") and (.target | IN("branch", "tag", "push")) and (.enforcement | type == "string") and (.conditions.ref_name.include | type == "array") and (.rules | type == "array" and length > 0)' "$file" > /dev/null; then
+    echo "${file#"$root"/}: not a ruleset (needs name, target, enforcement, conditions.ref_name.include, rules)" >&2
+    status=1
+    continue
+  fi
+  name=$(jq -r .name "$file")
+  if jq -r .name "${rulesets[@]}" | grep -qxF -- "$name"; then
+    echo "${file#"$root"/}: \"$name\" is already committed in .github/rulesets; delete the proposal" >&2
+    status=1
+  else
+    echo "Proposed ruleset \"$name\" is well formed"
+  fi
+done
 if [[ $live == false || $status -ne 0 ]]; then
   exit "$status"
 fi

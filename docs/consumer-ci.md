@@ -80,7 +80,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: wangjohn/levenshtein@v0.1.0
+      - uses: wangjohn/levenshtein@27f7ded0d0619932643efc1eb759c91bc163c064 # v0.1.0
 ```
 
 With no `run` input, the action picks one from the event: a schedule runs `main`, a push or draft pull request runs `branch`, and a ready pull request, merge queue, or manual dispatch runs `pre-merge`. Pass `run:` to choose explicitly, for example one job per run. If a run includes [`go-mutation`](mutation.md) or `semantic-lint`, check out with `fetch-depth: 0`: both diff against the base branch.
@@ -112,7 +112,7 @@ jobs:
         with:
           persist-credentials: false
       - id: levenshtein
-        uses: wangjohn/levenshtein@v0.1.0
+        uses: wangjohn/levenshtein@27f7ded0d0619932643efc1eb759c91bc163c064 # v0.1.0
         with:
           sarif: levenshtein.sarif
       - if: >-
@@ -128,7 +128,7 @@ jobs:
 
 **Adopting the rules with existing findings.** Name a `baseline` file in `levenshtein.json`, run `verify main --source . --write-baseline` once over the whole repository, and commit the file. From then on a new finding fails the job, a baselined one is reported without failing it, and fixing a baselined finding fails until its entry is deleted in the same change, so the file only shrinks. `verify` never adds entries on its own; only `--write-baseline` does, so an entry that grows the file shows up in review. Consider a `CODEOWNERS` entry for the file. See [baseline](configuration.md#baseline).
 
-**Pin a release.** `@v0.1.0` names a published [release](releases.md). To pin immutably, use that tag's commit SHA with the version as a comment, as this repository does for every action it calls. Dependabot's `github-actions` ecosystem proposes new Levenshtein releases like any other action, including the SHA and comment. Do not pin a branch.
+**Pin a release.** The examples pin the commit SHA of the published [release](releases.md) v0.1.0, with the version as a comment, as this repository does for every action it calls: a SHA cannot be moved. `@v0.1.0` also works but trusts the tag. Dependabot's `github-actions` ecosystem proposes new Levenshtein releases like any other action, including the SHA and comment. Do not pin a branch.
 
 **Caching and trust.** The action keeps two caches. Completed results are small records, saved per commit from every event and keyed by runner OS, architecture, and job; a pull request's entries live in that pull request's own cache scope, which the default branch never reads, so an untrusted pull request cannot seed `main`'s results. Every result is re-keyed by a content fingerprint before reuse, so a restored directory can only skip work, never change a verdict. The Staticcheck analysis cache, used by native `go-lint`, is saved only from pushes to the default branch and scheduled runs, keyed by a hash of the pinned linter; pull requests restore it and never write it. Helper binaries are not cached, because they rebuild from Go's build cache in seconds.
 

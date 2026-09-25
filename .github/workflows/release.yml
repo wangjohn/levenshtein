@@ -23,10 +23,19 @@ jobs:
     steps:
       # GoReleaser derives the version and the changelog from tags, so the
       # whole history is needed.
+      # The whole history also holds main, which the next step checks the tag
+      # against.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
+      # A v* tag can be pushed on any commit. Publish only a vX.Y.Z tag that
+      # main contains and CHANGELOG.md releases, so every release is a
+      # reviewed, merged commit.
+      - name: The tag is a release on main
+        env:
+          TAG: ${{ github.ref_name }}
+        run: ./scripts/release-on-main "$TAG" "$GITHUB_SHA" origin/main
       # No module cache: a published artifact should not depend on an entry
       # any earlier workflow run could have written.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0

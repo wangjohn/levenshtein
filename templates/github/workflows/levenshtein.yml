@@ -33,7 +33,7 @@ jobs:
       # the pin immutable. Annotations are on by default.
       - name: Verify
         id: levenshtein
-        uses: wangjohn/levenshtein@v0.1.0
+        uses: wangjohn/levenshtein@27f7ded0d0619932643efc1eb759c91bc163c064 # v0.1.0
         with:
           sarif: levenshtein.sarif
       # A pull request from a fork cannot write security events, so only
