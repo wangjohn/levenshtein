@@ -77,4 +77,4 @@ The `annotations` and `sarif` inputs are newer than release 0.1.0, which the tem
 
 ## Validation
 
-This repository tests the templates: the starter configuration must parse and plan every run with native checks only (`internal/verify/templates_test.go`), the settings must parse and name both scripts, each hook runs against a stand-in launcher and a scratch git repository, the workflow must pass actionlint (`scripts/test-tool-checks`), its Levenshtein pin must name the newest release (`scripts/test-doc-pins`), and CI runs shellcheck over the scripts.
+This repository tests the templates: the starter configuration must parse and plan every run with native checks only (`internal/verify/templates_test.go`), the settings must parse and name both scripts, each hook runs against a stand-in launcher and a scratch git repository, the workflow must pass actionlint (`scripts/test-tool-checks`), its Levenshtein pin must name a tagged release by its commit SHA (`scripts/test-doc-pins`), and CI runs shellcheck over the scripts.

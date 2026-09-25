@@ -256,8 +256,12 @@ jobs:
           mapfile -t bash_scripts < <(grep -rl '^#!/usr/bin/env bash' scripts templates)
           test "${#bash_scripts[@]}" -gt 0
           shellcheck verify "${bash_scripts[@]}"
-      - name: Documentation pins name the newest release
-        run: ./scripts/test-doc-pins
+      # The checkout is shallow and has no tags; test-doc-pins checks each
+      # pinned SHA against its release tag, so fetch the tags first.
+      - name: Documentation pins name tagged releases
+        run: |
+          git fetch --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'
+          ./scripts/test-doc-pins
       - name: Workflow pins, concurrency, merge queue and secret scopes
         run: ./scripts/test-workflows
       # Reads the enforced rulesets with this run's read-only token; see

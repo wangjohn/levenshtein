@@ -258,7 +258,8 @@ Consumers pin a release tag, or its commit SHA, as described in
   release's commit SHA with the version as a comment
   (`wangjohn/levenshtein@<sha> # v0.1.0`), and `scripts/test-doc-pins` checks
   that the SHA is the one the tag names. Releases now update the examples in a
-  pull request after the tag ([docs/releases.md](docs/releases.md)).
+  pull request after the tag, checked with `scripts/test-doc-pins --latest`
+  ([docs/releases.md](docs/releases.md)).
 - Levenshtein's own CI: concurrency groups are per commit outside pull
   requests, so GitHub no longer cancels queued `main` runs; `dependency-review`
   reports in a merge queue; every `integration`-tagged Go test runs, natively

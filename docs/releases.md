@@ -29,13 +29,15 @@ git push origin vX.Y.Z
 
 3. In a second pull request, move every consumer example to the new release:
    `wangjohn/levenshtein@<sha> # vX.Y.Z`, where `<sha>` is
-   `git rev-list -n1 vX.Y.Z`, and `--branch vX.Y.Z`.
+   `git rev-list -n1 vX.Y.Z`, and `--branch vX.Y.Z`. Run
+   `scripts/test-doc-pins --latest` before opening it: it fails until every
+   example names the newest release.
 
-`scripts/test-doc-pins` holds the examples to that: every action pin is a full
-commit SHA with its tag as a comment, the SHA is the commit the tag names, and
-the version is the newest release in `CHANGELOG.md`, or the one before it only
-until the newest is tagged. Once the tag exists, every pull request fails the
-check until step 3 merges, so tag promptly and follow with it.
+On every pull request, `scripts/test-doc-pins` checks that each action pin is a
+full commit SHA with its tag as a comment, that it names a tagged release in
+`CHANGELOG.md`, and that the SHA is the commit the tag names. It does not
+require the newest release, so pushing a tag never fails open pull requests;
+only `--latest`, in step 3, does.
 
 The workflow first runs `scripts/release-on-main`, which refuses a tag that is
 not `vX.Y.Z`, whose version is not a release in `CHANGELOG.md`, or whose commit

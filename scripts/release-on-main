@@ -43,3 +43,4 @@ if ! git -C "$root" merge-base --is-ancestor "$sha" "$base"; then
   exit 1
 fi
 echo "$tag ($sha) is on $base"
+echo "Next: pin the examples to wangjohn/levenshtein@$sha # $tag and run scripts/test-doc-pins --latest (docs/releases.md)."

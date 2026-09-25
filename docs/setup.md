@@ -90,8 +90,8 @@ Go tests: `gofmt` over every tracked Go file outside `testdata`, whose lint
 fixtures are deliberately unformatted; `ruff check` over `scripts` and
 `sdk/patched-go`; `scripts/test-sdk-lock`, which requires `sdk/patched-go/uv.lock`
 to be current, hashed, and on the `dagger-io` of `.dagger-version`;
-`scripts/test-doc-pins`, which requires every consumer example to pin the
-newest tagged release in `CHANGELOG.md` by its commit SHA; and
+`scripts/test-doc-pins`, after fetching the tags, which requires every consumer
+example to pin a tagged release in `CHANGELOG.md` by that tag's commit SHA; and
 `scripts/test-workflows`, which requires one pin per action across the
 workflows, templates and docs, per-commit concurrency groups outside pull
 requests, a `merge_group` trigger on every workflow with a required check, and
