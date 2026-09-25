@@ -272,6 +272,15 @@ Consumers pin a release tag, or its commit SHA, as described in
   staged files in the pushing checkout. Every test now runs git through
   `internal/testgit`, which drops every inherited `GIT_` variable, and a guard
   test fails on a test file that runs git directly.
+- `go-mutation`, `go-apidiff`, and `semantic-lint` measure the change from
+  `origin/<base>` when it exists, and use the local branch only when it is the
+  same commit or ahead of it. A local `main` left behind after rebasing onto
+  `origin/main` used to set an old merge base, so the check judged, and
+  `semantic-lint` paid for, other people's commits.
+- When the base and `HEAD` share no commit, these checks now say so instead of
+  `git merge-base: exit status 1:`. In a shallow checkout, such as
+  `actions/checkout`'s default depth of one plus a shallow fetch of the base,
+  the message advises `fetch-depth: 0`.
 
 ## [0.1.0] - 2026-09-22
 

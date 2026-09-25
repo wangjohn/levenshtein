@@ -5,6 +5,7 @@ package gitchange
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -34,27 +35,75 @@ func (g Runner) Run(ctx context.Context, args ...string) (string, error) {
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
-		return "", fmt.Errorf("git %s: %v: %s", args[0], err, strings.TrimSpace(stderr.String()))
+		return "", fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.String(), nil
 }
 
-// ResolveBase accepts a local branch name and falls back to its origin tracking
-// ref. It returns the ref it used and the merge base of that ref with HEAD.
+// ResolveBase finds the ref a change is measured against and returns it with
+// its merge base with HEAD. It prefers origin/<base>, which a developer who
+// rebases onto the remote keeps current even when the local branch is stale;
+// the local branch wins only when it is the tracking ref or a descendant of it,
+// so unpushed commits on it still count as the base.
 func (g Runner) ResolveBase(ctx context.Context, base string) (string, string, error) {
-	for _, ref := range []string{base, "origin/" + base} {
-		if _, err := g.Run(ctx, "rev-parse", "--verify", "--quiet", ref+"^{commit}"); err == nil {
-			mergeBase, err := g.Run(ctx, "merge-base", ref, "HEAD")
-			if err != nil {
-				return "", "", err
-			}
-			return ref, strings.TrimSpace(mergeBase), nil
+	ref, err := g.baseRef(ctx, base)
+	if err != nil {
+		return "", "", err
+	}
+
+	mergeBase, err := g.Run(ctx, "merge-base", ref, "HEAD")
+	if err == nil {
+		return ref, strings.TrimSpace(mergeBase), nil
+	}
+	// merge-base exits 1 without a message when the two share no commit.
+	var exit *exec.ExitError
+	if ctx.Err() != nil || !errors.As(err, &exit) || exit.ExitCode() != 1 {
+		return "", "", err
+	}
+	if g.shallow(ctx) {
+		return "", "", fmt.Errorf("%s and HEAD share no commit in this shallow checkout; fetch the history that joins them, or check out with fetch-depth: 0", ref)
+	}
+	return "", "", fmt.Errorf("no common ancestor between %s and HEAD", ref)
+}
+
+// baseRef picks between the local branch and its origin tracking ref.
+func (g Runner) baseRef(ctx context.Context, base string) (string, error) {
+	remote := "origin/" + base
+	hasLocal := g.commitExists(ctx, base)
+	hasRemote := g.commitExists(ctx, remote)
+	switch {
+	case hasLocal && hasRemote:
+		// --is-ancestor exits 0 when the remote is the local branch or behind
+		// it, and 1 otherwise; a diverged or stale local branch loses.
+		if _, err := g.Run(ctx, "merge-base", "--is-ancestor", remote, base); err == nil {
+			return base, nil
 		}
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		return remote, nil
+	case hasRemote:
+		return remote, nil
+	case hasLocal:
+		return base, nil
 	}
-	if shallow, err := g.Run(ctx, "rev-parse", "--is-shallow-repository"); err == nil && strings.TrimSpace(shallow) == "true" {
-		return "", "", fmt.Errorf("base branch %q was not found and the checkout is shallow; fetch the base branch or check out with fetch-depth: 0", base)
+	if ctx.Err() != nil {
+		return "", ctx.Err()
 	}
-	return "", "", fmt.Errorf("base branch %q was not found locally or as origin/%s; fetch it before running this check", base, base)
+	if g.shallow(ctx) {
+		return "", fmt.Errorf("base branch %q was not found and the checkout is shallow; fetch the base branch or check out with fetch-depth: 0", base)
+	}
+	return "", fmt.Errorf("base branch %q was not found locally or as origin/%s; fetch it before running this check", base, base)
+}
+
+func (g Runner) commitExists(ctx context.Context, ref string) bool {
+	_, err := g.Run(ctx, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+	return err == nil
+}
+
+func (g Runner) shallow(ctx context.Context) bool {
+	out, err := g.Run(ctx, "rev-parse", "--is-shallow-repository")
+	return err == nil && strings.TrimSpace(out) == "true"
 }
 
 // SourcePrefix maps git's toplevel-relative paths onto a source directory

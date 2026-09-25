@@ -26,7 +26,7 @@ Mechanical conventions belong in analyzers, not here. Spacing, struct field layo
 
 ## How it works
 
-1. **Diff.** The check resolves the configured base branch (locally, then as `origin/<base>`), takes the merge base with `HEAD`, and diffs the working tree against it with zero context. Untracked Go and Markdown files count as fully added. Deleted files contribute only to the change summary.
+1. **Diff.** The check resolves the configured base branch (as `origin/<base>`, unless the local branch is the same commit or ahead of it, or no `origin/<base>` exists), takes the merge base with `HEAD`, and diffs the working tree against it with zero context. Untracked Go and Markdown files count as fully added. Deleted files contribute only to the change summary.
 2. **State.** For Go, the current file is parsed and hunks are grouped by the top-level declaration they touch. The declaration text, the lines of the diff inside that declaration, the file's test flag, the preselected items, and, for functions with three or more added lines, package-level function signatures form one state. For Markdown, the state is the hunk, its enclosing section, and the preselected sentences. The change state holds commit subjects with their files and hunk headers, a per-file summary, the Markdown diff, and a digest of added Go symbols and configuration keys.
 3. **Ask.** Each state goes to the pinned model with all of its questions in one request, a few requests at a time. Oversized states drop package signatures, then truncate the declaration text, to stay inside the model's context.
 4. **Compose.** Answers are matched back to their question and location. Every judgment is recorded. Findings are the ones that crossed their threshold.
