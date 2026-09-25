@@ -472,6 +472,13 @@ jobs:
             jq -r '.results[] | .stdout, (select(.error != null) | "error: " + .error)' semantic-lint.json
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          # Exit 1 now means no question was answered at all, such as an API
+          # outage: warn instead of failing the advisory job. Exit 2 is a
+          # configuration error in this repository, which should stay red.
+          if [[ $status == 1 ]]; then
+            echo '::warning title=Semantic lint::No question was answered; see the job summary.'
+            exit 0
+          fi
           exit "$status"
       - name: Report skipped lint
         if: env.TYPESAFE_API_KEY == ''
