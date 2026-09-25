@@ -265,6 +265,14 @@ Consumers pin a release tag, or its commit SHA, as described in
   nilerr applied the directive itself and dropped the finding, so Staticcheck
   then reported the directive as matching nothing and the check failed either
   way. Upstream analyzers now leave `//lint:ignore` to Staticcheck.
+- Native checks in one run execute in parallel again, up to `--jobs`. Each
+  check took the workspace file lock through its own handle, which also
+  blocks the same process, so every native check ran alone, even read-only
+  ones and cache hits. Read-only kinds (the shared Go kinds and
+  `semantic-lint`) now overlap, `command` checks still run alone, a cache hit
+  with no artifacts to restore takes no workspace lock, and another process
+  on the same source still waits. A check cancelled while it waits for the
+  workspace is reported as `cancelled` instead of `error`.
 
 ## [0.1.0] - 2026-09-22
 

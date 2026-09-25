@@ -250,10 +250,17 @@ native `command` checks with `cache: true`), it:
    git's racy-index guard. A flush keeps entries the run used and unused
    entries whose file still has the recorded stat, so deleted files drop out.
 2. Takes a per-key file lock (`internal/verify/lock.go`, backed by
-   `gofrs/flock`) so concurrent processes do not race the same cache entry.
-   Native checks take an advisory per-source workspace lock first, whether or
-   not the check is cacheable, so processes sharing a cache directory do not
-   mutate one checkout at the same time.
+   `gofrs/flock`) so concurrent processes do not race the same cache entry,
+   then fingerprints again, since whoever held the lock may have changed the
+   inputs. A native check also enters its working tree
+   (`internal/verify/gate.go`) before it executes or restores artifacts,
+   whether or not it is cacheable, but not for a hit with nothing to restore.
+   Within a process, read-only kinds (the shared Go kinds and
+   `semantic-lint`) enter together and a `command` check, which can write the
+   tree, enters alone. The process holds one advisory per-source file lock
+   while any of its checks are inside, so processes sharing a cache directory
+   do not mutate one checkout at the same time. A check whose context ends
+   while it waits is reported as `cancelled`.
 3. On a hit, restores the recorded result and any declared `Artifacts` from
    `cache.Dir/results/<key>.json` (atomic, rejects symlinked destinations).
 4. On a miss or `rerun_checks`, executes the check, and on success saves the

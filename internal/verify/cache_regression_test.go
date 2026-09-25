@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
 func TestReviewFreshFailureInvalidatesOldSuccess(t *testing.T) {
@@ -110,9 +109,10 @@ func TestReviewInputsChangedDuringCacheLockWait(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	waits := waitingFor(t)
 	done := make(chan Result, 1)
 	go func() { done <- runner.Execute(context.Background(), req) }()
-	time.Sleep(100 * time.Millisecond)
+	awaitWait(t, waits, "result-"+first.Cache.Key)
 	if err := os.WriteFile(filepath.Join(req.Source, "input"), []byte("changed while waiting"), 0600); err != nil {
 		t.Fatal(err)
 	}

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -309,11 +308,12 @@ func TestOnlyNativeChecksLockTheWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer unlock()
-	runner := CachedExecutor{Cache: cache, Executor: &countingExecutor{status: StatusPassed}}
+	executor := &countingExecutor{status: StatusPassed}
+	runner := CachedExecutor{Cache: cache, Executor: executor}
 
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
-	if result := runner.Execute(ctx, req); result.Status != StatusError || !strings.Contains(result.Error, "cannot lock native workspace") {
+	if result := runner.Execute(ctx, req); result.Status != StatusCancelled || executor.calls != 0 {
 		t.Fatalf("a native check ran while its workspace was locked: %+v", result)
 	}
 
