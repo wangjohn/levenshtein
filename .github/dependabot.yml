@@ -102,14 +102,73 @@ updates:
           - minor
           - patch
 
+  # The pinned Go tools, one module each under runner/tools, so a tool's minor
+  # and patch updates come in a pull request of their own and cannot move the
+  # versions another tool is built with. No other file records their versions.
   - package-ecosystem: gomod
-    directory: /runner/tools
+    directory: /runner/tools/actionlint
     schedule:
       interval: weekly
     cooldown:
       default-days: 7
     groups:
-      go-dependencies:
+      actionlint:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: gomod
+    directory: /runner/tools/apidiff
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      apidiff:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: gomod
+    directory: /runner/tools/gitleaks
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      gitleaks:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: gomod
+    directory: /runner/tools/govulncheck
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      govulncheck:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: gomod
+    directory: /runner/tools/gremlins
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      gremlins:
         patterns:
           - "*"
         update-types:
