@@ -7,8 +7,8 @@ body:
       value: |
         A rule turns on for every repository that bumps its pin, so it needs
         evidence. CONTRIBUTING.md describes the bar under "Proposing a new
-        rule", and docs/checks.md lists every rule already on or measured and
-        left off. A rule Levenshtein will not ship can still run as a
+        rule", docs/rules.md lists every rule already on, and
+        docs/rule-selection.md every one measured and left off. A rule Levenshtein will not ship can still run as a
         community rule module (docs/community-rules.md).
   - type: input
     id: rule
@@ -61,5 +61,5 @@ body:
     attributes:
       label: Checks
       options:
-        - label: The rule is not already on or listed under "Considered and off" in docs/checks.md, or this issue says what has changed since it was measured.
+        - label: The rule is not already on or listed under "Considered and off" in docs/rule-selection.md, or this issue says what has changed since it was measured.
           required: true

@@ -53,7 +53,7 @@ both supported for at least a year. The contract is unstable (`v0`) until
 phase 1 ships.
 
 A module keeps the exports it has published, too. The shared
-[`go-apidiff`](checks.md#api-compatibility) check fails a change that removes or
+[`go-apidiff`](check-kinds-guide.md#api-compatibility) check fails a change that removes or
 alters one, and Levenshtein runs it over `examples/rule-module`.
 
 Each analyzer needs:
@@ -488,7 +488,7 @@ and GitHub-hosted runners. It:
 - generates the entry's rule list from the built module;
 - runs each rule over a fixed corpus and records its finding count;
 - flags findings that land on the same lines as a core rule's, the way
-  `docs/checks.md` vets upstream rules.
+  `docs/rule-selection.md` vets upstream rules.
 
 A maintainer approves every new namespace, and every update that changes the
 module's `go.mod`. Other updates merge on green CI, and the catalog page says

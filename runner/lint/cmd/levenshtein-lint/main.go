@@ -479,7 +479,7 @@ func testingHelpers() *analysis.Analyzer {
 	return analyzer
 }
 
-// house analyzers are Levenshtein's own rules, documented in docs/checks.md.
+// house analyzers are Levenshtein's own rules, documented in docs/rules.md.
 func house() []*analysis.Analyzer {
 	return []*analysis.Analyzer{
 		inModule(policy.TypedValues),

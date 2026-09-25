@@ -68,23 +68,23 @@ They are a convenience, not a gate: CI runs the same checks either way.
 
 ## Code style
 
-Follow the conventions in [AGENTS.md](AGENTS.md) (spacing, struct literals, typed choices for finite values). Run the shared [Go lint rules](docs/checks.md#go-lint-rules) (`./verify go-lint`) when changing Go code.
+Follow the conventions in [AGENTS.md](AGENTS.md) (spacing, struct literals, typed choices for finite values). Run the shared [Go lint rules](docs/rules.md) (`./verify go-lint`) when changing Go code.
 
 ## Proposing a new rule
 
-Open a [new rule issue](https://github.com/wangjohn/levenshtein/issues/new?template=new_rule.yml) before writing code. A rule turns on for every repository that bumps its pin, so each one has to earn its place, and [checks](docs/checks.md) records why every rule is on or off.
+Open a [new rule issue](https://github.com/wangjohn/levenshtein/issues/new?template=new_rule.yml) before writing code. A rule turns on for every repository that bumps its pin, so each one has to earn its place, and [rule selection](docs/rule-selection.md) records why every rule is on or off.
 
 The bar a proposal has to meet:
 
-- **Evidence that it fires on real code.** A rule is on because it was measured to find bugs in Levenshtein, in the fixtures that stand in for a consumer, or in the [open-source codebases measured](docs/checks.md#measured-on-other-codebases), with each finding judged a bug, taste, or a false alarm. The exception is a [known bug pattern](docs/checks.md#known-bug-patterns): a pattern that is a bug rather than a matter of style, whose false alarms are rare, and whose fix is local.
-- **Not taste.** Rules that enforce naming, comment wording, or one of two equally clear spellings stay off. A rule whose threshold is a judgment call, such as a complexity limit, can ship [off by default](docs/checks.md#opt-in-complexity-gocognit) for repositories to opt in to.
-- **An existing analyzer first.** Prefer an established `go/analysis` analyzer or go-critic checker over a new house rule. [Considered and off](docs/checks.md#considered-and-off) lists the ones already measured and left out, with the reason.
+- **Evidence that it fires on real code.** A rule is on because it was measured to find bugs in Levenshtein, in the fixtures that stand in for a consumer, or in the [open-source codebases measured](docs/rule-selection.md#measured-on-other-codebases), with each finding judged a bug, taste, or a false alarm. The exception is a [known bug pattern](docs/rules.md#known-bug-patterns): a pattern that is a bug rather than a matter of style, whose false alarms are rare, and whose fix is local.
+- **Not taste.** Rules that enforce naming, comment wording, or one of two equally clear spellings stay off. A rule whose threshold is a judgment call, such as a complexity limit, can ship [off by default](docs/rules.md#opt-in-complexity-gocognit) for repositories to opt in to.
+- **An existing analyzer first.** Prefer an established `go/analysis` analyzer or go-critic checker over a new house rule. [Considered and off](docs/rule-selection.md#considered-and-off) lists the ones already measured and left out, with the reason.
 - **Rules Levenshtein will not ship** can still run: publish them as a [community rule module](docs/community-rules.md).
 
 A pull request that adds a rule includes:
 
 - **Fixtures.** Code the rule must flag and similar code it must not. House rules keep theirs in `runner/lint/policy/testdata`. An upstream analyzer gets a case in `runner/testdata/bad` and its code in `expectedBadCodes` in `runner/main.go`, so `self-test` fails if it stops reporting; `runner/testdata/good` must still pass.
-- **A [checks](docs/checks.md) entry** saying what the rule reports, why it is on, and any setting that differs from upstream. A go-critic checker also updates the list `TestCriticSelection` pins.
+- **A [rules](docs/rules.md) entry** saying what the rule reports, why it is on, and any setting that differs from upstream. A go-critic checker also updates the list `TestCriticSelection` pins.
 - **A changelog entry** saying that consumers may see new findings when they bump their pin.
 
 ## Pull requests

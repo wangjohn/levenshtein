@@ -12,7 +12,7 @@ import (
 )
 
 // offCritics are stable diagnostic go-critic checkers left out because a rule
-// already on reports the same mistake on the same line. docs/checks.md records
+// already on reports the same mistake on the same line. docs/rule-selection.md records
 // the evidence for each.
 var offCritics = map[string]bool{
 	"caseOrder":        true, // SA4020

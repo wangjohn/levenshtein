@@ -40,7 +40,7 @@ Native Go checks do not download a toolchain: they run with `GOTOOLCHAIN=local` 
 - On a native environment, pass the host's settings through `pass_env`, such as `GOPRIVATE`, `GONOSUMDB`, `GOPROXY`, and `GOFLAGS`, with the credentials themselves in the host's own Git or `.netrc` configuration, never in `levenshtein.json`.
 - A repository that must check offline leaves `go-mod` out of its runs. With no `levenshtein.json`, `go-mod` is in `branch`, `pre-merge`, and `main`, so add a file whose runs leave it out.
 
-See [module manifests](checks.md#module-manifests).
+See [module manifests](check-kinds-guide.md#module-manifests).
 
 ## Shallow clones
 
@@ -59,7 +59,7 @@ Every cached result is checked against a fresh fingerprint before it is reused, 
 
 A `go-lint` check ends in `error` with `go-lint check "<pattern>" matches no rule levenshtein-lint registers` when a pattern in its [`lint.checks`](configuration.md#lint-selection) names no rule the pinned linter has.
 
-- Check the spelling against [checks](checks.md). Case does not matter; a typo such as `gocogint` does.
+- Check the spelling against [the rules](rules.md). Case does not matter; a typo such as `gocogint` does.
 - The rule may be newer than your pin. Bump the pin, or drop the pattern.
 - A pattern containing `_` selects [community rules](community-rules.md#selection) instead, and must match a rule of a pinned rule module.
 

@@ -20,7 +20,7 @@ const (
 	maxDiffBytes  = 16 << 10
 	maxNoteBytes  = 4 << 10
 	missingTool   = "executable file not found"
-	generateHint  = "go-generate runs directives with the Go toolchain alone; a generator that needs another tool, such as protoc, belongs in a command check (docs/checks.md#generated-code)"
+	generateHint  = "go-generate runs directives with the Go toolchain alone; a generator that needs another tool, such as protoc, belongs in a command check (docs/check-kinds-guide.md#generated-code)"
 	directiveText = "//go:generate"
 )
 

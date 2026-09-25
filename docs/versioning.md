@@ -16,7 +16,7 @@ The project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). 
 | CLI | Flags, the run argument, and exit codes, [CLI reference](reference/cli.md) | The release |
 | GitHub Action | `action.yml` inputs and outputs, [GitHub Actions](consumer-ci.md#github-actions) | The release |
 | Community rule contract | The `lvrules` package a rule module exports, [the contract](community-rules.md#the-contract) | Unstable (`v0`) for now; see that page |
-| Rule set | Which rules `go-lint` runs by default, and which checks the default runs include, [checks](checks.md) | The release |
+| Rule set | Which rules `go-lint` runs by default, and which checks the default runs include, [rules](rules.md) and [check kinds](check-kinds.md) | The release |
 | Tool versions | Go, the container image, Staticcheck, and every other pinned tool, `runner/toolchain.json` and `runner/tools/go.mod` | The release |
 
 Anything else, such as the text of a finding's message, the Dagger module's functions, the layout of the cache directory, and the Go packages under `internal/`, can change in any release.

@@ -6,8 +6,8 @@
     {"code": "ST1005", "url": "https://staticcheck.dev/docs/checks/#ST1005"},
     {"code": "QF1011", "url": "https://staticcheck.dev/docs/checks/#QF1011"},
     {"code": "U1000", "url": "https://staticcheck.dev/docs/checks/#U1000"},
-    {"code": "LV1001", "url": "https://github.com/wangjohn/levenshtein/blob/main/docs/checks.md#go-lint-rules"},
-    {"code": "errcheck", "url": "https://github.com/wangjohn/levenshtein/blob/main/docs/checks.md#go-lint-rules"},
-    {"code": "staticcheck", "url": "https://github.com/wangjohn/levenshtein/blob/main/docs/checks.md#go-lint-rules"}
+    {"code": "LV1001", "url": "https://github.com/wangjohn/levenshtein/blob/main/docs/rules.md#rules-on-by-default"},
+    {"code": "errcheck", "url": "https://github.com/wangjohn/levenshtein/blob/main/docs/rules.md#rules-on-by-default"},
+    {"code": "staticcheck", "url": "https://github.com/wangjohn/levenshtein/blob/main/docs/rules.md#rules-on-by-default"}
   ]
 }

@@ -376,7 +376,7 @@ See [output formats](configuration.md#output-formats) and
   Staticcheck-based lint binary (`levenshtein-lint`) and for
   `levenshtein-gocheck`, which runs the checks that judge a whole module, so its analyzer
   dependencies (Staticcheck's whole analyzer set, the curated upstream
-  analyzers listed in [Go lint rules](checks.md#go-lint-rules), and the house rules
+  analyzers listed in [Go lint rules](rules.md), and the house rules
   `LV1001`-`LV1006` in `runner/lint/policy`) do not leak into the Dagger
   module's own dependency resolution.
 - **`runner/community/`** (`runner/community/go.mod`): the community linter's

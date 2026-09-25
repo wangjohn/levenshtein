@@ -97,26 +97,25 @@ and the few it lists as needing Dagger after it, so a new integration test runs
 in CI without a workflow change.
 
 Module manifests are not a step of their own: the `lint` job's `branch` run
-includes the shared [`go-mod` check](checks.md#module-manifests)
-(`go mod tidy -diff` and `go mod verify`) over `.`, `runner/lint`,
-`runner/community`, each tool module under `runner/tools`, and
-`examples/rule-module` on every event, and never reuses a cached result. `runner` is
+includes the shared [`go-mod` check](check-kinds-guide.md#module-manifests)
+(`go mod tidy -diff` and `go mod verify`) over `.`, `runner/lint`, and
+`runner/tools` on every event, and never reuses a cached result. `runner` is
 left out because `dagger develop` rewrites its manifest.
 
 The Go tests stay steps of the `tests` job, which runs `go test -race` over the
 root module (with a coverage profile) and `runner/lint`. `levenshtein.json` has
-a native [`go-test`](checks.md#tests) run over the same two modules for local
+a native [`go-test`](check-kinds-guide.md#tests) run over the same two modules for local
 use, but no CI run includes it, because it would run those tests a second time.
 
 The same `branch` run includes the shared
-[`workflow-security` check](checks.md#workflow-security): zizmor's offline audits
+[`workflow-security` check](check-kinds-guide.md#workflow-security): zizmor's offline audits
 of the workflows, composite actions, and Dependabot configuration, failing on
 findings of medium severity and above, natively in `branch` and `pre-merge` and
-in Dagger in `branch-dagger` and `main`. So do [`shell-lint`](checks.md#shell-scripts)
-over `scripts/` and `verify`, and [`secrets`](checks.md#secrets) over the whole
+in Dagger in `branch-dagger` and `main`. So do [`shell-lint`](check-kinds-guide.md#shell-scripts)
+over `scripts/` and `verify`, and [`secrets`](check-kinds-guide.md#secrets) over the whole
 repository less `runner/testdata/secrets-leaky`, the fixture that exists to be
 found. Its only dependencies outside Go are the patched SDK adapter's locked
-Python packages, which a [`deps-vuln`](checks.md#dependency-vulnerabilities)
+Python packages, which a [`deps-vuln`](check-kinds-guide.md#dependency-vulnerabilities)
 check scans in `main` and in `vulnerabilities.yml`.
 
 `security.yml` runs beside it: zizmor's GitHub Action with the workflow token on
