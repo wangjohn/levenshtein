@@ -21,7 +21,7 @@ func TestToolchainIdentityCoversResultChangingGoSettings(t *testing.T) {
 		writeFile(t, file, settings)
 		req.Environment.Env = map[string]string{"GOENV": file}
 		maps.Copy(req.Environment.Env, env)
-		found, err := toolchainIdentity(t.Context(), req.Source, nativeEnv(req, nil))
+		found, err := sessionAt("").toolchainIdentity(t.Context(), req.Source, nativeEnv(req, nil))
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -50,21 +50,13 @@ func modTime(t *testing.T, path string) time.Time {
 	return info.ModTime()
 }
 
-func mustSnapshot(t *testing.T, req snapshotRequest) string {
+func mustSnapshot(t *testing.T, session *Session, req snapshotRequest) string {
 	t.Helper()
-	value, err := snapshot(t.Context(), req)
+	value, err := session.snapshot(t.Context(), req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return value
-}
-
-// restart drops the in-memory memo so the next snapshot has to read the
-// persisted record, the way a second CLI process would.
-func restart(t *testing.T, dir string) {
-	t.Helper()
-	stats.configure(t.TempDir())
-	stats.configure(dir)
 }
 
 // The memo trades a content read for a stat comparison, so an edit that
@@ -77,21 +69,21 @@ func TestFileStatMemoReusesOnlyIdenticalStats(t *testing.T) {
 	// Settled: modified well before it is hashed, so the memo may trust it.
 	stamp := modTime(t, path).Add(-time.Minute)
 	setModTime(t, path, stamp)
-	stats.configure(t.TempDir())
+	session := sessionAt("")
 	req := snapshotRequest{Root: root, Paths: []string{"."}, Discovery: DiscoveryFilesystem}
 
-	before := mustSnapshot(t, req)
+	before := mustSnapshot(t, session, req)
 
 	writeFile(t, path, sourceTwo)
 	setModTime(t, path, stamp)
-	if reused := mustSnapshot(t, req); reused != before {
+	if reused := mustSnapshot(t, session, req); reused != before {
 		t.Fatal("identical stat did not reuse the memoized hash")
 	}
 
 	// Modification time: the memo now holds the first content for a stat that no
 	// longer matches, so the second content has to be read.
 	setModTime(t, path, stamp.Add(time.Second))
-	edited := mustSnapshot(t, req)
+	edited := mustSnapshot(t, session, req)
 	if edited == before {
 		t.Fatal("changed modification time reused the memoized hash")
 	}
@@ -103,7 +95,7 @@ func TestFileStatMemoReusesOnlyIdenticalStats(t *testing.T) {
 	if err := os.Rename(replacement, path); err != nil {
 		t.Fatal(err)
 	}
-	replaced := mustSnapshot(t, req)
+	replaced := mustSnapshot(t, session, req)
 	if replaced == edited {
 		t.Fatal("replaced file reused the memoized hash")
 	}
@@ -111,7 +103,7 @@ func TestFileStatMemoReusesOnlyIdenticalStats(t *testing.T) {
 	// Size.
 	writeFile(t, path, sourceThree+"\n")
 	setModTime(t, path, stamp.Add(time.Second))
-	if grown := mustSnapshot(t, req); grown == replaced {
+	if grown := mustSnapshot(t, session, req); grown == replaced {
 		t.Fatal("changed size reused the memoized hash")
 	}
 }
@@ -125,13 +117,13 @@ func TestFileStatMemoRereadsARacyFile(t *testing.T) {
 	path := filepath.Join(root, "input.go")
 	writeFile(t, path, sourceOne)
 	stamp := modTime(t, path)
-	stats.configure(t.TempDir())
+	session := sessionAt("")
 	req := snapshotRequest{Root: root, Paths: []string{"."}, Discovery: DiscoveryFilesystem}
 
-	before := mustSnapshot(t, req)
+	before := mustSnapshot(t, session, req)
 	writeFile(t, path, sourceTwo)
 	setModTime(t, path, stamp)
-	after := mustSnapshot(t, req)
+	after := mustSnapshot(t, session, req)
 
 	if after == before {
 		t.Fatal("a same-tick rewrite of a freshly hashed file reused the stale hash")
@@ -148,18 +140,20 @@ func TestPersistedStatCacheHonorsTheRacyWindow(t *testing.T) {
 	old := time.Now().Add(-time.Hour)
 	writeFile(t, settledPath, sourceOne)
 	setModTime(t, settledPath, old)
-	stats.configure(cacheDir)
+	session := sessionAt(cacheDir)
 	req := snapshotRequest{Root: settled, Paths: []string{"."}, Discovery: DiscoveryFilesystem}
 
-	before := mustSnapshot(t, req)
-	if err := (&Cache{Dir: cacheDir}).Flush(); err != nil {
+	before := mustSnapshot(t, session, req)
+	if err := session.Flush(); err != nil {
 		t.Fatal(err)
 	}
 
-	restart(t, cacheDir)
+	// A new session reads the persisted record, the way a second CLI process
+	// would.
+	session = sessionAt(cacheDir)
 	writeFile(t, settledPath, sourceTwo)
 	setModTime(t, settledPath, old)
-	if reused := mustSnapshot(t, req); reused != before {
+	if reused := mustSnapshot(t, session, req); reused != before {
 		t.Fatal("a settled persisted entry was not reused")
 	}
 
@@ -171,14 +165,16 @@ func TestPersistedStatCacheHonorsTheRacyWindow(t *testing.T) {
 	setModTime(t, touchedPath, old)
 	touchedReq := snapshotRequest{Root: touched, Paths: []string{"."}, Discovery: DiscoveryFilesystem}
 
-	touchedBefore := mustSnapshot(t, touchedReq)
-	if err := (&Cache{Dir: cacheDir}).Flush(); err != nil {
+	touchedBefore := mustSnapshot(t, session, touchedReq)
+	if err := session.Flush(); err != nil {
 		t.Fatal(err)
 	}
 
-	restart(t, cacheDir)
+	// A new session reads the persisted record, the way a second CLI process
+	// would.
+	session = sessionAt(cacheDir)
 	setModTime(t, touchedPath, time.Now())
-	if after := mustSnapshot(t, touchedReq); after != touchedBefore {
+	if after := mustSnapshot(t, session, touchedReq); after != touchedBefore {
 		t.Fatal("touching a file changed the digest")
 	}
 
@@ -190,15 +186,17 @@ func TestPersistedStatCacheHonorsTheRacyWindow(t *testing.T) {
 	stamp := modTime(t, racyPath)
 	racyReq := snapshotRequest{Root: racy, Paths: []string{"."}, Discovery: DiscoveryFilesystem}
 
-	racyBefore := mustSnapshot(t, racyReq)
-	if err := (&Cache{Dir: cacheDir}).Flush(); err != nil {
+	racyBefore := mustSnapshot(t, session, racyReq)
+	if err := session.Flush(); err != nil {
 		t.Fatal(err)
 	}
 
-	restart(t, cacheDir)
+	// A new session reads the persisted record, the way a second CLI process
+	// would.
+	session = sessionAt(cacheDir)
 	writeFile(t, racyPath, sourceTwo)
 	setModTime(t, racyPath, stamp)
-	if hidden := mustSnapshot(t, racyReq); hidden == racyBefore {
+	if hidden := mustSnapshot(t, session, racyReq); hidden == racyBefore {
 		t.Fatal("a racy persisted entry hid a same-size edit")
 	}
 }
@@ -207,19 +205,21 @@ func TestUnreadableStatRecordIsNotFatal(t *testing.T) {
 	cacheDir := t.TempDir()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "input.go"), sourceOne)
-	stats.configure(cacheDir)
+	session := sessionAt(cacheDir)
 	req := snapshotRequest{Root: root, Paths: []string{"."}, Discovery: DiscoveryFilesystem}
 
-	want := mustSnapshot(t, req)
-	if err := (&Cache{Dir: cacheDir}).Flush(); err != nil {
+	want := mustSnapshot(t, session, req)
+	if err := session.Flush(); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(cacheDir, "stat", digest(root)+".json"), []byte("corrupt"), 0600); err != nil {
 		t.Fatal(err)
 	}
 
-	restart(t, cacheDir)
-	if got := mustSnapshot(t, req); got != want {
+	// A new session reads the persisted record, the way a second CLI process
+	// would.
+	session = sessionAt(cacheDir)
+	if got := mustSnapshot(t, session, req); got != want {
 		t.Fatalf("corrupt record changed the digest: %q want %q", got, want)
 	}
 }
@@ -273,26 +273,26 @@ func TestGitDiscoveryFollowsTheWorkTree(t *testing.T) {
 	root := gitRepository(t)
 	runGit(t, root, "update-index", "--add", "--cacheinfo", "160000,0123456789abcdef0123456789abcdef01234567,sub")
 	writeFile(t, filepath.Join(root, "sub", "lib.go"), sourceOne)
-	stats.configure(t.TempDir())
+	session := sessionAt("")
 	git := snapshotRequest{Root: root, Paths: []string{"."}, Discovery: DiscoveryGit}
 	host := snapshotRequest{Root: root, Paths: []string{"."}, Discovery: DiscoveryFilesystem}
 
-	before := mustSnapshot(t, git)
-	if before == mustSnapshot(t, host) {
+	before := mustSnapshot(t, session, git)
+	if before == mustSnapshot(t, session, host) {
 		t.Fatal("git and filesystem discovery cannot agree while an ignored file exists")
 	}
 
 	writeFile(t, filepath.Join(root, "generated", "client.go"), sourceTwo+sourceTwo)
-	if ignored := mustSnapshot(t, git); ignored != before {
+	if ignored := mustSnapshot(t, session, git); ignored != before {
 		t.Fatal("an ignored file entered the fingerprint")
 	}
-	if watched := mustSnapshot(t, host); watched == before {
+	if watched := mustSnapshot(t, session, host); watched == before {
 		t.Fatal("filesystem discovery lost the ignored file")
 	}
 
 	for _, name := range []string{"tracked.go", "untracked.go", "sub/lib.go"} {
 		writeFile(t, filepath.Join(root, filepath.FromSlash(name)), sourceTwo+sourceTwo)
-		changed := mustSnapshot(t, git)
+		changed := mustSnapshot(t, session, git)
 		if changed == before {
 			t.Fatalf("editing %s did not change the fingerprint", name)
 		}
@@ -302,7 +302,7 @@ func TestGitDiscoveryFollowsTheWorkTree(t *testing.T) {
 	// A tracked file that is not on disk is absent rather than "missing", and no
 	// directory has an entry of its own except the walked submodule, so the same
 	// content in a fresh clone fingerprints the same way.
-	entries, err := snapshotEntries(t.Context(), git)
+	entries, err := session.snapshotEntries(t.Context(), git)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,14 +325,14 @@ func TestGitDiscoveryFollowsTheWorkTree(t *testing.T) {
 // executor under git discovery reads it either.
 func TestGitDiscoveryRecordsMissingButNotIgnoredInputs(t *testing.T) {
 	root := gitRepository(t)
-	stats.configure(t.TempDir())
+	session := sessionAt("")
 
 	for _, tt := range []struct {
 		path string
 		want map[string]string
 	}{{path: "optional.go", want: map[string]string{"optional.go": "missing"}}, {path: "generated", want: map[string]string{}}, {path: "removed.go", want: map[string]string{}}} {
 		t.Run(tt.path, func(t *testing.T) {
-			entries, err := snapshotEntries(t.Context(), snapshotRequest{Root: root, Paths: []string{tt.path}, Discovery: DiscoveryGit})
+			entries, err := session.snapshotEntries(t.Context(), snapshotRequest{Root: root, Paths: []string{tt.path}, Discovery: DiscoveryGit})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -347,14 +347,14 @@ func TestGitDiscoveryRecordsMissingButNotIgnoredInputs(t *testing.T) {
 func TestGitDiscoveryFallsBackOutsideAWorkTree(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "input.go"), sourceOne)
-	stats.configure(t.TempDir())
+	session := sessionAt("")
 
-	git := mustSnapshot(t, snapshotRequest{Root: root, Paths: []string{"."}, Discovery: DiscoveryGit})
-	host := mustSnapshot(t, snapshotRequest{Root: root, Paths: []string{"."}, Discovery: DiscoveryFilesystem})
+	git := mustSnapshot(t, session, snapshotRequest{Root: root, Paths: []string{"."}, Discovery: DiscoveryGit})
+	host := mustSnapshot(t, session, snapshotRequest{Root: root, Paths: []string{"."}, Discovery: DiscoveryFilesystem})
 	if git != host {
 		t.Fatal("a directory that is not a work tree must fall back to the filesystem walk")
 	}
-	if note := discoveryNote(t.Context(), root, DiscoveryGit); note != "" {
+	if note := session.discoveryNote(t.Context(), root, DiscoveryGit); note != "" {
 		t.Fatalf("ordinary fallback reported a problem: %q", note)
 	}
 }
@@ -364,21 +364,22 @@ func TestGitDiscoveryFallsBackOutsideAWorkTree(t *testing.T) {
 // filesystem walk for the rest of the run.
 func TestGitDiscoveryDoesNotMemoizeACancelledListing(t *testing.T) {
 	root := gitRepository(t)
+	session := sessionAt("")
 	cancelled, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	if _, ok := gitFiles(cancelled, root); ok {
+	if _, ok := session.gitFiles(cancelled, root); ok {
 		t.Fatal("a cancelled lookup listed files")
 	}
-	if note := discoveryNote(cancelled, root, DiscoveryGit); !strings.Contains(note, "git input discovery failed") {
+	if note := session.discoveryNote(cancelled, root, DiscoveryGit); !strings.Contains(note, "git input discovery failed") {
 		t.Fatalf("a cancelled lookup gave no reason: %q", note)
 	}
 
-	listed, ok := gitFiles(t.Context(), root)
+	listed, ok := session.gitFiles(t.Context(), root)
 	if !ok || !slices.Contains(listed, "tracked.go") {
 		t.Fatalf("the cancelled lookup was memoized: %v, %v", listed, ok)
 	}
-	if note := discoveryNote(t.Context(), root, DiscoveryGit); note != "" {
+	if note := session.discoveryNote(t.Context(), root, DiscoveryGit); note != "" {
 		t.Fatalf("the cancelled lookup's reason outlived it: %q", note)
 	}
 }
@@ -387,17 +388,17 @@ func TestTargetExcludeLeavesPathsOutOfTheFingerprint(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "src", "main.go"), sourceOne)
 	writeFile(t, filepath.Join(root, "build", "out.bin"), sourceOne)
-	stats.configure(t.TempDir())
+	session := sessionAt("")
 	req := snapshotRequest{Root: root, Paths: []string{"."}, Excludes: []string{"build"}, Discovery: DiscoveryFilesystem}
 
-	before := mustSnapshot(t, req)
+	before := mustSnapshot(t, session, req)
 
 	writeFile(t, filepath.Join(root, "build", "out.bin"), sourceTwo+sourceTwo)
-	if excluded := mustSnapshot(t, req); excluded != before {
+	if excluded := mustSnapshot(t, session, req); excluded != before {
 		t.Fatal("an excluded path entered the fingerprint")
 	}
 	writeFile(t, filepath.Join(root, "src", "main.go"), sourceTwo+sourceTwo)
-	if included := mustSnapshot(t, req); included == before {
+	if included := mustSnapshot(t, session, req); included == before {
 		t.Fatal("exclude swallowed a declared input")
 	}
 
@@ -467,7 +468,7 @@ func TestGitDiscoveryIgnoresPersonalExcludes(t *testing.T) {
 	}
 	t.Setenv("HOME", home)
 
-	listed, ok := gitFiles(t.Context(), root)
+	listed, ok := sessionAt("").gitFiles(t.Context(), root)
 	if !ok {
 		t.Fatal("git listing unavailable inside a work tree")
 	}
@@ -495,7 +496,7 @@ func TestGitDiscoveryIgnoresRelativePathEntries(t *testing.T) {
 	if !ok || !filepath.IsAbs(found) {
 		t.Fatalf("host git = %q, %v", found, ok)
 	}
-	if _, ok := gitFiles(t.Context(), root); !ok {
+	if _, ok := sessionAt("").gitFiles(t.Context(), root); !ok {
 		t.Fatal("git listing unavailable inside a work tree")
 	}
 	if _, err := os.Stat(filepath.Join(root, "pwned")); !os.IsNotExist(err) {
@@ -509,6 +510,7 @@ func TestGitDiscoveryIgnoresRelativePathEntries(t *testing.T) {
 func TestFilesCreatedByACheckAreSeenAfterExecution(t *testing.T) {
 	requireGit(t)
 	req := cacheRequest(t)
+	req.session = sessionAt("")
 	runGit(t, req.Source, "init")
 	req.Target.Inputs = []string{"."}
 	req.Target.Discovery = DiscoveryGit
@@ -536,8 +538,7 @@ func TestPersistedEntryHashedWhileRacyIsDistrusted(t *testing.T) {
 		t.Fatal(err)
 	}
 	req := snapshotRequest{Root: root, Paths: []string{"."}, Discovery: DiscoveryFilesystem}
-	stats.configure(t.TempDir())
-	want := mustSnapshot(t, req)
+	want := mustSnapshot(t, sessionAt(""), req)
 	stale := fmt.Sprintf("%o:%x", info.Mode().Perm(), sha256.Sum256([]byte(sourceOne)))
 
 	for _, tt := range []struct {
@@ -551,12 +552,13 @@ func TestPersistedEntryHashedWhileRacyIsDistrusted(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			entry := statEntry{Stat: statOf(info), Value: stale, HashedAt: tt.hashedAt.UnixNano()}
 			record := statRecord{Root: root, Entries: map[string]statEntry{"input.go": entry}}
-			if err := writeRecord(filepath.Join(cacheDir, "stat", digest(root)+".json"), record); err != nil {
+			if err := writeRecord(filepath.Join(cacheDir, "stat", digest(root)+".json"), record, recordLimit); err != nil {
 				t.Fatal(err)
 			}
 
-			restart(t, cacheDir)
-			if got := mustSnapshot(t, req); (got != want) != tt.trusted {
+			// A new session reads the persisted record, the way a second CLI
+			// process would.
+			if got := mustSnapshot(t, sessionAt(cacheDir), req); (got != want) != tt.trusted {
 				t.Fatalf("trusted = %v, want %v", got != want, tt.trusted)
 			}
 		})
@@ -574,23 +576,25 @@ func TestFlushPrunesEntriesForGoneFiles(t *testing.T) {
 		writeFile(t, filepath.Join(root, name), sourceOne)
 		setModTime(t, filepath.Join(root, name), old)
 	}
-	stats.configure(cacheDir)
-	mustSnapshot(t, snapshotRequest{Root: root, Paths: []string{"."}, Discovery: DiscoveryFilesystem})
-	if err := (&Cache{Dir: cacheDir}).Flush(); err != nil {
+	session := sessionAt(cacheDir)
+	mustSnapshot(t, session, snapshotRequest{Root: root, Paths: []string{"."}, Discovery: DiscoveryFilesystem})
+	if err := session.Flush(); err != nil {
 		t.Fatal(err)
 	}
 
-	restart(t, cacheDir)
+	// A new session reads the persisted record, the way a second CLI process
+	// would.
+	session = sessionAt(cacheDir)
 	if err := os.Remove(filepath.Join(root, "gone.go")); err != nil {
 		t.Fatal(err)
 	}
-	mustSnapshot(t, snapshotRequest{Root: root, Paths: []string{"keep.go"}, Discovery: DiscoveryFilesystem})
-	if err := (&Cache{Dir: cacheDir}).Flush(); err != nil {
+	mustSnapshot(t, session, snapshotRequest{Root: root, Paths: []string{"keep.go"}, Discovery: DiscoveryFilesystem})
+	if err := session.Flush(); err != nil {
 		t.Fatal(err)
 	}
 
 	var record statRecord
-	if err := readRecord(filepath.Join(cacheDir, "stat", digest(root)+".json"), &record); err != nil {
+	if err := readRecord(filepath.Join(cacheDir, "stat", digest(root)+".json"), &record, recordLimit); err != nil {
 		t.Fatal(err)
 	}
 	for name, want := range map[string]bool{"keep.go": true, "other.go": true, "gone.go": false} {
@@ -624,21 +628,21 @@ func BenchmarkFingerprint(b *testing.B) {
 	b.Run("cold", func(b *testing.B) {
 		for b.Loop() {
 			b.StopTimer()
-			stats.configure(b.TempDir())
+			session := sessionAt("")
 			b.StartTimer()
-			if _, err := snapshot(b.Context(), req); err != nil {
+			if _, err := session.snapshot(b.Context(), req); err != nil {
 				b.Fatal(err)
 			}
 		}
 	})
 
 	b.Run("warm", func(b *testing.B) {
-		stats.configure(b.TempDir())
-		if _, err := snapshot(b.Context(), req); err != nil {
+		session := sessionAt("")
+		if _, err := session.snapshot(b.Context(), req); err != nil {
 			b.Fatal(err)
 		}
 		for b.Loop() {
-			if _, err := snapshot(b.Context(), req); err != nil {
+			if _, err := session.snapshot(b.Context(), req); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -657,10 +661,10 @@ func TestDiscoveryNoteExplainsAnIgnoredSourceForGitDiscoveryOnly(t *testing.T) {
 	writeFile(t, filepath.Join(root, ".gitignore"), "*\n")
 	writeFile(t, filepath.Join(root, "input.go"), sourceOne)
 
-	if note := discoveryNote(t.Context(), root, DiscoveryGit); !strings.Contains(note, "lists no files") {
+	if note := sessionAt("").discoveryNote(t.Context(), root, DiscoveryGit); !strings.Contains(note, "lists no files") {
 		t.Fatalf("an ignored source must explain its filesystem fallback: %q", note)
 	}
-	if note := discoveryNote(t.Context(), root, DiscoveryFilesystem); note != "" {
+	if note := sessionAt("").discoveryNote(t.Context(), root, DiscoveryFilesystem); note != "" {
 		t.Fatalf("a filesystem target has no fallback to explain: %q", note)
 	}
 }
@@ -671,8 +675,7 @@ func TestStatFlushReportsAWriteFailure(t *testing.T) {
 	dir := t.TempDir()
 	// A file where the stat directory belongs makes every record write fail.
 	writeFile(t, filepath.Join(dir, "stat"), "not a directory")
-	store := &statStore{entries: map[statKey]statEntry{}, seen: map[statKey]bool{}, roots: map[string]bool{}}
-	store.configure(dir)
+	store := newStatStore(dir, recordLimit)
 	store.prepare(t.TempDir())
 
 	if err := store.flush(); err == nil {

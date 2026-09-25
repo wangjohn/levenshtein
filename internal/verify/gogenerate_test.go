@@ -61,7 +61,6 @@ func TestCopyInputsCopiesWhatTheCheckMayRead(t *testing.T) {
 			}
 			if discovery == DiscoveryGit {
 				testgit.Run(t, testgit.Path(t), req.Source, "init", "--quiet")
-				relist(req.Source)
 			}
 
 			dest := t.TempDir()

@@ -154,14 +154,14 @@ func TestPersistentPreparationAcrossExecutors(t *testing.T) {
 
 func TestCacheLockCancellation(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "lock")
-	unlock, err := lockFile(context.Background(), path)
+	unlock, err := lockFile(context.Background(), path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	if release, err := lockFile(ctx, path); err == nil {
+	if release, err := lockFile(ctx, path, nil); err == nil {
 		release()
 		t.Fatal("conflicting writer entered lock")
 	}
@@ -187,11 +187,11 @@ func TestRecordLayoutMatchesUntaggedEnvelope(t *testing.T) {
 	}
 
 	var e entry
-	if err := readRecord(path, &e); err != nil || e.Key != "untagged" {
+	if err := readRecord(path, &e, recordLimit); err != nil || e.Key != "untagged" {
 		t.Fatalf("record written before the envelope had tags: entry %+v, error %v", e, err)
 	}
 
-	if err := writeRecord(path, map[string]string{"Key": "untagged"}); err != nil {
+	if err := writeRecord(path, map[string]string{"Key": "untagged"}, recordLimit); err != nil {
 		t.Fatal(err)
 	}
 	written, err := os.ReadFile(path)
@@ -303,7 +303,7 @@ func TestNoCacheExecutesEveryTime(t *testing.T) {
 func TestOnlyNativeChecksLockTheWorkspace(t *testing.T) {
 	req := cacheRequest(t)
 	cache := &Cache{Dir: t.TempDir()}
-	unlock, err := lockFile(t.Context(), filepath.Join(cache.Dir, "locks", "workspace-"+digest(req.Source)))
+	unlock, err := lockFile(t.Context(), filepath.Join(cache.Dir, "locks", "workspace-"+digest(req.Source)), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

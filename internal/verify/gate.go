@@ -14,6 +14,13 @@ import (
 // for all of them. An flock is per open file, and a second handle in this
 // process would block exactly as another process does, so the process takes
 // it once rather than once per check.
+//
+// That makes the registry of gates and file holds a property of the process,
+// not of a run. Two sessions in one process that each kept their own would,
+// without a cache directory, let two writers into one tree, and with one would
+// queue each other's readers behind a second handle on the same file lock.
+// Every session shares processWorkspaces; a test that wants another process's
+// view of the same tree builds a workspaces of its own.
 
 // writesWorkspace reports whether executing a native check can change the
 // working tree, and so must exclude every other native check.
@@ -32,7 +39,7 @@ type gate struct {
 	wake    chan struct{}
 }
 
-func (g *gate) acquire(ctx context.Context, name string, exclusive bool) (func(), error) {
+func (g *gate) acquire(ctx context.Context, name string, exclusive bool, waiting func(name string)) (func(), error) {
 	g.mu.Lock()
 	if exclusive {
 		g.queued++
@@ -56,7 +63,7 @@ func (g *gate) acquire(ctx context.Context, name string, exclusive bool) (func()
 		g.mu.Unlock()
 		if !waited {
 			waited = true
-			waitingOn(name)
+			notifyWaiting(waiting, name)
 		}
 		select {
 		case <-wake:
@@ -106,7 +113,7 @@ type fileHold struct {
 	unlock  func()
 }
 
-func (h *fileHold) acquire(ctx context.Context, path string) (func(), error) {
+func (h *fileHold) acquire(ctx context.Context, path string, waiting func(name string)) (func(), error) {
 	select {
 	case h.slot <- struct{}{}:
 	case <-ctx.Done():
@@ -115,7 +122,7 @@ func (h *fileHold) acquire(ctx context.Context, path string) (func(), error) {
 	defer func() { <-h.slot }()
 
 	if h.holders == 0 {
-		unlock, err := lockFile(ctx, path)
+		unlock, err := lockFile(ctx, path, waiting)
 		if err != nil {
 			return nil, err
 		}
@@ -138,18 +145,27 @@ func (h *fileHold) acquire(ctx context.Context, path string) (func(), error) {
 	}, nil
 }
 
-var (
+// workspaces holds one gate per source and one file hold per workspace lock
+// path.
+type workspaces struct {
 	gates sync.Map // source → *gate
 	holds sync.Map // lock path → *fileHold
-)
+}
+
+// processWorkspaces is the registry every session in this process shares.
+var processWorkspaces = &workspaces{}
 
 // acquireWorkspace enters source's working tree for one native check, shared
 // or exclusive, and returns the function that leaves it. dir is the cache
 // directory whose locks coordinate with other processes; without one only
 // this process is coordinated, as there is nowhere shared to put a lock.
-func acquireWorkspace(ctx context.Context, dir, source string, exclusive bool) (func(), error) {
-	value, _ := gates.LoadOrStore(source, &gate{})
-	leave, err := value.(*gate).acquire(ctx, "gate:"+source, exclusive)
+func (s *Session) acquireWorkspace(ctx context.Context, dir, source string, exclusive bool) (func(), error) {
+	return s.workspaces.acquire(ctx, dir, source, exclusive, s.waiting)
+}
+
+func (w *workspaces) acquire(ctx context.Context, dir, source string, exclusive bool, waiting func(name string)) (func(), error) {
+	value, _ := w.gates.LoadOrStore(source, &gate{})
+	leave, err := value.(*gate).acquire(ctx, "gate:"+source, exclusive, waiting)
 	if err != nil {
 		return nil, err
 	}
@@ -158,8 +174,8 @@ func acquireWorkspace(ctx context.Context, dir, source string, exclusive bool) (
 	}
 
 	path := filepath.Join(dir, "locks", "workspace-"+digest(source))
-	value, _ = holds.LoadOrStore(path, &fileHold{slot: make(chan struct{}, 1)})
-	release, err := value.(*fileHold).acquire(ctx, path)
+	value, _ = w.holds.LoadOrStore(path, &fileHold{slot: make(chan struct{}, 1)})
+	release, err := value.(*fileHold).acquire(ctx, path, waiting)
 	if err != nil {
 		leave()
 		return nil, err

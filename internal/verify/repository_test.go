@@ -62,7 +62,7 @@ func TestSelfVerificationFingerprintsTheGeneratedSDK(t *testing.T) {
 		key := func() string {
 			t.Helper()
 			// A new CLI process takes a new snapshot of the shared checkout.
-			implementations.Clear()
+			req.session = sessionAt("")
 			got, err := fingerprint(t.Context(), req)
 			if err != nil {
 				t.Fatal(err)

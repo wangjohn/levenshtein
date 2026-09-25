@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/wangjohn/levenshtein/internal/checktool"
@@ -40,11 +39,6 @@ var toolchainSettings = []string{
 	"CGO_CFLAGS", "CGO_CPPFLAGS", "CGO_CXXFLAGS", "CGO_LDFLAGS",
 	"GOAMD64", "GOARM64", "GOARM", "GO386", "GOPPC64", "GORISCV64", "GOMIPS", "GOMIPS64", "GOWASM",
 }
-
-// toolchains memoizes one identity per resolved go binary and environment for
-// the life of the process; a run does not change its host toolchain or its go
-// env file mid-flight.
-var toolchains sync.Map
 
 // analysisEnv runs the check against the host's installed Go, never one Go
 // downloads for itself, exactly as the pinned container does. gowork is the
@@ -76,14 +70,17 @@ func goEnv(env, pinned []string) []string {
 	return append(out, pinned...)
 }
 
-func toolchainIdentity(ctx context.Context, dir string, env []string) (goToolchain, error) {
+// toolchainIdentity is the identity of the go that dir and env resolve,
+// memoized per resolved go binary and environment for the life of the session;
+// a run does not change its host toolchain or its go env file mid-flight.
+func (s *Session) toolchainIdentity(ctx context.Context, dir string, env []string) (goToolchain, error) {
 	env = buildEnv(env)
 	binary, err := executable(dir, env, "go")
 	if err != nil {
 		return goToolchain{}, err
 	}
 	memo := digest([]any{binary, env})
-	if memoized, ok := toolchains.Load(memo); ok {
+	if memoized, ok := s.toolchains.Load(memo); ok {
 		return memoized.(goToolchain), nil
 	}
 
@@ -107,7 +104,7 @@ func toolchainIdentity(ctx context.Context, dir string, env []string) (goToolcha
 		}
 	}
 	identity := goToolchain{Version: values["GOVERSION"], OS: values["GOOS"], Arch: values["GOARCH"], Settings: settings}
-	toolchains.Store(memo, identity)
+	s.toolchains.Store(memo, identity)
 	return identity, nil
 }
 
@@ -197,7 +194,7 @@ func build(ctx context.Context, req Request, work goRun, tool helper) (string, e
 	}
 
 	output := filepath.Join(work.Root, "tools", tool.Name)
-	unlock, err := lockFile(ctx, filepath.Join(work.Root, "locks", "tool-"+tool.Name))
+	unlock, err := lockFile(ctx, filepath.Join(work.Root, "locks", "tool-"+tool.Name), sessionOf(req).waiting)
 	if err != nil {
 		return "", err
 	}

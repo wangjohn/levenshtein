@@ -13,9 +13,9 @@ import (
 // Hashing file content dominates cache lookups: fingerprint runs at least
 // twice per check, every stage hashes its own inputs again, and overlapping
 // targets cover the same files. The stat memo turns those repeats into one
-// Lstat comparison per file, shared by every target in the process.
+// Lstat comparison per file, shared by every target in the session.
 //
-// The trade-off this records: within one process a file whose size, modification
+// The trade-off this records: within one session a file whose size, modification
 // time, inode and mode are all unchanged is assumed to have unchanged content.
 // A filesystem with nanosecond timestamps cannot give two different writes the
 // same modification time, so only coarse-timestamp filesystems can hide an edit
@@ -37,7 +37,7 @@ type fileStat struct {
 // statEntry pairs an observed stat with the snapshot text that content produced
 // and the moment the content was read. HashedAt, not the time the record was
 // written, is what decides whether the entry was racy: the hash may have been
-// taken long before the process flushed it.
+// taken long before the session flushed it.
 type statEntry struct {
 	Stat     fileStat `json:"stat"`
 	Value    string   `json:"value"`
@@ -72,19 +72,23 @@ func (e statEntry) settled() bool {
 	return e.Stat.ModNS < e.HashedAt-int64(racyWindow)
 }
 
-// statStore is the process-wide memo. dir is the cache directory the records
+// statStore is one session's memo. dir is the cache directory the records
 // live under; without one the memo still works, it just does not survive the
-// process. seen marks the entries this run looked up or stored, so a flush can
-// drop the ones for files that no longer exist.
+// session. limit is the largest record it writes or reads. seen marks the
+// entries this run looked up or stored, so a flush can drop the ones for files
+// that no longer exist.
 type statStore struct {
 	mu      sync.Mutex
 	dir     string
+	limit   int
 	entries map[statKey]statEntry
 	seen    map[statKey]bool
 	roots   map[string]bool
 }
 
-var stats = &statStore{entries: map[statKey]statEntry{}, seen: map[statKey]bool{}, roots: map[string]bool{}}
+func newStatStore(dir string, limit int) *statStore {
+	return &statStore{dir: dir, limit: limit, entries: map[statKey]statEntry{}, seen: map[statKey]bool{}, roots: map[string]bool{}}
+}
 
 func statOf(info fs.FileInfo) fileStat {
 	return fileStat{
@@ -93,21 +97,6 @@ func statOf(info fs.FileInfo) fileStat {
 		Inode: inodeOf(info),
 		Mode:  uint32(info.Mode().Perm()),
 	}
-}
-
-// configure points the memo at a cache directory. A different directory is a
-// different persisted cache, so the in-memory entries start over with it.
-func (s *statStore) configure(dir string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.dir == dir {
-		return
-	}
-	s.dir = dir
-	s.entries = map[statKey]statEntry{}
-	s.seen = map[statKey]bool{}
-	s.roots = map[string]bool{}
 }
 
 // path is where shard 0 of root's memo lives; shard is where shard i does.
@@ -127,13 +116,13 @@ func (s *statStore) shard(root string, i int) string {
 
 // shards is how many records keep each under half the record limit, which
 // leaves room for paths longer than the estimate assumes.
-func shards(entries map[string]statEntry) int {
+func shards(entries map[string]statEntry, limit int) int {
 	size := 0
 	for name, entry := range entries {
 		size += len(name) + len(entry.Value) + statEntryOverhead
 	}
 	count := 1
-	for size/count > recordLimit/2 {
+	for size/count > limit/2 {
 		count *= 2
 	}
 	return count
@@ -162,13 +151,13 @@ func (s *statStore) prepare(root string) {
 	}
 
 	var record statRecord
-	if err := readRecord(path, &record); err != nil || record.Root != root {
+	if err := readRecord(path, &record, s.limit); err != nil || record.Root != root {
 		return
 	}
 	s.load(root, record)
 	for i := 1; i < record.Shards; i++ {
 		var shard statRecord
-		if err := readRecord(s.shard(root, i), &shard); err == nil && shard.Root == root {
+		if err := readRecord(s.shard(root, i), &shard, s.limit); err == nil && shard.Root == root {
 			s.load(root, shard)
 		}
 	}
@@ -206,7 +195,7 @@ func (s *statStore) store(key statKey, current fileStat, value string, hashedAt 
 	s.seen[key] = true
 }
 
-// flush writes one record per root the process touched. An entry this run did
+// flush writes one record per root the session touched. An entry this run did
 // not look at is kept only while its file still has the recorded stat, so a
 // record does not accumulate deleted or rewritten files, yet a run that covers
 // one target does not discard the hints another target's run left. The record
@@ -255,7 +244,7 @@ func (s *statStore) flush() error {
 // is written last, so a reader never follows its count to a shard this flush
 // has yet to write.
 func (s *statStore) write(root string, entries map[string]statEntry) error {
-	count := shards(entries)
+	count := shards(entries, s.limit)
 	split := make([]map[string]statEntry, count)
 	for i := range split {
 		split[i] = map[string]statEntry{}
@@ -270,7 +259,7 @@ func (s *statStore) write(root string, entries map[string]statEntry) error {
 		if i == 0 && count > 1 {
 			shard = count
 		}
-		if err := writeRecord(s.shard(root, i), statRecord{Root: root, Shards: shard, Entries: split[i]}); err != nil && failure == nil {
+		if err := writeRecord(s.shard(root, i), statRecord{Root: root, Shards: shard, Entries: split[i]}, s.limit); err != nil && failure == nil {
 			failure = err
 		}
 	}

@@ -10,14 +10,6 @@ import (
 	"time"
 )
 
-// lowerRecordLimit shrinks the cache record limit for one test.
-func lowerRecordLimit(t *testing.T, limit int) {
-	t.Helper()
-	previous := recordLimit
-	recordLimit = limit
-	t.Cleanup(func() { recordLimit = previous })
-}
-
 // recordOfSize returns a value whose written record is exactly size bytes.
 func recordOfSize(t *testing.T, size int) string {
 	t.Helper()
@@ -35,21 +27,20 @@ func recordOfSize(t *testing.T, size int) string {
 // A record the reader would refuse is refused when it is written, instead of
 // being written and then silently failing every later read.
 func TestRecordLimitAppliesToWritesAndReads(t *testing.T) {
-	lowerRecordLimit(t, 512)
 	path := filepath.Join(t.TempDir(), "record.json")
 
-	if err := writeRecord(path, recordOfSize(t, 512)); err != nil {
+	if err := writeRecord(path, recordOfSize(t, 512), 512); err != nil {
 		t.Fatalf("a record at the limit was refused: %v", err)
 	}
 	var value string
-	if err := readRecord(path, &value); err != nil || len(value) != len(recordOfSize(t, 512)) {
+	if err := readRecord(path, &value, 512); err != nil || len(value) != len(recordOfSize(t, 512)) {
 		t.Fatalf("a record at the limit did not read back: %v", err)
 	}
 
-	if err := writeRecord(path, recordOfSize(t, 513)); err == nil || !strings.Contains(err.Error(), "limit") {
+	if err := writeRecord(path, recordOfSize(t, 513), 512); err == nil || !strings.Contains(err.Error(), "limit") {
 		t.Fatalf("a record over the limit was written: %v", err)
 	}
-	if err := readRecord(path, &value); err != nil {
+	if err := readRecord(path, &value, 512); err != nil {
 		t.Fatalf("a refused write replaced the previous record: %v", err)
 	}
 }
@@ -57,13 +48,12 @@ func TestRecordLimitAppliesToWritesAndReads(t *testing.T) {
 // A result too large to cache is still reported, and the report says why it
 // was not cached.
 func TestOversizedResultIsReportedAndNotCached(t *testing.T) {
-	lowerRecordLimit(t, 1024)
 	req := cacheRequest(t)
 	req.Check.Command.Artifacts = []string{"report.txt"}
 	if err := os.WriteFile(filepath.Join(req.Source, "report.txt"), []byte(strings.Repeat("r", 2048)), 0600); err != nil {
 		t.Fatal(err)
 	}
-	runner := CachedExecutor{Cache: &Cache{Dir: t.TempDir()}, Executor: &countingExecutor{status: StatusPassed}}
+	runner := CachedExecutor{Cache: &Cache{Dir: t.TempDir(), limit: 1024}, Executor: &countingExecutor{status: StatusPassed}}
 
 	result := runner.Execute(t.Context(), req)
 	if result.Status != StatusPassed || !strings.Contains(result.Cache.Reason, "cache write unavailable") || !strings.Contains(result.Cache.Reason, "limit") {
@@ -74,13 +64,12 @@ func TestOversizedResultIsReportedAndNotCached(t *testing.T) {
 // The stat memo outgrows one record in a large repository. It is split across
 // records that each fit the limit, so every entry survives to the next run.
 func TestStatMemoAboveOneRecordSurvivesARestart(t *testing.T) {
-	lowerRecordLimit(t, 16<<10)
+	const limit = 16 << 10
 	dir := t.TempDir()
 	root := t.TempDir()
 	hashed := time.Now()
 	settled := hashed.Add(-time.Hour).UnixNano()
-	store := &statStore{entries: map[statKey]statEntry{}, seen: map[statKey]bool{}, roots: map[string]bool{}}
-	store.configure(dir)
+	store := newStatStore(dir, limit)
 	store.prepare(root)
 	const files = 1000
 	for i := range files {
@@ -91,16 +80,14 @@ func TestStatMemoAboveOneRecordSurvivesARestart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reloaded := &statStore{entries: map[statKey]statEntry{}, seen: map[statKey]bool{}, roots: map[string]bool{}}
-	reloaded.configure(dir)
+	reloaded := newStatStore(dir, limit)
 	reloaded.prepare(root)
 	if len(reloaded.entries) != files {
 		t.Fatalf("%d of %d stat entries survived a restart", len(reloaded.entries), files)
 	}
 
 	// A smaller memo later needs fewer records, and the extra ones go.
-	small := &statStore{entries: map[statKey]statEntry{}, seen: map[statKey]bool{}, roots: map[string]bool{}}
-	small.configure(dir)
+	small := newStatStore(dir, limit)
 	small.roots[root] = true
 	small.store(statKey{Root: root, Path: "only.go"}, fileStat{ModNS: settled}, "644:only", hashed)
 	if err := small.flush(); err != nil {

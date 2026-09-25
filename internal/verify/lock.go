@@ -9,17 +9,10 @@ import (
 	"github.com/gofrs/flock"
 )
 
-// lockWaiting, when set, is told the name of every lock a caller finds held and
-// starts waiting for. Tests use it to act while a check is known to be blocked.
-var lockWaiting func(name string)
-
-func waitingOn(name string) {
-	if hook := lockWaiting; hook != nil {
-		hook(name)
-	}
-}
-
-func lockFile(ctx context.Context, path string) (func(), error) {
+// lockFile takes the advisory file lock at path, waiting until ctx ends. When
+// the lock is held, waiting, if set, is told the lock's name before the wait
+// starts (see Session.waiting).
+func lockFile(ctx context.Context, path string, waiting func(name string)) (func(), error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -30,7 +23,7 @@ func lockFile(ctx context.Context, path string) (func(), error) {
 	lock := flock.New(path, flock.SetPermissions(0600))
 	locked, err := lock.TryLock()
 	if err == nil && !locked {
-		waitingOn(filepath.Base(path))
+		notifyWaiting(waiting, filepath.Base(path))
 		locked, err = lock.TryLockContext(ctx, 20*time.Millisecond)
 	}
 	if err != nil || !locked {
@@ -41,4 +34,10 @@ func lockFile(ctx context.Context, path string) (func(), error) {
 		return nil, err
 	}
 	return func() { _ = lock.Unlock() }, nil
+}
+
+func notifyWaiting(waiting func(name string), name string) {
+	if waiting != nil {
+		waiting(name)
+	}
 }

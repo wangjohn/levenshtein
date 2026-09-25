@@ -66,6 +66,7 @@ func TestReviewDaggerImplementationFilesAreInputs(t *testing.T) {
 func TestSharedImplementationIsSnapshotOncePerCheckout(t *testing.T) {
 	req := cacheRequest(t)
 	req.Environment.Executor = ExecutorDagger
+	req.session = sessionAt("")
 	before, err := fingerprint(t.Context(), req)
 	if err != nil {
 		t.Fatal(err)
@@ -105,11 +106,11 @@ func TestReviewInputsChangedDuringCacheLockWait(t *testing.T) {
 	runner := CachedExecutor{Cache: cache, Executor: executor}
 
 	first := runner.Execute(context.Background(), req)
-	unlock, err := lockFile(context.Background(), filepath.Join(cache.Dir, "locks", "result-"+first.Cache.Key))
+	unlock, err := lockFile(context.Background(), filepath.Join(cache.Dir, "locks", "result-"+first.Cache.Key), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	waits := waitingFor(t)
+	waits := waitingFor(t, &req)
 	done := make(chan Result, 1)
 	go func() { done <- runner.Execute(context.Background(), req) }()
 	awaitWait(t, waits, "result-"+first.Cache.Key)
@@ -129,6 +130,7 @@ func TestReviewInputsChangedDuringCacheLockWait(t *testing.T) {
 func TestFailedCheckFilesAreSeenByLaterChecks(t *testing.T) {
 	requireGit(t)
 	other := cacheRequest(t)
+	other.session = sessionAt("")
 	runGit(t, other.Source, "init")
 	writeFile(t, filepath.Join(other.Source, "lib", "tracked.go"), "package lib\n")
 	other.Target.Inputs = []string{"lib"}
@@ -140,6 +142,7 @@ func TestFailedCheckFilesAreSeenByLaterChecks(t *testing.T) {
 
 	failing := cacheRequest(t)
 	failing.Source = other.Source
+	failing.session = other.session
 	failing.ID = "writer"
 	failing.Check.Command.Cache = false
 	writer := CachedExecutor{Cache: runner.Cache, Executor: &countingExecutor{status: StatusFailed, artifact: "lib/generated.go"}}
@@ -159,6 +162,7 @@ func TestFailedCheckFilesAreSeenByLaterChecks(t *testing.T) {
 func TestBuildKeySeesFilesItsPreparationCreated(t *testing.T) {
 	requireGit(t)
 	req := nativeRequest(t)
+	req.session = sessionAt("")
 	runGit(t, req.Source, "init")
 	writeFile(t, filepath.Join(req.Source, "gen", "keep"), "")
 	writeFile(t, filepath.Join(req.Source, "lock"), "v1")
@@ -174,7 +178,7 @@ func TestBuildKeySeesFilesItsPreparationCreated(t *testing.T) {
 
 	// A later run lists the work tree afresh and finds the generated file gone,
 	// while the preparation's own inputs are unchanged, so it is reused.
-	relist(req.Source)
+	req.session = sessionAt("")
 	if err := os.Remove(filepath.Join(req.Source, "gen", "new")); err != nil {
 		t.Fatal(err)
 	}

@@ -85,13 +85,13 @@ func (f *fakeExecutor) Execute(context.Context, Request) Result {
 func TestAccountForEverySelectedCheck(t *testing.T) {
 	plan := Plan{Checks: []PlannedCheck{{ID: "one", Environment: Environment{Executor: executorFake}}, {ID: "two", Environment: Environment{Executor: executorMissing}}}}
 	executor := &fakeExecutor{status: StatusFailed}
-	report := Execute(context.Background(), plan, "", map[ExecutorKind]Executor{executorFake: executor}, 0)
+	report := NewSession(nil).Execute(context.Background(), plan, "", map[ExecutorKind]Executor{executorFake: executor}, 0)
 	if report.Status != StatusFailed || len(report.Results) != 2 || report.Results[1].Status != StatusIncomplete {
 		t.Fatalf("lost required work: %+v", report)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	report = Execute(ctx, plan, "", map[ExecutorKind]Executor{executorFake: executor}, 0)
+	report = NewSession(nil).Execute(ctx, plan, "", map[ExecutorKind]Executor{executorFake: executor}, 0)
 	if executor.calls != 1 || report.Results[0].Status != StatusCancelled {
 		t.Fatalf("executed after cancellation: %+v", report)
 	}
@@ -130,7 +130,7 @@ func TestParallelExecutePreservesPlanOrder(t *testing.T) {
 	}}
 
 	start := time.Now()
-	report := Execute(context.Background(), plan, "", map[ExecutorKind]Executor{executorFake: executor}, 0)
+	report := NewSession(nil).Execute(context.Background(), plan, "", map[ExecutorKind]Executor{executorFake: executor}, 0)
 	elapsed := time.Since(start)
 	if report.Status != StatusPassed {
 		t.Fatalf("status: %+v", report)
@@ -211,7 +211,7 @@ func TestParallelExecuteSharedPreparationPreservesPlanOrder(t *testing.T) {
 		},
 	}
 	native := &recordingNative{Native: Native{Cache: &Cache{Dir: t.TempDir()}}}
-	report := Execute(context.Background(), plan, t.TempDir(), map[ExecutorKind]Executor{
+	report := NewSession(nil).Execute(context.Background(), plan, t.TempDir(), map[ExecutorKind]Executor{
 		ExecutorNative: native,
 	}, 0)
 	if report.Status != StatusPassed {

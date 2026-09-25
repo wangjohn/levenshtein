@@ -32,8 +32,9 @@ type stageEntry struct {
 
 func (n *Native) stage(ctx context.Context, req Request, kind StageKind, stage *Preparation) (StageResult, []Warning, *Result) {
 	start := time.Now()
+	session := sessionOf(req)
 	req.RerunChecks = false // Freshness concerns verification, not reusable preparation.
-	inputs, err := snapshot(ctx, snapshotRequest{Root: req.Source, Paths: stage.Inputs, Excludes: stage.Outputs, Discovery: req.Target.Discovery})
+	inputs, err := session.snapshot(ctx, snapshotRequest{Root: req.Source, Paths: stage.Inputs, Excludes: stage.Outputs, Discovery: req.Target.Discovery})
 	if err != nil {
 		r := Result{Status: StatusError, Error: "stage inputs: " + err.Error()}
 		return StageResult{Kind: kind}, nil, &r
@@ -49,7 +50,7 @@ func (n *Native) stage(ctx context.Context, req Request, kind StageKind, stage *
 	// the build source scope. Environment/version selection is always explicit.
 	dependency := ""
 	if kind == StageBuild && req.Preparation != nil {
-		d, err := snapshot(ctx, snapshotRequest{Root: req.Source, Paths: req.Preparation.Inputs, Excludes: req.Preparation.Outputs, Discovery: req.Target.Discovery})
+		d, err := session.snapshot(ctx, snapshotRequest{Root: req.Source, Paths: req.Preparation.Inputs, Excludes: req.Preparation.Outputs, Discovery: req.Target.Discovery})
 		if err != nil {
 			r := Result{Status: StatusError, Error: err.Error()}
 			return StageResult{Kind: kind}, nil, &r
@@ -67,10 +68,10 @@ func (n *Native) stage(ctx context.Context, req Request, kind StageKind, stage *
 	var prior stageEntry
 	if n.Cache != nil && req.Environment.Identity != "" {
 		path = filepath.Join(n.Cache.Dir, "stages", key+".json")
-		_ = readRecord(path, &prior)
+		_ = readRecord(path, &prior, n.Cache.maxRecord())
 	}
 	if prior.Key == key && outputsExist(req.Source, stage.Outputs) {
-		output, err := snapshot(ctx, snapshotRequest{Root: req.Source, Paths: stage.Outputs, Outputs: true})
+		output, err := session.snapshot(ctx, snapshotRequest{Root: req.Source, Paths: stage.Outputs, Outputs: true})
 		if err == nil && output == prior.Outputs {
 			return StageResult{Kind: kind, Key: key, Reused: true, DurationMS: time.Since(start).Milliseconds()}, nil, nil
 		}
@@ -90,7 +91,7 @@ func (n *Native) stage(ctx context.Context, req Request, kind StageKind, stage *
 	// right after a preparation or any later check's, must see what it
 	// created, whether or not the stage succeeded.
 	result := command(ctx, filepath.Join(req.Source, req.Target.Workspace), stage.Command, env, stage.Timeout)
-	relist(req.Source)
+	session.relist(req.Source)
 	if result.Status != StatusPassed {
 		failure := result.withOutcome(result.Status, string(kind)+": "+result.Error)
 		return info, nil, &failure
@@ -99,15 +100,15 @@ func (n *Native) stage(ctx context.Context, req Request, kind StageKind, stage *
 		failure := result.withOutcome(StatusError, fmt.Sprintf("%s did not produce declared outputs", kind))
 		return info, nil, &failure
 	}
-	output, err := snapshot(ctx, snapshotRequest{Root: req.Source, Paths: stage.Outputs, Outputs: true})
+	output, err := session.snapshot(ctx, snapshotRequest{Root: req.Source, Paths: stage.Outputs, Outputs: true})
 	if err != nil {
 		failure := result.withOutcome(StatusError, err.Error())
 		return info, nil, &failure
 	}
 
-	after, err := snapshot(ctx, snapshotRequest{Root: req.Source, Paths: stage.Inputs, Excludes: stage.Outputs, Discovery: req.Target.Discovery})
+	after, err := session.snapshot(ctx, snapshotRequest{Root: req.Source, Paths: stage.Inputs, Excludes: stage.Outputs, Discovery: req.Target.Discovery})
 	if err == nil && after == inputs && path != "" {
-		_ = writeRecord(path, stageEntry{Key: key, Outputs: output})
+		_ = writeRecord(path, stageEntry{Key: key, Outputs: output}, n.Cache.maxRecord())
 	}
 	return StageResult{Kind: kind, Key: key, DurationMS: time.Since(start).Milliseconds()}, result.Warnings, nil
 }

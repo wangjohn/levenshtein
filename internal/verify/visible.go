@@ -27,7 +27,7 @@ func visibleFiles(ctx context.Context, req Request, skip func(name string) bool)
 	defer func() { _ = dir.Close() }() // Read-only directory handle.
 
 	seen := map[string]bool{}
-	err = targetFiles(req).walk(ctx, dir, func(rel string, info fs.FileInfo, scope pathScope) error {
+	err = targetFiles(req).walk(ctx, sessionOf(req), dir, func(rel string, info fs.FileInfo, scope pathScope) error {
 		switch {
 		case info == nil || scope == scopeOmitted:
 		case privateSourcePath(rel) || (info.IsDir() && skip != nil && skip(info.Name())):

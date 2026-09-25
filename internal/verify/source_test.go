@@ -11,7 +11,7 @@ import (
 // from the filesystem.
 func validateFiles(t *testing.T, source string, inputs, excludes []string) error {
 	t.Helper()
-	_, err := importExcludes(t.Context(), fileSet{Root: source, Inputs: inputs, Excludes: excludes, Discovery: DiscoveryFilesystem})
+	_, err := importExcludes(t.Context(), sessionAt(""), fileSet{Root: source, Inputs: inputs, Excludes: excludes, Discovery: DiscoveryFilesystem})
 	return err
 }
 

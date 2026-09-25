@@ -45,7 +45,6 @@ func fileSetRepository(t *testing.T) string {
 	}
 	runGit(t, root, "add", ".gitignore", "main.go", "pkg/lib.go", "pkg/embed.go", "build/tracked.txt")
 	runGit(t, root, "add", "-f", "gen/keep.pb.go")
-	relist(root)
 	return root
 }
 
@@ -69,7 +68,6 @@ func planFor(t *testing.T, root string, kind CheckKind, executor ExecutorKind) P
 // ignored Go file does, or go vet replays a pass over code it never saw.
 func TestGoKindKeyCoversIgnoredGoFiles(t *testing.T) {
 	root := fileSetRepository(t)
-	stats.configure(t.TempDir())
 	for _, executor := range []ExecutorKind{ExecutorDagger, ExecutorNative} {
 		t.Run(string(executor), func(t *testing.T) {
 			req := Request{Source: root, Shared: t.TempDir(), PlannedCheck: planFor(t, root, CheckGoVet, executor)}
@@ -95,7 +93,6 @@ func TestGoKindKeyCoversIgnoredGoFiles(t *testing.T) {
 // an ignored directory a package embeds changes it, links included.
 func TestGoKindKeySkipsUnloadableIgnoredTrees(t *testing.T) {
 	root := fileSetRepository(t)
-	stats.configure(t.TempDir())
 	for _, executor := range []ExecutorKind{ExecutorDagger, ExecutorNative} {
 		t.Run(string(executor), func(t *testing.T) {
 			req := Request{Source: root, Shared: t.TempDir(), PlannedCheck: planFor(t, root, CheckGoVet, executor)}
@@ -162,7 +159,7 @@ func TestMisspelledInputIsRejected(t *testing.T) {
 		t.Skip("the filesystem is case-sensitive, so a misspelled input is simply missing")
 	}
 
-	_, err = snapshot(t.Context(), snapshotRequest{Root: root, Paths: []string{"PKG"}, Discovery: DiscoveryGit})
+	_, err = sessionAt("").snapshot(t.Context(), snapshotRequest{Root: root, Paths: []string{"PKG"}, Discovery: DiscoveryGit})
 	if err == nil || !strings.Contains(err.Error(), `"pkg"`) {
 		t.Fatalf("a misspelled input was fingerprinted as empty: %v", err)
 	}
@@ -186,11 +183,10 @@ func TestInputThroughASymlinkFollowsTheSymlinkPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	runGit(t, root, "add", "link")
-	relist(root)
 
 	for _, discovery := range discoveryKinds {
 		t.Run(string(discovery), func(t *testing.T) {
-			_, err := snapshot(t.Context(), snapshotRequest{Root: root, Paths: []string{filepath.Join("link", "lib.go")}, Discovery: discovery})
+			_, err := sessionAt("").snapshot(t.Context(), snapshotRequest{Root: root, Paths: []string{filepath.Join("link", "lib.go")}, Discovery: discovery})
 			if err == nil || !strings.Contains(err.Error(), "symlink") {
 				t.Fatalf("an input through a symlink was fingerprinted: %v", err)
 			}
@@ -204,13 +200,12 @@ func TestInputInsideANestedRepositoryIsFingerprinted(t *testing.T) {
 	root := fileSetRepository(t)
 	writeFile(t, filepath.Join(root, "nested", "lib.go"), sourceOne)
 	runGit(t, filepath.Join(root, "nested"), "init")
-	relist(root)
-	stats.configure(t.TempDir())
+	session := sessionAt("")
 	req := snapshotRequest{Root: root, Paths: []string{filepath.Join("nested", "lib.go")}, Discovery: DiscoveryGit}
 
-	before := mustSnapshot(t, req)
+	before := mustSnapshot(t, session, req)
 	writeFile(t, filepath.Join(root, "nested", "lib.go"), sourceThree+sourceThree)
-	if mustSnapshot(t, req) == before {
+	if mustSnapshot(t, session, req) == before {
 		t.Fatal("editing an input inside a nested repository left the key unchanged")
 	}
 }
@@ -232,7 +227,7 @@ var (
 // files anything reads.
 func keyedFiles(t *testing.T, req Request) []string {
 	t.Helper()
-	entries, err := snapshotEntries(t.Context(), keyedSource(req))
+	entries, err := sessionAt("").snapshotEntries(t.Context(), keyedSource(req))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +250,7 @@ func withoutPrivate(files []string) []string {
 // private patterns, one pattern per path.
 func excludedPaths(t *testing.T, req Request) []string {
 	t.Helper()
-	excludes, err := importExcludes(t.Context(), targetFiles(req))
+	excludes, err := importExcludes(t.Context(), sessionAt(""), targetFiles(req))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +271,6 @@ func excludedPaths(t *testing.T, req Request) []string {
 // compared in TestDaggerImportMatchesTheKey, which needs an engine.
 func TestFileSetConformance(t *testing.T) {
 	root := fileSetRepository(t)
-	stats.configure(t.TempDir())
 
 	t.Run("git discovery", func(t *testing.T) {
 		req := Request{Source: root, PlannedCheck: planFor(t, root, CheckSecrets, ExecutorNative)}
@@ -338,15 +332,13 @@ func TestFileSetConformance(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() { _ = os.Remove(link) }()
-		relist(root)
-		defer relist(root)
 
 		for _, kind := range []CheckKind{CheckSecrets, CheckGoVet} {
 			req := Request{Source: root, PlannedCheck: planFor(t, root, kind, ExecutorDagger)}
-			if _, err := snapshot(t.Context(), keyedSource(req)); err == nil || !strings.Contains(err.Error(), "symlink") {
+			if _, err := sessionAt("").snapshot(t.Context(), keyedSource(req)); err == nil || !strings.Contains(err.Error(), "symlink") {
 				t.Errorf("%s: the key hashed a symlink: %v", kind, err)
 			}
-			if _, err := importExcludes(t.Context(), targetFiles(req)); err == nil || !strings.Contains(err.Error(), "symlink") {
+			if _, err := importExcludes(t.Context(), sessionAt(""), targetFiles(req)); err == nil || !strings.Contains(err.Error(), "symlink") {
 				t.Errorf("%s: the Dagger import accepted a symlink: %v", kind, err)
 			}
 		}

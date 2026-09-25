@@ -245,7 +245,7 @@ func keyWithToolchain(t *testing.T, req Request, toolchain string) string {
 		paths = append(paths, stage.definition.Inputs...)
 	}
 	slices.Sort(paths)
-	source, err := snapshot(t.Context(), snapshotRequest{
+	source, err := sessionAt("").snapshot(t.Context(), snapshotRequest{
 		Root:      req.Source,
 		Paths:     paths,
 		Excludes:  append(outputPaths(req), req.Target.Exclude...),
@@ -294,7 +294,7 @@ func TestNativeGoFingerprintIncludesTheHostToolchain(t *testing.T) {
 
 	lint := command
 	lint.Check = Check{Kind: CheckGoLint, Target: "app", Environment: "host"}
-	identity, err := toolchainIdentity(t.Context(), lint.Source, nativeEnv(lint, nil))
+	identity, err := sessionAt("").toolchainIdentity(t.Context(), lint.Source, nativeEnv(lint, nil))
 	if err != nil {
 		t.Fatal(err)
 	}

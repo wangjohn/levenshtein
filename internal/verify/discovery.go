@@ -43,12 +43,10 @@ type gitListing struct {
 	note string
 }
 
-// gitListings memoizes one listing per source for the life of the process,
+// listing is source's git listing, memoized for the life of the session,
 // matching the run-scoped view the implementation snapshot already takes.
-var gitListings sync.Map
-
-func listing(ctx context.Context, source string) *gitListing {
-	if memoized, ok := gitListings.Load(source); ok {
+func (s *Session) listing(ctx context.Context, source string) *gitListing {
+	if memoized, ok := s.listings.Load(source); ok {
 		return memoized.(*gitListing)
 	}
 
@@ -59,31 +57,31 @@ func listing(ctx context.Context, source string) *gitListing {
 		// the filesystem for the rest of the run.
 		return &gitListing{note: "git input discovery failed, so inputs were enumerated from the filesystem: " + err.Error()}
 	}
-	memoized, _ := gitListings.LoadOrStore(source, found)
+	memoized, _ := s.listings.LoadOrStore(source, found)
 	return memoized.(*gitListing)
 }
 
 // gitFiles reports the work tree's files under source, or false when the caller
 // must walk the filesystem instead.
-func gitFiles(ctx context.Context, source string) ([]string, bool) {
-	found := listing(ctx, source)
+func (s *Session) gitFiles(ctx context.Context, source string) ([]string, bool) {
+	found := s.listing(ctx, source)
 	return found.files, found.files != nil
 }
 
 // relist drops source's memoized listing so the next snapshot asks git again.
 // A check can create files, and a result must not be cached under a key that
 // could not see them.
-func relist(source string) {
-	gitListings.Delete(source)
+func (s *Session) relist(source string) {
+	s.listings.Delete(source)
 }
 
 // discoveryNote explains why a git-discovery target fell back to a filesystem
 // walk, for the result's cache Reason. It is empty in the ordinary cases.
-func discoveryNote(ctx context.Context, source string, mode DiscoveryKind) string {
+func (s *Session) discoveryNote(ctx context.Context, source string, mode DiscoveryKind) string {
 	if mode != DiscoveryGit {
 		return ""
 	}
-	return listing(ctx, source).note
+	return s.listing(ctx, source).note
 }
 
 // hostGit finds git on the process PATH, considering absolute entries only. A

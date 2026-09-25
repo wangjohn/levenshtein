@@ -27,7 +27,6 @@ func TestDaggerImportMatchesTheKey(t *testing.T) {
 	}
 	defer func() { _ = client.Close() }()
 	root := fileSetRepository(t)
-	stats.configure(t.TempDir())
 
 	for _, tt := range []struct {
 		kind CheckKind

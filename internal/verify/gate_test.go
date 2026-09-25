@@ -9,18 +9,18 @@ import (
 	"time"
 )
 
-// waitingFor installs the lock-wait hook for one test and returns a channel
-// that receives every lock name a caller starts waiting on.
-func waitingFor(t *testing.T) <-chan string {
+// waitingFor runs req in a session of its own whose lock-wait hook sends every
+// lock name a check in it starts waiting on to the returned channel.
+func waitingFor(t *testing.T, req *Request) <-chan string {
 	t.Helper()
 	waits := make(chan string, 16)
-	lockWaiting = func(name string) {
+	req.session = sessionAt("")
+	req.session.waiting = func(name string) {
 		select {
 		case waits <- name:
 		default:
 		}
 	}
-	t.Cleanup(func() { lockWaiting = nil })
 	return waits
 }
 
@@ -80,7 +80,7 @@ func TestReadOnlyNativeChecksRunConcurrently(t *testing.T) {
 	executor.arrived.Add(len(checks))
 	cached := CachedExecutor{Cache: &Cache{Dir: t.TempDir()}, Executor: executor}
 
-	report := Execute(t.Context(), Plan{Source: req.Source, Checks: checks}, req.Shared, map[ExecutorKind]Executor{ExecutorNative: cached}, 4)
+	report := sessionAt("").Execute(t.Context(), Plan{Source: req.Source, Checks: checks}, req.Shared, map[ExecutorKind]Executor{ExecutorNative: cached}, 4)
 	for _, result := range report.Results {
 		if result.Status != StatusPassed {
 			t.Fatalf("read-only native checks were serialized: %+v", result)
@@ -93,8 +93,8 @@ func TestReadOnlyNativeChecksRunConcurrently(t *testing.T) {
 func TestCommandChecksExcludeOtherNativeChecks(t *testing.T) {
 	req := cacheRequest(t)
 	cache := &Cache{Dir: t.TempDir()}
-	waits := waitingFor(t)
-	unlock, err := lockFile(t.Context(), filepath.Join(cache.Dir, "locks", "workspace-"+digest(req.Source)))
+	waits := waitingFor(t, &req)
+	unlock, err := lockFile(t.Context(), filepath.Join(cache.Dir, "locks", "workspace-"+digest(req.Source)), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestCommandChecksExcludeOtherNativeChecks(t *testing.T) {
 		t.Fatalf("the check did not run once the workspace was free: %+v", result)
 	}
 
-	release, err := acquireWorkspace(t.Context(), cache.Dir, req.Source, true)
+	release, err := sessionAt("").acquireWorkspace(t.Context(), cache.Dir, req.Source, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestCancelWhileWaitingForTheWorkspaceIsCancelled(t *testing.T) {
 			name: "in-process writer",
 			hold: func(t *testing.T, cache *Cache, source string) func() {
 				t.Helper()
-				release, err := acquireWorkspace(t.Context(), cache.Dir, source, true)
+				release, err := sessionAt("").acquireWorkspace(t.Context(), cache.Dir, source, true)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -152,7 +152,7 @@ func TestCancelWhileWaitingForTheWorkspaceIsCancelled(t *testing.T) {
 			name: "another process",
 			hold: func(t *testing.T, cache *Cache, source string) func() {
 				t.Helper()
-				unlock, err := lockFile(t.Context(), filepath.Join(cache.Dir, "locks", "workspace-"+digest(source)))
+				unlock, err := lockFile(t.Context(), filepath.Join(cache.Dir, "locks", "workspace-"+digest(source)), nil)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -165,7 +165,7 @@ func TestCancelWhileWaitingForTheWorkspaceIsCancelled(t *testing.T) {
 			req := cacheRequest(t)
 			req.Check.Command.Cache = false
 			cache := &Cache{Dir: t.TempDir()}
-			waits := waitingFor(t)
+			waits := waitingFor(t, &req)
 			release := tc.hold(t, cache, req.Source)
 			defer release()
 			executor := &countingExecutor{status: StatusPassed}
@@ -197,7 +197,7 @@ func TestCacheHitsEnterTheWorkspaceOnlyToRestoreArtifacts(t *testing.T) {
 	withArtifact.Check.Command = &restoring
 	runner.Execute(t.Context(), req)
 	runner.Execute(t.Context(), withArtifact)
-	locked, err := lockFile(t.Context(), filepath.Join(cache.Dir, "locks", "workspace-"+digest(req.Source)))
+	locked, err := lockFile(t.Context(), filepath.Join(cache.Dir, "locks", "workspace-"+digest(req.Source)), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestCacheHitsEnterTheWorkspaceOnlyToRestoreArtifacts(t *testing.T) {
 		t.Fatalf("a hit with nothing to restore waited for the workspace: %+v", result)
 	}
 
-	waits := waitingFor(t)
+	waits := waitingFor(t, &withArtifact)
 	done := make(chan Result, 1)
 	go func() { done <- runner.Execute(t.Context(), withArtifact) }()
 	awaitWait(t, waits, "workspace-")

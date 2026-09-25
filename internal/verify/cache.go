@@ -25,18 +25,19 @@ type StageResult struct {
 	DurationMS int64     `json:"duration_ms"`
 }
 
-type Cache struct{ Dir string }
+type Cache struct {
+	Dir string
+	// limit is the largest record this cache writes or reads; zero means
+	// recordLimit. Tests lower it to reach the boundary cheaply.
+	limit int
+}
 
-// Flush persists the process-wide file stat memo beside the result records, so
-// the next run can skip rereading files it has already hashed. The memo is a
-// hint that every lookup revalidates, so a failure here costs speed on the next
-// run and never correctness.
-func (c *Cache) Flush() error {
-	if c == nil {
-		return nil
+// maxRecord is the largest record this cache writes or reads.
+func (c *Cache) maxRecord() int {
+	if c.limit > 0 {
+		return c.limit
 	}
-	stats.configure(c.Dir)
-	return stats.flush()
+	return recordLimit
 }
 
 // notes joins the reasons a result carries, so a discovery fallback does not
@@ -77,10 +78,11 @@ type envelope struct {
 
 // recordLimit is the largest record, a result or a stat memo shard, that is
 // written or read. A write over it is refused rather than left for every later
-// read to reject. It is a variable so tests can reach the boundary cheaply.
-var recordLimit = 64 << 20
+// read to reject. Every writer and reader passes the limit its owner holds,
+// which is this one outside tests.
+const recordLimit = 64 << 20
 
-func writeRecord(path string, value any) error {
+func writeRecord(path string, value any, limit int) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return err
@@ -89,25 +91,25 @@ func writeRecord(path string, value any) error {
 	if err != nil {
 		return err
 	}
-	if len(body) > recordLimit {
-		return fmt.Errorf("record of %d bytes is over the %d-byte cache record limit", len(body), recordLimit)
+	if len(body) > limit {
+		return fmt.Errorf("record of %d bytes is over the %d-byte cache record limit", len(body), limit)
 	}
 	return atomicWrite(path, body, 0600)
 }
 
-func readRecord(path string, value any) error {
+func readRecord(path string, value any, limit int) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = f.Close() }() // Read-only file cleanup.
 
-	data, err := io.ReadAll(io.LimitReader(f, int64(recordLimit)+1))
+	data, err := io.ReadAll(io.LimitReader(f, int64(limit)+1))
 	if err != nil {
 		return err
 	}
-	if len(data) > recordLimit {
-		return fmt.Errorf("record is over the %d-byte cache record limit", recordLimit)
+	if len(data) > limit {
+		return fmt.Errorf("record is over the %d-byte cache record limit", limit)
 	}
 
 	var e envelope
@@ -122,7 +124,7 @@ func readRecord(path string, value any) error {
 
 func (c *Cache) load(req Request, key string) (Result, error) {
 	var e entry
-	if err := readRecord(filepath.Join(c.Dir, "results", key+".json"), &e); err != nil {
+	if err := readRecord(filepath.Join(c.Dir, "results", key+".json"), &e, c.maxRecord()); err != nil {
 		return Result{}, err
 	}
 	if e.Key != key || e.Result.Status != StatusPassed || e.Result.VerifiedAt.IsZero() || len(e.Artifacts) != len(req.Check.artifacts()) {
@@ -178,19 +180,13 @@ func (c *Cache) save(req Request, key string, result Result) error {
 		}
 		e.Artifacts = append(e.Artifacts, artifact{Path: path, Mode: uint32(info.Mode().Perm()), Data: data})
 	}
-	return writeRecord(filepath.Join(c.Dir, "results", key+".json"), e)
+	return writeRecord(filepath.Join(c.Dir, "results", key+".json"), e, c.maxRecord())
 }
 
 func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 	start := time.Now()
 	if ctx.Err() != nil {
 		return Result{Status: StatusCancelled, Error: ctx.Err().Error()}
-	}
-
-	// Every snapshot happens inside a check, so this is where the process-wide
-	// stat memo learns which cache directory it persists to.
-	if c.Cache != nil {
-		stats.configure(c.Cache.Dir)
 	}
 
 	// Some verdicts depend on state that changes independently of source
@@ -238,7 +234,7 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 
 		attempt := req
 		retryPath := filepath.Join(c.Cache.Dir, "results", key+".retry")
-		reason := discoveryNote(ctx, req.Source, req.Target.Discovery)
+		reason := sessionOf(req).discoveryNote(ctx, req.Source, req.Target.Discovery)
 		if _, err := os.Stat(retryPath); err == nil {
 			attempt.RerunChecks = true
 			reason = notes(reason, "previous execution did not publish a successful result; bypassing underlying verdict caches")
@@ -315,7 +311,7 @@ func (c CachedExecutor) execute(ctx context.Context, req Request, key, reason st
 // first when the check is native.
 func (c CachedExecutor) run(ctx context.Context, req Request) Result {
 	if req.Environment.Executor == ExecutorNative {
-		leave, err := acquireWorkspace(ctx, c.cacheDir(), req.Source, writesWorkspace(req))
+		leave, err := sessionOf(req).acquireWorkspace(ctx, c.cacheDir(), req.Source, writesWorkspace(req))
 		if err != nil {
 			return workspaceFailure(ctx, err)
 		}
@@ -330,7 +326,7 @@ func (c CachedExecutor) run(ctx context.Context, req Request) Result {
 // command can leave files behind as easily as a passing one.
 func (c CachedExecutor) executeOnce(ctx context.Context, req Request) Result {
 	result := c.Executor.Execute(ctx, req)
-	relist(req.Source)
+	sessionOf(req).relist(req.Source)
 	return result
 }
 
@@ -356,19 +352,20 @@ func workspaceFailure(ctx context.Context, err error) Result {
 // held that lock or the workspace meanwhile may have changed the inputs, so a
 // key that no longer matches is released and looked up again.
 func (c *Cache) lockedFingerprint(ctx context.Context, req Request, gated bool) (string, func(), error) {
+	session := sessionOf(req)
 	for range 3 {
 		key, err := fingerprint(ctx, req)
 		if err != nil {
 			return "", nil, err
 		}
-		release, err := lockFile(ctx, filepath.Join(c.Dir, "locks", "result-"+key))
+		release, err := lockFile(ctx, filepath.Join(c.Dir, "locks", "result-"+key), session.waiting)
 		if err != nil {
 			return "", nil, err
 		}
 		if gated {
 			unlock := release
 			exclusive := writesWorkspace(req) || len(req.Check.artifacts()) > 0
-			leave, err := acquireWorkspace(ctx, c.Dir, req.Source, exclusive)
+			leave, err := session.acquireWorkspace(ctx, c.Dir, req.Source, exclusive)
 			if err != nil {
 				unlock()
 				return "", nil, err
