@@ -211,6 +211,7 @@ type mutationSummary struct {
 	Uncovered       []mutationMutant `json:"uncovered,omitempty"`
 	UnchangedList   []mutationMutant `json:"unchanged,omitempty"`
 	TimedOutMutants []mutationMutant `json:"timed_out_mutants,omitempty"`
+	Warnings        []string         `json:"warnings,omitempty"`
 	Files           []string         `json:"files"`
 }
 
@@ -236,8 +237,9 @@ func mutationSummaryOf(result Result, returned string) string {
 	return string(details.Summary)
 }
 
-// mutationStdout turns the runner's summary into the line a person reads. A
-// passing run has no details yet, so the summary becomes them.
+// mutationStdout turns the runner's summary into the line a person reads,
+// followed by one line per warning. A passing run has no details yet, so the
+// summary becomes them.
 func mutationStdout(raw, note string, details json.RawMessage) (string, json.RawMessage) {
 	var summary mutationSummary
 	if err := json.Unmarshal([]byte(raw), &summary); err != nil {
@@ -248,9 +250,12 @@ func mutationStdout(raw, note string, details json.RawMessage) (string, json.Raw
 			Summary json.RawMessage `json:"summary"`
 		}{json.RawMessage(raw)})
 	}
-	line := fmt.Sprintf("%s: %d files mutated; %d killed, %d timed out, %d survived on changed lines, %d survived elsewhere, %d accepted, %d not covered",
-		note, len(summary.Files), summary.Killed, summary.TimedOut, summary.Lived, summary.Unchanged, summary.Accepted, summary.NotCovered)
-	return line, details
+	lines := []string{fmt.Sprintf("%s: %d files mutated; %d killed, %d timed out, %d survived on changed lines, %d survived elsewhere, %d accepted, %d not covered",
+		note, len(summary.Files), summary.Killed, summary.TimedOut, summary.Lived, summary.Unchanged, summary.Accepted, summary.NotCovered)}
+	for _, warning := range summary.Warnings {
+		lines = append(lines, "warning: "+warning)
+	}
+	return strings.Join(lines, "\n"), details
 }
 
 // rawJSON keeps a summary only when it is valid JSON, so a malformed one

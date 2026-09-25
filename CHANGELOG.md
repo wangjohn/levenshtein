@@ -265,6 +265,23 @@ Consumers pin a release tag, or its commit SHA, as described in
   nilerr applied the directive itself and dropped the finding, so Staticcheck
   then reported the directive as matching nothing and the check failed either
   way. Upstream analyzers now leave `//lint:ignore` to Staticcheck.
+- `go-mutation` no longer passes weak tests on a warm build cache. Gremlins
+  timed its coverage run, which `go test` could answer from its cache in
+  milliseconds, and gave every mutant ten times that; a package whose tests
+  took seconds then timed out every mutant, and timeouts counted as caught.
+  Gremlins now runs with `GOFLAGS=-count=1`, a timeout counts as caught only
+  under a limit of at least 10 seconds, a run that timed out a mutant under a
+  shorter limit is repeated with a higher coefficient, and if that still
+  falls short the check is incomplete. The summary warns about any package in
+  which at least half of the covered mutants, and at least two, timed out
+  ([details](docs/mutation.md#timeouts)).
+- **`go-mutation` judges accepted survivors more strictly**, so an entry can
+  no longer keep a weak test hidden. An entry whose mutants a test now kills,
+  or that time out, is stale and fails the check until it is removed. An
+  entry whose text matches survivors on more than one line accepts none of
+  them and fails with `go-mutation-ambiguous`; the new optional `function`
+  and `occurrence` fields say which line it means
+  ([details](docs/mutation.md#accepted-survivors)).
 
 ## [0.1.0] - 2026-09-22
 

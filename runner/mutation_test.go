@@ -2,11 +2,14 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The reports under testdata/mutation/reports are gremlins v0.6.0 output for
@@ -35,8 +38,9 @@ func sources(t *testing.T, fixture string, files ...string) map[string][]string 
 	return out
 }
 
+// reported is a run whose limit, 2s times 10, clears mutantTimeFloor.
 func reported(body string) mutationRun {
-	return mutationRun{Report: body, Reported: true, Stderr: "go: no module dependencies to download\n"}
+	return mutationRun{Report: body, Reported: true, Stdout: "Starting...\nGathering coverage... done in 2s\n", Stderr: "go: no module dependencies to download\n", Coefficient: gremlinsTimeoutCoef}
 }
 
 func codes(findings []diagnostic) []string {
@@ -419,6 +423,7 @@ func TestParseAcceptedRequiresAReasonAndAKnownShape(t *testing.T) {
 		{"unknown field", `{"version": 1, "accepted": [], "ignore": []}`, "unknown field"},
 		{"empty reason", `{"version": 1, "accepted": [{"file": "a.go", "mutator": "ARITHMETIC_BASE", "line": "a + b", "reason": " "}]}`, "needs a reason"},
 		{"missing line", `{"version": 1, "accepted": [{"file": "a.go", "mutator": "ARITHMETIC_BASE", "reason": "x"}]}`, "needs file, mutator, and line"},
+		{"negative occurrence", `{"version": 1, "accepted": [{"file": "a.go", "mutator": "ARITHMETIC_BASE", "line": "a + b", "occurrence": -1, "reason": "x"}]}`, "occurrence of 1 or more"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := parseAccepted(tc.text, true)
@@ -448,5 +453,307 @@ func TestValidMutationFilesKeepsArgumentsInsideTheModule(t *testing.T) {
 		if err := validMutationFiles(files); err == nil {
 			t.Errorf("accepted invalid selection %q", files)
 		}
+	}
+}
+
+// warmCacheReport is gremlins' report from the warm-cache reproduction: a
+// module with a fast package and a package whose only test takes two seconds.
+// Gremlins' coverage run replayed go test's cached result in 29ms, so every
+// mutant of the slow package ran out of its 294ms limit before its test ended.
+const warmCacheReport = `{"go_module":"example.com/h2","files":[` +
+	`{"file_name":"fast/fast.go","mutations":[{"type":"ARITHMETIC_BASE","status":"KILLED","line":5,"column":11}]},` +
+	`{"file_name":"slow/slow.go","mutations":[` +
+	`{"type":"CONDITIONALS_BOUNDARY","status":"TIMED OUT","line":5,"column":7},` +
+	`{"type":"CONDITIONALS_NEGATION","status":"TIMED OUT","line":5,"column":7},` +
+	`{"type":"CONDITIONALS_BOUNDARY","status":"TIMED OUT","line":8,"column":7},` +
+	`{"type":"CONDITIONALS_NEGATION","status":"TIMED OUT","line":8,"column":7}]}]}`
+
+// warmCacheStdout is what gremlins printed before its mutants in that run.
+const warmCacheStdout = "Starting...\nGathering coverage... go: no module dependencies to download\ndone in 29.378255ms\n"
+
+func warmCacheInput(t *testing.T) mutationInput {
+	t.Helper()
+	clamp := sources(t, "weak", "clamp.go")["clamp.go"]
+	return mutationInput{Module: ".", Files: []string{"fast/fast.go", "slow/slow.go"}, Sources: map[string][]string{"fast/fast.go": clamp, "slow/slow.go": clamp}}
+}
+
+func TestDecideMutationDoesNotCountTimeoutsUnderTheFloorAsCaught(t *testing.T) {
+	run := mutationRun{Stdout: warmCacheStdout, Report: warmCacheReport, Reported: true, Coefficient: gremlinsTimeoutCoef}
+
+	verdict, err := decideMutation(run, warmCacheInput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Before the floor, the killed fast mutant made this a pass, and the slow
+	// package's weak test was never judged.
+	if !verdict.Incomplete {
+		t.Fatalf("timeouts under a 294ms limit are no verdict, want incomplete: %+v", verdict)
+	}
+	if got := codes(verdict.Findings); !slices.Equal(got, []string{"go-mutation-timeout", "go-mutation-timeout", "go-mutation-timeout", "go-mutation-timeout"}) {
+		t.Fatalf("findings = %v, want one timeout finding per slow mutant", got)
+	}
+	if !strings.Contains(verdict.Findings[0].Message, "293.78255ms") {
+		t.Errorf("the finding should name the limit that was too short: %q", verdict.Findings[0].Message)
+	}
+}
+
+func TestGremlinsGoFlagsRunTestsInsteadOfReplayingThem(t *testing.T) {
+	dir := t.TempDir()
+	for name, body := range map[string]string{
+		"go.mod":         "module example.com/cached\n\ngo 1.21\n",
+		"cached_test.go": "package cached\n\nimport \"testing\"\n\nfunc TestNothing(t *testing.T) {}\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	goTest := func(goflags string) string {
+		t.Helper()
+		// gremlins' own coverage command, with a fresh profile path each time.
+		cmd := exec.CommandContext(t.Context(), "go", "test", "-cover", "-coverprofile", filepath.Join(t.TempDir(), "cover.out"), "./...")
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GOFLAGS="+goflags, "GOWORK=off", "GOTOOLCHAIN=local")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("go test: %v\n%s", err, out)
+		}
+		return string(out)
+	}
+
+	goTest("")
+	if out := goTest(""); !strings.Contains(out, "(cached)") {
+		t.Fatalf("without the flags the second run should replay the cache, so this test proves nothing: %s", out)
+	}
+	if out := goTest(gremlinsGoFlags); strings.Contains(out, "(cached)") {
+		t.Fatalf("GOFLAGS=%s must run the tests, but go test replayed them: %s", gremlinsGoFlags, out)
+	}
+}
+
+func TestCoverageTimeReadsGremlinsOutput(t *testing.T) {
+	for _, tc := range []struct {
+		stdout string
+		want   time.Duration
+		ok     bool
+	}{
+		{warmCacheStdout, 29378255 * time.Nanosecond, true},
+		{"Starting...\nGathering coverage... done in 2.294792833s\n", 2294792833 * time.Nanosecond, true},
+		{"Starting...\nGathering coverage... done in 1m3.5s\n", 63500 * time.Millisecond, true},
+		{"Starting...\nNo results to report.\n", 0, false},
+		{"Starting...\nGathering coverage... done in soon\n", 0, false},
+	} {
+		got, ok := coverageTime(tc.stdout)
+
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("coverageTime(%q) = %s, %v; want %s, %v", tc.stdout, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+func TestLongerCoefficientLiftsAShortLimitAboveTheFloor(t *testing.T) {
+	warm := mutationRun{Stdout: warmCacheStdout, Report: warmCacheReport, Reported: true, Coefficient: gremlinsTimeoutCoef}
+
+	coefficient, retry := longerCoefficient(warm)
+
+	if !retry {
+		t.Fatal("a timeout under a 294ms limit must be run again")
+	}
+	if limit := 29378255 * time.Nanosecond * time.Duration(coefficient); limit < 2*mutantTimeFloor {
+		t.Errorf("coefficient %d gives a %s limit, want at least twice the %s floor", coefficient, limit, mutantTimeFloor)
+	}
+	if got := gremlinsCommand(coefficient, "", nil); !slices.Contains(got, strconv.Itoa(coefficient)) {
+		t.Errorf("the command %q must pass coefficient %d", got, coefficient)
+	}
+
+	for name, run := range map[string]mutationRun{
+		"trusted limit": {Stdout: "Gathering coverage... done in 1s\n", Report: warmCacheReport, Reported: true, Coefficient: gremlinsTimeoutCoef},
+		"no timeouts":   {Stdout: warmCacheStdout, Report: report(t, "weak"), Reported: true, Coefficient: gremlinsTimeoutCoef},
+		"failed run":    {ExitCode: 1, Stdout: warmCacheStdout, Report: warmCacheReport, Reported: true, Coefficient: gremlinsTimeoutCoef},
+	} {
+		if _, retry := longerCoefficient(run); retry {
+			t.Errorf("%s: must not run gremlins again", name)
+		}
+	}
+}
+
+func TestDecideMutationWarnsWhenMostOfAPackageTimedOut(t *testing.T) {
+	// The same run with a trusted limit: the slow package's timeouts count as
+	// caught, but four of four is worth a person's look.
+	run := mutationRun{Stdout: "Gathering coverage... done in 2s\n", Report: warmCacheReport, Reported: true, Coefficient: gremlinsTimeoutCoef}
+
+	verdict, err := decideMutation(run, warmCacheInput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if verdict.Incomplete || len(verdict.Findings) != 0 {
+		t.Fatalf("timeouts under a trusted limit are caught: %+v", verdict)
+	}
+	if len(verdict.Summary.Warnings) != 1 || !strings.Contains(verdict.Summary.Warnings[0], "4 of 4 covered mutants in slow timed out under a 20s limit") {
+		t.Errorf("want one warning for the slow package, got %q", verdict.Summary.Warnings)
+	}
+
+	// One timeout among killed mutants is an ordinary hang.
+	verdict, err = decideMutation(reported(report(t, "timedout")), mutationInput{Module: ".", Files: []string{"clamp.go"}, Sources: sources(t, "weak", "clamp.go")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(verdict.Summary.Warnings) != 0 {
+		t.Errorf("one timeout in four is not worth a warning: %q", verdict.Summary.Warnings)
+	}
+}
+
+// twice has the same condition in two functions, on lines 4 and 11.
+const twice = `package limits
+
+func Low(n int) int {
+	if n > 10 {
+		return 10
+	}
+	return n
+}
+
+func (l *Limiter[T]) High(n int) int {
+	if n > 10 {
+		return 10
+	}
+	return n
+}
+`
+
+const twiceReport = `{"go_module":"example.com/limits","files":[{"file_name":"limits.go","mutations":[` +
+	`{"type":"CONDITIONALS_BOUNDARY","status":"LIVED","line":4,"column":7},` +
+	`{"type":"CONDITIONALS_BOUNDARY","status":"LIVED","line":11,"column":7}]}]}`
+
+func TestDecideMutationRejectsAnEntryThatMatchesSurvivorsOnSeveralLines(t *testing.T) {
+	text := "{\"version\": 1, \"accepted\": [\n  {\"file\": \"limits.go\", \"mutator\": \"CONDITIONALS_BOUNDARY\", \"line\": \"if n > 10 {\", \"reason\": \"equivalent in Low\"}\n]}\n"
+	entries, err := parseAccepted(text, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := mutationInput{Module: ".", Files: []string{"limits.go"}, Sources: map[string][]string{"limits.go": strings.Split(twice, "\n")}, Accepted: entries, AcceptedPath: "accepted.json", AcceptedText: text}
+
+	verdict, err := decideMutation(reported(twiceReport), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// One entry must not silence the same text wherever it appears in the file.
+	if got := codes(verdict.Findings); !slices.Equal(got, []string{"go-mutation", "go-mutation", "go-mutation-ambiguous"}) {
+		t.Fatalf("findings = %v, want both survivors and the ambiguous entry", got)
+	}
+	ambiguous := verdict.Findings[2]
+	if ambiguous.Location.File != "accepted.json" || ambiguous.Location.Line != 2 || !strings.Contains(ambiguous.Message, "4, 11") {
+		t.Errorf("ambiguous finding = %+v, want it at the entry naming lines 4 and 11", ambiguous)
+	}
+	if verdict.Summary.Accepted != 0 {
+		t.Errorf("an ambiguous entry accepts nothing: %+v", verdict.Summary)
+	}
+}
+
+func TestDecideMutationEntryQualifiersPickOneLine(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		entry    string
+		accepted int
+		failed   int
+	}{
+		{"function", `"function": "Low"`, 4, 11},
+		{"method on a generic type", `"function": "Limiter.High"`, 11, 4},
+		{"occurrence", `"occurrence": 2`, 11, 4},
+		{"occurrence within a function", `"function": "Low", "occurrence": 1`, 4, 11},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			text := `{"version": 1, "accepted": [{"file": "limits.go", "mutator": "CONDITIONALS_BOUNDARY", "line": "if n > 10 {", ` + tc.entry + `, "reason": "equivalent here"}]}`
+			entries, err := parseAccepted(text, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			in := mutationInput{Module: ".", Files: []string{"limits.go"}, Sources: map[string][]string{"limits.go": strings.Split(twice, "\n")}, Accepted: entries}
+
+			verdict, err := decideMutation(reported(twiceReport), in)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if len(verdict.Findings) != 1 || verdict.Findings[0].Code != "go-mutation" || verdict.Findings[0].Location.Line != tc.failed {
+				t.Fatalf("want only the line-%d survivor to fail, got %+v", tc.failed, verdict.Findings)
+			}
+			if verdict.Summary.Accepted != 1 {
+				t.Errorf("want the line-%d survivor accepted: %+v", tc.accepted, verdict.Summary)
+			}
+		})
+	}
+}
+
+func TestDecideMutationFlagsAnEntryWhoseMutantIsNowCaught(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("testdata", "mutation", "accepted", ".levenshtein", "mutation-accepted.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	entries, err := parseAccepted(text, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := mutationInput{Module: ".", Files: []string{"clamp.go"}, Sources: sources(t, "accepted", "clamp.go"), Accepted: entries, AcceptedPath: ".levenshtein/mutation-accepted.json", AcceptedText: text}
+	// A new test kills the line-5 survivor, and the line-8 mutant now hangs.
+	body := strings.NewReplacer(
+		`"CONDITIONALS_BOUNDARY","status":"LIVED","line":5`, `"CONDITIONALS_BOUNDARY","status":"KILLED","line":5`,
+		`"CONDITIONALS_BOUNDARY","status":"LIVED","line":8`, `"CONDITIONALS_BOUNDARY","status":"TIMED OUT","line":8`,
+	).Replace(report(t, "accepted"))
+
+	verdict, err := decideMutation(reported(body), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Kept, either entry would accept its survivor again if that test were
+	// deleted.
+	if got := codes(verdict.Findings); !slices.Equal(got, []string{"go-mutation-stale", "go-mutation-stale"}) {
+		t.Fatalf("findings = %v, want both entries stale", got)
+	}
+	for i, line := range []int{7, 13} {
+		finding := verdict.Findings[i]
+		if finding.Location.Line != line || !strings.Contains(finding.Message, "now caught") {
+			t.Errorf("finding %d = %+v, want a now-caught stale entry at line %d", i, finding, line)
+		}
+	}
+}
+
+func TestDecideMutationKeepsAnEntryWhoseMutantIsNotCovered(t *testing.T) {
+	entries := []acceptedEntry{{File: "clamp.go", Mutator: "CONDITIONALS_BOUNDARY", Line: "if n < lo {", Reason: "equivalent"}}
+	in := mutationInput{Module: ".", Files: []string{"clamp.go"}, Sources: sources(t, "accepted", "clamp.go"), Accepted: entries}
+	body := strings.ReplaceAll(report(t, "accepted"), `"LIVED"`, `"NOT COVERED"`)
+
+	verdict, err := decideMutation(reported(body), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// No test reaches the line, which says nothing about whether one could
+	// kill the mutant.
+	if len(verdict.Findings) != 0 {
+		t.Fatalf("an entry whose mutant is not covered is not stale: %+v", verdict.Findings)
+	}
+}
+
+func TestDecideMutationPointsAStaleEntryAtItsOwnLine(t *testing.T) {
+	// Both entries quote the same text; only the second, for clamp.go, is judged.
+	text := "{\"version\": 1, \"accepted\": [\n  {\"file\": \"other.go\", \"mutator\": \"CONDITIONALS_BOUNDARY\", \"line\": \"if n <= 0 {\", \"reason\": \"not mutated\"},\n  {\"file\": \"clamp.go\", \"mutator\": \"CONDITIONALS_BOUNDARY\", \"line\": \"if n <= 0 {\", \"reason\": \"old\"}\n]}\n"
+	entries, err := parseAccepted(text, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := mutationInput{Module: ".", Files: []string{"clamp.go"}, Sources: sources(t, "accepted", "clamp.go"), Accepted: entries, AcceptedPath: "accepted.json", AcceptedText: text}
+
+	verdict, err := decideMutation(reported(report(t, "accepted")), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stale := slices.IndexFunc(verdict.Findings, func(d diagnostic) bool { return d.Code == "go-mutation-stale" })
+	if stale < 0 || verdict.Findings[stale].Location.Line != 3 {
+		t.Fatalf("want the clamp.go entry on line 3 flagged, got %+v", verdict.Findings)
 	}
 }
