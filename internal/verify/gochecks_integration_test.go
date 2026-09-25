@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -268,6 +269,28 @@ func TestNativeGoChecksAgreeWithTheFixtures(t *testing.T) {
 		req.Check.Imports = &ImportsCheck{Rules: []ImportRule{{Packages: []string{"./cor/..."}, Deny: []string{"net/http"}, Reason: "typo"}}}
 		if result := native.Execute(ctx, req); result.Status != StatusError || !strings.Contains(result.Error, `"./cor/..." matches no package`) {
 			t.Fatalf("a misspelled package pattern must be an error: %+v", result)
+		}
+	})
+
+	t.Run("go-generate passes generate-fresh without touching the source", func(t *testing.T) {
+		req := fixtureRequest(t, shared, "generate-fresh", CheckGoGenerate)
+		result := native.Execute(ctx, req)
+		if result.Status != StatusPassed || !strings.Contains(result.Stdout, "ran 1 directive and changed 0 files") {
+			t.Fatalf("generate-fresh must pass go-generate after running its directive: %+v", result)
+		}
+		if _, err := os.Stat(filepath.Join(req.Source, "build")); !os.IsNotExist(err) {
+			t.Fatalf("go-generate wrote into the source instead of a copy: %v", err)
+		}
+	})
+
+	t.Run("go-generate fails generate-stale with the diff", func(t *testing.T) {
+		result := native.Execute(ctx, fixtureRequest(t, shared, "generate-stale", CheckGoGenerate))
+		if result.Status != StatusFailed {
+			t.Fatalf("generate-stale must fail for its stale file, not a tool error: %+v", result)
+		}
+		findings := fixtureFindings(t, result)
+		if len(findings) != 1 || findings[0].Code != string(CheckGoGenerate) || findings[0].Location.File != "names_gen.go" || findings[0].Location.Line != 9 || !strings.Contains(findings[0].Message, "+\t\"blue\",") {
+			t.Fatalf("lost the stale file's location or diff: %+v", findings)
 		}
 	})
 

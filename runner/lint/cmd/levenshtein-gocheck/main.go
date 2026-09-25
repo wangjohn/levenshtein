@@ -1,7 +1,7 @@
 // Levenshtein-gocheck runs the shared checks that judge a whole Go module
-// rather than one package at a time: go-imports. It prints one JSON report on
-// stdout and exits 0 when it has no findings, 1 when it has some, and 2 when
-// the check could not run, with the reason on stderr.
+// rather than one package at a time: go-imports and go-generate. It prints one
+// JSON report on stdout and exits 0 when it has no findings, 1 when it has
+// some, and 2 when the check could not run, with the reason on stderr.
 package main
 
 import (
@@ -22,11 +22,12 @@ import (
 type subcommand string
 
 const (
-	subcommandImports subcommand = "imports"
+	subcommandImports  subcommand = "imports"
+	subcommandGenerate subcommand = "generate"
 )
 
 // subcommandNames is how usage errors list the checks.
-const subcommandNames = "imports"
+const subcommandNames = "imports|generate"
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -72,6 +73,16 @@ func check(ctx context.Context, name subcommand, args []string, env []string) (g
 			return gocheck.Report{}, err
 		}
 		return gocheck.Imports(ctx, dir, *prefix, config, env)
+	case subcommandGenerate:
+		root := flags.String("root", "", "scratch copy of the repository's inputs, which the check changes")
+		module := flags.String("module", ".", "the module's path relative to root")
+		if err := flags.Parse(args); err != nil {
+			return gocheck.Report{}, err
+		}
+		if *root == "" {
+			return gocheck.Report{}, fmt.Errorf("generate needs -root")
+		}
+		return gocheck.Generate(ctx, *root, *module, env)
 	}
 	return gocheck.Report{}, fmt.Errorf("unknown check %q; use %s", name, subcommandNames)
 }

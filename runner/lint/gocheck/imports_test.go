@@ -92,19 +92,6 @@ func TestImportsReportsEachViolatingImportAtItsPosition(t *testing.T) {
 	}
 }
 
-func writeFiles(t *testing.T, root string, files map[string]string) {
-	t.Helper()
-	for name, content := range files {
-		path := filepath.Join(root, name)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
 // A cgo file is judged whether or not the host has a C compiler: go list
 // drops cgo files when cgo is off, which the go command decides by whether
 // it finds one, so a host without it would pass what the Dagger image fails.

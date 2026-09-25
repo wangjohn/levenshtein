@@ -17,7 +17,10 @@ import (
 // The checks that judge a whole module run levenshtein-gocheck, built from
 // lint/cmd/levenshtein-gocheck, so the Dagger path and the CLI's native path
 // decide each verdict with the same code.
-const checkImports checkName = "go-imports"
+const (
+	checkImports  checkName = "go-imports"
+	checkGenerate checkName = "go-generate"
+)
 
 // gochecker is the pinned Go image with levenshtein-gocheck built from this
 // module.
@@ -116,6 +119,20 @@ func goImports(ctx context.Context, source *dagger.Directory, module, rules stri
 	return runGocheck(ctx, ctr, checkImports, []string{"imports", "-rules=" + rules, "-prefix=" + module}, nonce)
 }
 
+// goGenerate runs go generate ./... in the container's own copy of the
+// source, which it may change, and reports every file that differs afterwards.
+// The pinned image carries git, which does the comparison, and the Go
+// toolchain; a generator that needs any other tool is an error.
+func goGenerate(ctx context.Context, source *dagger.Directory, module string, tools toolchain, nonce string) ([]diagnostic, []string, error) {
+	if _, err := source.File(path.Join(module, "go.mod")).Contents(ctx); err != nil {
+		return nil, nil, fmt.Errorf("module %q needs a readable go.mod: %w", module, err)
+	}
+	ctr := gochecker(tools).
+		WithDirectory("/src", source).
+		WithWorkdir("/src")
+	return runGocheck(ctx, ctr, checkGenerate, []string{"generate", "-root=/src", "-module=" + module}, nonce)
+}
+
 // gocheckSelfTest proves each whole-module check passes its good fixture and
 // fails its bad one for the findings the fixtures were written to produce.
 func gocheckSelfTest(ctx context.Context, fixtures *dagger.Directory, tools toolchain, nonce string) error {
@@ -148,7 +165,46 @@ func gocheckSelfTest(ctx context.Context, fixtures *dagger.Directory, tools tool
 			return fmt.Errorf("imports-bad fixture must report %v: %v", rules.Findings, bad)
 		}
 	}
+
+	fresh, notes, err := goGenerate(ctx, fixtures.Directory("generate-fresh"), ".", tools, nonce)
+	if err != nil || len(fresh) != 0 || !slices.ContainsFunc(notes, func(note string) bool { return strings.Contains(note, "ran 1 directive and changed 0 files") }) {
+		return fmt.Errorf("generate-fresh fixture must pass go-generate after running its directive: findings=%v notes=%v error=%v", fresh, notes, err)
+	}
+	stale, _, err := goGenerate(ctx, fixtures.Directory("generate-stale"), ".", tools, nonce)
+	if err != nil {
+		return fmt.Errorf("generate-stale fixture must fail for its stale file, not a tool error: %w", err)
+	}
+	if len(stale) != 1 || stale[0].Code != string(checkGenerate) || stale[0].Location.File != "names_gen.go" || !strings.Contains(stale[0].Message, "+\t\"blue\",") {
+		return fmt.Errorf("generate-stale fixture must report names_gen.go with its diff: %v", stale)
+	}
 	return nil
+}
+
+// GoGenerate runs go generate ./... in a copy of the source and reports every
+// file it adds, changes, or deletes, with the diff, so generated code cannot
+// fall behind its generator.
+func (m *Levenshtein) GoGenerate(ctx context.Context,
+	// +defaultPath="/"
+	// +ignore=["**/.env", "**/.env.*", "!**/.env.example", "**/.git"]
+	source *dagger.Directory,
+	// +default="."
+	module string,
+	// +optional
+	nonce string,
+) error {
+	if err := validModule(module); err != nil {
+		return err
+	}
+	var tools toolchain
+	if err := json.Unmarshal(toolchainJSON, &tools); err != nil {
+		return err
+	}
+
+	findings, _, err := goGenerate(ctx, source, module, tools, nonce)
+	if err != nil {
+		return err
+	}
+	return failed(findings)
 }
 
 // GoImports checks a module's packages against layering rules and reports
