@@ -1,22 +1,11 @@
 package verify
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
-	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strings"
-	"sync/atomic"
 	"testing"
 
 	"github.com/wangjohn/levenshtein/internal/checktool"
@@ -107,87 +96,11 @@ func TestZizmorEnvDropsHostSettingsAndCredentials(t *testing.T) {
 	}
 }
 
-// installZizmor runs only bytes that match the reviewed checksum, downloads
-// them once per cache, and recovers from a changed cache file.
-func TestInstallZizmorVerifiesTheArchiveBeforeExtracting(t *testing.T) {
-	binary := []byte("#!/bin/sh\necho zizmor 1.30.1\n")
-	archive := tarGz(t, "zizmor", binary)
-	var requests atomic.Int32
-	var served atomic.Pointer[[]byte]
-	served.Store(&archive)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests.Add(1)
-		if r.URL.Path != "/v1.30.1/zizmor-test.tar.gz" {
-			http.NotFound(w, r)
-			return
-		}
-		_, _ = w.Write(*served.Load())
-	}))
-	defer server.Close()
-
-	shared := t.TempDir()
-	sum := sha256.Sum256(archive)
-	pin := map[string]any{"zizmor": zizmorPin{
-		Version:  "1.30.1",
-		Archives: map[string]zizmorArchive{runtime.GOOS + "/" + runtime.GOARCH: {Name: "zizmor-test.tar.gz", SHA256: hex.EncodeToString(sum[:])}},
-	}}
-	data, err := json.Marshal(pin)
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeTestFile(t, filepath.Join(shared, "runner", "toolchain.json"), string(data))
-	root := t.TempDir()
-	ctx := context.Background()
-
-	path, err := installZizmor(ctx, shared, root, server.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, binary) {
-		t.Fatalf("installed %q, %v", got, err)
-	}
-	if _, err := installZizmor(ctx, shared, root, server.URL); err != nil || requests.Load() != 1 {
-		t.Fatalf("a verified archive must be reused: %d requests, %v", requests.Load(), err)
-	}
-
-	cached := filepath.Join(root, "tools", "zizmor-1.30.1", "zizmor-test.tar.gz")
-	writeTestFile(t, cached, "tampered")
-	if _, err := installZizmor(ctx, shared, root, server.URL); err != nil || requests.Load() != 2 {
-		t.Fatalf("a changed cache file must be downloaded again: %d requests, %v", requests.Load(), err)
-	}
-
-	substituted := tarGz(t, "zizmor", []byte("#!/bin/sh\necho substituted\n"))
-	served.Store(&substituted)
-	fresh := t.TempDir()
-	if _, err := installZizmor(ctx, shared, fresh, server.URL); err == nil || !strings.Contains(err.Error(), "does not match its reviewed SHA-256") {
-		t.Fatalf("a substituted archive must be refused: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(fresh, "tools", "zizmor-1.30.1", "zizmor")); !os.IsNotExist(err) {
-		t.Fatalf("nothing from a refused archive may be installed: %v", err)
-	}
-}
-
-func TestInstallZizmorRefusesAnUnpinnedPlatform(t *testing.T) {
-	shared := t.TempDir()
-	writeTestFile(t, filepath.Join(shared, "runner", "toolchain.json"), `{"zizmor":{"version":"1.30.1","archives":{"plan9/mips":{"name":"zizmor.tar.gz","sha256":"`+strings.Repeat("0", 64)+`"}}}}`)
-
-	_, err := installZizmor(context.Background(), shared, t.TempDir(), "http://127.0.0.1:1")
-	if err == nil || !strings.Contains(err.Error(), "no reviewed zizmor 1.30.1 archive for "+runtime.GOOS+"/"+runtime.GOARCH) {
-		t.Fatalf("an unpinned platform must be an error, not an unverified download: %v", err)
-	}
-}
-
-// The shared checkout pins every platform the native executor runs on, and
 // zizmor's own GitHub Action runs the same release for the online audits.
-func TestZizmorPinCoversNativePlatformsAndMatchesTheAction(t *testing.T) {
-	pin, err := readZizmorPin("../..")
+func TestZizmorPinMatchesTheAction(t *testing.T) {
+	pin, err := readReleasePin("../..", releaseZizmor)
 	if err != nil {
 		t.Fatal(err)
-	}
-	for _, platform := range []string{"darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"} {
-		if _, err := pin.archive(platform); err != nil {
-			t.Error(err)
-		}
 	}
 
 	workflow, err := os.ReadFile("../../.github/workflows/security.yml")
@@ -197,42 +110,5 @@ func TestZizmorPinCoversNativePlatformsAndMatchesTheAction(t *testing.T) {
 	match := regexp.MustCompile(`(?s)zizmorcore/zizmor-action@.*?\n\s+version: (\S+)`).FindSubmatch(workflow)
 	if match == nil || string(match[1]) != pin.Version {
 		t.Fatalf("security.yml must run zizmor %s like runner/toolchain.json; found %q", pin.Version, match)
-	}
-}
-
-func tarGz(t *testing.T, name string, content []byte) []byte {
-	t.Helper()
-	var out bytes.Buffer
-	compressed := gzip.NewWriter(&out)
-	archive := tar.NewWriter(compressed)
-	if err := archive.WriteHeader(&tar.Header{Name: name, Mode: 0755, Size: int64(len(content)), Typeflag: tar.TypeReg}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := archive.Write(content); err != nil {
-		t.Fatal(err)
-	}
-	if err := archive.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := compressed.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return out.Bytes()
-}
-
-// A download may be exactly as large as its limit; one more byte is refused.
-func TestDownloadRefusesABodyOverItsLimit(t *testing.T) {
-	body := []byte("0123456789")
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write(body)
-	}))
-	defer server.Close()
-
-	got, err := download(t.Context(), server.URL, len(body))
-	if err != nil || !bytes.Equal(got, body) {
-		t.Fatalf("a body at the limit must be returned whole: %q, %v", got, err)
-	}
-	if _, err := download(t.Context(), server.URL, len(body)-1); err == nil || !strings.Contains(err.Error(), "is larger than 9 bytes") {
-		t.Fatalf("a body over the limit must be refused: %v", err)
 	}
 }

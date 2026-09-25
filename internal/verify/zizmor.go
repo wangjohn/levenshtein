@@ -1,186 +1,24 @@
 package verify
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
-	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/wangjohn/levenshtein/internal/checktool"
 )
-
-// zizmorReleases is where upstream publishes zizmor's release archives. The
-// Dagger path downloads from the same place; change both together.
-const zizmorReleases = "https://github.com/zizmorcore/zizmor/releases/download"
-
-// zizmorArchiveLimit bounds a download. The pinned archives are under 10 MB,
-// so anything far larger is not the reviewed artifact.
-const zizmorArchiveLimit = 64 << 20
-
-// zizmorPin is the zizmor release workflow-security runs: a version and, per
-// GOOS/GOARCH platform, the upstream archive and its reviewed SHA-256. It lives
-// in the shared checkout's runner/toolchain.json so both executors run the same
-// binary and the implementation snapshot covers it.
-type zizmorPin struct {
-	Version  string                   `json:"version"`
-	Archives map[string]zizmorArchive `json:"archives"`
-}
-
-type zizmorArchive struct {
-	Name   string `json:"name"`
-	SHA256 string `json:"sha256"`
-}
-
-func readZizmorPin(shared string) (zizmorPin, error) {
-	data, err := os.ReadFile(filepath.Join(shared, "runner", "toolchain.json"))
-	if err != nil {
-		return zizmorPin{}, fmt.Errorf("shared checkout has no runner/toolchain.json: %w", err)
-	}
-
-	var tools struct {
-		Zizmor zizmorPin `json:"zizmor"`
-	}
-	if err := json.Unmarshal(data, &tools); err != nil {
-		return zizmorPin{}, err
-	}
-	if tools.Zizmor.Version == "" || len(tools.Zizmor.Archives) == 0 {
-		return zizmorPin{}, fmt.Errorf("runner/toolchain.json pins no zizmor release")
-	}
-	return tools.Zizmor, nil
-}
-
-// archive is the pinned archive for one platform. A platform upstream does not
-// publish, or one the pin has not reviewed, is an error rather than a fallback
-// to an unverified build.
-func (p zizmorPin) archive(platform string) (zizmorArchive, error) {
-	archive, ok := p.Archives[platform]
-	if !ok || archive.Name == "" || archive.Name != filepath.Base(archive.Name) || len(archive.SHA256) != sha256.Size*2 {
-		return zizmorArchive{}, fmt.Errorf("workflow-security has no reviewed zizmor %s archive for %s", p.Version, platform)
-	}
-	return archive, nil
-}
-
-// installZizmor places the pinned zizmor binary for this host under
-// work.Root/tools and returns its path. The archive is kept beside it and
-// hashed on every run, so neither a partial download nor a changed cache file
-// is ever executed: only bytes that match the reviewed SHA-256 are extracted.
-func installZizmor(ctx context.Context, shared, root, releases string) (string, error) {
-	pin, err := readZizmorPin(shared)
-	if err != nil {
-		return "", err
-	}
-	archive, err := pin.archive(runtime.GOOS + "/" + runtime.GOARCH)
-	if err != nil {
-		return "", err
-	}
-
-	dir := filepath.Join(root, "tools", "zizmor-"+pin.Version)
-	unlock, err := lockFile(ctx, filepath.Join(root, "locks", "tool-zizmor"))
-	if err != nil {
-		return "", err
-	}
-	defer unlock()
-
-	cached := filepath.Join(dir, archive.Name)
-	data, err := os.ReadFile(cached)
-	if err != nil || !matchesSHA256(data, archive.SHA256) {
-		url := fmt.Sprintf("%s/v%s/%s", releases, pin.Version, archive.Name)
-		data, err = download(ctx, url, zizmorArchiveLimit)
-		if err != nil {
-			return "", fmt.Errorf("downloading zizmor %s, which workflow-security needs network access to fetch once per cache directory: %w", pin.Version, err)
-		}
-		if !matchesSHA256(data, archive.SHA256) {
-			return "", fmt.Errorf("zizmor archive %s does not match its reviewed SHA-256", archive.Name)
-		}
-		if err := atomicWrite(cached, data, 0600); err != nil {
-			return "", err
-		}
-	}
-
-	binary, err := untarFile(data, "zizmor")
-	if err != nil {
-		return "", fmt.Errorf("zizmor archive %s: %w", archive.Name, err)
-	}
-	path := filepath.Join(dir, "zizmor")
-	if err := atomicWrite(path, binary, 0700); err != nil {
-		return "", err
-	}
-	return path, nil
-}
-
-func matchesSHA256(data []byte, want string) bool {
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:]) == strings.ToLower(want)
-}
-
-// download reads at most limit bytes and refuses a larger body.
-func download(ctx context.Context, url string, limit int) ([]byte, error) {
-	child, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-	req, err := http.NewRequestWithContext(child, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }() // Read errors are returned below.
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s returned %s", url, resp.Status)
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, int64(limit)+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(data) > limit {
-		return nil, fmt.Errorf("%s is larger than %d bytes", url, limit)
-	}
-	return data, nil
-}
-
-// untarFile returns one regular file from a gzipped tar archive.
-func untarFile(data []byte, name string) ([]byte, error) {
-	compressed, err := gzip.NewReader(bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-	archive := tar.NewReader(compressed)
-	for {
-		header, err := archive.Next()
-		if errors.Is(err, io.EOF) {
-			return nil, fmt.Errorf("no %s file", name)
-		}
-		if err != nil {
-			return nil, err
-		}
-		if header.Typeflag == tar.TypeReg && filepath.Clean(header.Name) == name {
-			return io.ReadAll(io.LimitReader(archive, zizmorArchiveLimit))
-		}
-	}
-}
 
 func (n *Native) workflowSecurity(ctx context.Context, req Request, work goRun) ([]finding, toolRun, error) {
 	inputs, config, err := zizmorInputs(req.Source, req.Target.Inputs, req.Target.Exclude)
 	if err != nil {
 		return nil, toolRun{}, err
 	}
-	binary, err := installZizmor(ctx, req.Shared, work.Root, zizmorReleases)
+	binary, err := installRelease(ctx, req.Shared, work.Root, releaseZizmor, "")
 	if err != nil {
 		return nil, toolRun{}, err
 	}

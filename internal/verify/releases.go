@@ -5,14 +5,19 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"time"
 
 	"github.com/wangjohn/levenshtein/internal/checktool"
 )
@@ -28,6 +33,7 @@ type releaseTool string
 const (
 	releaseShellCheck releaseTool = "shellcheck"
 	releaseOSVScanner releaseTool = "osvScanner"
+	releaseZizmor     releaseTool = "zizmor"
 )
 
 // readReleasePin reads one pin from the shared checkout's
@@ -56,7 +62,7 @@ func readReleasePin(shared string, tool releaseTool) (checktool.ReleasePin, erro
 }
 
 // installRelease places the pinned binary for this host under root/tools and
-// returns its path, the way installZizmor does for zizmor. The downloaded
+// returns its path. The downloaded
 // asset is kept beside it and hashed on every run, so neither a partial
 // download nor a changed cache file is ever executed: only bytes that match the
 // reviewed SHA-256 are extracted or copied. releases overrides the pin's
@@ -131,4 +137,37 @@ func untarEntry(data []byte, name string, limit int64) ([]byte, error) {
 		}
 		return io.ReadAll(io.LimitReader(archive, header.Size))
 	}
+}
+
+// matchesSHA256 reports whether data is the file whose digest was reviewed.
+func matchesSHA256(data []byte, want string) bool {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]) == strings.ToLower(want)
+}
+
+// download reads at most limit bytes and refuses a larger body.
+func download(ctx context.Context, url string, limit int) ([]byte, error) {
+	child, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	req, err := http.NewRequestWithContext(child, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }() // Read errors are returned below.
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s returned %s", url, resp.Status)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, int64(limit)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > limit {
+		return nil, fmt.Errorf("%s is larger than %d bytes", url, limit)
+	}
+	return data, nil
 }

@@ -29,7 +29,7 @@ type toolchain struct {
 	Staticcheck        string               `json:"staticcheck"`
 	StaticcheckRelease string               `json:"staticcheckRelease"`
 	Checks             []string             `json:"checks"`
-	Zizmor             zizmorPin            `json:"zizmor"`
+	Zizmor             checktool.ReleasePin `json:"zizmor"`
 	ShellCheck         checktool.ReleasePin `json:"shellcheck"`
 	OSVScanner         checktool.ReleasePin `json:"osvScanner"`
 }

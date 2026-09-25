@@ -150,7 +150,7 @@ root (`workspace` in `gochecks.go`), or `off`. `go-mod` is the exception: it
 needs only a readable `go.mod`, not packages, and always runs `go mod tidy
 -diff` and `go mod verify` with `GOWORK=off` on both executors, because tidy
 checks one module's own manifests. `workflow-security` builds nothing:
-`internal/verify/zizmor.go` downloads the zizmor release archive that
+`internal/verify/releases.go` downloads the zizmor release archive that
 `runner/toolchain.json` pins for the host's GOOS/GOARCH into
 `cache.Dir/tools/zizmor-<version>/`, under its own lock in `cache.Dir/locks`, and extracts the
 binary only from bytes that match the pinned SHA-256; the runner's Dagger path
@@ -174,8 +174,8 @@ exports the target's declared inputs at that commit from its objects
 (`apidiffBase` in `internal/verify/goapidiff.go`); the command's `apidiff` mode
 then drives the `apidiff` built from `runner/tools` over that tree and the
 source, natively, or in the runner's `goApidiff` function, which receives the
-exported tree as a directory argument. `shell-lint` and `deps-vuln` use `internal/verify/releases.go`, a
-general form of the zizmor download: `runner/toolchain.json` pins each release's
+exported tree as a directory argument. `shell-lint` and `deps-vuln` use the same download,
+and for all three `runner/toolchain.json` pins each release's
 download location, version, and per-platform asset with its SHA-256, and the
 binary's path when the asset is a `.tar.gz`; the runner's `runner/releases.go`
 reads the same pins for `dag.HTTP`. `secrets` builds gitleaks from
