@@ -1,6 +1,6 @@
 # Standalone runner configuration
 
-`./verify [RUN] --source /path/to/repo` reads `levenshtein.json` from the source repository and runs the checks the named run selects. The [CLI reference](reference/cli.md) covers the flags, including `--dry-run`, which prints the plan without starting any executor, and `--jobs`.
+`./verify [RUN] --source /path/to/repo` reads `levenshtein.json` from the source repository and runs the checks the named run selects. This page is the guide: what targets, environments, checks, and runs are, worked examples, and how results, the baseline, and caching behave. The [configuration reference](reference/config.md) lists every field with its type and default, and the [CLI reference](reference/cli.md) covers the flags, including `--dry-run`, which prints the plan without starting any executor, and `--jobs`.
 
 Relative target and input paths are resolved from the source repository. Inputs are literal files/directories, not glob patterns. A target's `workspace` can differ from its working directory `dir` and defaults to `.`, the source root; native `command` checks receive it as `LEVENSHTEIN_WORKSPACE`, and preparation stages run in it. Target/workspace directories must exist inside the source repository.
 
@@ -42,9 +42,24 @@ check twice in one run.
 Each expanded check keeps its own cache identity, inputs, and result; the
 expansion is a way to write one declaration instead of one per module.
 
-[Check kinds](check-kinds.md) lists every `kind`, the executors that can run it, and whether its result is cached; see the [shared checks](checks.md) for scope and examples. `go-lint` reports the shipped rule selection plus whatever its optional [`lint` object](#lint-selection) adds, and `go-imports` checks the layering rules in its required [`imports` object](#import-rules). `workflow-lint`, `workflow-security`, [`shell-lint`](check-kinds-guide.md#shell-scripts), [`secrets`](check-kinds-guide.md#secrets), and [`deps-vuln`](check-kinds-guide.md#dependency-vulnerabilities) require a repository-root target; give `workflow-security` a target whose `inputs` cover `.github` and any root `action.yml`, since that is what it audits, and give the other three the `inputs` and `exclude` that name what they should read, including their root configuration files (`.shellcheckrc`, `.gitleaks.toml` and `.gitleaksignore`, `osv-scanner.toml`). Go tool versions, the gitleaks build, and the zizmor, ShellCheck, and osv-scanner releases the other kinds download remain pinned in the shared checkout. Local caching is described below.
+[Check kinds](check-kinds.md) lists every `kind`, the executors that can run it, whether its result is cached, and whether it needs a repository-root target; the [check kinds guide](check-kinds-guide.md) says where each belongs and how it behaves. A check carries only the options object of its kind, such as `go-lint`'s optional [`lint` object](#lint-selection) or `go-imports`'s required [`imports` object](#import-rules); the [reference](reference/config.md#checks) lists them all. A kind that needs the repository root takes a target whose `dir` is `"."`; give it the `inputs` and `exclude` that name what it should read, including its root configuration file, such as `.shellcheckrc`, `.gitleaks.toml`, or `osv-scanner.toml`. Every tool version stays pinned in the shared checkout. Local caching is described below.
 
 Without a configuration file, `branch` and `pre-merge` run `go-lint`, `go-vet`, and `go-mod`; `main` also runs `go-vuln`, with `rerun_checks: true`. Every shared kind also gets a run of its own name, such as `./verify go-http` or `./verify deps-vuln`, which is not part of those gates. `go-imports` has no such run, because it has nothing to check without a repository's rules, and neither do `go-mutation`, `semantic-lint`, `command`, and Levenshtein's own `self-test`. An explicit configuration replaces these defaults.
+
+### Runs
+
+A run selects check IDs, optionally per target as described in [one check, several targets](#one-check-several-targets). `rerun_checks: true` forces verification execution while retaining compatible dependency/build caches; scripts see the policy as `LEVENSHTEIN_RERUN_CHECKS`. Any run name can use it; versioned configuration gives `main` no special behavior. Unknown checks, executors, references, and configuration fields fail explicitly.
+
+Recommended run policy:
+
+| Run | Recommended scope | Cache policy |
+| --- | --- | --- |
+| `branch` | Fast lint and core/focused tests | Aggressive reuse of setup, artifacts, and eligible results |
+| `pre-merge` | Critical regression and policy checks for the final candidate | The same aggressive reuse, keyed to the actual selected inputs and scope |
+| `main` | Complete applicable suite, scheduled daily by the consumer's CI | Fresh verification (configure `rerun_checks: true`) with dependency/build reuse |
+| Custom | Consumer-defined check selection | Explicit choice of normal reuse or fresh verification |
+
+The [check kinds guide](check-kinds-guide.md#named-checks-and-suggested-runs) suggests which run each kind belongs in.
 
 ### Lint selection
 
@@ -54,7 +69,7 @@ A `go-lint` check may carry a `lint` object whose `checks` list is appended to t
 "cleanup": {"kind": "go-lint", "targets": ["api", "worker"], "environment": "go", "lint": {"checks": ["gocognit", "-unparam"]}}
 ```
 
-Entries use Staticcheck's `-checks` syntax and the last pattern that matches a rule wins, so `gocognit` turns on a rule the default leaves off and `-unparam` turns off one it runs. Each entry must be a single pattern: an optional `-`, then `all`, `*`, a rule name, or a name ending in `*`. A pattern containing `_`, such as `errs_nopanic`, selects [community rules](#community-rule-modules) instead. The `lint` object needs a nonempty `checks` list, a `rule_modules` setting, or both. The `lint` object is accepted only on `go-lint`, on either executor; `go-http` and `go-sql` keep their fixed rule. A pattern that matches no rule the pinned linter registers makes the check an error when it runs. The added patterns are part of the check's result key, so changing them re-runs it. See [changing the selection](rules.md#changing-the-selection-for-one-repository) for when to prefer `//lint:ignore`.
+Entries use Staticcheck's `-checks` syntax and the last pattern that matches a rule wins, so `gocognit` turns on a rule the default leaves off and `-unparam` turns off one it runs. A pattern containing `_`, such as `errs_nopanic`, selects [community rules](#community-rule-modules) instead. The object works the same on either executor; `go-http` and `go-sql` keep their fixed rule and take no `lint` object. A pattern that matches no rule the pinned linter registers makes the check an error when it runs, so a misspelled opt-in cannot pass silently. The added patterns are part of the check's result key, so changing them re-runs it. The [reference](reference/config.md#lint) has the pattern syntax, and [changing the selection](rules.md#changing-the-selection-for-one-repository) says when to prefer `//lint:ignore`.
 
 `lint` is an additive, optional field of version 1: a file without it means what it did before and keeps its cached results, so `version` stays `1`. A Levenshtein release older than the field rejects a file that uses it as an unknown field.
 
@@ -74,26 +89,15 @@ A top-level `rule_modules` object pins lint rules published as Go modules, which
 }
 ```
 
-`version` must be an exact tag or pseudo-version, and `namespace` repeats the module's own, so a rule reports as `errs_nopanic`. `select` turns rules on for every `go-lint` check; a check's own `lint.checks` can add or remove community rules after it, as in `"lint": {"checks": ["errs_wrapf"]}`, and `"lint": {"rule_modules": false}` keeps one check out entirely. `advisory` rules report without failing the check. `settings` sets an analyzer's flags by rule code. `go-http` and `go-sql` never run community rules.
+The pin is exact, and the namespace repeats the module's own, so a rule reports as `errs_nopanic`. `select` turns rules on for every `go-lint` check; a check's own `lint.checks` can add or remove community rules after it, as in `"lint": {"checks": ["errs_wrapf"]}`, and `"lint": {"rule_modules": false}` keeps one check out entirely. `advisory` rules report without failing the check, and `settings` sets an analyzer's flags by rule code; the [reference](reference/config.md#rule_modules) lists every field.
 
 Community rules run only on the Dagger executor: a native `go-lint` check runs the shipped rules and adds a `rule-modules-skipped` warning to its result. The planned modules are part of each check's result key, so moving a pin re-runs the check. A community rule runs code that can read your source; read the [security note](community-rules.md#security) before enabling one on a private repository. [Community lint rules](community-rules.md) has the full contract, pattern rules, warnings, and errors.
 
 `rule_modules` is an additive, optional field of version 1, like `lint`.
 
-A run selects check IDs, optionally per target as described in [one check, several targets](#one-check-several-targets). `rerun_checks: true` forces verification execution while retaining compatible dependency/build caches; scripts see the policy as `LEVENSHTEIN_RERUN_CHECKS`. Any run name can use it; versioned configuration gives `main` no special behavior. Unknown checks, executors, references, and configuration fields fail explicitly.
-
-Recommended run policy:
-
-| Run | Recommended scope | Cache policy |
-| --- | --- | --- |
-| `branch` | Fast lint and core/focused tests | Aggressive reuse of setup, artifacts, and eligible results |
-| `pre-merge` | Critical regression and policy checks for the final candidate | The same aggressive reuse, keyed to the actual selected inputs and scope |
-| `main` | Complete applicable suite, scheduled daily by the consumer's CI | Fresh verification (configure `rerun_checks: true`) with dependency/build reuse |
-| Custom | Consumer-defined check selection | Explicit choice of normal reuse or fresh verification |
-
 ### Import rules
 
-A `go-imports` check requires an `imports` object with a nonempty `rules` list:
+A `go-imports` check requires an `imports` object with a nonempty `rules` list. Each rule names the packages it governs, what they may not import (`deny`) or the only things they may import (`allow`), and a `reason` repeated in every finding:
 
 ```json
 "layers": {"kind": "go-imports", "target": "app", "environment": "go", "imports": {"rules": [
@@ -101,15 +105,7 @@ A `go-imports` check requires an `imports` object with a nonempty `rules` list:
 ]}}
 ```
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `packages` | yes | Patterns relative to the target directory, `.` or starting with `./`, where `...` matches any path, as in `./internal/store/...` |
-| `deny` | one of `deny` and `allow` | Import path patterns the packages may not import |
-| `allow` | one of `deny` and `allow` | The only import path patterns the packages may import; `deny` wins where both match |
-| `tests` | no | `include` (default) also judges `_test.go` files; `exclude` does not |
-| `reason` | yes | Why the boundary exists, repeated in every finding |
-
-An import pattern is a full import path with optional `...` wildcards, an entry starting with `./` that is resolved against the target directory's import path, or `std` for the standard library. Malformed rules, and a pattern that is not one of those shapes, are configuration errors when the run is planned; a `packages` pattern that matches no package is an error when the check runs. The object is accepted only on `go-imports`, on either executor, and it is part of the check's result key, so changing a rule re-runs the check. See [import boundaries](check-kinds-guide.md#import-boundaries) for what counts as an import and how findings are reported. Like `lint`, `imports` is an additive field of version 1.
+Malformed rules are configuration errors when the run is planned; a `packages` pattern that matches no package is an error when the check runs. The object works the same on either executor, and it is part of the check's result key, so changing a rule re-runs the check. The [reference](reference/config.md#imports) lists the fields and pattern forms, and [import boundaries](check-kinds-guide.md#import-boundaries) says what counts as an import and how findings are reported. Like `lint`, `imports` is an additive field of version 1.
 
 ## Source boundaries
 
@@ -296,15 +292,15 @@ Native commands execute on the supplied macOS or Linux worker. They are trusted 
 }
 ```
 
-A check carries the options of its kind and no others: a `command` check has a `command` object, `semantic-lint` may have a `semantic` object, `go-mutation` may have a `mutation` object, `go-lint` may have a [`lint` object](#lint-selection), `go-imports` must have an [`imports` object](#import-rules), `go-apidiff` may have an `apidiff` object whose one field, `base`, names the branch its merge base is compared with ([API compatibility](check-kinds-guide.md#api-compatibility)), and the other Dagger kinds have none. `command` holds `args`, `rerun_args`, `env`, `timeout`, `preparation`, `build`, `artifacts`, and `cache`. `args` and `rerun_args` are argument arrays; shell syntax requires an explicit shell command. Artifact paths are repository-relative regular files and are required on success. Timeouts default to five minutes and terminate the process group, including child processes. Native output is retained in the result; a nonzero exit fails verification, while missing tools, missing artifacts, and timeouts are errors.
+A `command` check's `command` object holds the argument array to run and its options: a fresh-run variant, extra variables, a timeout, stages to run first, artifacts it must produce, and whether its result may be cached. The [reference](reference/config.md#command) lists each field and its default. Arguments are not parsed by a shell; shell syntax requires an explicit shell command. The timeout stops the whole process group, including child processes. Native output is retained in the result; a nonzero exit fails verification, while missing tools, missing artifacts, and timeouts are errors.
 
-The process inherits only `PATH`, `HOME`, and temporary-directory/system-root variables. `LANG` has a stable default. Add fixed nonsecret values through the environment `env` or, for command checks, `command.env`; pass explicit inherited names through environment `pass_env`. Do not put credentials in configuration. The runner supplies `LEVENSHTEIN_SOURCE`, `LEVENSHTEIN_WORKSPACE`, and `LEVENSHTEIN_RERUN_CHECKS` to scripts. Native scripts must honor `LEVENSHTEIN_RERUN_CHECKS=true` by bypassing cached verification results while retaining compatible dependency/build caches. An environment can declare `tools`: each entry has a version-printing `command` array and exact expected stdout in `version`. These validations run before preparation/check execution.
+The process inherits only `PATH`, `HOME`, and temporary-directory/system-root variables. `LANG` has a stable default. Add fixed nonsecret values through the environment `env` or, for command checks, `command.env`; pass explicit inherited names through environment `pass_env`. Do not put credentials in configuration. The runner supplies `LEVENSHTEIN_SOURCE`, `LEVENSHTEIN_WORKSPACE`, and `LEVENSHTEIN_RERUN_CHECKS` to scripts. Native scripts must honor `LEVENSHTEIN_RERUN_CHECKS=true` by bypassing cached verification results while retaining compatible dependency/build caches. An environment can declare `tools`, each a version-printing command and its exact expected output, which are checked before preparation or check execution.
 
-A command check may reference an entry in top-level `preparations` by its `command.preparation` ID. Each preparation declares `command`, repository-relative `inputs` and `outputs`, optional `env`, and `timeout`. Preparation runs in the target's workspace directory. Declared output paths and their ancestors must not be symlinks. When the environment declares an `identity` and a result cache is configured, checks share compatible successful preparation, within a run and across processes, with conflicting mutations serialized; missing outputs require preparation again. Without both, every check runs its own stages. Build/tool caches managed by the repository's commands remain usable.
+A command check may name an entry in top-level `preparations` in `command.preparation`, and one in `builds` in `command.build`. A stage declares its command, the repository-relative `inputs` that key it, and the `outputs` it produces ([reference](reference/config.md#preparations-and-builds)). It runs in the target's workspace directory. Declared output paths and their ancestors must not be symlinks. When the environment declares an `identity` and a result cache is configured, checks share compatible successful preparation, within a run and across processes, with conflicting mutations serialized; missing outputs require preparation again. Without both, every check runs its own stages. Build/tool caches managed by the repository's commands remain usable.
 
 ## Native Go checks
 
-Every shared kind except `go-http`, `go-sql`, `go-mutation`, and Levenshtein's own `self-test` also runs on a `native` environment ([check kinds](check-kinds.md) has the list), on the host rather than in a container. Bind the check to a native environment; nothing else about the check changes:
+Most shared kinds also run on a `native` environment, on the host rather than in a container; the Executors column of [check kinds](check-kinds.md) says which. Bind the check to a native environment; nothing else about the check changes:
 
 ```json
 {
@@ -323,7 +319,7 @@ Every shared kind except `go-http`, `go-sql`, `go-mutation`, and Levenshtein's o
 }
 ```
 
-These kinds take no options of their own on either executor except `go-lint`'s [`lint` object](#lint-selection), which works the same way here except that [community rules](#community-rule-modules) are skipped with a warning, `go-imports`'s [`imports` object](#import-rules), and `go-apidiff`'s `apidiff` object, which work the same way here; a `command` or `semantic` object is rejected. The environment may still declare `identity`, `env`, `pass_env`, and pinned `tools`. `go-http`, `go-sql`, `go-mutation`, and Levenshtein's own `self-test` remain Dagger-only, and Dagger stays the default for a repository with no configuration file.
+A kind's options object works the same way on either executor, except that a native `go-lint` check skips [community rules](#community-rule-modules) with a warning; a `command` or `semantic` object is rejected. The environment may still declare `identity`, `env`, `pass_env`, and pinned `tools`. Dagger stays the default for a repository with no configuration file.
 
 The host must supply the Go in the shared checkout's `.go-version`; toolchain switching is disabled, so a different host Go is used as-is rather than silently replaced. Levenshtein builds the helper tools (`levenshtein-lint`, `levenshtein-gocheck`, `actionlint`, `govulncheck`, `apidiff`) from the pinned shared checkout into `<cache-dir>/tools/` on first use, serialized by a file lock, and relies on Go's own build cache for repeat builds. `workflow-security` instead downloads the pinned zizmor release archive for the host into `<cache-dir>/tools/zizmor-<version>/` and verifies its SHA-256 before extracting it, on every run; macOS and Linux on amd64 and arm64 are pinned. `shell-lint` and `deps-vuln` do the same with ShellCheck and osv-scanner, into `<cache-dir>/tools/shellcheck-<version>/` and `<cache-dir>/tools/osvScanner-<version>/`, and `secrets` builds gitleaks from `runner/tools/gitleaks` like the other helpers. `secrets` and `deps-vuln` copy the target's declared, unexcluded files into a temporary directory and scan that, so they read what the Dagger path imports and nothing else; `deps-vuln` also needs to reach `api.osv.dev`, so a host behind a proxy passes its settings with `pass_env`. `go-test` builds no helper but runs `go test -race`, which needs cgo: it sets `CGO_ENABLED=1` and is an error when the C compiler `go env CC` names is not on the check's `PATH`. Staticcheck's analysis cache lives in `<cache-dir>/staticcheck`; a fresh run points it at a throwaway directory instead. An analyzer that fails stops the run before its package is cached, so a failed run's results are never reused. Without a cache directory, each check builds into a temporary directory it removes afterwards.
 
@@ -331,15 +327,15 @@ Workspace selection matches what the container would see. The container imports 
 
 The trade-off is the point of the choice. The container pins the Go version, the operating system, the C toolchain, and the default build tags, so its verdict is reproducible anywhere. The native executor uses the host's, which is faster and needs no Docker, but means analysis reflects the worker's platform and build tags. It is also not isolated: the host's `go list` and `go vet` may download modules and invoke cgo toolchains against the consumer's code outside any container, as trusted native commands do. Results are fingerprinted accordingly: a native shared Go check's cache key includes the host's `go env GOVERSION GOOS GOARCH`, the Go settings that change a build (`GOFLAGS`, `GOEXPERIMENT`, `CGO_ENABLED`, `CC` and the other cgo settings, and the architecture levels), including ones set with `go env -w`, and the shared checkout's `runner/` directory (the linter, its rule list, and the pinned tools), so a worker on a different Go, or a pin that changes the rules, never reuses another's result. Reports have the same shape either way, with the same rule codes, messages, and repository-relative locations.
 
-Result caching follows the kind rather than a `command.cache` flag these checks do not have: a native `go-lint`, `go-vet`, `go-test`, `go-imports`, `go-generate`, `workflow-lint`, `workflow-security`, `shell-lint`, or `secrets` result is reused exactly as a Dagger one is. `go-generate` runs its generators in a temporary copy of the target's declared inputs, never in the working tree ([generated code](check-kinds-guide.md#generated-code)). `go-vuln`, `deps-vuln`, and `go-mod` are never cached on either executor, and neither is `go-apidiff`, whose comparison depends on where the base branch points.
+Result caching follows the kind rather than a `command.cache` flag these checks do not have: a native result is reused exactly as a Dagger one is, and a kind the Results cached column of [check kinds](check-kinds.md) marks as never reused is not reused on either executor. `go-generate` runs its generators in a temporary copy of the target's declared inputs, never in the working tree ([generated code](check-kinds-guide.md#generated-code)).
 
 ## Semantic lint
 
-`semantic-lint` is a native check with no command. It diffs the working tree against a base branch, asks a pinned Jev model the shared question catalog, and records advisory findings. Its optional `semantic` object accepts `base`, `model`, `timeout`, and the request budgets `max_requests` and `max_input_chars`; it reads `TYPESAFE_API_KEY` from the host environment without `pass_env`, and it is never cached. See [semantic lint](semantic-lint.md) for the questions, key handling, and limits.
+`semantic-lint` is a native check with no command. It diffs the working tree against a base branch, asks a pinned Jev model the shared question catalog, and records advisory findings. Its optional `semantic` object sets the base branch, the model, the timeout, and the request budgets ([reference](reference/config.md#semantic)); it reads `TYPESAFE_API_KEY` from the host environment without `pass_env`, and it is never cached. See [semantic lint](semantic-lint.md) for the questions, key handling, and limits.
 
 ## Mutation testing
 
-`go-mutation` is a Dagger check that mutates the Go files a branch changed and fails when a test covers a mutant but does not catch it. The CLI chooses the files on the host, because the Dagger source has no `.git`. Its optional `mutation` object accepts `base`, `scope`, `accepted`, `tags`, and `timeout`, and its result is never reused by the CLI cache. See [mutation testing](mutation.md) for the outcomes and the accepted-survivors file.
+`go-mutation` is a Dagger check that mutates the Go files a branch changed and fails when a test covers a mutant but does not catch it. The CLI chooses the files on the host, because the Dagger source has no `.git`. Its optional `mutation` object sets the base branch, the scope, the accepted-survivors file, build tags, and the timeout ([reference](reference/config.md#mutation)), and its result is never reused by the CLI cache. See [mutation testing](mutation.md) for the outcomes and the accepted-survivors file.
 
 ## Local caching
 

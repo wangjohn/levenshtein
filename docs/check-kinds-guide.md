@@ -82,7 +82,7 @@ A repository whose CI already runs `go test -race` over the same modules gains n
 ]}}
 ```
 
-Each rule names the packages it governs and what they may not import; [import rules](configuration.md#import-rules) lists the fields:
+Each rule names the packages it governs and what they may not import; the [configuration reference](reference/config.md#imports) lists the fields:
 
 - **`packages`** are patterns relative to the target directory, spelled like the go command's: `.` is the target directory's own package, and `./internal/store/...` matches `internal/store` and every package below it. A pattern that matches no package makes the check an error when it runs, so a misspelled or moved package cannot leave a rule checking nothing.
 - **`deny`** lists import path patterns a governed package may not import. **`allow`**, when present, lists the only ones it may import. A rule needs at least one of the two, and when both match, `deny` wins, so `"allow": ["std"]` with `"deny": ["os/exec"]` admits the standard library except one package. An allow list usually names the layer itself, since a package importing its own siblings is an import like any other.

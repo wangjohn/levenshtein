@@ -7,7 +7,7 @@ verify --render REPORT --format FORMAT
 
 `./verify` is a shell launcher in the Levenshtein checkout. It builds the CLI in `cmd/levenshtein` with the Go version in `.go-version`, then runs it with `--shared` and `--source` set to the checkout it lives in, so pass `--source` to verify another repository. A [release archive](../releases.md) ships the same CLI prebuilt as `levenshtein`, which takes the same arguments; give it `--shared` yourself.
 
-Flags may come before or after `RUN`.
+Flags may come before or after `RUN`. The [configuration reference](config.md) lists every field of `levenshtein.json`, which declares the runs.
 
 ## The run
 
