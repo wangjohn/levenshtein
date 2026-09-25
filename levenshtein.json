@@ -14,7 +14,7 @@
     "lint": {
       "dir": "runner/lint",
       "workspace": ".",
-      "inputs": ["runner/lint", "runner/testdata/selection.json", "runner/testdata/import-rules.json", "runner/testdata/imports-good", "runner/testdata/imports-bad", "runner/testdata/generate-fresh", "runner/testdata/generate-stale", "runner/testdata/apidiff", "runner/tools"]
+      "inputs": ["runner/lint", "runner/toolchain.json", "runner/testdata/selection.json", "runner/testdata/import-rules.json", "runner/testdata/imports-good", "runner/testdata/imports-bad", "runner/testdata/generate-fresh", "runner/testdata/generate-stale", "runner/testdata/apidiff", "runner/tools"]
     },
     "community": {
       "dir": "runner/community",

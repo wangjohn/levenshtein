@@ -49,6 +49,16 @@ To silence a finding, use Staticcheck's usual comment: `//lint:ignore CODE reaso
 Rules Levenshtein doesn't ship can come from [community rule modules](docs/community-rules.md): ordinary Go modules of `go/analysis` analyzers that a repo pins in `levenshtein.json`. They run in their own process beside the shipped rules and report into the same results.
 To turn the rules on in a repository that already has findings, name a [baseline](docs/configuration.md#baseline) file in `levenshtein.json` and record them with `verify main --write-baseline`. Recorded findings are reported but don't fail, new ones do, and fixing a recorded one means deleting its entry, so the file only shrinks.
 
+## Try it in one command
+
+To see what the rules find in a Go module, run this from its root. It needs only `go` 1.21 or later, which downloads the pinned toolchain itself, with no clone, container, or config:
+
+```sh
+go run github.com/wangjohn/levenshtein/runner/lint/cmd/levenshtein-lint@latest ./...
+```
+
+It prints one `file:line:col: message (CODE)` line per finding and exits with `1` when there are any. This runs the `go-lint` rules alone: `go vet`, `go-mod`, `govulncheck`, the [baseline](docs/configuration.md#baseline), [community rules](docs/community-rules.md), and caching come with `verify` below. `@latest` is the newest `runner/lint/vX.Y.Z` release tag, or the newest commit on `main` while there is none; to pin, name a tag or a commit instead. See [running the linter directly](docs/checks.md#running-the-linter-directly).
+
 ## Quick start
 
 You need `go` (any version) and Docker or another Docker-compatible runtime, such as Colima. Levenshtein runs on Linux and macOS.
