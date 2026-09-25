@@ -485,27 +485,81 @@ func parseCommunity(run communityRun) ([]diagnostic, []warning, error) {
 // names core and community codes together.
 const codeMixed = "lvrules_mixed"
 
+// sourceReader reads a file of the checked source by the path findings name.
+type sourceReader func(file string) (string, error)
+
+// checkedSource reads files from the source a go-lint check lints.
+func checkedSource(ctx context.Context, source *dagger.Directory) sourceReader {
+	return func(file string) (string, error) {
+		return source.File(file).Contents(ctx)
+	}
+}
+
 // mergeFindings joins both linters' findings into one report. Where a
 // directive mixes core and community codes, each linter sees only its own half
 // and reports the other half as unused; lvrules_mixed says what to fix, so
-// both unused-directive reports at that position are dropped.
-func mergeFindings(core, community []diagnostic) []diagnostic {
+// both unused-directive reports at that position are dropped. Rule code runs
+// in the community linter's process and can print any finding, so a core
+// report is dropped only when the source confirms the directive it names
+// really mixes the two.
+func mergeFindings(core, community []diagnostic, read sourceReader) []diagnostic {
 	mixed := map[location]bool{}
 	for _, finding := range community {
 		if finding.Code == codeMixed {
 			mixed[location{File: finding.Location.File, Line: finding.Location.Line}] = true
 		}
 	}
+	stale := func(finding diagnostic) bool {
+		at := location{File: finding.Location.File, Line: finding.Location.Line}
+		return finding.Code == staticcheckCode && finding.Message == staleDirective && mixed[at]
+	}
 
 	var merged []diagnostic
-	for _, finding := range slices.Concat(core, community) {
-		at := location{File: finding.Location.File, Line: finding.Location.Line}
-		if finding.Code == staticcheckCode && finding.Message == staleDirective && mixed[at] {
+	for _, finding := range core {
+		if stale(finding) && mixedDirective(read, finding.Location) {
 			continue
 		}
 		merged = append(merged, finding)
 	}
+	for _, finding := range community {
+		if !stale(finding) {
+			merged = append(merged, finding)
+		}
+	}
 	return merged
+}
+
+// mixedDirective reports whether the source holds, at a Staticcheck
+// position, an ignore directive that names core and community codes
+// together. It splits the directive the way runner/community's ignoredCodes
+// does. A file that cannot be read, or a position that holds no directive,
+// confirms nothing.
+func mixedDirective(read sourceReader, at location) bool {
+	contents, err := read(at.File)
+	if err != nil {
+		return false
+	}
+	lines := strings.Split(contents, "\n")
+	if at.Line < 1 || at.Line > len(lines) {
+		return false
+	}
+	line := strings.TrimSuffix(lines[at.Line-1], "\r")
+	if at.Column < 1 || at.Column > len(line) {
+		return false
+	}
+
+	body, ok := strings.CutPrefix(line[at.Column-1:], "//lint:")
+	if !ok {
+		return false
+	}
+	fields := strings.Split(body, " ")
+	if (fields[0] != "ignore" && fields[0] != "file-ignore") || len(fields) < 2 {
+		return false
+	}
+	codes := strings.Split(fields[1], ",")
+	community := slices.ContainsFunc(codes, func(code string) bool { return strings.Contains(code, "_") })
+	core := slices.ContainsFunc(codes, func(code string) bool { return !strings.Contains(code, "_") })
+	return community && core
 }
 
 // communityLint runs a check's community rules: build the linter, download
@@ -598,7 +652,7 @@ func communitySelfTest(ctx context.Context, fixtures *dagger.Directory, tools to
 	}
 
 	var got []string
-	for _, finding := range mergeFindings(core, community) {
+	for _, finding := range mergeFindings(core, community, checkedSource(ctx, consumer)) {
 		got = append(got, fmt.Sprintf("%s %s:%d %s", finding.Code, finding.Location.File, finding.Location.Line, finding.Source))
 	}
 	want := []string{"fixture_forbidden community.go:8 " + fixture + "@v0.0.0", "lvrules_mixed community.go:19 "}

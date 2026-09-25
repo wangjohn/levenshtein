@@ -209,7 +209,10 @@ names only core codes or only community codes. Each linter checks only its own
 directives for staleness. A directive that mixes the two, such as
 `//lint:ignore SA4006,errs_nopanic`, is reported as `lvrules_mixed`, asking for
 one directive per linter on consecutive lines. The runner drops both linters'
-"unused directive" reports at that line.
+"unused directive" reports at that line. It drops the core linter's report
+only after reading the directive from the source and confirming that it mixes
+the two, so a rule module cannot hide a core finding by printing its own
+`lvrules_mixed` report.
 
 ### Findings and warnings
 

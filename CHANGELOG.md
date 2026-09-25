@@ -262,6 +262,11 @@ Consumers pin a release tag, or its commit SHA, as described in
   code. Staticcheck dropped every such finding, while the report still listed
   the rule as selected. Community rules also skip generated files, as core
   rules do.
+- A rule module can no longer hide the core linter's unused-directive
+  findings. Rule code runs in the community linter's process and could print
+  an `lvrules_mixed` finding at any line; the runner now drops a core
+  unused-directive finding only when the source at that position holds a
+  directive that really mixes core and community codes.
 - [docs/consumer-ci.md](docs/consumer-ci.md) no longer says there is no shared
   `go-test` check, and its list of what is available names `go-test`,
   `workflow-security`, and `go-mutation`.

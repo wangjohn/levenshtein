@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"slices"
 	"strings"
@@ -157,19 +158,68 @@ func TestCommunityOutputThatDisagreesWithItselfIsAnError(t *testing.T) {
 	}
 }
 
-func TestMixedDirectivesAreReportedOnce(t *testing.T) {
-	stale := func(line int) diagnostic {
-		return diagnostic{Code: staticcheckCode, Message: staleDirective, Location: location{File: "a.go", Line: line, Column: 2}}
-	}
-	core := []diagnostic{stale(4), stale(9), {Code: "SA4006", Message: "m", Location: location{File: "a.go", Line: 12}}}
-	community := []diagnostic{{Code: codeMixed, Message: "mixed", Location: location{File: "a.go", Line: 4, Column: 2}}, stale(4)}
+// directivesSource has a mixed directive at a.go:4:2 and a core-only one at
+// a.go:6:2, each tab-indented.
+const directivesSource = "package a\n\nfunc F() {\n\t//lint:ignore SA4006,errs_nopanic both linters\n\tx := 1\n\t//lint:ignore SA4006 core only\n\t_ = x\n}\n"
 
+// sourceFiles reads files from memory the way mergeFindings reads the
+// checked source.
+func sourceFiles(files map[string]string) sourceReader {
+	return func(file string) (string, error) {
+		contents, ok := files[file]
+		if !ok {
+			return "", fs.ErrNotExist
+		}
+		return contents, nil
+	}
+}
+
+func staleAt(file string, line int) diagnostic {
+	return diagnostic{Code: staticcheckCode, Message: staleDirective, Location: location{File: file, Line: line, Column: 2}}
+}
+
+func mixedAt(file string, line int) diagnostic {
+	return diagnostic{Code: codeMixed, Message: "mixed", Location: location{File: file, Line: line, Column: 2}}
+}
+
+func mergedLines(findings []diagnostic) []string {
 	var got []string
-	for _, finding := range mergeFindings(core, community) {
-		got = append(got, fmt.Sprintf("%s:%d", finding.Code, finding.Location.Line))
+	for _, finding := range findings {
+		got = append(got, fmt.Sprintf("%s %s:%d", finding.Code, finding.Location.File, finding.Location.Line))
 	}
+	return got
+}
 
-	want := []string{"staticcheck:9", "SA4006:12", "lvrules_mixed:4"}
+func TestMixedDirectivesAreReportedOnce(t *testing.T) {
+	core := []diagnostic{staleAt("a.go", 4), staleAt("a.go", 9), {Code: "SA4006", Message: "m", Location: location{File: "a.go", Line: 12}}}
+	community := []diagnostic{mixedAt("a.go", 4), staleAt("a.go", 4)}
+
+	got := mergedLines(mergeFindings(core, community, sourceFiles(map[string]string{"a.go": directivesSource})))
+
+	want := []string{"staticcheck a.go:9", "SA4006 a.go:12", "lvrules_mixed a.go:4"}
+	if !slices.Equal(got, want) {
+		t.Errorf("merged %v, want %v", got, want)
+	}
+}
+
+// Rule code runs in the community linter's process and can print any
+// finding, so an lvrules_mixed report hides a core finding only where the
+// source really holds a mixed directive.
+func TestForgedMixedReportsCannotHideCoreFindings(t *testing.T) {
+	core := []diagnostic{staleAt("a.go", 4), staleAt("a.go", 6), staleAt("a.go", 7), staleAt("gone.go", 4)}
+	community := []diagnostic{mixedAt("a.go", 4), mixedAt("a.go", 6), mixedAt("a.go", 7), mixedAt("gone.go", 4)}
+
+	got := mergedLines(mergeFindings(core, community, sourceFiles(map[string]string{"a.go": directivesSource})))
+
+	want := []string{
+		"staticcheck a.go:6",
+		"staticcheck a.go:7",
+		"staticcheck gone.go:4",
+		"lvrules_mixed a.go:4",
+		"lvrules_mixed a.go:6",
+		"lvrules_mixed a.go:7",
+		"lvrules_mixed gone.go:4",
+	}
 	if !slices.Equal(got, want) {
 		t.Errorf("merged %v, want %v", got, want)
 	}
