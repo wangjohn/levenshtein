@@ -476,13 +476,36 @@ func testingHelpers() *analysis.Analyzer {
 // house analyzers are Levenshtein's own rules, documented in docs/checks.md.
 func house() []*analysis.Analyzer {
 	return []*analysis.Analyzer{
-		policy.TypedValues,
+		inModule(policy.TypedValues),
 		policy.Records,
 		policy.Fields,
 		policy.Spacing,
 		policy.Formatting,
 		policy.Assertions,
 	}
+}
+
+// inModule runs a house analyzer with Pass.Module naming the module of the
+// package being linted, which Staticcheck's runner leaves unset. LV1001 needs
+// it to tell the module's own string types from a library's. A package outside
+// any module, such as the test main go test generates, runs without one, and
+// LV1001 then treats every type as the module's own, as it did before.
+func inModule(analyzer *analysis.Analyzer) *analysis.Analyzer {
+	run := analyzer.Run
+	analyzer.Run = func(pass *analysis.Pass) (any, error) {
+		if pass.Module != nil {
+			return run(pass)
+		}
+		module, err := modulePath(pass)
+		if err != nil {
+			return run(pass)
+		}
+
+		withModule := *pass
+		withModule.Module = &analysis.Module{Path: module}
+		return run(&withModule)
+	}
+	return analyzer
 }
 
 // upstream adapts third-party analyzers to the shared rules with policy.Adapt

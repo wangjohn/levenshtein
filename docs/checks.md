@@ -327,7 +327,7 @@ if result.Status == StatusPassed {
 }
 ```
 
-For defined string types with package-level typed constants, the check also rejects nonempty string literals and constant expressions used as values, including comparisons, struct literals, assignments, calls, and returns. Declare spellings in constants. Empty zero values and conversions from runtime input remain allowed; this is not runtime enum validation.
+For defined string types with package-level typed constants, the check also rejects nonempty string literals and constant expressions used as values, including comparisons, struct literals, assignments, calls, and returns. Declare spellings in constants. Empty zero values and conversions from runtime input remain allowed; this is not runtime enum validation. Only types declared in the module being linted count, judged by import path: a library type such as Kubernetes's `corev1.ResourceName` declares a few well-known constants but accepts any name, so `corev1.ResourceName("nvidia.com/gpu")` is allowed. A switch or comparison chain over such a type is judged like one over a plain string.
 
 ## Construct value records together: LV1002
 

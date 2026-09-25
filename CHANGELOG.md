@@ -271,6 +271,10 @@ Consumers pin a release tag, or its commit SHA, as described in
 - LV1006 checks a test whose parameter names `testing.T` through an alias, as
   in `type T = testing.T; func TestX(t *T)`, which go test runs, and no longer
   counts `t.Failed()` as a way to fail: it only reads the test's state.
+- LV1001 asks for typed constants only for string types declared in the
+  module being linted. Converting a literal to a library's open-ended type,
+  such as `corev1.ResourceName("nvidia.com/gpu")`, was reported because the
+  library declares a few constants of it.
 
 ## [0.1.0] - 2026-09-22
 
