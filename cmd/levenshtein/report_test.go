@@ -46,7 +46,7 @@ func TestRenderSavedReport(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var output bytes.Buffer
-			code, err := runCommand(context.Background(), tc.args, console{in: strings.NewReader(tc.stdin), out: &output})
+			code, err := runCommand(context.Background(), tc.args, console{in: strings.NewReader(tc.stdin), out: &output, err: io.Discard})
 			if code != 0 || err != nil {
 				t.Fatalf("rendering a failed report is not itself a failure: code %d, %v", code, err)
 			}
@@ -65,9 +65,59 @@ func TestRenderSavedReport(t *testing.T) {
 		{"not JSON", []string{"--render", "-"}, "not a report"},
 		{"another version", []string{"--render", "-"}, `{"version": 2}`},
 	} {
-		code, err := runCommand(context.Background(), tc.args, console{in: strings.NewReader(tc.stdin), out: io.Discard})
+		code, err := runCommand(context.Background(), tc.args, console{in: strings.NewReader(tc.stdin), out: io.Discard, err: io.Discard})
 		if code != 2 || err == nil {
 			t.Errorf("%s: code %d, %v", tc.name, code, err)
 		}
+	}
+}
+
+// writeConfig writes a one-check native go-lint configuration, with extra
+// top-level fields spliced in, and returns the source directory.
+func writeConfig(t *testing.T, extra string) string {
+	t.Helper()
+	source := t.TempDir()
+	body := `{"version": 1, "targets": {"app": {"dir": ".", "inputs": ["."]}}, "environments": {"host": {"executor": "native"}},
+  "checks": {"lint": {"kind": "go-lint", "target": "app", "environment": "host"}}, "runs": {"branch": {"checks": ["lint"]}}` + extra + `}`
+	if err := os.WriteFile(filepath.Join(source, "levenshtein.json"), []byte(body), 0600); err != nil {
+		t.Fatal(err)
+	}
+	return source
+}
+
+// Baseline configuration is read before any executor starts, so a broken or
+// missing setup exits 2 on a host with no tools at all.
+func TestBaselineConfigurationErrorsNeedNoExecutor(t *testing.T) {
+	t.Setenv("LEVENSHTEIN_SHARED_ROOT", "")
+	t.Setenv("PATH", "")
+	quiet := console{out: io.Discard, err: io.Discard}
+
+	unconfigured := writeConfig(t, "")
+	if code, err := runCommand(context.Background(), []string{"--source", unconfigured, "--write-baseline"}, quiet); code != 2 || err == nil || !strings.Contains(err.Error(), `needs "baseline"`) {
+		t.Fatalf("write without a configured file: code %d, %v", code, err)
+	}
+
+	broken := writeConfig(t, `, "baseline": ".levenshtein/baseline.json"`)
+	if err := os.MkdirAll(filepath.Join(broken, ".levenshtein"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	entry := `{"kind": "go-vet", "dir": ".", "file": "a.go", "code": "go-vet", "message": "m", "count": 1}`
+	if err := os.WriteFile(filepath.Join(broken, ".levenshtein", "baseline.json"), []byte(`{"version": 1, "findings": [`+entry+`]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"--source", broken}, {"--source", broken, "--write-baseline"}} {
+		if code, err := runCommand(context.Background(), args, quiet); code != 2 || err == nil || !strings.Contains(err.Error(), "cannot be baselined") {
+			t.Fatalf("%v: code %d, %v", args, code, err)
+		}
+	}
+
+	// --no-baseline never reads the file, so only the missing shared checkout stops it.
+	if code, err := runCommand(context.Background(), []string{"--source", broken, "--no-baseline"}, quiet); code != 2 || err == nil || !strings.Contains(err.Error(), "set --shared") {
+		t.Fatalf("--no-baseline: code %d, %v", code, err)
+	}
+
+	escaping := writeConfig(t, `, "baseline": "../baseline.json"`)
+	if code, err := runCommand(context.Background(), []string{"--source", escaping, "--dry-run"}, quiet); code != 2 || err == nil || !strings.Contains(err.Error(), "baseline file") {
+		t.Fatalf("escaping baseline path: code %d, %v", code, err)
 	}
 }

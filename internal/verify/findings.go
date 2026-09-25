@@ -16,9 +16,9 @@ import (
 // the check was executed. The runner is a separate Go module and cannot be
 // imported, so these are a deliberate copy; change both together.
 //
-// Hint is the exception: no executor sets it. The CLI adds it to a finished
-// report (see hints.go), after any result was cached, so it never reaches a
-// cached result or the runner.
+// Hint and Baselined are the exception: no executor sets them. The CLI adds
+// them to a finished report (see hints.go and baseline.go), after any result
+// was cached, so they never reach a cached result or the runner.
 type finding struct {
 	Code     string   `json:"code"`
 	Message  string   `json:"message"`
@@ -32,6 +32,9 @@ type finding struct {
 	Advisory bool `json:"advisory"`
 	// Hint is a one-line fix the CLI adds to a finished report.
 	Hint string `json:"hint,omitempty"`
+	// Baselined findings are recorded in the repository's baseline and do
+	// not fail the check.
+	Baselined bool `json:"baselined,omitempty"`
 }
 
 // staticcheckCode is a code from one of Staticcheck's own families.

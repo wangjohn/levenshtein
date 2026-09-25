@@ -35,9 +35,14 @@ func TestParseArgs(t *testing.T) {
 		{name: "text format", args: []string{"branch", "--format", "text"}, want: options{format: verify.FormatText, source: defaults.source, shared: defaults.shared, name: "branch"}},
 		{name: "github format with prefix", args: []string{"--format=github", "--path-prefix", "./app/", "pre-merge"}, want: options{format: verify.FormatGitHub, pathPrefix: "app", source: defaults.source, shared: defaults.shared, name: "pre-merge"}},
 		{name: "unknown format", args: []string{"--format", "xml"}, wantErr: "--format must be one of json, text, github, sarif"},
+		{name: "no baseline", args: []string{"main", "--no-baseline"}, want: options{format: verify.FormatJSON, noBaseline: true, source: defaults.source, shared: defaults.shared, name: "main"}},
+		{name: "write baseline", args: []string{"main", "--write-baseline", "--format=text"}, want: options{format: verify.FormatText, writeBaseline: true, source: defaults.source, shared: defaults.shared, name: "main"}},
 		{name: "render", args: []string{"--render", "report.json", "--format", "sarif"}, want: options{format: verify.FormatSARIF, render: "report.json", source: defaults.source, shared: defaults.shared, name: "branch"}},
 		{name: "render with a run", args: []string{"--render", "-", "main"}, wantErr: "--render writes a saved report and runs nothing"},
+		{name: "render with a baseline flag", args: []string{"--render", "-", "--no-baseline"}, wantErr: "--render writes a saved report and runs nothing"},
 		{name: "dry run with a format", args: []string{"--dry-run", "--format", "text"}, wantErr: "--dry-run prints the plan as JSON"},
+		{name: "dry run writing a baseline", args: []string{"--dry-run", "--write-baseline"}, wantErr: "--dry-run prints the plan as JSON"},
+		{name: "both baseline flags", args: []string{"--no-baseline", "--write-baseline"}, wantErr: "--write-baseline already ignores the baseline"},
 		{name: "prefix on json", args: []string{"--path-prefix", "app"}, wantErr: "--path-prefix applies to text, github and sarif"},
 		{name: "prefix outside the checkout", args: []string{"--format", "text", "--path-prefix", "../app"}, wantErr: "must be a relative directory"},
 		{name: "absolute prefix", args: []string{"--format", "text", "--path-prefix", "/app"}, wantErr: "must be a relative directory"},
@@ -66,7 +71,7 @@ func TestHelp(t *testing.T) {
 		if !errors.Is(err, pflag.ErrHelp) {
 			t.Fatalf("help error = %v", err)
 		}
-		for _, text := range []string{"Usage: verify", "--source", "--shared", "--dry-run", "--help", "--cache-dir", "--jobs", "--format", "--render", "--path-prefix"} {
+		for _, text := range []string{"Usage: verify", "--source", "--shared", "--dry-run", "--help", "--cache-dir", "--jobs", "--format", "--render", "--path-prefix", "--no-baseline", "--write-baseline"} {
 			if !strings.Contains(output.String(), text) {
 				t.Errorf("help missing %q: %s", text, &output)
 			}

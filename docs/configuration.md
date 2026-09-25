@@ -147,11 +147,11 @@ Application repos retain their own CI triggers, workers, schedules, and merge ga
 | `github` | GitHub Actions workflow commands: an `::error` annotation per failing finding, a `::warning` per advisory finding, and one per check that did not pass without a finding to show |
 | `sarif` | SARIF 2.1.0 for GitHub code scanning (`github/codeql-action/upload-sarif`) |
 
-**Text.** Findings are grouped by check in plan order and sorted by file, line, column, and code within a check. Paths are relative to the source root, as they are in the JSON report. A check that wraps a whole tool, such as `go-vet`, `go-mod`, or `workflow-lint`, reports one finding per module whose message is the tool's own output; text prints its directory and code on one line and the output indented below it. A hint, when there is one, follows on an indented `hint:` line. An [advisory finding](community-rules.md) is marked `[advisory]` after its code. After the findings, each check gets one line with its status and a note: how many failing and advisory findings it has, the first line of an error, or `cached`. An error of more than one line is repeated in full below the table.
+**Text.** Findings are grouped by check in plan order and sorted by file, line, column, and code within a check. Paths are relative to the source root, as they are in the JSON report. A check that wraps a whole tool, such as `go-vet`, `go-mod`, or `workflow-lint`, reports one finding per module whose message is the tool's own output; text prints its directory and code on one line and the output indented below it. A hint, when there is one, follows on an indented `hint:` line. An [advisory finding](community-rules.md) is marked `[advisory]` after its code. After the findings, each check gets one line with its status and a note: how many failing findings it has, how many the baseline accepted, how many are advisory, the first line of an error, or `cached`. An error of more than one line is repeated in full below the table. Findings the [baseline](#baseline) accepts are counted, not listed.
 
-**GitHub.** A finding from `go-lint`, `go-http`, `go-sql`, or `go-mutation` is annotated at its file, line, and column; a module-level finding is annotated without a file. A check that ended in `error`, `incomplete`, or `cancelled`, or that failed without any finding to show (a `command` check, for example), gets one annotation with its error. Every value is escaped as GitHub's runner expects (`%`, carriage return, and newline in messages; also `:` and `,` in properties), so a message or file name cannot end an annotation or start another command. An advisory finding is a `::warning` rather than an `::error`, and its rule's page, when it has one, follows the message.
+**GitHub.** A finding from `go-lint`, `go-http`, `go-sql`, or `go-mutation`, and a `baseline-stale` finding, is annotated at its file, line, and column; a module-level finding is annotated without a file. A check that ended in `error`, `incomplete`, or `cancelled`, or that failed without any finding to show (a `command` check, for example), gets one annotation with its error. Every value is escaped as GitHub's runner expects (`%`, carriage return, and newline in messages; also `:` and `,` in properties), so a message or file name cannot end an annotation or start another command. An advisory finding is a `::warning` rather than an `::error`, and its rule's page, when it has one, follows the message. Baselined findings are not annotated.
 
-**SARIF.** The file has one run, whose tool is `Levenshtein`, with one rule per finding code, sorted by code. Code scanning treats a run as one tool's analysis and refuses several runs of the same tool in one upload, so the checks share the run; each result names its check and kind under `properties`. An advisory finding's level is `warning`; every other finding's is `error`. A rule links to its documentation where there is a stable page (Levenshtein's `LV` rules, Staticcheck's codes, and a community rule's own `url`) and carries the hint as its help text. Only findings with a source location become results, because code scanning needs a file and line for each one: module-level findings, and checks that did not reach a verdict, are listed as tool execution notifications instead, and `executionSuccessful` is false when any check did not reach a verdict. Locations are relative to `%SRCROOT%`, the checkout `upload-sarif` resolves them against. `semantic-lint`'s advisory findings stay in the JSON report only, in every format.
+**SARIF.** The file has one run, whose tool is `Levenshtein`, with one rule per finding code, sorted by code. Code scanning treats a run as one tool's analysis and refuses several runs of the same tool in one upload, so the checks share the run; each result names its check and kind under `properties`. A finding that fails its check has level `error`; an advisory or baselined one has level `warning`. A rule links to its documentation where there is a stable page (Levenshtein's `LV` rules, Staticcheck's codes, and a community rule's own `url`) and carries the hint as its help text. Only findings with a source location become results, because code scanning needs a file and line for each one: module-level findings, and checks that did not reach a verdict, are listed as tool execution notifications instead, and `executionSuccessful` is false when any check did not reach a verdict. Locations are relative to `%SRCROOT%`, the checkout `upload-sarif` resolves them against. When a baseline was applied, new findings have `"baselineState": "new"`, and baselined ones `"unchanged"`. `semantic-lint`'s advisory findings stay in the JSON report only, in every format.
 
 `--path-prefix DIR` joins a directory in front of every path in text, GitHub, and SARIF output. Use it when the source is a subdirectory of the checkout that annotations and SARIF locations are relative to, as the GitHub Action does with its `source` input. It must be a relative path inside the checkout, and it is an error with `json`.
 
@@ -163,7 +163,7 @@ Application repos retain their own CI triggers, workers, schedules, and merge ga
 ./levenshtein/verify --render report.json --format sarif > levenshtein.sarif
 ```
 
-A CI job can therefore keep the JSON report and derive the other formats from it. `--render` exits 0 once it has written the report, whatever the report's status, and 2 when the input cannot be read or is not a version 1 report. It takes no run name or `--dry-run`.
+A CI job can therefore keep the JSON report and derive the other formats from it. `--render` exits 0 once it has written the report, whatever the report's status, and 2 when the input cannot be read or is not a version 1 report. It takes no run name, `--dry-run`, or baseline flag.
 
 ### Fix hints
 
@@ -176,8 +176,84 @@ A finding whose code has a mechanical, well-known fix carries a one-line `hint` 
 | `minmax`, `mapsloop`, `slicescontains`, `stringscutprefix`, `stringsseq` | `go fix -<rule> ./...` in the module |
 | `errcheck` | Handle the error, or discard it explicitly with `_ =` and a comment giving the reason |
 | `go-mod` | `go mod tidy` in the module, when tidy's diff is the finding; a download that fails `go mod verify` gets no hint |
+| `baseline-stale` | Delete the entry or lower its count, or rewrite the file with `--write-baseline` |
 
 Levenshtein never applies a hint or changes a file. Hints are added to the finished report on the CLI side, never by an executor, so they are not part of any cached result, and `--render` fills in hints a saved report lacks.
+
+## Baseline
+
+A baseline lets a repository adopt the full rule set while it still has findings. The findings that exist today are recorded in a checked-in file and are reported without failing the run; any new finding fails as usual; and an entry for a finding that no longer occurs fails the run until it is deleted, so the file only shrinks as the code is fixed. Without a `baseline` setting nothing changes.
+
+```json
+{
+  "version": 1,
+  "targets": {"app": {"dir": ".", "inputs": ["."]}},
+  "environments": {"host": {"executor": "native"}},
+  "checks": {"lint": {"kind": "go-lint", "target": "app", "environment": "host"}},
+  "runs": {"branch": {"checks": ["lint"]}, "main": {"checks": ["lint"], "rerun_checks": true}},
+  "baseline": ".levenshtein/baseline.json"
+}
+```
+
+`baseline` is a top-level, repository-relative path, validated like other paths: clean, relative, and not a private path such as `.env`. It is one file for the whole repository rather than an option on each check because every entry already says which kind and target directory it belongs to, one command writes it, and a Dagger check and a native check of the same kind over the same target share entries. A missing file records nothing. Like `lint`, it is an additive, optional field of version 1.
+
+### Commands
+
+```sh
+./levenshtein/verify main --source ./app --write-baseline   # record every current finding
+./levenshtein/verify branch --source ./app                  # new findings fail; baselined ones do not
+./levenshtein/verify main --source ./app --no-baseline      # report every finding, ignoring the file
+```
+
+`--write-baseline` runs the run without applying the baseline, prints the report in the chosen format, and then rewrites the file from it. It refuses, exits 1, and leaves the file untouched when any check ended in `error`, `incomplete`, or `cancelled`, because what that check would have found is unknown. Advisory findings, which never fail a check, are never recorded. Otherwise it exits 0 once the file is written, whatever the run found, and reports on standard error how many entries it wrote and how many findings it added and removed; failing checks of a kind a baseline cannot hold are named there too. Entries for a kind and target directory the run did not cover are kept as they were, so recording `branch` does not drop entries only `main` covers. Use a run that covers the whole repository to write the first file. `--write-baseline` needs `baseline` in the configuration, and exits 2 without it.
+
+`--no-baseline` reports every finding as if no baseline were configured, and does not read the file. Use it to see the whole debt.
+
+### The file
+
+```json
+{
+  "version": 1,
+  "findings": [
+    {"kind":"go-lint","dir":".","file":"internal/store/store.go","code":"errcheck","message":"unchecked error","count":2},
+    {"kind":"go-lint","dir":".","file":"internal/store/store.go","code":"SA5001","message":"should check error returned from os.Open() before deferring f.Close()","count":1}
+  ]
+}
+```
+
+Each entry records how many findings share a check kind, a target directory (the target's `dir`), a repository-relative file, a code, and a message. `--write-baseline` writes one entry per line, sorted by those fields, so a change reads as added and removed lines. Every field is required, `count` is at least 1, and unknown fields, repeated entries, and any version other than 1 are rejected. An entry whose kind cannot be baselined is a configuration error (exit 2), as is any other malformed file; both are reported before any check runs.
+
+### Matching
+
+A finding matches an entry when the check's kind and target directory, the finding's file and code, and its normalized message are all equal. Normalizing collapses runs of whitespace and removes Go source positions such as `config.go:12:3` from the message, so a message that mentions another line still matches after that line moves. Line and column numbers are never compared, so edits elsewhere in a file, including ones that move the finding, do not break an entry. `count` findings match an entry; one more with the same key is new.
+
+The limits follow from that key. Moving code to another file, renaming the file, or changing the target's `dir` makes its findings new and their old entries stale. Two findings that differ only in line number are indistinguishable, so fixing one and introducing another like it in the same file keeps the count and passes. A rule whose message names a value, such as an identifier, makes a renamed identifier a new finding.
+
+### Outcomes
+
+The baseline applies to checks of a supported kind that reached a verdict (`passed` or `failed`):
+
+| Condition | Outcome |
+| --- | --- |
+| A finding matches an entry with count left | Reported with `"baselined": true`; it does not fail the check |
+| A finding matches no entry, or its entry's count is used up | Fails the check, as without a baseline |
+| An entry records more findings than a check that covers it found | A `baseline-stale` finding at the entry's line in the baseline file, which fails the check |
+| Every finding is baselined and no entry is stale | The check passes and its error is cleared |
+
+An entry is judged only by a check of its kind whose target directory is the entry's `dir` and which reached a verdict in this run, so a run that does not cover a module never reports that module's entries as stale, and a check that ended in `error` judges nothing. When several such checks run, for example a native and a Dagger `go-lint` over the same target, each matches the entry on its own, and it is stale only when every one of them left part of it unused; a stale finding is attached to the first. The report's top-level `baseline` object gives the file and the number of baselined findings and stale entries. Text and GitHub output leave baselined findings out and count them; SARIF keeps them as `unchanged`.
+
+### Supported kinds
+
+| Kind | Baseline |
+| --- | --- |
+| `go-lint`, `go-http`, `go-sql` | Supported: each finding names one source location and a message that does not repeat it |
+| `go-vet`, `workflow-lint`, `workflow-security`, `go-mod`, `go-vuln`, `go-test` | Not supported: each reports one finding per module carrying the tool's whole output, line numbers included, which no entry could match across unrelated edits; security and test failures should not be deferred either |
+| `go-mutation` | Not supported: it has its own [accepted-survivors file](mutation.md#accepted-survivors) |
+| `command`, `semantic-lint`, `self-test` | Not supported: they report no located findings |
+
+### Caching
+
+The baseline is applied on the CLI side, to the finished report, after each result was produced or restored from the cache, and never inside a cached result. The cache stores only passing results, and a check whose findings are all baselined still fails underneath, so it is never cached: every run executes it again, and because its last execution did not publish a successful result, it executes fresh, with a throwaway Staticcheck analysis cache (see [local caching](#local-caching)). The verdict is the same on every run for the same source. The cost is the check's full analysis time on each run until its baselined findings are fixed and it passes; a check without findings is cached as before.
 
 ## Native commands
 

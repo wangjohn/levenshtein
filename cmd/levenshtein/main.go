@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/pflag"
@@ -22,7 +23,7 @@ func run() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	code, err := runCommand(ctx, os.Args[1:], console{in: os.Stdin, out: os.Stdout})
+	code, err := runCommand(ctx, os.Args[1:], console{in: os.Stdin, out: os.Stdout, err: os.Stderr})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 	}
@@ -30,10 +31,11 @@ func run() int {
 }
 
 // console is where a command reads a saved report from and writes its report
-// to. An error that ends the command is returned, not written.
+// and notes to. An error that ends the command is returned, not written.
 type console struct {
 	in  io.Reader
 	out io.Writer
+	err io.Writer
 }
 
 func runCommand(ctx context.Context, args []string, streams console) (int, error) {
@@ -80,6 +82,21 @@ func runCommand(ctx context.Context, args []string, streams console) (int, error
 		return 0, nil
 	}
 
+	// The baseline is read before anything runs, so a malformed file is a
+	// configuration error rather than a verdict. Writing one reads it too,
+	// to keep the entries of checks the run does not cover.
+	if opts.writeBaseline && plan.Baseline == "" {
+		return 2, fmt.Errorf(`--write-baseline needs "baseline" in levenshtein.json to name the file; see docs/configuration.md#baseline`)
+	}
+	applyBaseline := plan.Baseline != "" && !opts.noBaseline && !opts.writeBaseline
+	var baseline verify.Baseline
+	if applyBaseline || opts.writeBaseline {
+		baseline, err = verify.LoadBaseline(plan.Source, plan.Baseline)
+		if err != nil {
+			return 2, err
+		}
+	}
+
 	if opts.shared == "" {
 		return 2, fmt.Errorf("set --shared to the pinned Levenshtein checkout, or use its ./verify launcher")
 	}
@@ -121,14 +138,39 @@ func runCommand(ctx context.Context, args []string, streams console) (int, error
 		verify.ExecutorNative: verify.CachedExecutor{Cache: cache, Executor: &verify.Native{Cache: cache}},
 	}, opts.jobs)
 
-	// Hints apply to the finished report, after the cache has stored whatever
-	// it stores, so they never reach a cached result.
+	// The baseline and hints apply to the finished report, after the cache has
+	// stored whatever it stores, so neither ever reaches a cached result.
+	if applyBaseline {
+		report = baseline.Apply(report)
+	}
 	report = verify.WithHints(report)
 	if err := verify.Render(streams.out, report, opts.format, verify.RenderOptions{PathPrefix: opts.pathPrefix}); err != nil {
 		return 2, err
 	}
+	if opts.writeBaseline {
+		return recordBaseline(report, baseline, plan.Source, streams)
+	}
 	if report.Status != verify.StatusPassed {
 		return 1, nil
+	}
+	return 0, nil
+}
+
+// recordBaseline writes the findings of a run that ignored the baseline into
+// the configured file. It exits 0 once the file is written, whatever the run
+// found, and 1 when a check did not reach a verdict, leaving the file alone.
+func recordBaseline(report verify.Report, existing verify.Baseline, source string, streams console) (int, error) {
+	recorded, change, err := existing.Record(report)
+	if err != nil {
+		return 1, err
+	}
+	if err := recorded.Write(source); err != nil {
+		return 2, fmt.Errorf("baseline %q: %w", recorded.Path, err)
+	}
+
+	_, _ = fmt.Fprintf(streams.err, "wrote %d entries to %s: %d findings added, %d removed\n", len(recorded.Entries), recorded.Path, change.Added, change.Removed)
+	if len(change.Unrecorded) != 0 {
+		_, _ = fmt.Fprintf(streams.err, "not recorded, because their kind cannot be baselined: %s\n", strings.Join(change.Unrecorded, ", "))
 	}
 	return 0, nil
 }

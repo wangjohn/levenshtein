@@ -183,7 +183,7 @@ runs:
             || echo '| (no report) | error | |'
           findings=$(jq -r --arg prefix "$SOURCE" '
             [.results[]? | .details.findings[]?
-              | select(.code != null and .location != null and (.advisory | not))
+              | select(.code != null and .location != null and .baselined != true and (.advisory | not))
               | "\(if $prefix == "." or $prefix == "" then "" else "\($prefix)/" end)\(.location.file):\(.location.line): \(.code) \(.message | split("\n")[0])"]
             | (.[:50][]), (if length > 50 then "... and \(length - 50) more" else empty end)' "$REPORT" 2> /dev/null || true)
           if [[ -n $findings ]]; then
@@ -193,6 +193,11 @@ runs:
             echo '```text'
             echo "$findings"
             echo '```'
+          fi
+          baselined=$(jq -r '.baseline.baselined // 0' "$REPORT" 2> /dev/null || echo 0)
+          if [[ $baselined != 0 ]]; then
+            echo
+            echo "$baselined findings are accepted by the baseline and not listed."
           fi
           # Advisory findings never fail a check, so the summary is where they
           # are seen. Each names the page that explains its rule.

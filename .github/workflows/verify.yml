@@ -235,7 +235,7 @@ jobs:
       - name: Native shared Go checks
         env:
           GOTOOLCHAIN: local
-        run: go test -tags=integration ./internal/verify -run TestNativeGoChecksAgreeWithTheFixtures -count=1
+        run: go test -tags=integration ./internal/verify ./cmd/levenshtein -run 'TestNativeGoChecksAgreeWithTheFixtures|TestBaselineWithNativeGoLint' -count=1
       # The scripts carry no extension, so name them explicitly by shebang.
       # shellcheck ships with the ubuntu-24.04 runner image.
       - name: Shell script checks

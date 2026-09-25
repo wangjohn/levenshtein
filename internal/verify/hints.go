@@ -37,6 +37,7 @@ var hints = map[string]string{
 	"stringsseq":       "run go fix -stringsseq ./... in the module",
 	"errcheck":         "handle the error, or discard it explicitly with _ = and a comment giving the reason",
 	"go-mod":           "run go mod tidy in {file}",
+	baselineStaleCode:  "delete the entry or lower its count, or rewrite the file with verify <run> --write-baseline",
 }
 
 // hintFor returns the hint for one finding, or "" when its fix is not

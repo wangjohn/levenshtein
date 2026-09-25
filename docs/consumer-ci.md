@@ -2,7 +2,7 @@
 
 Your CI checks out the application, chooses a run, and invokes a pinned Levenshtein version. Levenshtein prepares the check environment and returns results and an exit status. Application tests and CI schedules belong to the application repo.
 
-**Available now:** shared Go lint, vet, module manifest checks, HTTP/SQL cleanup checks, vulnerability scanning, workflow lint, native commands, local result/setup/build caching, and text/GitHub/SARIF output. Start with one product target and a few useful checks; keep existing CI gates while proving equivalent behavior.
+**Available now:** shared Go lint, vet, module manifest checks, HTTP/SQL cleanup checks, vulnerability scanning, workflow lint, native commands, local result/setup/build caching, text/GitHub/SARIF output, and a findings [baseline](configuration.md#baseline) for adopting the rules with existing findings. Start with one product target and a few useful checks; keep existing CI gates while proving equivalent behavior.
 
 ## The same command locally and in CI
 
@@ -94,7 +94,7 @@ With no `run` input, the action picks one from the event: a schedule runs `main`
 | `annotations` | `true` | Annotate each failing finding, and each check that did not reach a verdict, on the run and on the pull request's files |
 | `sarif` | empty | Path, relative to the workspace, to write a SARIF file to for code scanning. Empty writes none |
 
-The action's outputs are `run`, the run it executed, `report`, the path to the JSON report, and `sarif`, the path of the SARIF file when the `sarif` input asked for one. The job summary has a status table and lists up to 50 failing findings. A failed check fails the step. Make the job a required status check in the application's branch protection or ruleset.
+The action's outputs are `run`, the run it executed, `report`, the path to the JSON report, and `sarif`, the path of the SARIF file when the `sarif` input asked for one. The job summary has a status table and lists up to 50 failing findings; findings the [baseline](configuration.md#baseline) accepts are counted there, not listed. A failed check fails the step. Make the job a required status check in the application's branch protection or ruleset.
 
 The annotations and the SARIF file are rendered from the saved JSON report with `verify --render` after the Verify step, so they never run the checks again or change the step's result, and a repository whose `source` is a subdirectory gets paths relative to the workspace. Neither needs a permission beyond `contents: read`: annotations are workflow commands in the step's log. [Output formats](configuration.md#output-formats) describes both.
 
@@ -125,6 +125,8 @@ jobs:
 ```
 
 `!cancelled()` uploads after a failing Verify step too, which is when there is something to see. The `annotations` and `sarif` inputs are new since 0.1.0 (see the [changelog](../CHANGELOG.md)); a pin to 0.1.0 does not have them.
+
+**Adopting the rules with existing findings.** Name a `baseline` file in `levenshtein.json`, run `verify main --source . --write-baseline` once over the whole repository, and commit the file. From then on a new finding fails the job, a baselined one is reported without failing it, and fixing a baselined finding fails until its entry is deleted in the same change, so the file only shrinks. `verify` never adds entries on its own; only `--write-baseline` does, so an entry that grows the file shows up in review. Consider a `CODEOWNERS` entry for the file. See [baseline](configuration.md#baseline).
 
 **Pin a release.** `@v0.1.0` names a published [release](releases.md). To pin immutably, use that tag's commit SHA with the version as a comment, as this repository does for every action it calls. Dependabot's `github-actions` ecosystem proposes new Levenshtein releases like any other action, including the SHA and comment. Do not pin a branch.
 

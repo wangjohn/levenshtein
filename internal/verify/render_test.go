@@ -7,30 +7,9 @@ import (
 	"testing"
 )
 
-func lintCheck(id, dir string) PlannedCheck {
-	return PlannedCheck{
-		ID:          id,
-		Check:       Check{Kind: CheckGoLint, Target: id, Environment: "host"},
-		Target:      Target{Dir: dir, Workspace: ".", Inputs: []string{"."}},
-		Environment: Environment{Executor: ExecutorNative},
-	}
-}
-
-func lintFinding(file string, line int, code, message string) finding {
-	return finding{Code: code, Message: message, Location: location{File: file, Line: line, Column: 2}}
-}
-
-func failedResult(id string, findings ...finding) Result {
-	return Result{ID: id, Status: StatusFailed, Error: "Go policy lint failed", Details: findingsDetails(findings)}
-}
-
-func reportOf(checks []PlannedCheck, results ...Result) Report {
-	return Report{Version: 1, Run: "branch", Status: reportStatus(results), Plan: Plan{Version: 1, Run: "branch", Checks: checks}, Results: results}
-}
-
 // renderFixture is one run of every shape a renderer meets: located findings
-// out of order, one of them without a column, a module-level tool finding, a
-// tool error, and a cached pass.
+// out of order, one of them baselined, a module-level tool finding, a tool
+// error, and a cached pass.
 func renderFixture() Report {
 	lint := lintCheck("lint/api", "services/api")
 	vet := lintCheck("vet", ".")
@@ -43,13 +22,15 @@ func renderFixture() Report {
 	lintResult := failedResult("lint/api",
 		lintFinding("services/api/b.go", 3, "errcheck", "unchecked error"),
 		lintFinding("services/api/a.go", 10, "LV1005", "file is not gofmt-formatted"),
-		finding{Code: "SA5001", Message: "old debt", Location: location{File: "services/api/c.go", Line: 1}},
+		finding{Code: "SA5001", Message: "old debt", Location: location{File: "services/api/c.go", Line: 1}, Baselined: true},
 	)
 	vetResult := failedResult("vet", finding{Code: "go-vet", Message: "# example.com/app\nx.go:1:2: bad, really: 100%", Location: location{File: ".", Line: 1}})
 	testResult := Result{ID: "test", Status: StatusError, Error: "go test could not build x\nfirst cause"}
 	modResult := Result{ID: "mod", Status: StatusPassed, Cache: CacheInfo{Status: CacheHit}}
 
-	return WithHints(reportOf([]PlannedCheck{lint, vet, test, mod}, lintResult, vetResult, testResult, modResult))
+	report := reportOf([]PlannedCheck{lint, vet, test, mod}, lintResult, vetResult, testResult, modResult)
+	report.Baseline = &BaselineSummary{File: testBaselinePath, Baselined: 1}
+	return WithHints(report)
 }
 
 func render(t *testing.T, report Report, format Format, options RenderOptions) string {
@@ -68,12 +49,11 @@ func TestRenderText(t *testing.T) {
     hint: run gofmt -w services/api/a.go; see https://github.com/wangjohn/levenshtein/blob/main/docs/checks.md#formatted-files-lv1005
 services/api/b.go:3:2: errcheck unchecked error
     hint: handle the error, or discard it explicitly with _ = and a comment giving the reason
-services/api/c.go:1: SA5001 old debt
 .: go-vet
     # example.com/app
     x.go:1:2: bad, really: 100%
 
-lint/api  failed  3 findings
+lint/api  failed  2 findings; 1 baselined
 vet       failed  1 finding
 test      error   go test could not build x
 mod       passed  cached
@@ -82,10 +62,22 @@ test:
     go test could not build x
     first cause
 
-branch: failed, 1 of 4 checks passed
+branch: failed, 1 of 4 checks passed, 1 baselined finding not shown
 `
 	if got != want {
 		t.Fatalf("text:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// Without a baseline, or with nothing in it matching, the summary line does
+// not mention baselined findings.
+func TestRenderTextMentionsBaselinedFindingsOnlyWhenThereAreSome(t *testing.T) {
+	check := lintCheck("lint", ".")
+	report := reportOf([]PlannedCheck{check}, failedResult("lint", lintFinding("a.go", 1, "errcheck", "unchecked error")))
+
+	got := render(t, report, FormatText, RenderOptions{})
+	if strings.Contains(got, "baselined") || !strings.HasSuffix(got, "branch: failed, 0 of 1 checks passed\n") {
+		t.Fatalf("text without baselined findings:\n%s", got)
 	}
 }
 
@@ -102,7 +94,6 @@ func TestRenderGitHub(t *testing.T) {
 	want := strings.Join([]string{
 		"::error file=app/services/api/a.go,line=10,col=2,title=LV1005 (lint/api)::file is not gofmt-formatted%0A%0Ahint: run gofmt -w services/api/a.go; see https://github.com/wangjohn/levenshtein/blob/main/docs/checks.md#formatted-files-lv1005",
 		"::error file=app/services/api/b.go,line=3,col=2,title=errcheck (lint/api)::unchecked error%0A%0Ahint: handle the error, or discard it explicitly with _ = and a comment giving the reason",
-		"::error file=app/services/api/c.go,line=1,title=SA5001 (lint/api)::old debt",
 		"::error title=go-vet (vet)::# example.com/app%0Ax.go:1:2: bad, really: 100%25",
 		"::error title=Levenshtein test error::go test could not build x%0Afirst cause",
 		"",
@@ -218,10 +209,11 @@ func TestRenderSARIF(t *testing.T) {
 				} `json:"toolExecutionNotifications"`
 			} `json:"invocations"`
 			Results []struct {
-				RuleID    string `json:"ruleId"`
-				RuleIndex int    `json:"ruleIndex"`
-				Level     string `json:"level"`
-				Locations []struct {
+				RuleID        string `json:"ruleId"`
+				RuleIndex     int    `json:"ruleIndex"`
+				Level         string `json:"level"`
+				BaselineState string `json:"baselineState"`
+				Locations     []struct {
 					PhysicalLocation struct {
 						ArtifactLocation struct {
 							URI       string `json:"uri"`
@@ -267,14 +259,14 @@ func TestRenderSARIF(t *testing.T) {
 	}
 	first := run.Results[0]
 	location := first.Locations[0].PhysicalLocation
-	if first.RuleID != "LV1005" || first.RuleIndex != 0 || first.Level != "error" || first.Properties.Check != "lint/api" || first.Properties.Kind != CheckGoLint {
+	if first.RuleID != "LV1005" || first.RuleIndex != 0 || first.Level != "error" || first.BaselineState != "new" || first.Properties.Check != "lint/api" || first.Properties.Kind != CheckGoLint {
 		t.Fatalf("first result: %+v", first)
 	}
 	if location.ArtifactLocation.URI != "my%20app/services/api/a.go" || location.ArtifactLocation.URIBaseID != "%SRCROOT%" || location.Region.StartLine != 10 || location.Region.StartColumn != 2 {
 		t.Fatalf("first location: %+v", location)
 	}
-	if third := run.Results[2]; third.RuleID != "SA5001" || third.RuleIndex != 1 || third.Level != "error" {
-		t.Fatalf("third result: %+v", third)
+	if baselined := run.Results[2]; baselined.RuleID != "SA5001" || baselined.RuleIndex != 1 || baselined.Level != "warning" || baselined.BaselineState != "unchanged" {
+		t.Fatalf("baselined result: %+v", baselined)
 	}
 
 	invocation := run.Invocations[0]
@@ -283,6 +275,14 @@ func TestRenderSARIF(t *testing.T) {
 	}
 	if !strings.HasPrefix(invocation.Notifications[0].Message.Text, "vet go-vet: # example.com/app") || !strings.HasPrefix(invocation.Notifications[1].Message.Text, "test error: go test could not build x") {
 		t.Fatalf("notifications: %+v", invocation.Notifications)
+	}
+}
+
+func TestRenderSARIFWithoutBaselineOmitsBaselineState(t *testing.T) {
+	report := renderFixture()
+	report.Baseline = nil
+	if got := render(t, report, FormatSARIF, RenderOptions{}); strings.Contains(got, `"baselineState": "new"`) {
+		t.Fatalf("baselineState without a baseline:\n%s", got)
 	}
 }
 
@@ -315,8 +315,8 @@ func TestRenderJSONRoundTrips(t *testing.T) {
 	if render(t, decoded, FormatText, RenderOptions{}) != render(t, report, FormatText, RenderOptions{}) {
 		t.Fatal("a saved JSON report must render as the report it came from")
 	}
-	if findings := detailFindings(decoded.Results[0].Details); findings[0].Hint == "" {
-		t.Fatalf("JSON dropped hints: %+v", findings)
+	if findings := detailFindings(decoded.Results[0].Details); findings[0].Hint == "" || !findings[2].Baselined {
+		t.Fatalf("JSON dropped hints or baseline marks: %+v", findings)
 	}
 }
 

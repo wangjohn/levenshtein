@@ -12,15 +12,17 @@ import (
 )
 
 type options struct {
-	cacheDir   string
-	source     string
-	shared     string
-	name       string
-	jobs       int
-	dry        bool
-	format     verify.Format
-	pathPrefix string
-	render     string
+	cacheDir      string
+	source        string
+	shared        string
+	name          string
+	jobs          int
+	dry           bool
+	format        verify.Format
+	pathPrefix    string
+	render        string
+	noBaseline    bool
+	writeBaseline bool
 }
 
 func formatNames() string {
@@ -42,6 +44,8 @@ func parseArgs(args []string, opts options, output io.Writer) (options, error) {
 	format := flags.String("format", string(verify.FormatJSON), "Report format: "+formatNames())
 	flags.StringVar(&opts.pathPrefix, "path-prefix", "", "Directory joined in front of report paths in text, github and sarif output")
 	flags.StringVar(&opts.render, "render", "", "Write a saved JSON report (a file, or - for stdin) in --format instead of running checks")
+	flags.BoolVar(&opts.noBaseline, "no-baseline", false, "Report every finding and ignore the configured baseline")
+	flags.BoolVar(&opts.writeBaseline, "write-baseline", false, "Run without the baseline, then record the findings in the configured baseline file")
 	help := flags.BoolP("help", "h", false, "Show usage")
 	flags.Usage = func() {
 		_, _ = fmt.Fprintln(output, "Usage: verify [RUN] [flags]\n       verify --render REPORT --format FORMAT\n\nRUN defaults to branch. Flags may appear before or after RUN.\n\nFlags:")
@@ -86,10 +90,12 @@ func parseArgs(args []string, opts options, output io.Writer) (options, error) {
 // checkModes rejects flag combinations that would silently mean nothing.
 func checkModes(opts options, runs int) error {
 	switch {
-	case opts.render != "" && (runs != 0 || opts.dry):
-		return fmt.Errorf("--render writes a saved report and runs nothing; it takes no run or --dry-run")
-	case opts.dry && opts.format != verify.FormatJSON:
-		return fmt.Errorf("--dry-run prints the plan as JSON and runs nothing; it takes no --format")
+	case opts.render != "" && (runs != 0 || opts.dry || opts.noBaseline || opts.writeBaseline):
+		return fmt.Errorf("--render writes a saved report and runs nothing; it takes no run, --dry-run, or baseline flag")
+	case opts.dry && (opts.format != verify.FormatJSON || opts.writeBaseline):
+		return fmt.Errorf("--dry-run prints the plan as JSON and runs nothing; it takes no --format or --write-baseline")
+	case opts.writeBaseline && opts.noBaseline:
+		return fmt.Errorf("--write-baseline already ignores the baseline; drop --no-baseline")
 	case opts.pathPrefix != "" && opts.format == verify.FormatJSON:
 		return fmt.Errorf("--path-prefix applies to text, github and sarif output, not json")
 	case opts.pathPrefix != "" && !filepath.IsLocal(filepath.Clean(opts.pathPrefix)) && filepath.Clean(opts.pathPrefix) != ".":

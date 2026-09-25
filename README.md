@@ -46,6 +46,7 @@ config.go:18:9: LV1001 string choice with multiple alternatives needs a defined 
 To silence a finding, use Staticcheck's usual comment: `//lint:ignore CODE reason`.
 
 Rules Levenshtein doesn't ship can come from [community rule modules](docs/community-rules.md): ordinary Go modules of `go/analysis` analyzers that a repo pins in `levenshtein.json`. They run in their own process beside the shipped rules and report into the same results.
+To turn the rules on in a repository that already has findings, name a [baseline](docs/configuration.md#baseline) file in `levenshtein.json` and record them with `verify main --write-baseline`. Recorded findings are reported but don't fail, new ones do, and fixing a recorded one means deleting its entry, so the file only shrinks.
 
 ## Quick start
 

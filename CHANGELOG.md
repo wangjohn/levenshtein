@@ -41,6 +41,16 @@ Consumers pin a release tag, or its commit SHA, as described in
   `gofmt -w <file>` for LV1005 or `go fix -minmax ./...`, shown in text
   output. Levenshtein never applies one
   ([table](docs/configuration.md#fix-hints)).
+- A findings baseline: an optional top-level `baseline` file records existing
+  `go-lint`, `go-http`, and `go-sql` findings by kind, target directory, file,
+  code, and normalized message, never by line. Recorded findings are reported
+  as `baselined` and do not fail; new ones fail as before; an entry a check no
+  longer matches fails as `baseline-stale` until it is deleted.
+  `--write-baseline` records a run in which every check reached a verdict, as
+  sorted one-entry-per-line JSON, and `--no-baseline` reports everything. The
+  baseline applies to the finished report, never to a cached result; a check
+  whose findings are all baselined still executes on every run
+  ([details](docs/configuration.md#baseline)).
 - The GitHub Action annotates failing findings by default (`annotations`),
   writes a SARIF file when the `sarif` input names one (the `sarif` output),
   and lists up to 50 failing findings in the job summary. It needs no new
