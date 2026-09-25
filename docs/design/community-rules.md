@@ -2,7 +2,7 @@
 
 This is the design behind [community lint rules](../community-rules.md): the problem, how the community linter is built and run, the catalog that is still a proposal, and the phasing. To use a rule module or write one, read the how-to instead.
 
-**Status: phase 1 is implemented** on the main branch and ships with the next release: `rule_modules`, the community linter, selection, advisory findings, merged findings, warnings, and error handling. Phases 2 and 3 (the catalog, `./verify rules`, the Renovate preset, native execution, private modules) are still proposals; see [Phasing](#phasing).
+**Status: phase 1 shipped in v0.2.0**: `rule_modules`, the community linter, selection, advisory findings, merged findings, warnings, and error handling. Phases 2 and 3 (the catalog, `./verify rules`, the Renovate preset, native execution, private modules) are still proposals; see [Phasing](#phasing).
 
 ## Problem
 
