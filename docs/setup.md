@@ -93,7 +93,9 @@ to be current, hashed, and on the `dagger-io` of `.dagger-version`;
 `scripts/test-doc-pins`, after fetching the tags, which requires every consumer
 example to pin a tagged release in `CHANGELOG.md` by that tag's commit SHA; and
 `scripts/test-workflows`, which requires one pin per action across the
-workflows, templates and docs, per-commit concurrency groups outside pull
+workflows, templates and docs (Dependabot updates the workflows and the
+template in one grouped pull request; `scripts/sync-action-pins` copies its
+pins into the docs), per-commit concurrency groups outside pull
 requests, a `merge_group` trigger on every workflow with a required check, and
 secrets only in step `env`. The Go test step writes a coverage profile that is uploaded
 as an artifact for seven days; no threshold gates the run. `scripts/test-integration`

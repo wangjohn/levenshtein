@@ -3,8 +3,10 @@
 #
 #   1. one pin per action: every copy of a third-party action in the workflows,
 #      composite actions, action.yml, the templates and the documentation names
-#      the same commit, so a template a consumer copies never lags the pins
-#      Dependabot keeps current here (it does not update templates or docs);
+#      the same commit, so an example a consumer copies never lags the pins
+#      Dependabot keeps current here. Dependabot updates the workflows, the
+#      composite actions and the workflow template, not the Markdown;
+#      scripts/sync-action-pins copies its pins there;
 #   2. a workflow that runs on push or schedule and does not cancel in progress
 #      groups its runs by commit: GitHub keeps one pending run per concurrency
 #      group and cancels the others, even with cancel-in-progress off;
@@ -31,6 +33,7 @@ if (( ${#workflows[@]} == 0 )); then
 fi
 
 # 1. One pin per action. Levenshtein's own pin is scripts/test-doc-pins' job.
+sync_hint=false
 pins=$(grep -rnoE 'uses: [A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+@[0-9a-f]{40}( # [^[:space:]`]+)?' \
   .github action.yml templates README.md docs || true)
 if [[ -z $pins ]]; then
@@ -40,10 +43,15 @@ fi
 while IFS= read -r action; do
   versions=$(grep -F "uses: $action@" <<<"$pins" | sed -E 's/^[^:]+:[0-9]+:uses: [^@]+@//' | sort -u)
   if (( $(wc -l <<<"$versions") > 1 )); then
-    problem "$action is pinned to more than one commit; use the same one everywhere:"
+    problem "$action is pinned to more than one commit:"
     grep -F "uses: $action@" <<<"$pins" | sed 's/^/  /' >&2
+    sync_hint=true
   fi
 done < <(sed -E 's/^[^:]+:[0-9]+:uses: ([^@]+)@.*/\1/' <<<"$pins" | sort -u)
+if [[ $sync_hint == true ]]; then
+  echo 'To copy the workflow pins into the templates and documentation, run:' >&2
+  echo '  ./scripts/sync-action-pins' >&2
+fi
 
 # 2. Concurrency groups keyed by commit outside pull requests.
 for workflow in "${workflows[@]}"; do

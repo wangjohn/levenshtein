@@ -272,7 +272,10 @@ Consumers pin a release tag, or its commit SHA, as described in
   scans the built `runner/tools` binaries; Dependabot updates
   `examples/rule-module` and bumps Staticcheck in `runner/lint` and
   `runner/community` together; and `scripts/test-workflows` keeps the
-  template's action pins equal to the workflows'.
+  template's and docs' action pins equal to the workflows'. Dependabot now
+  updates the workflow template too, in the same single grouped pull request
+  as the workflows, and `scripts/sync-action-pins` copies the pins into the
+  docs.
 
 ### Fixed
 
