@@ -89,10 +89,10 @@ func run(modules []Module, args []string) int {
 	return writeReport(*reportPath, resolved.Report, exit)
 }
 
-// register renames each selected rule to its code, guards it and everything it
-// requires, and returns the analyzers to register, the linter's own last.
-// Every rule takes its code before any is wrapped: a rule can require
-// another, and the guard names a failure by the name it finds first.
+// register renames each selected rule to its code, adapts it, guards it and
+// everything it requires, and returns the analyzers to register, the linter's
+// own last. Every rule takes its code before any is wrapped: a rule can
+// require another, and the guard names a failure by the name it finds first.
 func (p plan) register(stop func(failure)) []*analysis.Analyzer {
 	for _, rule := range p.Selected {
 		rule.Analyzer.Name = rule.Code
@@ -102,6 +102,7 @@ func (p plan) register(stop func(failure)) []*analysis.Analyzer {
 	guard := newGuard(stop)
 	analyzers := make([]*analysis.Analyzer, 0, len(p.Selected)+2)
 	for _, rule := range p.Selected {
+		adapt(rule.Analyzer)
 		guard.wrap(rule.Analyzer, owner{Code: rule.Code, Source: rule.Module.Source()})
 		analyzers = append(analyzers, rule.Analyzer)
 	}

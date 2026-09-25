@@ -567,7 +567,7 @@ func goLint(ctx context.Context, source *dagger.Directory, module string, tools 
 	}
 
 	added, warnings, failure := communityLint(ctx, source, module, tools, modules, community, nonce)
-	outcome := lintOutcome{Findings: mergeFindings(findings, added), Warnings: warnings}
+	outcome := lintOutcome{Findings: mergeFindings(findings, added, checkedSource(ctx, source)), Warnings: warnings}
 	if failure != nil {
 		outcome = lintOutcome{Findings: findings, Warnings: warnings, Error: "community rules: " + failure.Error()}
 	}

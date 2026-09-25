@@ -14,12 +14,24 @@ type Config struct {
 
 // ModuleConfig is one rule_modules entry of levenshtein.json.
 type ModuleConfig struct {
-	Path      string                       `json:"path"`
-	Version   string                       `json:"version"`
-	Namespace string                       `json:"namespace"`
-	Select    []string                     `json:"select"`
-	Advisory  []string                     `json:"advisory,omitempty"`
-	Settings  map[string]map[string]string `json:"settings,omitempty"`
+	// Path is the module path, the entry's key in rule_modules. It must name
+	// a Module the generated main passes.
+	Path string `json:"path"`
+	// Version is the exact version levenshtein.json pins, which must match
+	// the Module's.
+	Version string `json:"version"`
+	// Namespace repeats the module's lvrules.Namespace, which must agree.
+	Namespace string `json:"namespace"`
+	// Select holds the patterns for the rules every go-lint check runs from
+	// this module, such as "errs_*" or "-errs_wrapf". Each names only this
+	// module's namespace, and the last pattern that matches a rule wins.
+	Select []string `json:"select"`
+	// Advisory holds patterns for selected rules that report without failing
+	// the check.
+	Advisory []string `json:"advisory,omitempty"`
+	// Settings maps a rule's code to the values of its analyzer's flags, by
+	// flag name.
+	Settings map[string]map[string]string `json:"settings,omitempty"`
 }
 
 // Report is what the community linter writes to -lvrules.report once
