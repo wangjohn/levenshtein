@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"maps"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -19,9 +20,7 @@ func TestToolchainIdentityCoversResultChangingGoSettings(t *testing.T) {
 		file := filepath.Join(t.TempDir(), "env")
 		writeFile(t, file, settings)
 		req.Environment.Env = map[string]string{"GOENV": file}
-		for name, value := range env {
-			req.Environment.Env[name] = value
-		}
+		maps.Copy(req.Environment.Env, env)
 		found, err := toolchainIdentity(t.Context(), req.Source, nativeEnv(req, nil))
 		if err != nil {
 			t.Fatal(err)

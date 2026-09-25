@@ -59,13 +59,11 @@ func TestRecordLimitAppliesToWritesAndReads(t *testing.T) {
 func TestOversizedResultIsReportedAndNotCached(t *testing.T) {
 	lowerRecordLimit(t, 1024)
 	req := cacheRequest(t)
-	executor := &countingExecutor{status: StatusPassed, artifact: "report.txt"}
 	req.Check.Command.Artifacts = []string{"report.txt"}
 	if err := os.WriteFile(filepath.Join(req.Source, "report.txt"), []byte(strings.Repeat("r", 2048)), 0600); err != nil {
 		t.Fatal(err)
 	}
-	executor.artifact = ""
-	runner := CachedExecutor{Cache: &Cache{Dir: t.TempDir()}, Executor: executor}
+	runner := CachedExecutor{Cache: &Cache{Dir: t.TempDir()}, Executor: &countingExecutor{status: StatusPassed}}
 
 	result := runner.Execute(t.Context(), req)
 	if result.Status != StatusPassed || !strings.Contains(result.Cache.Reason, "cache write unavailable") || !strings.Contains(result.Cache.Reason, "limit") {

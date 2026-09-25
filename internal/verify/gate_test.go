@@ -139,6 +139,7 @@ func TestCancelWhileWaitingForTheWorkspaceIsCancelled(t *testing.T) {
 		{
 			name: "in-process writer",
 			hold: func(t *testing.T, cache *Cache, source string) func() {
+				t.Helper()
 				release, err := acquireWorkspace(t.Context(), cache.Dir, source, true)
 				if err != nil {
 					t.Fatal(err)
@@ -150,6 +151,7 @@ func TestCancelWhileWaitingForTheWorkspaceIsCancelled(t *testing.T) {
 		{
 			name: "another process",
 			hold: func(t *testing.T, cache *Cache, source string) func() {
+				t.Helper()
 				unlock, err := lockFile(t.Context(), filepath.Join(cache.Dir, "locks", "workspace-"+digest(source)))
 				if err != nil {
 					t.Fatal(err)
