@@ -115,7 +115,12 @@ func runHook(t *testing.T, script, input string, env ...string) (int, string) {
 
 func TestStopHookTemplate(t *testing.T) {
 	hookTools(t, "bash", "git", "jq")
-	project := t.TempDir()
+	// The hook passes git's top level, which resolves symbolic links such as
+	// macOS's /var -> /private/var above the temporary directory.
+	project, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if out, err := exec.CommandContext(t.Context(), "git", "init", "-q", project).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v %s", err, out)
 	}
@@ -153,9 +158,17 @@ func TestStopHookTemplate(t *testing.T) {
 		t.Fatalf("a failing run must block with the findings: %d %s", code, stderr)
 	}
 
+	// By default a turn the hook already continued may stop, so an agent that
+	// cannot fix a finding does not loop; LEVENSHTEIN_STOP_ONCE=0 opts out.
 	active := strings.Replace(input, `"stop_hook_active": false`, `"stop_hook_active": true`, 1)
+	if code, stderr := runHook(t, "levenshtein-stop.sh", active, append(env, "FAKE_STATUS=1")...); code != 0 {
+		t.Fatalf("by default a continued turn must be let stop: %d %s", code, stderr)
+	}
 	if code, _ := runHook(t, "levenshtein-stop.sh", active, append(env, "FAKE_STATUS=1", "LEVENSHTEIN_STOP_ONCE=1")...); code != 0 {
-		t.Fatalf("LEVENSHTEIN_STOP_ONCE must let a continued turn stop: %d", code)
+		t.Fatalf("LEVENSHTEIN_STOP_ONCE=1 must let a continued turn stop: %d", code)
+	}
+	if code, stderr := runHook(t, "levenshtein-stop.sh", active, append(env, "FAKE_STATUS=1", "LEVENSHTEIN_STOP_ONCE=0")...); code != 2 || !strings.Contains(stderr, "branch run fails") {
+		t.Fatalf("LEVENSHTEIN_STOP_ONCE=0 must block a continued turn too: %d %s", code, stderr)
 	}
 
 	if code, stderr := runHook(t, "levenshtein-stop.sh", input, append(env, "FAKE_STATUS=2")...); code != 1 || !strings.Contains(stderr, "could not run") {

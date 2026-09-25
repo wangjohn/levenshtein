@@ -55,11 +55,11 @@ When the agent tries to end its turn, `levenshtein-stop.sh`:
 | --- | --- | --- |
 | `LEVENSHTEIN` | `$CLAUDE_PROJECT_DIR/../levenshtein` | The pinned Levenshtein checkout |
 | `LEVENSHTEIN_RUN` | `branch` | The run to execute. Keep it fast and native |
-| `LEVENSHTEIN_STOP_ONCE` | unset | `1` blocks only the first attempt to stop in a turn |
+| `LEVENSHTEIN_STOP_ONCE` | `1` | Blocks only the first attempt to stop in a turn; `0` blocks every attempt while the run fails |
 
 Set them in your shell, or in the `env` object of `.claude/settings.json`. The repository is the git top level of the working directory Claude Code reports in the hook's input, so a session in a git worktree checks that worktree, not the checkout it started from; without `jq` it is `$CLAUDE_PROJECT_DIR`.
 
-The hook blocks for as long as the run fails, which is the point, but an agent that cannot fix a finding keeps trying until you interrupt it. `LEVENSHTEIN_STOP_ONCE=1` trades that for a single attempt: when Claude Code reports that the turn is already continuing because of a stop hook (`stop_hook_active`), the hook lets it stop, so the agent can end with an account of what is left.
+By default the hook blocks once per turn: when Claude Code reports that the turn is already continuing because of a stop hook (`stop_hook_active`), the hook lets it stop, so after one attempt at the fixes the agent can end with an account of what is left. The run reports every finding in the repository, including ones the turn did not introduce, so blocking every stop would keep an agent that cannot fix a finding, or one that predates it, trying until you interrupt it. Set `LEVENSHTEIN_STOP_ONCE=0` to block for as long as the run fails.
 
 Use a `branch` run of native checks, such as the starter's `go-lint` and `go-vet`. The result cache makes a repeat run over unchanged files fast, but a check with findings runs in full every time, and a Dagger check needs a container runtime and starts slower. The hook's `timeout` is 600 seconds, Claude Code's default for a command hook.
 

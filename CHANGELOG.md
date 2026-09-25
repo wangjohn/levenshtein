@@ -245,6 +245,11 @@ Consumers pin a release tag, or its commit SHA, as described in
   repository and `runner/lint` for local use. It is not part of `branch`,
   `pre-merge`, or `main`, because CI's `tests` job already runs
   `go test -race` over the same modules.
+- The Claude Code Stop hook template blocks only the first attempt to stop in a
+  turn by default, so an agent that cannot fix a finding, or meets one that
+  predates its change, ends with a report instead of looping.
+  `LEVENSHTEIN_STOP_ONCE=0` keeps blocking every attempt while the run fails
+  ([docs/agents.md](docs/agents.md#stop-keep-working-while-the-run-fails)).
 
 ### Fixed
 
