@@ -394,7 +394,10 @@ See [output formats](configuration.md#output-formats) and
   runtime and the builder that compiles it for a configuration's rule modules.
   It shares only its Staticcheck pin with `runner/lint`, so community rules can
   require newer versions of other dependencies without touching the core
-  linter.
+  linter. Since it cannot import `runner/lint`, its failure guard and the
+  adapter that keeps findings out of generated files are copies of the core
+  linter's that `go generate ./internal/copygen` in `runner/lint` writes;
+  `TestCommunityCopiesAreCurrent` fails while a copy differs from its source.
 - **`runner/tools/`**: one module per pinned Go tool (`actionlint`,
   `apidiff`, `gitleaks`, `govulncheck`, and `gremlins`), each naming its tool
   in a single `tool` directive, so their versions are locked independently of

@@ -16,5 +16,6 @@
 //
 // This package has no connection to the core linter in runner/lint beyond
 // sharing its Staticcheck pin. The failure guard in guard.go and the rule
-// adapter in adapt.go are copies of the core linter's; change both together.
+// adapter in generated.go are generated from the core linter's by go generate
+// ./internal/copygen in runner/lint; edit those sources, not the copies.
 package community

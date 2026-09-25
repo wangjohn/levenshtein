@@ -1,47 +1,12 @@
 package policy
 
-import (
-	"go/token"
+import "golang.org/x/tools/go/analysis"
 
-	"golang.org/x/tools/go/analysis"
-)
-
-// Adapt makes upstream analyzers behave like the shared rules do.
-//
-// Staticcheck's runner keys a diagnostic by its category and drops the ones
-// whose category is not a registered check, so an analyzer that categorizes its
-// own findings (nilness, perfsprint) would report nothing. Clearing the category
-// restores the analyzer's name as the reported code. Generated files stay silent
-// because nobody edits them, while the analyzer still runs there so the facts it
-// exports for hand-written callers remain correct. A file is judged by its
-// source, so findings in cgo's rewrite of a hand-written file still report.
+// Adapt makes upstream analyzers behave like the shared rules do: each one
+// reports under its own name and stays silent in generated files (see adapt).
 func Adapt(analyzers ...*analysis.Analyzer) []*analysis.Analyzer {
 	for _, current := range analyzers {
-		run := current.Run
-		current.Run = func(pass *analysis.Pass) (any, error) {
-			generated := generatedFiles(pass)
-			report := pass.Report
-
-			adapted := *pass
-			adapted.Report = func(diagnostic analysis.Diagnostic) {
-				if generated[pass.Fset.File(diagnostic.Pos)] {
-					return
-				}
-				diagnostic.Category = ""
-				report(diagnostic)
-			}
-			return run(&adapted)
-		}
+		adapt(current)
 	}
 	return analyzers
-}
-
-func generatedFiles(pass *analysis.Pass) map[*token.File]bool {
-	generated := map[*token.File]bool{}
-	for _, file := range pass.Files {
-		if Generated(pass.Fset, file) {
-			generated[pass.Fset.File(file.FileStart)] = true
-		}
-	}
-	return generated
 }
