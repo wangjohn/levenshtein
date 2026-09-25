@@ -202,10 +202,10 @@ with locations relative to the source root, so a report does not say which
 executor produced it. Because the host's Go is not covered by any snapshot,
 `fingerprint` adds its `go env GOVERSION GOOS GOARCH` to the cache key for
 these kinds only, with the settings that change what a build reports
-(`GOFLAGS`, `GOEXPERIMENT`, `CGO_ENABLED`, the C compilers and their flags,
-and the architecture levels, `toolchainSettings` in `gotools.go`) whether they
-come from the environment or a `go env -w`; module download settings such as
-`GOPROXY` and `GOPRIVATE` stay out of it. The shared implementation snapshot
+(`GOFLAGS`, `GOEXPERIMENT`, `GOFIPS140`, `GODEBUG`, `CGO_ENABLED`, the C
+compilers and their flags, and the architecture levels, `toolchainSettings` in
+`gotools.go`) whether they come from the environment or a `go env -w`; module
+download settings such as `GOPROXY` and `GOPRIVATE` stay out of it. The shared implementation snapshot
 covers `runner/` for them on either executor.
 
 `internal/verify/command.go` builds the actual `os/exec.Cmd` with a minimal

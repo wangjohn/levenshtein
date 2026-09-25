@@ -29,12 +29,13 @@ type goToolchain struct {
 }
 
 // toolchainSettings are the go env variables a toolchain identity covers:
-// build flags and tags, experiments, cgo and its compilers (go test -race
-// needs cgo), and the architecture levels. Where modules come from (GOPROXY,
+// build flags and tags, experiments, the FIPS module and GODEBUG defaults,
+// cgo and its compilers (go test -race needs cgo), and the architecture
+// levels. Where modules come from (GOPROXY,
 // GOPRIVATE, GONOSUMDB and the like) changes no result, so a developer's own
 // module settings do not split their cache.
 var toolchainSettings = []string{
-	"GOFLAGS", "GOEXPERIMENT", "CGO_ENABLED", "CC", "CXX",
+	"GOFLAGS", "GOEXPERIMENT", "GOFIPS140", "GODEBUG", "CGO_ENABLED", "CC", "CXX",
 	"CGO_CFLAGS", "CGO_CPPFLAGS", "CGO_CXXFLAGS", "CGO_LDFLAGS",
 	"GOAMD64", "GOARM64", "GOARM", "GO386", "GOPPC64", "GORISCV64", "GOMIPS", "GOMIPS64", "GOWASM",
 }
