@@ -130,7 +130,7 @@ Git discovery keeps build output, dependency directories, and editor scratch fil
 
 Some consequences are worth stating. A file the repository's `.gitignore` files ignore is not part of the fingerprint and is not read either: the Dagger import excludes every ignored path under the inputs, and the native scanners read only the listed files. A target whose real inputs are **generated and gitignored** must set `"discovery": "filesystem"`.
 
-**The Go kinds add what the Go toolchain can load.** `go-lint`, `go-vet`, `go-mod`, `go-test`, `go-http`, `go-sql`, `go-vuln`, `go-imports`, `go-generate`, `go-apidiff`, and `go-mutation` read gitignored generated code such as a `*.pb.go` or a generated SDK whatever git lists, so under git discovery their key, their Dagger import, and the native `go-generate` copy also cover the ignored paths the toolchain can load:
+**The Go kinds add what the Go toolchain can load.** Every `go-*` kind runs the Go toolchain over its target, which reads gitignored generated code such as a `*.pb.go` or a generated SDK whatever git lists, so under git discovery their key, their Dagger import, and the native `go-generate` copy also cover the ignored paths the toolchain can load:
 
 - ignored Go, cgo, assembly, and `.syso` sources, and `go.mod`, `go.sum`, `go.work`, and `go.work.sum`;
 - any ignored file in a directory that holds, or sits below one that holds, a `.go` file with a `//go:embed` directive;
