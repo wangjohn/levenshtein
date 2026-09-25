@@ -1,6 +1,8 @@
 package verify
 
 import (
+	"fmt"
+	"hash/fnv"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -8,8 +10,8 @@ import (
 	"time"
 )
 
-// Hashing file content dominates cache lookups: fingerprint runs up to four
-// times per check, every stage hashes its own inputs again, and overlapping
+// Hashing file content dominates cache lookups: fingerprint runs at least
+// twice per check, every stage hashes its own inputs again, and overlapping
 // targets cover the same files. The stat memo turns those repeats into one
 // Lstat comparison per file, shared by every target in the process.
 //
@@ -42,11 +44,20 @@ type statEntry struct {
 	HashedAt int64    `json:"hashed_at_ns"`
 }
 
-// statRecord is one root's persisted memo.
+// statRecord is one root's persisted memo, or one shard of it. A memo too
+// large for one record is split by path hash across Shards records: the first
+// at the root's own path, which says how many there are, and the rest beside
+// it. Every entry is revalidated on lookup, so records from different flushes
+// can mix without harm.
 type statRecord struct {
 	Root    string               `json:"root"`
+	Shards  int                  `json:"shards,omitempty"`
 	Entries map[string]statEntry `json:"entries"`
 }
+
+// statEntryOverhead approximates the encoded bytes of one entry beyond its
+// path and value, for sizing shards before encoding them.
+const statEntryOverhead = 128
 
 // racyWindow is git's own racy-index allowance: a file whose modification time
 // is within this of the moment its content was hashed may have been rewritten in
@@ -99,11 +110,39 @@ func (s *statStore) configure(dir string) {
 	s.roots = map[string]bool{}
 }
 
+// path is where shard 0 of root's memo lives; shard is where shard i does.
 func (s *statStore) path(root string) string {
+	return s.shard(root, 0)
+}
+
+func (s *statStore) shard(root string, i int) string {
 	if s.dir == "" {
 		return ""
 	}
-	return filepath.Join(s.dir, "stat", digest(root)+".json")
+	if i == 0 {
+		return filepath.Join(s.dir, "stat", digest(root)+".json")
+	}
+	return filepath.Join(s.dir, "stat", fmt.Sprintf("%s-%d.json", digest(root), i))
+}
+
+// shards is how many records keep each under half the record limit, which
+// leaves room for paths longer than the estimate assumes.
+func shards(entries map[string]statEntry) int {
+	size := 0
+	for name, entry := range entries {
+		size += len(name) + len(entry.Value) + statEntryOverhead
+	}
+	count := 1
+	for size/count > recordLimit/2 {
+		count *= 2
+	}
+	return count
+}
+
+func shardOf(name string, count int) int {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(name)) // Writing to a hash never fails.
+	return int(h.Sum32() % uint32(count))
 }
 
 // prepare loads root's persisted entries the first time the root is snapshotted.
@@ -126,6 +165,17 @@ func (s *statStore) prepare(root string) {
 	if err := readRecord(path, &record); err != nil || record.Root != root {
 		return
 	}
+	s.load(root, record)
+	for i := 1; i < record.Shards; i++ {
+		var shard statRecord
+		if err := readRecord(s.shard(root, i), &shard); err == nil && shard.Root == root {
+			s.load(root, shard)
+		}
+	}
+}
+
+// load keeps a record's settled entries. The caller holds s.mu.
+func (s *statStore) load(root string, record statRecord) {
 	for name, entry := range record.Entries {
 		if entry.settled() {
 			s.entries[statKey{Root: root, Path: name}] = entry
@@ -193,9 +243,43 @@ func (s *statStore) flush() error {
 
 	var failure error
 	for root, entries := range grouped {
-		record := statRecord{Root: root, Entries: entries}
-		if err := writeRecord(s.path(root), record); err != nil && failure == nil {
+		if err := s.write(root, entries); err != nil && failure == nil {
 			failure = err
+		}
+	}
+	return failure
+}
+
+// write persists one root's entries across as many shards as their size
+// needs, then removes shards a larger earlier memo left beyond them. Shard 0
+// is written last, so a reader never follows its count to a shard this flush
+// has yet to write.
+func (s *statStore) write(root string, entries map[string]statEntry) error {
+	count := shards(entries)
+	split := make([]map[string]statEntry, count)
+	for i := range split {
+		split[i] = map[string]statEntry{}
+	}
+	for name, entry := range entries {
+		split[shardOf(name, count)][name] = entry
+	}
+
+	var failure error
+	for i := count - 1; i >= 0; i-- {
+		shard := 0
+		if i == 0 && count > 1 {
+			shard = count
+		}
+		if err := writeRecord(s.shard(root, i), statRecord{Root: root, Shards: shard, Entries: split[i]}); err != nil && failure == nil {
+			failure = err
+		}
+	}
+
+	stale, _ := filepath.Glob(filepath.Join(s.dir, "stat", digest(root)+"-*.json"))
+	for _, path := range stale {
+		var i int
+		if _, err := fmt.Sscanf(filepath.Base(path), digest(root)+"-%d.json", &i); err == nil && i >= count {
+			_ = os.Remove(path) // A leftover shard is only a hint nobody reads.
 		}
 	}
 	return failure

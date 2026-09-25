@@ -75,6 +75,9 @@ const (
 	WarningRuleRenamed WarningKind = "rule-renamed"
 	// WarningRuleDeprecated: a selected rule is deprecated.
 	WarningRuleDeprecated WarningKind = "rule-deprecated"
+	// WarningDetachedOutput: a native command exited 0, but a background process
+	// it started still held its output when the grace period ran out.
+	WarningDetachedOutput WarningKind = "detached-output"
 )
 
 // CacheStatus describes reuse without conflating it with verification outcomes.

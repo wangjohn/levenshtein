@@ -75,6 +75,11 @@ type envelope struct {
 	Data     json.RawMessage `json:"Data"`
 }
 
+// recordLimit is the largest record, a result or a stat memo shard, that is
+// written or read. A write over it is refused rather than left for every later
+// read to reject. It is a variable so tests can reach the boundary cheaply.
+var recordLimit = 64 << 20
+
 func writeRecord(path string, value any) error {
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -83,6 +88,9 @@ func writeRecord(path string, value any) error {
 	body, err := json.Marshal(envelope{Checksum: digest(json.RawMessage(data)), Data: data})
 	if err != nil {
 		return err
+	}
+	if len(body) > recordLimit {
+		return fmt.Errorf("record of %d bytes is over the %d-byte cache record limit", len(body), recordLimit)
 	}
 	return atomicWrite(path, body, 0600)
 }
@@ -94,9 +102,12 @@ func readRecord(path string, value any) error {
 	}
 	defer func() { _ = f.Close() }() // Read-only file cleanup.
 
-	data, err := io.ReadAll(io.LimitReader(f, 64<<20))
+	data, err := io.ReadAll(io.LimitReader(f, int64(recordLimit)+1))
 	if err != nil {
 		return err
+	}
+	if len(data) > recordLimit {
+		return fmt.Errorf("record is over the %d-byte cache record limit", recordLimit)
 	}
 
 	var e envelope
@@ -182,20 +193,12 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 		stats.configure(c.Cache.Dir)
 	}
 
-	if c.Cache != nil && req.Environment.Executor == ExecutorNative {
-		unlock, err := lockFile(ctx, filepath.Join(c.Cache.Dir, "locks", "workspace-"+digest(req.Source)))
-		if err != nil {
-			return Result{Status: StatusError, Error: "cannot lock native workspace: " + err.Error()}
-		}
-		defer unlock()
-	}
-
 	// Some verdicts depend on state that changes independently of source
 	// fingerprints. Never reuse one, even when the consumer enables result
 	// caching.
 	if reason := alwaysFreshReason(req.Check.Kind); reason != "" {
 		req.RerunChecks = true
-		result := c.Executor.Execute(ctx, req)
+		result := c.run(ctx, req)
 		return result.withCache(CacheInfo{Status: CacheDisabled, Reason: reason})
 	}
 
@@ -204,7 +207,7 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 	// sees. Dagger still reuses a run whose arguments are all unchanged, so a
 	// repeat costs little.
 	if reason := baseDependentReason(req.Check.Kind); reason != "" {
-		result := c.Executor.Execute(ctx, req)
+		result := c.run(ctx, req)
 		return result.withCache(CacheInfo{Status: CacheDisabled, Reason: reason})
 	}
 
@@ -212,33 +215,60 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 	// inputs and its tooling are both identified, whichever executor runs it.
 	eligible := req.Check.cacheable() || req.Environment.Executor == ExecutorDagger || sharedGoCheck(req.Check.Kind)
 	if c.Cache == nil || !eligible {
-		result := c.Executor.Execute(ctx, req)
+		result := c.run(ctx, req)
 		return result.withCache(CacheInfo{Status: CacheDisabled})
 	}
 
-	key, unlock, err := c.Cache.lockedFingerprint(ctx, req)
-	if err != nil {
-		result := c.Executor.Execute(ctx, req)
-		return result.withCache(CacheInfo{Status: CacheUnavailable, Reason: err.Error()})
-	}
-	status, reason := CacheMiss, discoveryNote(ctx, req.Source, req.Target.Discovery)
-	defer unlock()
-	retryPath := filepath.Join(c.Cache.Dir, "results", key+".retry")
-	if _, err := os.Stat(retryPath); err == nil {
-		req.RerunChecks = true
-		reason = notes(reason, "previous execution did not publish a successful result; bypassing underlying verdict caches")
-	}
+	// A native check enters its working tree only when it has to: to execute,
+	// or to restore artifacts on a hit. A hit with nothing to restore reads
+	// only the cache, so it neither waits for a running command check nor
+	// holds one up. Starting without the workspace and then finding it must
+	// execute costs one more lookup, taken with the workspace held.
+	native := req.Environment.Executor == ExecutorNative
+	gated := native && (req.RerunChecks || len(req.Check.artifacts()) > 0)
+	for {
+		key, release, err := c.Cache.lockedFingerprint(ctx, req, gated)
+		if err != nil {
+			if ctx.Err() != nil {
+				return Result{Status: StatusCancelled, Error: ctx.Err().Error()}
+			}
+			result := c.run(ctx, req)
+			return result.withCache(CacheInfo{Status: CacheUnavailable, Reason: err.Error()})
+		}
 
-	if !req.RerunChecks {
-		if result, err := c.Cache.load(req, key); err == nil {
-			after, changedErr := fingerprint(ctx, req)
-			if changedErr == nil && after == key {
+		attempt := req
+		retryPath := filepath.Join(c.Cache.Dir, "results", key+".retry")
+		reason := discoveryNote(ctx, req.Source, req.Target.Discovery)
+		if _, err := os.Stat(retryPath); err == nil {
+			attempt.RerunChecks = true
+			reason = notes(reason, "previous execution did not publish a successful result; bypassing underlying verdict caches")
+		}
+		if !attempt.RerunChecks {
+			// The key was confirmed with the result lock held, and a record
+			// changes only under that lock, so what loads is the verdict for
+			// the inputs as they are now.
+			if result, err := c.Cache.load(attempt, key); err == nil {
+				release()
 				return result.withCache(CacheInfo{Status: CacheHit, Key: key, Reason: reason, LookupMS: time.Since(start).Milliseconds()})
 			}
 		}
-	} else {
+		if gated || !native {
+			defer release()
+			return c.execute(ctx, attempt, key, reason, start)
+		}
+		release()
+		gated = true
+	}
+}
+
+// execute runs a check under its held result lock, and workspace for a native
+// check, and records a success under key.
+func (c CachedExecutor) execute(ctx context.Context, req Request, key, reason string, start time.Time) Result {
+	status := CacheMiss
+	if req.RerunChecks {
 		status = CacheFresh
 	}
+	retryPath := filepath.Join(c.Cache.Dir, "results", key+".retry")
 
 	// A new observation supersedes an older success, including failure/cancellation.
 	if err := os.Remove(filepath.Join(c.Cache.Dir, "results", key+".json")); err != nil && !os.IsNotExist(err) {
@@ -249,7 +279,7 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 	}
 	lookupMS := time.Since(start).Milliseconds()
 	executed := time.Now()
-	outcome := c.Executor.Execute(ctx, req)
+	outcome := c.executeOnce(ctx, req)
 	result := Result{
 		ID:          outcome.ID,
 		Status:      outcome.Status,
@@ -266,8 +296,6 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 	}
 
 	if result.Status == StatusPassed {
-		// Execution may have created files the run's memoized listing predates.
-		relist(req.Source)
 		after, err := fingerprint(ctx, req)
 		if err != nil || after != key {
 			return result.withCache(CacheInfo{Status: status, Key: key, Reason: notes(reason, "inputs changed during execution; result was not cached"), LookupMS: lookupMS})
@@ -283,21 +311,79 @@ func (c CachedExecutor) Execute(ctx context.Context, req Request) Result {
 	return result.withCache(CacheInfo{Status: status, Key: key, Reason: reason, LookupMS: lookupMS})
 }
 
-func (c *Cache) lockedFingerprint(ctx context.Context, req Request) (string, func(), error) {
+// run executes a check the cache does not hold, entering the working tree
+// first when the check is native.
+func (c CachedExecutor) run(ctx context.Context, req Request) Result {
+	if req.Environment.Executor == ExecutorNative {
+		leave, err := acquireWorkspace(ctx, c.cacheDir(), req.Source, writesWorkspace(req))
+		if err != nil {
+			return workspaceFailure(ctx, err)
+		}
+		defer leave()
+	}
+	return c.executeOnce(ctx, req)
+}
+
+// executeOnce runs the underlying executor. Whatever the outcome, execution may
+// have created files the run's memoized listing predates, and the next
+// fingerprint in this run, of this check or any other, must see them. A failed
+// command can leave files behind as easily as a passing one.
+func (c CachedExecutor) executeOnce(ctx context.Context, req Request) Result {
+	result := c.Executor.Execute(ctx, req)
+	relist(req.Source)
+	return result
+}
+
+func (c CachedExecutor) cacheDir() string {
+	if c.Cache == nil {
+		return ""
+	}
+	return c.Cache.Dir
+}
+
+// workspaceFailure reports a check that never entered its working tree. A
+// wait the run's context ended is a cancellation, not a failure to lock.
+func workspaceFailure(ctx context.Context, err error) Result {
+	if ctx.Err() != nil {
+		return Result{Status: StatusCancelled, Error: ctx.Err().Error()}
+	}
+	return Result{Status: StatusError, Error: "cannot lock native workspace: " + err.Error()}
+}
+
+// lockedFingerprint returns the check's key with its result lock held, and,
+// when gated, its native workspace too. The inputs are fingerprinted again once
+// everything is held: the first fingerprint only names the lock, and whoever
+// held that lock or the workspace meanwhile may have changed the inputs, so a
+// key that no longer matches is released and looked up again.
+func (c *Cache) lockedFingerprint(ctx context.Context, req Request, gated bool) (string, func(), error) {
 	for range 3 {
 		key, err := fingerprint(ctx, req)
 		if err != nil {
 			return "", nil, err
 		}
-		unlock, err := lockFile(ctx, filepath.Join(c.Dir, "locks", "result-"+key))
+		release, err := lockFile(ctx, filepath.Join(c.Dir, "locks", "result-"+key))
 		if err != nil {
 			return "", nil, err
 		}
+		if gated {
+			unlock := release
+			exclusive := writesWorkspace(req) || len(req.Check.artifacts()) > 0
+			leave, err := acquireWorkspace(ctx, c.Dir, req.Source, exclusive)
+			if err != nil {
+				unlock()
+				return "", nil, err
+			}
+			release = func() {
+				leave()
+				unlock()
+			}
+		}
+
 		current, err := fingerprint(ctx, req)
 		if err == nil && current == key {
-			return key, unlock, nil
+			return key, release, nil
 		}
-		unlock()
+		release()
 		if err != nil {
 			return "", nil, err
 		}

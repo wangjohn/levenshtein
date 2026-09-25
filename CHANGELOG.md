@@ -339,6 +339,38 @@ Consumers pin a release tag, or its commit SHA, as described in
   nilerr applied the directive itself and dropped the finding, so Staticcheck
   then reported the directive as matching nothing and the check failed either
   way. Upstream analyzers now leave `//lint:ignore` to Staticcheck.
+- Native checks in one run execute in parallel again, up to `--jobs`. Each
+  check took the workspace file lock through its own handle, which also
+  blocks the same process, so every native check ran alone, even read-only
+  ones and cache hits. Read-only kinds (the shared Go kinds and
+  `semantic-lint`) now overlap, `command` checks still run alone, a cache hit
+  with no artifacts to restore takes no workspace lock, and another process
+  on the same source still waits. A check cancelled while it waits for the
+  workspace is reported as `cancelled` instead of `error`.
+- Git input discovery lists the work tree again after every check and every
+  preparation or build stage, not only after a passing check. A failed check,
+  or a preparation that generates files into its build's inputs, could leave
+  untracked files that a later key in the same run did not see, so a stale
+  result or build could be reused.
+- A native shared Go check's cache key covers the Go settings that change
+  what it reports, such as `GOFLAGS`, `GOEXPERIMENT`, `CGO_ENABLED`, `CC`, and
+  the architecture levels, including values set with `go env -w`. Before, only
+  the Go version, OS, and architecture were, so `go env -w
+  GOFLAGS=-tags=integration` reused results computed without the tag. Module
+  download settings such as `GOPROXY` and `GOPRIVATE` still do not affect the
+  key. Existing native shared Go results are recomputed once.
+- A native `command` check or stage that exits 0 but leaves a background
+  process holding its output, as `sh -c 'server & echo ok'` or a daemonizing
+  build tool can, passes with a `detached-output` warning instead of failing
+  with `exec: WaitDelay expired before I/O complete`. The leftover process is
+  still killed with the command's process group, which happens after every
+  run, not only on timeout as docs/architecture.md said; daemons that start
+  their own session are unaffected.
+- The file stat memo keeps working in repositories above roughly 280,000
+  files. Its single record outgrew the 64 MiB read limit, so it was written on
+  every run and never read back; it is now split across as many records as it
+  needs. A cache record over the limit is refused when written, and a result
+  too large to cache says so in its cache `reason`.
 
 ## [0.1.0] - 2026-09-22
 
