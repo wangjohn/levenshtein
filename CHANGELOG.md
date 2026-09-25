@@ -261,6 +261,10 @@ Consumers pin a release tag, or its commit SHA, as described in
 - [docs/consumer-ci.md](docs/consumer-ci.md) no longer says there is no shared
   `go-test` check, and its list of what is available names `go-test`,
   `workflow-security`, and `go-mutation`.
+- `//lint:ignore nilerr <reason>` suppresses the `nilerr` finding on its line.
+  nilerr applied the directive itself and dropped the finding, so Staticcheck
+  then reported the directive as matching nothing and the check failed either
+  way. Upstream analyzers now leave `//lint:ignore` to Staticcheck.
 
 ## [0.1.0] - 2026-09-22
 

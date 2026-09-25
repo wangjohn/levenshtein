@@ -24,6 +24,8 @@ import (
 	"github.com/charithe/durationcheck"
 	"github.com/ckaznocha/intrange"
 	reassign "github.com/curioswitch/go-reassign"
+	"github.com/gostaticanalysis/comment"
+	"github.com/gostaticanalysis/comment/passes/commentmap"
 	"github.com/gostaticanalysis/nilerr"
 	"github.com/jingyugao/rowserrcheck/passes/rowserr"
 	"github.com/kisielk/errcheck/errcheck"
@@ -483,6 +485,30 @@ func house() []*analysis.Analyzer {
 	}
 }
 
+// upstream adapts third-party analyzers to the shared rules with policy.Adapt
+// and leaves //lint:ignore to Staticcheck. An analyzer that reads the directive
+// itself through gostaticanalysis's comment map, as nilerr does, drops the
+// finding before Staticcheck sees it, and Staticcheck then reports the
+// directive as matching nothing, so no directive could suppress the finding.
+// Given an empty comment map instead, the analyzer reports every finding and
+// Staticcheck applies the directive as it does for every other rule, still
+// reporting one that matches nothing. analysisutil.ReportWithoutIgnore reads
+// the same result without requiring it, so every analyzer gets the empty map.
+func upstream(analyzers ...*analysis.Analyzer) []*analysis.Analyzer {
+	for _, current := range policy.Adapt(analyzers...) {
+		run := current.Run
+		current.Run = func(pass *analysis.Pass) (any, error) {
+			results := maps.Clone(pass.ResultOf)
+			results[commentmap.Analyzer] = comment.Maps{}
+
+			withoutIgnores := *pass
+			withoutIgnores.ResultOf = results
+			return run(&withoutIgnores)
+		}
+	}
+	return analyzers
+}
+
 func main() {
 	os.Exit(run(os.Args[1:]))
 }
@@ -510,16 +536,16 @@ func run(args []string) int {
 	command.ParseFlags(args)
 	families := staticcheckFamilies()
 	bare := slices.Concat(
-		policy.Adapt(resources()...),
-		policy.Adapt(correctness()...),
-		policy.Adapt(critics()...),
-		policy.Adapt(logging()...),
-		policy.Adapt(source()...),
-		policy.Adapt(signatures()...),
-		policy.Adapt(hygiene()...),
-		policy.Adapt(modernizers()...),
-		policy.Adapt(tests()...),
-		policy.Adapt(complexity()...),
+		upstream(resources()...),
+		upstream(correctness()...),
+		upstream(critics()...),
+		upstream(logging()...),
+		upstream(source()...),
+		upstream(signatures()...),
+		upstream(hygiene()...),
+		upstream(modernizers()...),
+		upstream(tests()...),
+		upstream(complexity()...),
 		house(),
 	)
 	if !linting(command.FlagSet()) {
