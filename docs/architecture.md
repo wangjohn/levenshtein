@@ -346,8 +346,13 @@ See [output formats](configuration.md#output-formats) and
   require newer versions of other dependencies without touching the core
   linter.
 - **`runner/tools/`** (`runner/tools/go.mod`): pins `actionlint`,
-  `govulncheck`, `gremlins`, and `apidiff` via Go's `tool` directive, so their versions are locked
-  independently of the modules that build and run them.
+  `govulncheck`, `gremlins`, `gitleaks`, and `apidiff` via Go's `tool` directive, so their versions are locked
+  independently of the modules that build and run them. They share one
+  module, so `runner/toolchain.json` also pins each tool's own module version
+  and `runner/main_test.go` fails when an update to one tool moves another.
+  The same test checks every other version recorded twice: `.go-version`,
+  the `go` directives, the Go image in `sdk/patched-go`, Staticcheck in
+  `runner/lint` and `runner/community`, and the Dagger engine version.
 
 ## `sdk/patched-go`
 

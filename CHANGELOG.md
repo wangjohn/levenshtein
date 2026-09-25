@@ -245,6 +245,11 @@ Consumers pin a release tag, or its commit SHA, as described in
   repository and `runner/lint` for local use. It is not part of `branch`,
   `pre-merge`, or `main`, because CI's `tests` job already runs
   `go test -race` over the same modules.
+- `runner/toolchain.json` pins the module version of each tool built from
+  `runner/tools`, and a test fails when an update moves one without its pin,
+  or when any other version recorded twice (the Go version and image,
+  Staticcheck, the Dagger engine) disagrees with its copy. zizmor is pinned
+  in the same shape as ShellCheck and osv-scanner.
 
 ### Fixed
 
