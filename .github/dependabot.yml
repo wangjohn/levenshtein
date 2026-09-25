@@ -7,7 +7,7 @@ updates:
   # pull request, whose only manual step is ./scripts/sync-action-pins for the
   # pins in the Markdown docs (scripts/test-workflows fails until it runs).
   # Levenshtein's own pin in the template moves with a release instead
-  # (docs/releases.md).
+  # (docs/maintainers/releases.md).
   # Every ecosystem waits a week after a release before proposing it, so a
   # compromised or withdrawn version is usually gone before a PR opens.
   - package-ecosystem: github-actions

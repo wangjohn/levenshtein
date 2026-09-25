@@ -3,7 +3,7 @@ name: Security
 # Supply-chain checks for the repository itself: the workflows that run the
 # shared checks, this repository's OpenSSF Scorecard, and the dependencies a
 # pull request adds. The shared Go vulnerability scan lives in
-# vulnerabilities.yml; see docs/setup.md#levenshteins-own-ci.
+# vulnerabilities.yml; see docs/maintainers/ci.md.
 
 on:
   pull_request:

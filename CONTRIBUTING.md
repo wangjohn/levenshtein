@@ -51,7 +51,7 @@ Repo self-checks, matching what CI runs:
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-See ["Develop the shared checks"](docs/setup.md#develop-the-shared-checks) for the full local development recipe, including the broader `dagger develop` / `go test -race` / `./scripts/test-consumers` sequence CI runs.
+See ["Develop the shared checks"](docs/maintainers/development.md#develop-the-shared-checks) for the full local development recipe, including the broader `dagger develop` / `go test -race` / `./scripts/test-consumers` sequence CI runs.
 
 ## Optional local hooks
 

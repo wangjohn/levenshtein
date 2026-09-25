@@ -65,4 +65,4 @@ A `go-lint` check ends in `error` with `go-lint check "<pattern>" matches no rul
 
 ## Levenshtein's own checks do not build
 
-In the Levenshtein repository itself, `./verify` checks the `runner` module, which compiles against a generated Dagger SDK that is not committed. Run `dagger develop --compat=skip` once from the repository root ([setup](setup.md#develop-the-shared-checks)).
+In the Levenshtein repository itself, `./verify` checks the `runner` module, which compiles against a generated Dagger SDK that is not committed. Run `dagger develop --compat=skip` once from the repository root ([setup](maintainers/development.md#develop-the-shared-checks)).
