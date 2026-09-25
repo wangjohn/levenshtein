@@ -98,8 +98,12 @@ findings and warnings as JSON; a failing one attaches them as the
 `levenshteinFindings` and `levenshteinWarnings` extensions, and a
 `levenshteinError` extension marks a check that could not finish, such as one
 whose community rules failed, as `StatusError` while keeping its findings.
-[The community rules design](design/community-rules.md#running-community-rules) describes the
-build, download, and lint containers behind it.
+[The community rules design](design/community-rules.md#running-community-rules)
+describes the build, download, and lint containers behind it. The steps that
+run the consumer's own code (`go-test`, `go-generate`, and `go-mutation`) mount
+Go module and build cache volumes of their own (`untrustedGoContainer` in
+`runner/checks.go`), never the ones the linters and pinned tools are built
+from, so that code cannot change what a later tool build compiles.
 
 ### Native executor
 
@@ -122,8 +126,8 @@ kind the native executor can run as well as the Dagger one ([check
 kinds](check-kinds.md) lists them); `self-test`, `go-http`, `go-sql`, and
 `go-mutation` stay Dagger-only. `internal/verify/gotools.go` builds the
 helper binaries (`levenshtein-lint` and `levenshtein-gocheck` from
-`runner/lint`; `actionlint`, `govulncheck`, `apidiff`, and `gitleaks` from
-`runner/tools`) out of the pinned shared checkout into
+`runner/lint`; `actionlint`, `govulncheck`, `apidiff`, and `gitleaks` each
+from its own module under `runner/tools`) out of the pinned shared checkout into
 `cache.Dir/tools/` with `GOWORK=off GOTOOLCHAIN=local go build -trimpath`,
 serialized by a lock in `cache.Dir/locks`; Go's own build cache makes a repeat
 build cheap, so there is no staleness logic. `internal/verify/gochecks.go` then
@@ -138,7 +142,7 @@ root (`workspace` in `gochecks.go`), or `off`. `go-mod` is the exception: it
 needs only a readable `go.mod`, not packages, and always runs `go mod tidy
 -diff` and `go mod verify` with `GOWORK=off` on both executors, because tidy
 checks one module's own manifests. `workflow-security` builds nothing:
-`internal/verify/zizmor.go` downloads the zizmor release archive that
+`internal/verify/releases.go` downloads the zizmor release archive that
 `runner/toolchain.json` pins for the host's GOOS/GOARCH into
 `cache.Dir/tools/zizmor-<version>/`, under its own lock in `cache.Dir/locks`, and extracts the
 binary only from bytes that match the pinned SHA-256; the runner's Dagger path
@@ -149,9 +153,8 @@ check's `PATH`, and the runner runs the same command in the pinned image, which
 ships `gcc`. `go-imports` runs `levenshtein-gocheck`, built from
 `runner/lint/cmd/levenshtein-gocheck` like `levenshtein-lint`, on both
 executors: the verdict is decided once, in `runner/lint/gocheck`, and each
-executor only reads its JSON report (`gocheckReport` in
-`internal/verify/gocheck.go` and its copy in `runner/gocheck.go`, both tested
-against `runner/testdata/gocheck-reports.json`). Its rules travel as a
+executor only reads its JSON report (`GocheckReport` in `internal/checktool`,
+tested against `runner/testdata/gocheck-reports.json`). Its rules travel as a
 `rules` argument to the runner's `goImports` function, so they key Dagger's
 call cache as they key the CLI's fingerprint. `go-generate` runs the same
 command's `generate` mode, which runs `go generate ./...` and compares the tree
@@ -161,14 +164,14 @@ copy of the target's declared inputs (`copyInputs` in
 `go-apidiff` resolves the merge base on the host, as `go-mutation` does, and
 exports the target's declared inputs at that commit from its objects
 (`apidiffBase` in `internal/verify/goapidiff.go`); the command's `apidiff` mode
-then drives the `apidiff` built from `runner/tools` over that tree and the
+then drives the `apidiff` built from `runner/tools/apidiff` over that tree and the
 source, natively, or in the runner's `goApidiff` function, which receives the
-exported tree as a directory argument. `shell-lint` and `deps-vuln` use `internal/verify/releases.go`, a
-general form of the zizmor download: `runner/toolchain.json` pins each release's
+exported tree as a directory argument. `shell-lint` and `deps-vuln` use the same download,
+and for all three `runner/toolchain.json` pins each release's
 download location, version, and per-platform asset with its SHA-256, and the
 binary's path when the asset is a `.tar.gz`; the runner's `runner/releases.go`
 reads the same pins for `dag.HTTP`. `secrets` builds gitleaks from
-`runner/tools` like `actionlint`. `internal/verify/visible.go` lists the
+`runner/tools/gitleaks` like `actionlint`. `internal/verify/visible.go` lists the
 target's file set (see [the result cache](#result-cache)) less the private
 `.git`/`.env` paths, which is what the Dagger path imports; `shell-lint` checks the scripts among
 them in place, and `secrets` and `deps-vuln`, whose tools scan a directory and
@@ -177,18 +180,16 @@ that. Without a cache
 directory, a check's tools go into a temporary directory removed when it
 finishes.
 
-`internal/verify/findings.go` is a deliberate copy of the runner's
-`parseFindings`/`commandFindings`/`modFindings` (and `zizmor.go` of its
-`zizmorFindings`/`zizmorArguments`, `gotest.go` of its `testArgs`/`testFindings`,
-and `shelllint.go`, `secrets.go`, and `depsvuln.go` of the runner's files of the
-same names, whose `shellScript` selection both sides test against
-`runner/testdata/shell-scripts.json`)
-and of its check-selection filter (`allowed`/`selects`), since `runner` is a
-separate `package main` module that cannot be imported. Both filters are tested
-against one table, `runner/testdata/selection.json`, and both copies of
-`testFindings` against recorded `go test -json` output in
-`runner/testdata/test-events`, so they cannot drift apart unnoticed. It
-produces the same `{"findings": [...]}` `Details` envelope as `daggerResult`,
+Both executors start each pinned tool and read its result with the same code,
+`internal/checktool`: the arguments, how an exit code and the tool's output
+(`go test -json`, `go mod`, the linter's JSON, ShellCheck, gitleaks, zizmor,
+osv-scanner, `levenshtein-gocheck`, or a plain exit) become findings or an
+error, the check-selection filter, and the release pin type. `runner` is a
+separate module that cannot import the root one, so it compiles
+`runner/internal/checktool`, a copy `go generate ./internal/checktool` writes;
+`TestRunnerCopyIsCurrent` fails while the copy differs from its source. The
+native executor turns checktool's findings into its own
+`{"findings": [...]}` `Details` envelope, the one `daggerResult` produces,
 with locations relative to the source root, so a report does not say which
 executor produced it. Because the host's Go is not covered by any snapshot,
 `fingerprint` adds its `go env GOVERSION GOOS GOARCH` to the cache key for
@@ -382,9 +383,18 @@ See [output formats](configuration.md#output-formats) and
   It shares only its Staticcheck pin with `runner/lint`, so community rules can
   require newer versions of other dependencies without touching the core
   linter.
-- **`runner/tools/`** (`runner/tools/go.mod`): pins `actionlint`,
-  `govulncheck`, `gremlins`, `apidiff`, and `gitleaks` via Go's `tool` directive, so their versions are locked
-  independently of the modules that build and run them.
+- **`runner/tools/`**: one module per pinned Go tool (`actionlint`,
+  `apidiff`, `gitleaks`, `govulncheck`, and `gremlins`), each naming its tool
+  in a single `tool` directive, so their versions are locked independently of
+  the modules that build and run them and of each other: updating one tool
+  cannot move a dependency another is built with, and its `go.mod` is the only
+  place its version is recorded. `pinnedTools` in `runner/checks.go` and the
+  helpers in `internal/verify` build each from its own directory.
+  `TestPinsAgree` in `runner/main_test.go` fails when a tool module names
+  more than its one tool, when a directory there is not in `pinnedTools`, or
+  when any version recorded twice disagrees with its copy: `.go-version`, the
+  `go` directives, the Go image in `sdk/patched-go`, Staticcheck in
+  `runner/lint` and `runner/community`, and the Dagger engine version.
 
 ## `sdk/patched-go`
 

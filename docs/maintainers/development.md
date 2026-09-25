@@ -30,6 +30,7 @@ Stable versions checked on September 15, 2026:
 | Go container | 1.27.1 on Debian Trixie | Tag and immutable image digest in `runner/toolchain.json` |
 | Dagger CLI / engine / SDK | 0.21.9 | `.dagger-version`, `dagger.json`, root `go.mod`, generated module dependencies |
 | Staticcheck | 2026.2.1 (`honnef.co/go/tools` v0.8.1) | `runner/toolchain.json` |
+| actionlint, apidiff, gitleaks, govulncheck, gremlins | Per tool | One module each under `runner/tools`, whose `go.mod` is the only pin; Dependabot proposes each tool's updates in a pull request of its own |
 | Actions checkout / setup-go / cache | 7.0.1 / 7.0.0 / 6.1.0 | Full commit hashes in the workflows and composite actions |
 
 The pinned Go version builds the CLI (the launcher provisions it when the host Go differs) and is what runner development and unit tests expect. The actual lint runs on Linux with default build tags, using the pinned container toolchain with automatic Go toolchain switching disabled. A temporary SDK adapter fixes Dagger 0.21.9’s forced logging dependency overrides for both generation and execution; see [dependency security](../dependencies.md#dagger-wrapper-dependency-security). The wrapper’s Go language version must stay at or below the Go version of the codegen container (`goImage`), which Dagger’s module generator refuses to exceed; it does not restrict the Go version of repositories being checked. `go.sum` records checksums. Upgrade pins together and validate the fixtures before adoption.

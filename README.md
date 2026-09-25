@@ -69,12 +69,9 @@ To see what the rules find in a Go module, run this from its root. It needs only
 go run github.com/wangjohn/levenshtein/runner/lint/cmd/levenshtein-lint@latest ./...
 ```
 
-It prints one `file:line:col: message (CODE)` line per finding and exits with `1` when there are any. This runs the `go-lint` rules alone: `go vet`, `go-mod`, `govulncheck`, the [baseline](docs/configuration.md#baseline), [community rules](docs/community-rules.md), and caching come with `verify` below. `@latest` is the newest `runner/lint/vX.Y.Z` release tag, or the newest commit on `main` while there is none; to pin, name a tag or a commit instead. See [running the linter directly](docs/checks.md#running-the-linter-directly).
+It prints one `file:line:col: message (CODE)` line per finding and exits with `1` when there are any. This runs the `go-lint` rules alone: `go vet`, `go-mod`, `govulncheck`, the [baseline](docs/configuration.md#baseline), [community rules](docs/community-rules.md), and caching come with `verify` below. `@latest` is the newest `runner/lint/vX.Y.Z` release tag, or the newest commit on `main` while there is none; to pin, name a tag or a commit instead. See [running the linter directly](docs/rules.md#running-the-linter-directly).
 
 ## Quick start
-
-> [!NOTE]
-> This README describes `main`, which is ahead of the latest release, v0.1.0. v0.1.0 has no `--format`, `--render`, or baseline flags, no `annotations` or `sarif` action inputs, no community rule modules, and ten check kinds rather than nineteen. If you pin v0.1.0, read [its README](https://github.com/wangjohn/levenshtein/tree/v0.1.0) instead. <!-- Delete this note when the next release ships. -->
 
 You need `go` (any version) and Docker or another Docker-compatible runtime, such as Colima. Levenshtein runs on Linux and macOS.
 

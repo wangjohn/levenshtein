@@ -90,6 +90,10 @@ Moved to [Go lint rules](rules.md#tests-that-can-fail-lv1006).
 
 Moved to [Go lint rules](rules.md): see [suppressing a finding](rules.md#suppressing-a-finding) and [running the linter directly](rules.md#running-the-linter-directly).
 
+### Running the linter directly
+
+Moved to [Go lint rules](rules.md#running-the-linter-directly).
+
 ### Named checks and suggested runs
 
 Moved to the [check kinds guide](check-kinds-guide.md#named-checks-and-suggested-runs).

@@ -35,8 +35,9 @@ in CI without a workflow change.
 
 Module manifests are not a step of their own: the `lint` job's `branch` run
 includes the shared [`go-mod` check](../check-kinds-guide.md#module-manifests)
-(`go mod tidy -diff` and `go mod verify`) over `.`, `runner/lint`, and
-`runner/tools` on every event, and never reuses a cached result. `runner` is
+(`go mod tidy -diff` and `go mod verify`) over `.`, `runner/lint`,
+`runner/community`, each tool module under `runner/tools`, and
+`examples/rule-module` on every event, and never reuses a cached result. `runner` is
 left out because `dagger develop` rewrites its manifest.
 
 The Go tests stay steps of the `tests` job, which runs `go test -race` over the

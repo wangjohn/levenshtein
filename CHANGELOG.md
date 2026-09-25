@@ -10,6 +10,276 @@ says which interfaces are versioned and what to expect when you bump your pin.
 
 ## [Unreleased]
 
+### Added
+
+- [docs/check-kinds.md](docs/check-kinds.md) lists every check kind with
+  what it checks, which executors run it, whether its results are cached,
+  whether a baseline can hold its findings, whether it needs a
+  repository-root target, and which default runs include it. The table is
+  generated from the verifier's own kind descriptors, and a test fails when
+  it falls out of date.
+- Documentation: a [docs index](docs/README.md), a
+  [CLI reference](docs/reference/cli.md), [troubleshooting](docs/troubleshooting.md),
+  a [versioning policy](docs/versioning.md), a [glossary](docs/glossary.md),
+  and a [comparison with golangci-lint](docs/faq.md#levenshtein-or-golangci-lint).
+  A test in the root module fails when a relative link or `#anchor` in any
+  Markdown file does not resolve.
+- The release workflow publishes only a `vX.Y.Z` tag whose commit `main`
+  contains and whose version `CHANGELOG.md` releases (`scripts/release-on-main`).
+  [docs/releases.md](docs/releases.md#protecting-release-tags) has the tag
+  rulesets and immutable-release setting an admin can apply.
+
+### Changed
+
+- **Each pinned Go tool builds from a module of its own.** `actionlint`,
+  `apidiff`, `gitleaks`, `govulncheck`, and `gremlins` moved from one shared
+  `runner/tools` module to `runner/tools/<tool>`, each with a single `tool`
+  directive, so a Dependabot update of one tool needs no manual pin edit and
+  cannot move a version another is built with. Every tool still links exactly
+  the module versions it did before. `runner/toolchain.json` no longer repeats
+  the tools' versions, and Dependabot proposes each tool's updates in a pull
+  request of its own.
+- **The documentation moved.** `docs/checks.md` is now a short landing page:
+  the rules `go-lint` enforces are in [docs/rules.md](docs/rules.md), the
+  evidence and the analyzers left off in
+  [docs/rule-selection.md](docs/rule-selection.md), and how each check kind
+  behaves in [docs/check-kinds-guide.md](docs/check-kinds-guide.md).
+  [docs/reference/config.md](docs/reference/config.md) lists every
+  `levenshtein.json` field. The community rules design, and the maintainers'
+  CI, development, and release notes, moved under `docs/design/` and
+  `docs/maintainers/`. Every old heading stays as a pointer, so links from
+  earlier releases' findings still land, and finding URLs and hints now link
+  to `docs/rules.md`.
+- The Claude Code Stop hook template blocks only the first attempt to stop in a
+  turn by default, so an agent that cannot fix a finding, or meets one that
+  predates its change, ends with a report instead of looping.
+  `LEVENSHTEIN_STOP_ONCE=0` keeps blocking every attempt while the run fails
+  ([docs/agents.md](docs/agents.md#stop-keep-working-while-the-run-fails)).
+- The workflow template and the consumer examples pin the action by the
+  release's commit SHA with the version as a comment
+  (`wangjohn/levenshtein@<sha> # v0.1.0`), and `scripts/test-doc-pins` checks
+  that the SHA is the one the tag names. Releases now update the examples in a
+  pull request after the tag, checked with `scripts/test-doc-pins --latest`
+  ([docs/releases.md](docs/releases.md)).
+- Levenshtein's own CI: concurrency groups are per commit outside pull
+  requests, so GitHub no longer cancels queued `main` runs; `dependency-review`
+  reports in a merge queue; every `integration`-tagged Go test runs, natively
+  unless `scripts/test-integration` lists it as needing Dagger; a non-required
+  `macos` job runs the root module's unit tests; the `tests` job's result
+  cache saves only result records; the Dagger CLI cache holds the release
+  archive, verified against its checksum on every run, instead of the binary;
+  `TYPESAFE_API_KEY` is visible only to the semantic-lint step;
+  `go-vuln` also scans `examples/rule-module` and `scripts/test-sdk-security`
+  scans the built `runner/tools` binaries; Dependabot updates
+  `examples/rule-module` and bumps Staticcheck in `runner/lint` and
+  `runner/community` together; and `scripts/test-workflows` keeps the
+  template's and docs' action pins equal to the workflows'. Dependabot now
+  updates the workflow template too, in the same single grouped pull request
+  as the workflows, and `scripts/sync-action-pins` copies the pins into the
+  docs.
+- A test fails when any version recorded twice (the Go version and image,
+  Staticcheck, the Dagger engine) disagrees with its copy. zizmor is pinned
+  in the same shape as ShellCheck and osv-scanner.
+
+### Fixed
+
+- A baseline no longer judges a `go-lint` entry by a check that could not
+  have reported it. A native check, which skips community rules, reported
+  every community-rule entry as stale, and `--write-baseline` deleted them;
+  a check whose `lint.checks` turned a rule off (such as `-unparam`) did the
+  same to that rule's entries. Such entries are now neither stale nor removed.
+- A community rule that sets a diagnostic `Category` now reports under its
+  code. Staticcheck dropped every such finding, while the report still listed
+  the rule as selected. Community rules also skip generated files, as core
+  rules do.
+- A rule module can no longer hide the core linter's unused-directive
+  findings. Rule code runs in the community linter's process and could print
+  an `lvrules_mixed` finding at any line; the runner now drops a core
+  unused-directive finding only when the source at that position holds a
+  directive that really mixes core and community codes.
+- [docs/community-rules.md](docs/community-rules.md) no longer describes the
+  `lvrules-template` repository and the `lvrules-check` action as available;
+  both are still planned, so rule authors start from `examples/rule-module`.
+- Native checks in one run execute in parallel again, up to `--jobs`. Each
+  check took the workspace file lock through its own handle, which also
+  blocks the same process, so every native check ran alone, even read-only
+  ones and cache hits. Read-only kinds (the shared Go kinds and
+  `semantic-lint`) now overlap, `command` checks still run alone, a cache hit
+  with no artifacts to restore takes no workspace lock, and another process
+  on the same source still waits. A check cancelled while it waits for the
+  workspace is reported as `cancelled` instead of `error`.
+- Git input discovery lists the work tree again after every check and every
+  preparation or build stage, not only after a passing check. A failed check,
+  or a preparation that generates files into its build's inputs, could leave
+  untracked files that a later key in the same run did not see, so a stale
+  result or build could be reused.
+- A native shared Go check's cache key covers the Go settings that change
+  what it reports, such as `GOFLAGS`, `GOEXPERIMENT`, `CGO_ENABLED`, `CC`, and
+  the architecture levels, including values set with `go env -w`. Before, only
+  the Go version, OS, and architecture were, so `go env -w
+  GOFLAGS=-tags=integration` reused results computed without the tag. Module
+  download settings such as `GOPROXY` and `GOPRIVATE` still do not affect the
+  key. Existing native shared Go results are recomputed once.
+- A native `command` check or stage that exits 0 but leaves a background
+  process holding its output, as `sh -c 'server & echo ok'` or a daemonizing
+  build tool can, passes with a `detached-output` warning instead of failing
+  with `exec: WaitDelay expired before I/O complete`. The leftover process is
+  still killed with the command's process group, which happens after every
+  run, not only on timeout as docs/architecture.md said; daemons that start
+  their own session are unaffected.
+- The file stat memo keeps working in repositories above roughly 280,000
+  files. Its single record outgrew the 64 MiB read limit, so it was written on
+  every run and never read back; it is now split across as many records as it
+  needs. A cache record over the limit is refused when written, and a result
+  too large to cache says so in its cache `reason`.
+- Tests that build throwaway git repositories no longer write to the
+  repository `go test` was started from. They inherited `GIT_DIR`,
+  `GIT_INDEX_FILE`, and `GIT_WORK_TREE`, which git exports to hooks, so the
+  lefthook `pre-push` run of `go test ./...` committed, switched branches, and
+  staged files in the pushing checkout. Every test now runs git through
+  `internal/testgit`, which drops every inherited `GIT_` variable, and a guard
+  test fails on a test file that runs git directly.
+- `go-mutation`, `go-apidiff`, and `semantic-lint` measure the change from
+  `origin/<base>` when it exists, and use the local branch only when it is the
+  same commit or ahead of it. A local `main` left behind after rebasing onto
+  `origin/main` used to set an old merge base, so the check judged, and
+  `semantic-lint` paid for, other people's commits.
+- When the base and `HEAD` share no commit, these checks now say so instead of
+  `git merge-base: exit status 1:`. In a shallow checkout, such as
+  `actions/checkout`'s default depth of one plus a shallow fetch of the base,
+  the message advises `fetch-depth: 0`.
+- `semantic-lint` reviews changed files whose names contain a space, a quote,
+  a backslash, or escaped non-ASCII bytes. Their diff headers kept git's
+  trailing tab or C quoting, so the files were classified as neither Go nor
+  Markdown and silently skipped, and commit summaries listed the raw header.
+- `semantic-lint` gives each API request 90 seconds and retries one that
+  stalls, instead of letting a hung connection use up the check's whole
+  timeout. HTTP 500 is retried like 502, 503, 504, and 429, and the client no
+  longer waits out a retry delay after its last attempt.
+- `semantic-lint` stays advisory when answers are missing. A question the API
+  omitted made the check `incomplete`, and one rejected request made it
+  `error`, both exiting 1; now unanswered questions and failed requests are
+  listed in the output (`details.missing`, `details.errors`) and the check
+  passes, unless requests were sent and not one question was answered. When
+  the check's timeout elapses mid-run, the answers already received are kept
+  instead of discarded. Unanswered questions are named as
+  `path:line symbol question`, once each, instead of by wire ids such as
+  `comment_explains_why#0` that repeat in every request.
+- `semantic-lint` bounds what one run sends: `max_requests` (default 60) and
+  `max_input_chars` (default 1,500,000) in the check's `semantic` object.
+  States beyond either budget are not sent and are named in a note and
+  `details.skipped`, and the change-level state is sent first. A large
+  refactor used to send hundreds of requests, run into the timeout, and
+  report nothing ([details](docs/semantic-lint.md#how-it-works)).
+- A second Ctrl-C or SIGTERM ends `verify` while it writes the report,
+  flushes the cache, or closes the Dagger session. The first signal cancels
+  the run as before; the second used to be swallowed until the process
+  exited, so a hung teardown needed SIGKILL.
+- `go-mutation` no longer passes weak tests on a warm build cache. Gremlins
+  timed its coverage run, which `go test` could answer from its cache in
+  milliseconds, and gave every mutant ten times that; a package whose tests
+  took seconds then timed out every mutant, and timeouts counted as caught.
+  Gremlins now runs with `GOFLAGS=-count=1`, a timeout counts as caught only
+  under a limit of at least 10 seconds, a run that timed out a mutant under a
+  shorter limit is repeated with a higher coefficient, and if that still
+  falls short the check is incomplete. The summary warns about any package in
+  which at least half of the covered mutants, and at least two, timed out
+  ([details](docs/mutation.md#timeouts)).
+- **`go-mutation` judges accepted survivors more strictly**, so an entry can
+  no longer keep a weak test hidden. An entry whose mutants a test now kills,
+  or that time out, is stale and fails the check until it is removed. An
+  entry whose text matches survivors on more than one line accepts none of
+  them and fails with `go-mutation-ambiguous`; the new optional `function`
+  and `occurrence` fields say which line it means
+  ([details](docs/mutation.md#accepted-survivors)).
+- LV1002 checks structs built inside `switch`, type switch, and `select`
+  cases. A case holds its statements without a block of its own, so
+  `var s S; s.A = 1` inside one went unreported.
+- LV1006 checks a test whose parameter names `testing.T` through an alias, as
+  in `type T = testing.T; func TestX(t *T)`, which go test runs, and no longer
+  counts `t.Failed()` as a way to fail: it only reads the test's state.
+- LV1001 asks for typed constants only for string types declared in the
+  module being linted. Converting a literal to a library's open-ended type,
+  such as `corev1.ResourceName("nvidia.com/gpu")`, was reported because the
+  library declares a few constants of it.
+- LV1005 checks the Go files the default build leaves out, such as
+  `foo_windows.go` and files behind `//go:build integration` or
+  `//go:build ignore`, which `gofmt -l` checks and LV1005 skipped. The
+  linter checks them after Staticcheck's run, outside its cache, so formatting
+  one clears its finding on the next run and editing one re-lints no package.
+  Their findings appear in `text` and `json` output only
+  ([details](docs/rules.md#formatted-files-lv1005)).
+- `//lint:ignore recvcheck`, `//lint:ignore unparam`, and
+  `//lint:ignore gochecksumtype` suppress a finding that exists in only one of
+  a package's builds, with or without its tests, instead of being reported as
+  matching nothing by the other build. One build now decides each rule's
+  findings on non-test files: the build with tests for `recvcheck`, and the
+  build without them for `unparam` and `gochecksumtype`, so a test's calls no
+  longer change what `unparam` reports and a test's fake variant no longer
+  makes a sum type's switches incomplete. A directive that matches nothing is
+  still reported. The `//lint:file-ignore unparam` workaround is no longer
+  needed.
+- The `verify` launcher exits 2, the setup-error status, for every failure
+  before the CLI runs: an unset `HOME` with no `XDG_CACHE_HOME`, a cache
+  directory it cannot create, or an unreadable or empty `.go-version` used to
+  exit 1, which means a check failed and made the Claude Stop hook block the
+  agent.
+- The `verify` launcher builds the CLI for the host whatever the caller's Go
+  settings: `GOOS`, `GOARCH`, `GOEXPERIMENT` and the like are dropped and
+  `GOFLAGS` is replaced for the build only, so a cross-compiling shell no
+  longer gets a binary it cannot run and `GOFLAGS=-mod=vendor` no longer breaks
+  the build. The CLI itself now receives the caller's environment unchanged,
+  without the launcher's `GOWORK` and `GOTOOLCHAIN`.
+- Concurrent `verify` launchers no longer rebuild the CLI in place: each builds
+  to a temporary file and renames it over the binary, so none can run a
+  half-written one.
+- Dagger runs no longer resolve the patched SDK adapter's Python dependencies
+  from PyPI each time: `sdk/patched-go/uv.lock` locks them with hashes,
+  `dagger-io` is pinned to the engine version and the `uv_build` backend
+  exactly, and release archives include the lock. Runs still download the
+  wheels, but always the same, hash-checked ones. A `deps-vuln` check scans the
+  lock in the `main` run.
+- A reused result now covers every file its check read. Under `git` discovery
+  the cache key left gitignored files out while the checks still read them:
+  editing a gitignored generated `*.pb.go` or `vendor/` file replayed a cached
+  `go-vet` or `go-test` pass, and adding a secret to a gitignored file replayed
+  a cached `secrets` pass. The key, the Dagger import, and the files the
+  native scanners read now come from one enumeration. Under `git` discovery
+  the Dagger import leaves out the paths the repository's `.gitignore` files
+  ignore and `secrets`, `shell-lint`, and `deps-vuln` read only the listed
+  files. The Go kinds (`go-lint`, `go-vet`, `go-mod`, `go-test`, `go-http`,
+  `go-sql`, `go-vuln`, `go-imports`, `go-generate`, `go-apidiff`,
+  `go-mutation`) add the ignored paths the Go toolchain can load: ignored Go
+  and cgo sources and module files, whatever a `//go:embed` directive in
+  the directory or above could name, and `testdata`. An ignored directory
+  with no `.go` file in it and nothing embedding it, such as `node_modules`
+  or a build output, is left out of the key and the Dagger import, and a
+  symlink in the ignored content that is kept is hashed by its link text
+  rather than disabling result reuse. The Go kinds' keys change once, and
+  the native `go-generate` copy holds the same files.
+- A declared input that git discovery could not see no longer contributes
+  nothing to the key. An input spelled with different case than the
+  repository (`Src` for `src/` on a case-insensitive filesystem), or an
+  exclude spelled that way, is a configuration error when the run is planned.
+  An input reached through a symlinked directory follows the source symlink
+  rule on either discovery and disables result reuse, as the Dagger path
+  already refused it. An input inside a submodule or an untracked nested
+  repository is fingerprinted from disk.
+- Git discovery finds each input's paths by binary search in the sorted
+  listing instead of scanning the whole listing once per input.
+
+### Security
+
+- The Dagger `go-test`, `go-generate`, and `go-mutation` steps, which run the
+  repository's own code as root, mount Go module and build cache volumes of
+  their own. Before, they shared the volumes that build `levenshtein-lint`,
+  `levenshtein-gocheck`, and the pinned tools, so a malicious test could edit a
+  linter's module source in the cache and change later linter builds on a
+  persistent engine. The tool-build volumes are renamed too, so an engine that
+  ran older checks starts them clean.
+
+## [0.2.0] - 2026-09-25
+
 ### Upgrading from 0.1.0
 
 - **Configuration.** A `levenshtein.json` written for 0.1.0 is accepted
@@ -40,6 +310,13 @@ says which interfaces are versioned and what to expect when you bump your pin.
   summary when one applies. The report `version` stays `1`.
 
 ### Added
+
+- The linter runs with nothing but `go`:
+  `go run github.com/wangjohn/levenshtein/runner/lint/cmd/levenshtein-lint@latest ./...`
+  from a module's root reports the shipped `go-lint` rules with no checkout,
+  container, or config. Release tags gain a `runner/lint/vX.Y.Z` companion so
+  the same command can pin a release
+  ([details](docs/checks.md#running-the-linter-directly)).
 
 - Community lint rules: a top-level `rule_modules` object pins lint rules
   published as ordinary Go modules, which run beside the shipped rules in every
@@ -244,36 +521,14 @@ says which interfaces are versioned and what to expect when you bump your pin.
 - `levenshtein-lint` includes go-critic's `deferInLoop`, a `defer` inside a
   loop, off in the shipped selection like `gocognit`
   ([opt in](docs/checks.md#opt-in-resources-deferinloop)).
-- [docs/check-kinds.md](docs/check-kinds.md) lists every check kind with
-  what it checks, which executors run it, whether its results are cached,
-  whether a baseline can hold its findings, whether it needs a
-  repository-root target, and which default runs include it. The table is
-  generated from the verifier's own kind descriptors, and a test fails when
-  it falls out of date.
-- Documentation: a [docs index](docs/README.md), a
-  [CLI reference](docs/reference/cli.md), [troubleshooting](docs/troubleshooting.md),
-  a [versioning policy](docs/versioning.md), a [glossary](docs/glossary.md),
-  and a [comparison with golangci-lint](docs/faq.md#levenshtein-or-golangci-lint).
-  A test in the root module fails when a relative link or `#anchor` in any
-  Markdown file does not resolve.
-- The release workflow publishes only a `vX.Y.Z` tag whose commit `main`
-  contains and whose version `CHANGELOG.md` releases (`scripts/release-on-main`).
-  [docs/releases.md](docs/releases.md#protecting-release-tags) has the tag
-  rulesets and immutable-release setting an admin can apply.
 
 ### Changed
 
-- **The documentation moved.** `docs/checks.md` is now a short landing page:
-  the rules `go-lint` enforces are in [docs/rules.md](docs/rules.md), the
-  evidence and the analyzers left off in
-  [docs/rule-selection.md](docs/rule-selection.md), and how each check kind
-  behaves in [docs/check-kinds-guide.md](docs/check-kinds-guide.md).
-  [docs/reference/config.md](docs/reference/config.md) lists every
-  `levenshtein.json` field. The community rules design, and the maintainers'
-  CI, development, and release notes, moved under `docs/design/` and
-  `docs/maintainers/`. Every old heading stays as a pointer, so links from
-  earlier releases' findings still land, and finding URLs and hints now link
-  to `docs/rules.md`.
+- `levenshtein-lint` run without `-checks` selects the shipped rules from
+  `runner/toolchain.json` instead of Staticcheck's default, which also turned
+  on the opt-in `gocognit` and `deferInLoop`. `-checks=inherit` still defers
+  to `staticcheck.conf`. `verify` always passes `-checks`, so its results are
+  unchanged.
 - The Dagger CLI path calls `goLintReport`, which returns a passing check's
   advisory findings and warnings; `goLint` stays the Dagger check.
 - Both linters register only the rules a check selects and guard each one:
@@ -298,6 +553,10 @@ says which interfaces are versioned and what to expect when you bump your pin.
   repository less its deliberately leaky fixture. Neither found a problem in
   Levenshtein's own files; its secrets-handling tests mark their made-up key
   with `gitleaks:allow`.
+- Levenshtein's own `levenshtein.json` has a native `go-test` run over the
+  repository and `runner/lint` for local use. It is not part of `branch`,
+  `pre-merge`, or `main`, because CI's `tests` job already runs
+  `go test -race` over the same modules.
 - **`go-mutation` fails only on changed lines and counts timeouts as caught
   (#44), which changes CI verdicts.** The CLI records the lines each modified
   Go file changed, from a zero-context diff, and a surviving mutant fails the
@@ -311,54 +570,9 @@ says which interfaces are versioned and what to expect when you bump your pin.
 - Levenshtein's own CI runs `branch` and `pre-merge` on the native executor,
   and keeps `main` and `self-test` in Dagger (#38). Its pull requests also run
   `go-mutation` in a `mutation` job beside `semantic-lint` (#51).
-- Levenshtein's own `levenshtein.json` has a native `go-test` run over the
-  repository and `runner/lint` for local use. It is not part of `branch`,
-  `pre-merge`, or `main`, because CI's `tests` job already runs
-  `go test -race` over the same modules.
-- The Claude Code Stop hook template blocks only the first attempt to stop in a
-  turn by default, so an agent that cannot fix a finding, or meets one that
-  predates its change, ends with a report instead of looping.
-  `LEVENSHTEIN_STOP_ONCE=0` keeps blocking every attempt while the run fails
-  ([docs/agents.md](docs/agents.md#stop-keep-working-while-the-run-fails)).
-- The workflow template and the consumer examples pin the action by the
-  release's commit SHA with the version as a comment
-  (`wangjohn/levenshtein@<sha> # v0.1.0`), and `scripts/test-doc-pins` checks
-  that the SHA is the one the tag names. Releases now update the examples in a
-  pull request after the tag, checked with `scripts/test-doc-pins --latest`
-  ([docs/releases.md](docs/releases.md)).
-- Levenshtein's own CI: concurrency groups are per commit outside pull
-  requests, so GitHub no longer cancels queued `main` runs; `dependency-review`
-  reports in a merge queue; every `integration`-tagged Go test runs, natively
-  unless `scripts/test-integration` lists it as needing Dagger; a non-required
-  `macos` job runs the root module's unit tests; the `tests` job's result
-  cache saves only result records; the Dagger CLI cache holds the release
-  archive, verified against its checksum on every run, instead of the binary;
-  `TYPESAFE_API_KEY` is visible only to the semantic-lint step;
-  `go-vuln` also scans `examples/rule-module` and `scripts/test-sdk-security`
-  scans the built `runner/tools` binaries; Dependabot updates
-  `examples/rule-module` and bumps Staticcheck in `runner/lint` and
-  `runner/community` together; and `scripts/test-workflows` keeps the
-  template's and docs' action pins equal to the workflows'. Dependabot now
-  updates the workflow template too, in the same single grouped pull request
-  as the workflows, and `scripts/sync-action-pins` copies the pins into the
-  docs.
 
 ### Fixed
 
-- A baseline no longer judges a `go-lint` entry by a check that could not
-  have reported it. A native check, which skips community rules, reported
-  every community-rule entry as stale, and `--write-baseline` deleted them;
-  a check whose `lint.checks` turned a rule off (such as `-unparam`) did the
-  same to that rule's entries. Such entries are now neither stale nor removed.
-- A run with a `go-mutation` check no longer breaks the Dagger checks after
-  it (#42). When `go-mutation` was the first check to start the shared Dagger
-  session, its timeout closed the session for every later check in the run,
-  which then failed with "connection reset by peer".
-- The file stat memo no longer trusts, within one process, a hash taken in the
-  same timestamp tick as the file's last write (#40). On a filesystem with
-  coarse timestamps, a same-size rewrite in that tick kept the old content's
-  fingerprint, so a cached result could be reused for different inputs. The
-  persisted memo already had this guard.
 - `musttag` no longer fails, unnoticed, on the test main `go test` generates
   for a package with tests; the new analyzer guard surfaced the swallowed
   error.
@@ -369,18 +583,6 @@ says which interfaces are versioned and what to expect when you bump your pin.
   source instead of cgo's generated rewrite of it. Upstream findings in
   hand-written cgo files, which were all silently dropped, are now reported,
   and LV1005 no longer reports cgo's build-cache output as unformatted.
-- A community rule that sets a diagnostic `Category` now reports under its
-  code. Staticcheck dropped every such finding, while the report still listed
-  the rule as selected. Community rules also skip generated files, as core
-  rules do.
-- A rule module can no longer hide the core linter's unused-directive
-  findings. Rule code runs in the community linter's process and could print
-  an `lvrules_mixed` finding at any line; the runner now drops a core
-  unused-directive finding only when the source at that position holds a
-  directive that really mixes core and community codes.
-- [docs/community-rules.md](docs/community-rules.md) no longer describes the
-  `lvrules-template` repository and the `lvrules-check` action as available;
-  both are still planned, so rule authors start from `examples/rule-module`.
 - [docs/consumer-ci.md](docs/consumer-ci.md) no longer says there is no shared
   `go-test` check, and its list of what is available names `go-test`,
   `workflow-security`, and `go-mutation`.
@@ -388,171 +590,15 @@ says which interfaces are versioned and what to expect when you bump your pin.
   nilerr applied the directive itself and dropped the finding, so Staticcheck
   then reported the directive as matching nothing and the check failed either
   way. Upstream analyzers now leave `//lint:ignore` to Staticcheck.
-- Native checks in one run execute in parallel again, up to `--jobs`. Each
-  check took the workspace file lock through its own handle, which also
-  blocks the same process, so every native check ran alone, even read-only
-  ones and cache hits. Read-only kinds (the shared Go kinds and
-  `semantic-lint`) now overlap, `command` checks still run alone, a cache hit
-  with no artifacts to restore takes no workspace lock, and another process
-  on the same source still waits. A check cancelled while it waits for the
-  workspace is reported as `cancelled` instead of `error`.
-- Git input discovery lists the work tree again after every check and every
-  preparation or build stage, not only after a passing check. A failed check,
-  or a preparation that generates files into its build's inputs, could leave
-  untracked files that a later key in the same run did not see, so a stale
-  result or build could be reused.
-- A native shared Go check's cache key covers the Go settings that change
-  what it reports, such as `GOFLAGS`, `GOEXPERIMENT`, `CGO_ENABLED`, `CC`, and
-  the architecture levels, including values set with `go env -w`. Before, only
-  the Go version, OS, and architecture were, so `go env -w
-  GOFLAGS=-tags=integration` reused results computed without the tag. Module
-  download settings such as `GOPROXY` and `GOPRIVATE` still do not affect the
-  key. Existing native shared Go results are recomputed once.
-- A native `command` check or stage that exits 0 but leaves a background
-  process holding its output, as `sh -c 'server & echo ok'` or a daemonizing
-  build tool can, passes with a `detached-output` warning instead of failing
-  with `exec: WaitDelay expired before I/O complete`. The leftover process is
-  still killed with the command's process group, which happens after every
-  run, not only on timeout as docs/architecture.md said; daemons that start
-  their own session are unaffected.
-- The file stat memo keeps working in repositories above roughly 280,000
-  files. Its single record outgrew the 64 MiB read limit, so it was written on
-  every run and never read back; it is now split across as many records as it
-  needs. A cache record over the limit is refused when written, and a result
-  too large to cache says so in its cache `reason`.
-- Tests that build throwaway git repositories no longer write to the
-  repository `go test` was started from. They inherited `GIT_DIR`,
-  `GIT_INDEX_FILE`, and `GIT_WORK_TREE`, which git exports to hooks, so the
-  lefthook `pre-push` run of `go test ./...` committed, switched branches, and
-  staged files in the pushing checkout. Every test now runs git through
-  `internal/testgit`, which drops every inherited `GIT_` variable, and a guard
-  test fails on a test file that runs git directly.
-- `go-mutation`, `go-apidiff`, and `semantic-lint` measure the change from
-  `origin/<base>` when it exists, and use the local branch only when it is the
-  same commit or ahead of it. A local `main` left behind after rebasing onto
-  `origin/main` used to set an old merge base, so the check judged, and
-  `semantic-lint` paid for, other people's commits.
-- When the base and `HEAD` share no commit, these checks now say so instead of
-  `git merge-base: exit status 1:`. In a shallow checkout, such as
-  `actions/checkout`'s default depth of one plus a shallow fetch of the base,
-  the message advises `fetch-depth: 0`.
-- `semantic-lint` reviews changed files whose names contain a space, a quote,
-  a backslash, or escaped non-ASCII bytes. Their diff headers kept git's
-  trailing tab or C quoting, so the files were classified as neither Go nor
-  Markdown and silently skipped, and commit summaries listed the raw header.
-- `semantic-lint` gives each API request 90 seconds and retries one that
-  stalls, instead of letting a hung connection use up the check's whole
-  timeout. HTTP 500 is retried like 502, 503, 504, and 429, and the client no
-  longer waits out a retry delay after its last attempt.
-- `semantic-lint` stays advisory when answers are missing. A question the API
-  omitted made the check `incomplete`, and one rejected request made it
-  `error`, both exiting 1; now unanswered questions and failed requests are
-  listed in the output (`details.missing`, `details.errors`) and the check
-  passes, unless requests were sent and not one question was answered. When
-  the check's timeout elapses mid-run, the answers already received are kept
-  instead of discarded. Unanswered questions are named as
-  `path:line symbol question`, once each, instead of by wire ids such as
-  `comment_explains_why#0` that repeat in every request.
-- `semantic-lint` bounds what one run sends: `max_requests` (default 60) and
-  `max_input_chars` (default 1,500,000) in the check's `semantic` object.
-  States beyond either budget are not sent and are named in a note and
-  `details.skipped`, and the change-level state is sent first. A large
-  refactor used to send hundreds of requests, run into the timeout, and
-  report nothing ([details](docs/semantic-lint.md#how-it-works)).
-- A second Ctrl-C or SIGTERM ends `verify` while it writes the report,
-  flushes the cache, or closes the Dagger session. The first signal cancels
-  the run as before; the second used to be swallowed until the process
-  exited, so a hung teardown needed SIGKILL.
-- `go-mutation` no longer passes weak tests on a warm build cache. Gremlins
-  timed its coverage run, which `go test` could answer from its cache in
-  milliseconds, and gave every mutant ten times that; a package whose tests
-  took seconds then timed out every mutant, and timeouts counted as caught.
-  Gremlins now runs with `GOFLAGS=-count=1`, a timeout counts as caught only
-  under a limit of at least 10 seconds, a run that timed out a mutant under a
-  shorter limit is repeated with a higher coefficient, and if that still
-  falls short the check is incomplete. The summary warns about any package in
-  which at least half of the covered mutants, and at least two, timed out
-  ([details](docs/mutation.md#timeouts)).
-- **`go-mutation` judges accepted survivors more strictly**, so an entry can
-  no longer keep a weak test hidden. An entry whose mutants a test now kills,
-  or that time out, is stale and fails the check until it is removed. An
-  entry whose text matches survivors on more than one line accepts none of
-  them and fails with `go-mutation-ambiguous`; the new optional `function`
-  and `occurrence` fields say which line it means
-  ([details](docs/mutation.md#accepted-survivors)).
-- LV1002 checks structs built inside `switch`, type switch, and `select`
-  cases. A case holds its statements without a block of its own, so
-  `var s S; s.A = 1` inside one went unreported.
-- LV1006 checks a test whose parameter names `testing.T` through an alias, as
-  in `type T = testing.T; func TestX(t *T)`, which go test runs, and no longer
-  counts `t.Failed()` as a way to fail: it only reads the test's state.
-- LV1001 asks for typed constants only for string types declared in the
-  module being linted. Converting a literal to a library's open-ended type,
-  such as `corev1.ResourceName("nvidia.com/gpu")`, was reported because the
-  library declares a few constants of it.
-- LV1005 checks the Go files the default build leaves out, such as
-  `foo_windows.go` and files behind `//go:build integration` or
-  `//go:build ignore`, which `gofmt -l` checks and LV1005 skipped. The
-  linter keys Staticcheck's cache on those files too, so formatting one clears
-  its finding on the next run.
-- `//lint:ignore recvcheck`, `//lint:ignore unparam`, and
-  `//lint:ignore gochecksumtype` suppress a finding that exists in only one of
-  a package's builds, with or without its tests, instead of being reported as
-  matching nothing by the other build. One build now decides each rule's
-  findings on non-test files: the build with tests for `recvcheck`, and the
-  build without them for `unparam` and `gochecksumtype`, so a test's calls no
-  longer change what `unparam` reports and a test's fake variant no longer
-  makes a sum type's switches incomplete. A directive that matches nothing is
-  still reported. The `//lint:file-ignore unparam` workaround is no longer
-  needed.
-- The `verify` launcher exits 2, the setup-error status, for every failure
-  before the CLI runs: an unset `HOME` with no `XDG_CACHE_HOME`, a cache
-  directory it cannot create, or an unreadable or empty `.go-version` used to
-  exit 1, which means a check failed and made the Claude Stop hook block the
-  agent.
-- The `verify` launcher builds the CLI for the host whatever the caller's Go
-  settings: `GOOS`, `GOARCH`, `GOEXPERIMENT` and the like are dropped and
-  `GOFLAGS` is replaced for the build only, so a cross-compiling shell no
-  longer gets a binary it cannot run and `GOFLAGS=-mod=vendor` no longer breaks
-  the build. The CLI itself now receives the caller's environment unchanged,
-  without the launcher's `GOWORK` and `GOTOOLCHAIN`.
-- Concurrent `verify` launchers no longer rebuild the CLI in place: each builds
-  to a temporary file and renames it over the binary, so none can run a
-  half-written one.
-- Dagger runs no longer resolve the patched SDK adapter's Python dependencies
-  from PyPI each time: `sdk/patched-go/uv.lock` locks them with hashes,
-  `dagger-io` is pinned to the engine version and the `uv_build` backend
-  exactly, and release archives include the lock. Runs still download the
-  wheels, but always the same, hash-checked ones. A `deps-vuln` check scans the
-  lock in the `main` run.
-- A reused result now covers every file its check read. Under `git` discovery
-  the cache key left gitignored files out while the checks still read them:
-  editing a gitignored generated `*.pb.go` or `vendor/` file replayed a cached
-  `go-vet` or `go-test` pass, and adding a secret to a gitignored file replayed
-  a cached `secrets` pass. The key, the Dagger import, and the files the
-  native scanners read now come from one enumeration. Under `git` discovery
-  the Dagger import leaves out the paths the repository's `.gitignore` files
-  ignore and `secrets`, `shell-lint`, and `deps-vuln` read only the listed
-  files. The Go kinds (`go-lint`, `go-vet`, `go-mod`, `go-test`, `go-http`,
-  `go-sql`, `go-vuln`, `go-imports`, `go-generate`, `go-apidiff`,
-  `go-mutation`) add the ignored paths the Go toolchain can load: ignored Go
-  and cgo sources and module files, whatever a `//go:embed` directive in
-  the directory or above could name, and `testdata`. An ignored directory
-  with no `.go` file in it and nothing embedding it, such as `node_modules`
-  or a build output, is left out of the key and the Dagger import, and a
-  symlink in the ignored content that is kept is hashed by its link text
-  rather than disabling result reuse. The Go kinds' keys change once, and
-  the native `go-generate` copy holds the same files.
-- A declared input that git discovery could not see no longer contributes
-  nothing to the key. An input spelled with different case than the
-  repository (`Src` for `src/` on a case-insensitive filesystem), or an
-  exclude spelled that way, is a configuration error when the run is planned.
-  An input reached through a symlinked directory follows the source symlink
-  rule on either discovery and disables result reuse, as the Dagger path
-  already refused it. An input inside a submodule or an untracked nested
-  repository is fingerprinted from disk.
-- Git discovery finds each input's paths by binary search in the sorted
-  listing instead of scanning the whole listing once per input.
+- A run with a `go-mutation` check no longer breaks the Dagger checks after
+  it (#42). When `go-mutation` was the first check to start the shared Dagger
+  session, its timeout closed the session for every later check in the run,
+  which then failed with "connection reset by peer".
+- The file stat memo no longer trusts, within one process, a hash taken in the
+  same timestamp tick as the file's last write (#40). On a filesystem with
+  coarse timestamps, a same-size rewrite in that tick kept the old content's
+  fingerprint, so a cached result could be reused for different inputs. The
+  persisted memo already had this guard.
 
 ## [0.1.0] - 2026-09-22
 
@@ -629,5 +675,6 @@ gave a consumer.
 - Pinned the Dagger wrapper's logging dependencies through a patched SDK
   generator so GO-2026-4985 stays fixed across regeneration (#8).
 
-[Unreleased]: https://github.com/wangjohn/levenshtein/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/wangjohn/levenshtein/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/wangjohn/levenshtein/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/wangjohn/levenshtein/releases/tag/v0.1.0

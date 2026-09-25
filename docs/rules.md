@@ -279,7 +279,9 @@ The rule does not ask for more than one blank line, and it says nothing about sp
 
 LV1005 compares a file's bytes with what `go/format` produces and reports once per file when they differ. It exists so a consumer gets formatting enforcement from `./verify go-lint` without a separate `gofmt` step in CI. The fix is always plain `gofmt -w`, never a suppression. Generated files are skipped. For a cgo file it checks the original source, not cgo's rewrite in the build cache.
 
-It also checks the Go files in a package's directory that the default build leaves out, as `gofmt -l` would: files for another platform such as `foo_windows.go`, and files behind a build tag such as `//go:build integration` or `//go:build ignore`, test files included. Excluded files are not type-checked, so the other rules do not see them. A directory with no package the default build keeps, such as one holding only a `//go:build ignore` generator, is not checked. Staticcheck's cache keys a package on the files the build compiles, so the linter adds a digest of every excluded file under the linted patterns to that key: formatting an excluded file clears its finding on the next run, and in a module that has excluded files, changing one re-lints every package.
+It also checks the Go files in a package's directory that the build leaves out, as `gofmt -l` would: files for another platform such as `foo_windows.go`, and files behind a build tag such as `//go:build integration` or `//go:build ignore`, test files included. Excluded files are not type-checked, so the other rules do not see them. A directory with no package the default build keeps, such as one holding only a `//go:build ignore` generator, is not checked.
+
+Excluded files are checked after Staticcheck's run, outside its cache, which keys a package's results on the files its build compiles. The linter lists them with one `go list` of the linted patterns under the run's `-tags` and checks each one on every run, so formatting an excluded file clears its finding on the next run, and an edit to one never re-lints a package. Their findings follow `-checks`, each directory's `staticcheck.conf` under `-checks=inherit`, and `-fail`, and read exactly as Staticcheck prints LV1005's own, at line 1, column 1. Only the `text` and `json` output formats, which print one line per finding, carry them: a run with `-f stylish`, `sarif`, `binary`, or `null`, or with `-matrix`, leaves excluded files unchecked. `./verify go-lint` and the Dagger runner use `json`.
 
 ## Tests that can fail: LV1006
 
@@ -308,13 +310,17 @@ LV1006 only proves that a test can fail. It does not prove the test fails when b
 
 ## Running the linter directly
 
-You can run the same linter without `./verify`. The selection below is the shipped default; append the patterns a repository's check adds, such as `,gocognit` to [opt in to gocognit](#opt-in-complexity-gocognit) or `,deferInLoop` to [opt in to deferInLoop](#opt-in-resources-deferinloop), to reproduce what its `go-lint` check reports:
+The linter is an ordinary Go command in its own module, `runner/lint`, so it runs without a checkout, Dagger, or `levenshtein.json`. From the root of the module to lint:
 
 ```sh
-(cd /path/to/levenshtein/runner/lint && go build -o /tmp/levenshtein-lint ./cmd/levenshtein-lint)
-cd /path/to/consumer
-/tmp/levenshtein-lint -checks='all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-gocognit,-deferInLoop' ./...
+go run github.com/wangjohn/levenshtein/runner/lint/cmd/levenshtein-lint@latest ./...
 ```
+
+Without `-checks` it runs the shipped selection, `all,-ST1000,-ST1003,-ST1016,-ST1020,-ST1021,-ST1022,-gocognit,-deferInLoop`, the same list `runner/toolchain.json` gives every `go-lint` check. `-checks` replaces that list. To reproduce a repository's `go-lint` check, pass the shipped list followed by the patterns the check adds, such as `,gocognit` to [opt in to gocognit](#opt-in-complexity-gocognit) or `,deferInLoop` to [opt in to deferInLoop](#opt-in-resources-deferinloop). `-checks=inherit` defers to a `staticcheck.conf` instead. The other Staticcheck flags work as usual: `-f=json` or `-f=sarif` for machine-readable output, `-list-checks`, and `-explain CODE`.
+
+The module needs Go 1.27.1 or later; `go` 1.21 or later downloads that toolchain itself as long as `GOTOOLCHAIN` allows it, which is the default. A direct run is the `go-lint` rules and nothing else: no `go vet`, baseline, community rules, result cache, or text-format hints, which `./verify` adds. Its Staticcheck analysis cache is Staticcheck's own, under the user cache directory.
+
+`@latest` resolves to the newest `runner/lint/vX.Y.Z` tag, or to the newest commit on `main` while there is none. To pin one revision, name a commit (`@<sha>`) or a `runner/lint/vX.Y.Z` tag, which [a release](maintainers/releases.md#publishing-a-release) creates beside `vX.Y.Z`; `go install` with the same argument keeps a binary on `PATH`. From a checkout, `(cd runner/lint && go build -o /tmp/levenshtein-lint ./cmd/levenshtein-lint)` builds the same command.
 
 ## How the rules are built
 

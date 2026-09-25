@@ -24,8 +24,15 @@ Publication is a tag, prepared by a release pull request:
 
 ```sh
 git tag -a vX.Y.Z -m 'Levenshtein vX.Y.Z'
-git push origin vX.Y.Z
+git tag -a runner/lint/vX.Y.Z -m 'Levenshtein vX.Y.Z linter module'
+git push origin vX.Y.Z runner/lint/vX.Y.Z
 ```
+
+The second tag versions the nested `runner/lint` module, so
+`go run github.com/wangjohn/levenshtein/runner/lint/cmd/levenshtein-lint@vX.Y.Z`
+resolves to the same revision as the release
+([running the linter directly](../rules.md#running-the-linter-directly)). It
+does not match the workflow's `v*` filter, so it publishes no archives.
 
 3. In a second pull request, move every consumer example to the new release:
    `wangjohn/levenshtein@<sha> # vX.Y.Z`, where `<sha>` is

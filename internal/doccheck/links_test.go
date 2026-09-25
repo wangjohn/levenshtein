@@ -18,13 +18,6 @@ import (
 // repoRoot is the repository root, relative to this package's directory.
 const repoRoot = "../.."
 
-// pendingTargets are repository files that documentation already links to but
-// that a change still in review adds. A link to one passes while the file is
-// missing; delete the entry once the file exists.
-var pendingTargets = map[string]bool{
-	"docs/check-kinds.md": true,
-}
-
 // skippedDirs hold Markdown that is not documentation: fixtures, vendored or
 // generated trees, and build output.
 var skippedDirs = map[string]bool{
@@ -135,9 +128,6 @@ func resolve(docs map[string]document, file, target string) string {
 			return "points outside the repository"
 		}
 		if _, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(resolved))); err != nil {
-			if pendingTargets[resolved] {
-				return ""
-			}
 			return resolved + " does not exist"
 		}
 	}

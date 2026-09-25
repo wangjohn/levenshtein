@@ -1,8 +1,5 @@
 # Use Levenshtein from your existing CI
 
-> [!NOTE]
-> These docs describe `main`, which is ahead of the latest release, v0.1.0. v0.1.0 has no `--format`, `--render`, or baseline flags, no `annotations` or `sarif` action inputs, no `lint` or `rule_modules` configuration, and ten check kinds rather than nineteen: it lacks `go-mod`, `go-test`, `go-imports`, `go-generate`, `go-apidiff`, `workflow-security`, `shell-lint`, `secrets`, and `deps-vuln`. If you pin v0.1.0, read [the v0.1.0 docs](https://github.com/wangjohn/levenshtein/tree/v0.1.0) instead. <!-- Delete this note when the next release ships. -->
-
 Your CI checks out the application, chooses a run, and invokes a pinned Levenshtein version. Levenshtein prepares the check environment and returns results and an exit status. Application tests and CI schedules belong to the application repo.
 
 [Check kinds](check-kinds.md) lists every check you can run. Start with one product target and a few useful checks; keep existing CI gates while proving equivalent behavior.
