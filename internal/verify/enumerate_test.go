@@ -14,7 +14,7 @@ import (
 // inside an excluded directory, and ignored paths the Go toolchain can and
 // cannot load. Loadable: Go files in an ignored directory and one in an
 // ordinary package directory, a directory a tracked package embeds (holding a
-// symlink), and testdata. Not loadable: a node_modules tree with a .bin
+// symlink), testdata, and a symlink to a directory of Go files. Not loadable: a node_modules tree with a .bin
 // symlink, a _build directory, a dependency directory, and loose ignored files,
 // one named with pattern characters.
 func fileSetRepository(t *testing.T) string {
@@ -35,7 +35,7 @@ func fileSetRepository(t *testing.T) string {
 		writeFile(t, filepath.Join(root, filepath.FromSlash(name)), sourceOne)
 	}
 	writeFile(t, filepath.Join(root, "pkg", "embed.go"), "package pkg\n\nimport _ \"embed\"\n\n//go:embed assets\nvar assets string\n")
-	for link, target := range map[string]string{"build/link": "../main.go", "node_modules/.bin/tool": "../lib/index.js", "pkg/assets/link": "data.txt"} {
+	for link, target := range map[string]string{"build/link": "../main.go", "node_modules/.bin/tool": "../lib/index.js", "pkg/assets/link": "data.txt", "gen/current": "deep"} {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, link)), 0755); err != nil {
 			t.Fatal(err)
 		}
@@ -306,7 +306,7 @@ func TestInputInsideANestedRepositoryIsFingerprinted(t *testing.T) {
 // hashed but never shown to a scanner or a container.
 var (
 	listedFiles  = []string{".gitignore", "config/.env.local", "gen/keep.pb.go", "main.go", "pkg/embed.go", "pkg/lib.go", "pkg/new.go"}
-	goFiles      = []string{".gitignore", "config/.env.local", "gen/api.pb.go", "gen/deep/x.go", "gen/keep.pb.go", "main.go", "pkg/assets/data.txt", "pkg/assets/link", "pkg/embed.go", "pkg/lib.go", "pkg/new.go", "pkg/testdata/golden.out", "pkg/zz_generated.go"}
+	goFiles      = []string{".gitignore", "config/.env.local", "gen/api.pb.go", "gen/current", "gen/deep/x.go", "gen/keep.pb.go", "main.go", "pkg/assets/data.txt", "pkg/assets/link", "pkg/embed.go", "pkg/lib.go", "pkg/new.go", "pkg/testdata/golden.out", "pkg/zz_generated.go"}
 	privateFiles = []string{".env", "config/.env.local"}
 )
 
@@ -378,7 +378,7 @@ func TestFileSetConformance(t *testing.T) {
 		// Everything the listing leaves out is excluded from the Dagger import,
 		// literally, and a wholly ignored directory as one path. gen/ holds a
 		// tracked file, so its ignored paths are excluded one by one.
-		want := []string{`\!odd\[1]\*.log`, "_build", "debug.log", "deps", "gen/api.pb.go", "gen/deep", "node_modules", "pkg/assets", "pkg/testdata", "pkg/zz_generated.go"}
+		want := []string{`\!odd\[1]\*.log`, "_build", "debug.log", "deps", "gen/api.pb.go", "gen/current", "gen/deep", "node_modules", "pkg/assets", "pkg/testdata", "pkg/zz_generated.go"}
 		if got := excludedPaths(t, req); !slices.Equal(got, want) {
 			t.Errorf("the Dagger import excludes %v, want %v", got, want)
 		}
