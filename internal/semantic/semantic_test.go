@@ -492,7 +492,7 @@ func TestRunReportsUnansweredQuestions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(report.Missing) != 1 || report.Missing[0] != "scope_creep" {
+	if len(report.Missing) != 1 || report.Missing[0] != "change scope_creep" {
 		t.Fatalf("missing: %+v", report.Missing)
 	}
 	highDirection := map[string]bool{"scope_creep": true, "unscoped_guarantee": true, "duplicates_package_helper": true}
@@ -503,6 +503,162 @@ func TestRunReportsUnansweredQuestions(t *testing.T) {
 	}
 	if len(report.Findings) == 0 {
 		t.Fatal("low probabilities must fire the positive-phrased questions")
+	}
+}
+
+// Wire ids such as comment_explains_why#0 repeat in every request, so the
+// report names the location and symbol each unanswered question judged.
+func TestRunNamesWhereAnUnansweredItemIs(t *testing.T) {
+	r := changedRepo(t)
+	r.write(t, "pkg/other.go", "package sample\n\nfunc Other() {\n\t// Other keeps a comment of its own.\n\t_ = 1\n}\n")
+	jev := &fakeJev{noul: 0.9, score: 0, drop: "comment_explains_why#0"}
+	server := httptest.NewServer(jev.handler(t))
+	defer server.Close()
+
+	report, err := Run(t.Context(), runOptions(r, server))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	freshness := fmt.Sprintf("pkg/sample.go:%d Fresh comment_explains_why", lineOf(sampleSource, "// Freshness concerns"))
+	want := []string{"pkg/other.go:4 Other comment_explains_why", freshness}
+	if !slices.Equal(report.Missing, want) {
+		t.Fatalf("missing = %q, want %q", report.Missing, want)
+	}
+	if summary := Summary(report); !strings.Contains(summary, "unanswered "+freshness) {
+		t.Fatalf("summary must name the location: %s", summary)
+	}
+}
+
+// labelledJev answers like fakeJev, but rejects any request whose state is for
+// a path in reject, and stalls on one in stall until the request is abandoned.
+func labelledJev(t *testing.T, reject, stall string, release <-chan struct{}) (http.HandlerFunc, *atomic.Int32) {
+	t.Helper()
+	var calls atomic.Int32
+	return func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		var req wireRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode: %v", err)
+		}
+		state, _ := req.State.(map[string]any)
+		file, _ := state["file"].(map[string]any)
+		path, _ := file["path"].(string)
+		switch path {
+		case "":
+		case reject:
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"state too large"}`))
+			return
+		case stall:
+			select {
+			case <-r.Context().Done():
+			case <-release:
+			}
+			return
+		}
+		answers := map[string]Answer{}
+		for id, q := range req.Questions {
+			value := 0.9
+			if q.Type == PrimitiveScore {
+				answers[id] = Answer{Type: PrimitiveScore, Score: &value, Confidence: &value}
+				continue
+			}
+			answers[id] = Answer{Type: PrimitiveNoul, Noul: &value}
+		}
+		_ = json.NewEncoder(w).Encode(wireResponse{Model: DefaultModel, Answers: answers, Usage: wireUsage{InputTokens: 10}})
+	}, &calls
+}
+
+func TestRunKeepsTheAnswersOfRequestsThatSucceeded(t *testing.T) {
+	r := changedRepo(t)
+	handler, _ := labelledJev(t, "pkg/sample.go", "", nil)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	report, err := Run(t.Context(), runOptions(r, server))
+	if err != nil {
+		t.Fatalf("one rejected request must not discard the rest: %v", err)
+	}
+
+	if len(report.Judgments) == 0 || len(report.Missing) == 0 {
+		t.Fatalf("judgments %d, missing %v", len(report.Judgments), report.Missing)
+	}
+	for _, missing := range report.Missing {
+		if !strings.HasPrefix(missing, "pkg/sample.go:") {
+			t.Errorf("only the rejected file's questions are unanswered: %v", report.Missing)
+		}
+	}
+	if len(report.Errors) != 1 || !strings.Contains(report.Errors[0], "HTTP 400") {
+		t.Fatalf("errors = %q", report.Errors)
+	}
+}
+
+func TestRunReturnsPartialResultsWhenItsDeadlinePasses(t *testing.T) {
+	r := changedRepo(t)
+	release := make(chan struct{})
+	handler, _ := labelledJev(t, "", "pkg/sample.go", release)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	defer close(release)
+	opts := runOptions(r, server)
+	opts.Concurrency = 1
+
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	report, err := Run(ctx, opts)
+	if err != nil {
+		t.Fatalf("a deadline mid-run must keep what was answered: %v", err)
+	}
+
+	if len(report.Judgments) == 0 {
+		t.Fatal("answers received before the deadline were discarded")
+	}
+	stalled := false
+	for _, missing := range report.Missing {
+		stalled = stalled || strings.HasPrefix(missing, "pkg/sample.go")
+	}
+	if !stalled || len(report.Errors) == 0 || !strings.Contains(strings.Join(report.Errors, " "), "timed out") {
+		t.Fatalf("missing %v, errors %q", report.Missing, report.Errors)
+	}
+}
+
+func TestRunStaysWithinItsBudgets(t *testing.T) {
+	r := changedRepo(t)
+	handler, calls := labelledJev(t, "", "", nil)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	opts := runOptions(r, server)
+	opts.MaxRequests = 1
+	report, err := Run(t.Context(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if calls.Load() != 1 || report.Requests != 1 {
+		t.Fatalf("max_requests 1 sent %d requests", calls.Load())
+	}
+	if len(report.Skipped) == 0 || len(report.Missing) != 0 {
+		t.Fatalf("requests over the budget are skipped, not unanswered: skipped %v missing %v", report.Skipped, report.Missing)
+	}
+	if !strings.Contains(strings.Join(report.Notes, " "), "max_requests") {
+		t.Fatalf("notes must name the budget: %q", report.Notes)
+	}
+	// The change-level request is sent first, so a tight budget still judges
+	// the change as a whole.
+	for _, j := range report.Judgments {
+		if j.Path != "" {
+			t.Fatalf("the change-level request must win the only slot: %+v", j)
+		}
+	}
+
+	opts.MaxRequests = 0
+	opts.MaxInputChars = 1
+	calls.Store(0)
+	report, err = Run(t.Context(), opts)
+	if err != nil || calls.Load() != 0 || len(report.Skipped) == 0 || !strings.Contains(strings.Join(report.Notes, " "), "max_input_chars") {
+		t.Fatalf("an input budget below every request sends none: calls %d %+v %v", calls.Load(), report, err)
 	}
 }
 

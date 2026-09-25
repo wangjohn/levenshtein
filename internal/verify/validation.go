@@ -189,6 +189,9 @@ func validateSemanticLint(check Check, env Environment) error {
 	if check.Semantic.Base != "" && !gitRef(check.Semantic.Base) {
 		return fmt.Errorf("invalid semantic-lint base %q", check.Semantic.Base)
 	}
+	if check.Semantic.MaxRequests < 0 || check.Semantic.MaxInputChars < 0 {
+		return fmt.Errorf("semantic-lint max_requests and max_input_chars must be positive, or omitted for the defaults")
+	}
 	return nil
 }
 

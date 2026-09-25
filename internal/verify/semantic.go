@@ -75,28 +75,38 @@ func semanticLint(ctx context.Context, req Request, dir string, env []string) Re
 		return Result{Status: StatusError, Error: err.Error()}
 	}
 	report, runErr := semantic.Run(ctx, semantic.Options{
-		Source:  req.Source,
-		Include: semanticScope(req.Target),
-		Git:     git,
-		Env:     env,
-		Base:    base,
-		Client:  semantic.Client{BaseURL: origin, APIKey: apiKey, Model: model},
+		Source:        req.Source,
+		Include:       semanticScope(req.Target),
+		Git:           git,
+		Env:           env,
+		Base:          base,
+		Client:        semantic.Client{BaseURL: origin, APIKey: apiKey, Model: model},
+		MaxRequests:   options.MaxRequests,
+		MaxInputChars: options.MaxInputChars,
 	})
 	details, _ := json.Marshal(report)
 	result := Result{Status: StatusPassed, Stdout: semantic.Summary(report), Details: details}
+	// Run reports failed requests in the report rather than as an error, so
+	// the timeout shows as questions it left unanswered.
+	unanswered := len(report.Judgments) == 0 && len(report.Missing) > 0
 
 	switch {
-	case ctx.Err() != nil && runErr != nil:
+	case parent.Err() != nil && (runErr != nil || len(report.Missing) > 0):
 		// The parent carries the run's own cancellation or deadline; only the
 		// timeout above belongs to this check.
-		if err := parent.Err(); err != nil {
-			return result.withOutcome(StatusCancelled, err.Error())
-		}
+		return result.withOutcome(StatusCancelled, parent.Err().Error())
+	case ctx.Err() != nil && (runErr != nil || unanswered):
 		return result.withOutcome(StatusError, "semantic-lint timed out")
 	case runErr != nil:
 		return result.withOutcome(StatusError, runErr.Error())
-	case len(report.Missing) > 0:
-		return result.withOutcome(StatusIncomplete, fmt.Sprintf("%d questions were not answered", len(report.Missing)))
+	case unanswered:
+		// Advisory means missing answers are reported, not failed; a run that
+		// got no answer at all, though, reviewed nothing.
+		reason := "the API returned no answers"
+		if len(report.Errors) > 0 {
+			reason = report.Errors[0]
+		}
+		return result.withOutcome(StatusError, fmt.Sprintf("no question was answered: %s", reason))
 	}
 	return result
 }

@@ -289,6 +289,21 @@ Consumers pin a release tag, or its commit SHA, as described in
   stalls, instead of letting a hung connection use up the check's whole
   timeout. HTTP 500 is retried like 502, 503, 504, and 429, and the client no
   longer waits out a retry delay after its last attempt.
+- `semantic-lint` stays advisory when answers are missing. A question the API
+  omitted made the check `incomplete`, and one rejected request made it
+  `error`, both exiting 1; now unanswered questions and failed requests are
+  listed in the output (`details.missing`, `details.errors`) and the check
+  passes, unless requests were sent and not one question was answered. When
+  the check's timeout elapses mid-run, the answers already received are kept
+  instead of discarded. Unanswered questions are named as
+  `path:line symbol question`, once each, instead of by wire ids such as
+  `comment_explains_why#0` that repeat in every request.
+- `semantic-lint` bounds what one run sends: `max_requests` (default 60) and
+  `max_input_chars` (default 1,500,000) in the check's `semantic` object.
+  States beyond either budget are not sent and are named in a note and
+  `details.skipped`, and the change-level state is sent first. A large
+  refactor used to send hundreds of requests, run into the timeout, and
+  report nothing ([details](docs/semantic-lint.md#how-it-works)).
 
 ## [0.1.0] - 2026-09-22
 
