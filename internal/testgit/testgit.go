@@ -49,30 +49,30 @@ func Env() []string {
 // Isolate gives the process environment the same treatment for the rest of
 // the test, for code under test that runs git with the process environment.
 // Like t.Setenv, it cannot be used in a parallel test.
-func Isolate(t testing.TB) {
-	t.Helper()
+func Isolate(tb testing.TB) {
+	tb.Helper()
 	for _, entry := range os.Environ() {
 		if !inherited(entry) {
 			continue
 		}
 		name, _, _ := strings.Cut(entry, "=")
-		t.Setenv(name, "") // Registers the restore; the unset below is what the test sees.
+		tb.Setenv(name, "") // Registers the restore; the unset below is what the test sees.
 		if err := os.Unsetenv(name); err != nil {
-			t.Fatal(err)
+			tb.Fatal(err)
 		}
 	}
 	for _, entry := range isolation {
 		name, value, _ := strings.Cut(entry, "=")
-		t.Setenv(name, value)
+		tb.Setenv(name, value)
 	}
 }
 
 // Path finds git, or skips the test when it is not installed.
-func Path(t testing.TB) string {
-	t.Helper()
+func Path(tb testing.TB) string {
+	tb.Helper()
 	git, err := exec.LookPath("git")
 	if err != nil {
-		t.Skip("git is not installed")
+		tb.Skip("git is not installed")
 	}
 	return git
 }
@@ -87,11 +87,11 @@ func Command(ctx context.Context, git, dir string, args ...string) *exec.Cmd {
 
 // Run runs git in dir with Env and returns its combined output. It fails the
 // test when git fails.
-func Run(t testing.TB, git, dir string, args ...string) string {
-	t.Helper()
-	out, err := Command(t.Context(), git, dir, args...).CombinedOutput()
+func Run(tb testing.TB, git, dir string, args ...string) string {
+	tb.Helper()
+	out, err := Command(tb.Context(), git, dir, args...).CombinedOutput()
 	if err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
+		tb.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 	return string(out)
 }

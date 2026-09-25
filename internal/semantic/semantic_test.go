@@ -197,8 +197,9 @@ func Fresh(path string, strict bool) error {
 }
 `
 
-func lineOf(src, needle string) int {
-	for i, line := range strings.Split(src, "\n") {
+// lineOf is the line of sampleSource that contains needle.
+func lineOf(needle string) int {
+	for i, line := range strings.Split(sampleSource, "\n") {
 		if strings.Contains(line, needle) {
 			return i + 1
 		}
@@ -207,8 +208,8 @@ func lineOf(src, needle string) int {
 }
 
 func TestGoUnitsSelectItemsFromAddedLines(t *testing.T) {
-	start := lineOf(sampleSource, "// Fresh documents")
-	end := lineOf(sampleSource, "return nil // trailing note") + 1
+	start := lineOf("// Fresh documents")
+	end := lineOf("return nil // trailing note") + 1
 	hunks := []Hunk{{NewStart: start, NewLines: end - start + 1, Diff: "@@ fresh @@\n"}}
 
 	units := goUnits("sample.go", []byte(sampleSource), hunks)
@@ -227,7 +228,7 @@ func TestGoUnitsSelectItemsFromAddedLines(t *testing.T) {
 		t.Fatalf("errors: %+v", unit.Errors)
 	}
 
-	untouched := goUnits("sample.go", []byte(sampleSource), []Hunk{{NewStart: lineOf(sampleSource, `return errors.New`), NewLines: 1}})
+	untouched := goUnits("sample.go", []byte(sampleSource), []Hunk{{NewStart: lineOf(`return errors.New`), NewLines: 1}})
 	if len(untouched) != 1 || untouched[0].Symbol != "Existing" || untouched[0].New || !untouched[0].IsFunc {
 		t.Fatalf("edited existing function must not count as new: %+v", untouched)
 	}
@@ -520,7 +521,7 @@ func TestRunNamesWhereAnUnansweredItemIs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	freshness := fmt.Sprintf("pkg/sample.go:%d Fresh comment_explains_why", lineOf(sampleSource, "// Freshness concerns"))
+	freshness := fmt.Sprintf("pkg/sample.go:%d Fresh comment_explains_why", lineOf("// Freshness concerns"))
 	want := []string{"pkg/other.go:4 Other comment_explains_why", freshness}
 	if !slices.Equal(report.Missing, want) {
 		t.Fatalf("missing = %q, want %q", report.Missing, want)

@@ -162,6 +162,9 @@ func skipDir(root, here, path, name string) error {
 	return nil
 }
 
+// programArgument is where each os/exec constructor takes the program.
+var programArgument = map[string]int{"Command": 0, "CommandContext": 1}
+
 func runsGit(call *ast.CallExpr) bool {
 	selector, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
@@ -171,15 +174,8 @@ func runsGit(call *ast.CallExpr) bool {
 	if !ok || pkg.Name != "exec" {
 		return false
 	}
-	program := 0
-	switch selector.Sel.Name {
-	case "Command":
-	case "CommandContext":
-		program = 1
-	default:
-		return false
-	}
-	if len(call.Args) <= program {
+	program, ok := programArgument[selector.Sel.Name]
+	if !ok || len(call.Args) <= program {
 		return false
 	}
 	switch arg := call.Args[program].(type) {

@@ -183,8 +183,8 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 	return report, nil
 }
 
-// withinBudget keeps requests, in order, while both budgets allow, and names
-// the rest in one note rather than sending them.
+// withinBudget keeps each request, in order, that still fits both budgets,
+// and names the rest in one note rather than sending them.
 func withinBudget(requests []request, opts Options) ([]request, []string, string) {
 	maxRequests := cmp.Or(opts.MaxRequests, DefaultMaxRequests)
 	maxChars := cmp.Or(opts.MaxInputChars, DefaultMaxInputChars)
@@ -751,13 +751,13 @@ func (r *request) size() int {
 }
 
 // chars is what the request sends: the state and every question.
-func (r request) chars() int {
+func (r *request) chars() int {
 	questions, _ := json.Marshal(r.questions)
 	return r.size() + len(questions)
 }
 
 // label names what a request judges: a file and symbol, or the change.
-func (r request) label() string {
+func (r *request) label() string {
 	for _, p := range r.pending {
 		if p.path != "" {
 			return strings.TrimSpace(p.path + " " + p.symbol)

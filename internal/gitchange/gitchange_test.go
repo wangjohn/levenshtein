@@ -200,6 +200,7 @@ func TestResolveBasePrefersTheCurrentOfTheTwoBaseRefs(t *testing.T) {
 		{
 			name: "stale local branch",
 			setup: func(t *testing.T, r repo, older string) {
+				t.Helper()
 				r.run(t, "branch", "main", older)
 			},
 			wantRef: "origin/main",
@@ -207,6 +208,7 @@ func TestResolveBasePrefersTheCurrentOfTheTwoBaseRefs(t *testing.T) {
 		{
 			name: "local branch ahead of origin",
 			setup: func(t *testing.T, r repo, _ string) {
+				t.Helper()
 				r.run(t, "branch", "main", "origin/main")
 				r.run(t, "switch", "--quiet", "main")
 				r.run(t, "commit", "--quiet", "--allow-empty", "-m", "unpushed")
@@ -217,6 +219,7 @@ func TestResolveBasePrefersTheCurrentOfTheTwoBaseRefs(t *testing.T) {
 		{
 			name: "local branch equal to origin",
 			setup: func(t *testing.T, r repo, _ string) {
+				t.Helper()
 				r.run(t, "branch", "main", "origin/main")
 			},
 			wantRef: "main",
@@ -224,6 +227,7 @@ func TestResolveBasePrefersTheCurrentOfTheTwoBaseRefs(t *testing.T) {
 		{
 			name: "diverged local branch",
 			setup: func(t *testing.T, r repo, older string) {
+				t.Helper()
 				r.run(t, "branch", "main", older)
 				r.run(t, "switch", "--quiet", "main")
 				r.run(t, "commit", "--quiet", "--allow-empty", "-m", "local only")

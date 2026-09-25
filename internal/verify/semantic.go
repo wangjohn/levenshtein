@@ -106,7 +106,7 @@ func semanticLint(ctx context.Context, req Request, dir string, env []string) Re
 		if len(report.Errors) > 0 {
 			reason = report.Errors[0]
 		}
-		return result.withOutcome(StatusError, fmt.Sprintf("no question was answered: %s", reason))
+		return result.withOutcome(StatusError, "no question was answered: "+reason)
 	}
 	return result
 }
