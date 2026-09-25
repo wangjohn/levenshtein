@@ -112,13 +112,15 @@ func plansRootOnly(t *testing.T, kind CheckKind) bool {
 	if daggerFunction(kind) == "" {
 		environment = "native"
 	}
-	check := Check{Kind: kind, Target: "nested", Environment: environment}
-	switch kind {
-	case CheckGoImports:
-		check.Imports = &ImportsCheck{Rules: []ImportRule{{Packages: []string{"./..."}, Deny: []string{"os"}, Reason: "r"}}}
-	case CheckCommand:
-		check.Command = &CommandCheck{Args: []string{"true"}}
+	var imports *ImportsCheck
+	if kind == CheckGoImports {
+		imports = &ImportsCheck{Rules: []ImportRule{{Packages: []string{"./..."}, Deny: []string{"os"}, Reason: "r"}}}
 	}
+	var command *CommandCheck
+	if kind == CheckCommand {
+		command = &CommandCheck{Args: []string{"true"}}
+	}
+	check := Check{Kind: kind, Target: "nested", Environment: environment, Imports: imports, Command: command}
 	cfg := Config{
 		Targets:      map[string]Target{"nested": {Dir: "nested", Inputs: []string{"."}}},
 		Environments: map[string]Environment{"dagger": {Executor: ExecutorDagger}, "native": {Executor: ExecutorNative}},

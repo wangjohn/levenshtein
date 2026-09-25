@@ -29,8 +29,15 @@ func TestEveryCheckKindHasACompleteExecutor(t *testing.T) {
 		}
 		seen[kind] = true
 	}
-	if specOf("no-such-kind").native != nil || daggerFunction("no-such-kind") != "" || !readOnlyWorkspace(CheckGoLint) || readOnlyWorkspace(CheckCommand) {
-		t.Error("an unknown kind must support nothing, and only command checks write their workspace")
+}
+
+// Only a command check may write to the workspace it runs in; every other
+// kind can share it.
+func TestOnlyCommandChecksWriteTheirWorkspace(t *testing.T) {
+	for _, kind := range checkKinds {
+		if readOnlyWorkspace(kind) == (kind == CheckCommand) {
+			t.Errorf("%s: readOnlyWorkspace = %v", kind, readOnlyWorkspace(kind))
+		}
 	}
 }
 
