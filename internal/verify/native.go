@@ -47,10 +47,13 @@ func (n *Native) runCommand(ctx context.Context, req Request, dir string, env []
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	stages := []StageResult{}
+	var warnings []Warning
 	for _, item := range req.stages() {
-		info, failure := n.stage(ctx, req, item.kind, item.definition)
+		info, noted, failure := n.stage(ctx, req, item.kind, item.definition)
 		stages = append(stages, info)
+		warnings = append(warnings, noted...)
 		if failure != nil {
+			failure.Warnings = append(warnings, failure.Warnings...)
 			return failure.withStages(stages)
 		}
 	}
@@ -62,6 +65,7 @@ func (n *Native) runCommand(ctx context.Context, req Request, dir string, env []
 	}
 
 	result := command(ctx, dir, args, env, options.Timeout).withStages(stages)
+	result.Warnings = append(warnings, result.Warnings...)
 	if result.Status == StatusPassed {
 		for _, path := range options.Artifacts {
 			full, err := contained(req.Source, path)

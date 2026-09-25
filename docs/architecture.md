@@ -213,8 +213,13 @@ plus explicit `pass_env`/`env` entries), defaults `LANG` to `C` unless
 configuration overrides it, and adds `LEVENSHTEIN_SOURCE`,
 `LEVENSHTEIN_WORKSPACE`, and `LEVENSHTEIN_RERUN_CHECKS`. `process_unix.go`
 puts the child in its own process group and kills the whole group
-(`SIGKILL` to `-pid`) on timeout or cancellation, so subprocesses cannot
-outlive a killed check.
+(`SIGKILL` to `-pid`) on timeout or cancellation, and again once the command
+has exited whatever its outcome, so subprocesses cannot outlive a check and
+keep changing the tree after its verdict. A daemon that moves to its own
+session, as build servers do, is outside the group and survives. Output is
+read for at most a second after the command exits; a command that exited 0
+while a background process still held its output passes, with a
+`detached-output` warning.
 
 ## Result cache
 

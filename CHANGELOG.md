@@ -285,6 +285,13 @@ Consumers pin a release tag, or its commit SHA, as described in
   GOFLAGS=-tags=integration` reused results computed without the tag. Module
   download settings such as `GOPROXY` and `GOPRIVATE` still do not affect the
   key. Existing native shared Go results are recomputed once.
+- A native `command` check or stage that exits 0 but leaves a background
+  process holding its output, as `sh -c 'server & echo ok'` or a daemonizing
+  build tool can, passes with a `detached-output` warning instead of failing
+  with `exec: WaitDelay expired before I/O complete`. The leftover process is
+  still killed with the command's process group, which happens after every
+  run, not only on timeout as docs/architecture.md said; daemons that start
+  their own session are unaffected.
 
 ## [0.1.0] - 2026-09-22
 

@@ -23,6 +23,11 @@ func configureProcess(cmd *exec.Cmd) {
 	}
 }
 
+// cleanupProcess kills whatever is left of the command's process group once it
+// has exited, whatever the outcome, not only on timeout or cancellation. A
+// background process left behind could otherwise keep changing the working
+// tree after the verdict, and after the result is cached. A tool that starts a
+// real daemon moves it to its own session, out of this group, and keeps it.
 func cleanupProcess(cmd *exec.Cmd) {
 	if cmd.Process != nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
