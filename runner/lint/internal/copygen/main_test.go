@@ -19,7 +19,11 @@ func TestCommunityCopiesAreCurrent(t *testing.T) {
 
 	for _, m := range mirrors {
 		got, err := os.ReadFile(filepath.Join(root, community, m.Name))
-		if err != nil || !bytes.Equal(got, want[m.Name]) {
+		if err != nil {
+			t.Errorf("reading runner/community/%s, the copy of runner/lint/%s: %v; a target that runs this test must declare the copies as inputs", m.Name, m.Source, err)
+			continue
+		}
+		if !bytes.Equal(got, want[m.Name]) {
 			t.Errorf("runner/community/%s is not the current copy of runner/lint/%s; run go generate ./internal/copygen in runner/lint", m.Name, m.Source)
 		}
 	}
