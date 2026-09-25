@@ -14,7 +14,7 @@ import (
 // inside an excluded directory, and ignored paths the Go toolchain can and
 // cannot load. Loadable: Go files in an ignored directory and one in an
 // ordinary package directory, a directory a tracked package embeds (holding a
-// symlink), and testdata. Not loadable: a node_modules tree with a .bin
+// symlink), testdata, and a symlink to a directory of Go files. Not loadable: a node_modules tree with a .bin
 // symlink, a _build directory, a dependency directory, and loose ignored files,
 // one named with pattern characters.
 func fileSetRepository(t *testing.T) string {
@@ -35,7 +35,7 @@ func fileSetRepository(t *testing.T) string {
 		writeFile(t, filepath.Join(root, filepath.FromSlash(name)), sourceOne)
 	}
 	writeFile(t, filepath.Join(root, "pkg", "embed.go"), "package pkg\n\nimport _ \"embed\"\n\n//go:embed assets\nvar assets string\n")
-	for link, target := range map[string]string{"build/link": "../main.go", "node_modules/.bin/tool": "../lib/index.js", "pkg/assets/link": "data.txt"} {
+	for link, target := range map[string]string{"build/link": "../main.go", "node_modules/.bin/tool": "../lib/index.js", "pkg/assets/link": "data.txt", "gen/current": "deep"} {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, link)), 0755); err != nil {
 			t.Fatal(err)
 		}
@@ -135,6 +135,89 @@ func TestGoKindKeySkipsUnloadableIgnoredTrees(t *testing.T) {
 	}
 }
 
+// An import path resolves through a symlinked directory, so retargeting an
+// ignored link from one tracked package to another changes what the Go
+// toolchain compiles, and must change a Go kind's key.
+func TestGoKindKeyCoversIgnoredDirectoryLinks(t *testing.T) {
+	root := fileSetRepository(t)
+	writeFile(t, filepath.Join(root, ".gitignore"), "gen/\ndeps/\n*.log\n.env\nnode_modules/\n_build/\n*_generated.go\npkg/assets/\n*.out\n/impl\n")
+	writeFile(t, filepath.Join(root, "impl_a", "a.go"), sourceOne)
+	writeFile(t, filepath.Join(root, "impl_b", "b.go"), sourceTwo)
+	if err := os.Symlink("impl_a", filepath.Join(root, "impl")); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "add", ".gitignore", "impl_a", "impl_b")
+	relist(root)
+	stats.configure(t.TempDir())
+	req := Request{Source: root, Shared: t.TempDir(), PlannedCheck: planFor(t, root, CheckGoVet, ExecutorNative)}
+
+	before, err := fingerprint(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(root, "impl")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("impl_b", filepath.Join(root, "impl")); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := fingerprint(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after == before {
+		t.Fatal("retargeting an ignored directory link left the go-vet key unchanged")
+	}
+}
+
+// An ignored link out of the source, such as a Nix result link, names nothing
+// the key or the go-generate copy could hold, so it stays out of both rather
+// than failing the copy.
+func TestGoKindOmitsIgnoredLinksOutOfTheSource(t *testing.T) {
+	root := fileSetRepository(t)
+	writeFile(t, filepath.Join(root, ".gitignore"), "gen/\ndeps/\n*.log\n.env\nnode_modules/\n_build/\n*_generated.go\npkg/assets/\n*.out\n/result\n")
+	if err := os.Symlink(t.TempDir(), filepath.Join(root, "result")); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "add", ".gitignore")
+	relist(root)
+	req := Request{Source: root, PlannedCheck: planFor(t, root, CheckGoGenerate, ExecutorNative)}
+
+	err := copyInputs(t.Context(), req, t.TempDir())
+	if err != nil {
+		t.Fatalf("an ignored link out of the source failed the go-generate copy: %v", err)
+	}
+}
+
+// With a vendor directory the go command builds from vendor/modules.txt,
+// refusing a tree whose manifest disagrees with go.mod, so an edit to an
+// ignored manifest must change a Go kind's key.
+func TestGoKindKeyCoversIgnoredVendorManifest(t *testing.T) {
+	root := fileSetRepository(t)
+	writeFile(t, filepath.Join(root, ".gitignore"), "gen/\ndeps/\n*.log\n.env\nnode_modules/\n_build/\n*_generated.go\npkg/assets/\n*.out\nvendor/\n")
+	writeFile(t, filepath.Join(root, "vendor", "example.com", "dep", "dep.go"), sourceOne)
+	writeFile(t, filepath.Join(root, "vendor", "modules.txt"), "# example.com/dep v1.0.0\n## explicit; go 1.21\nexample.com/dep\n")
+	runGit(t, root, "add", ".gitignore")
+	relist(root)
+	stats.configure(t.TempDir())
+	req := Request{Source: root, Shared: t.TempDir(), PlannedCheck: planFor(t, root, CheckGoVet, ExecutorNative)}
+
+	before, err := fingerprint(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(root, "vendor", "modules.txt"), "# example.com/dep v1.0.0\n## explicit; go 1.22\nexample.com/dep\n")
+
+	after, err := fingerprint(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after == before {
+		t.Fatal("editing an ignored vendor/modules.txt left the go-vet key unchanged")
+	}
+}
+
 // A native scanner reads exactly what the key hashed: under git discovery an
 // ignored file is in neither, so adding a secret to one cannot replay a pass
 // over a scan that read it.
@@ -223,7 +306,7 @@ func TestInputInsideANestedRepositoryIsFingerprinted(t *testing.T) {
 // hashed but never shown to a scanner or a container.
 var (
 	listedFiles  = []string{".gitignore", "config/.env.local", "gen/keep.pb.go", "main.go", "pkg/embed.go", "pkg/lib.go", "pkg/new.go"}
-	goFiles      = []string{".gitignore", "config/.env.local", "gen/api.pb.go", "gen/deep/x.go", "gen/keep.pb.go", "main.go", "pkg/assets/data.txt", "pkg/assets/link", "pkg/embed.go", "pkg/lib.go", "pkg/new.go", "pkg/testdata/golden.out", "pkg/zz_generated.go"}
+	goFiles      = []string{".gitignore", "config/.env.local", "gen/api.pb.go", "gen/current", "gen/deep/x.go", "gen/keep.pb.go", "main.go", "pkg/assets/data.txt", "pkg/assets/link", "pkg/embed.go", "pkg/lib.go", "pkg/new.go", "pkg/testdata/golden.out", "pkg/zz_generated.go"}
 	privateFiles = []string{".env", "config/.env.local"}
 )
 
@@ -295,7 +378,7 @@ func TestFileSetConformance(t *testing.T) {
 		// Everything the listing leaves out is excluded from the Dagger import,
 		// literally, and a wholly ignored directory as one path. gen/ holds a
 		// tracked file, so its ignored paths are excluded one by one.
-		want := []string{`\!odd\[1]\*.log`, "_build", "debug.log", "deps", "gen/api.pb.go", "gen/deep", "node_modules", "pkg/assets", "pkg/testdata", "pkg/zz_generated.go"}
+		want := []string{`\!odd\[1]\*.log`, "_build", "debug.log", "deps", "gen/api.pb.go", "gen/current", "gen/deep", "node_modules", "pkg/assets", "pkg/testdata", "pkg/zz_generated.go"}
 		if got := excludedPaths(t, req); !slices.Equal(got, want) {
 			t.Errorf("the Dagger import excludes %v, want %v", got, want)
 		}

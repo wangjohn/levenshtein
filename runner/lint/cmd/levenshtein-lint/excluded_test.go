@@ -229,6 +229,45 @@ func TestExcludedFilesFollowTheRunOptions(t *testing.T) {
 	}
 }
 
+// An excluded file is suppressed the way Staticcheck suppresses LV1005 in a
+// compiled one: a //lint:file-ignore naming the rule, or a //lint:ignore on the
+// first line, where the finding is.
+func TestExcludedFilesHonorIgnoreDirectives(t *testing.T) {
+	dir := writeModule(t, map[string]string{
+		"app.go":            "package app\n",
+		"file_ignore.go":    "//go:build integration\n\n//lint:file-ignore LV1005 kept as the generator wrote it\npackage app\nvar  y = 1\n",
+		"glob_ignore.go":    "//go:build integration\n\n//lint:file-ignore lv100* kept as the generator wrote it\npackage app\nvar  z = 1\n",
+		"line_windows.go":   "package app //lint:ignore LV1005 kept as the generator wrote it\nvar  w = 1\n",
+		"other_ignore.go":   "//go:build integration\n\n//lint:file-ignore SA4006 another rule\npackage app\nvar  v = 1\n",
+		"missing_reason.go": "//go:build integration\n\n//lint:file-ignore LV1005\npackage app\nvar  u = 1\n",
+	})
+
+	got := lintModule(t, dir, t.TempDir(), "-f=json", "-checks=LV1005")
+
+	want := jsonLine(filepath.Join(dir, "missing_reason.go"), "error") +
+		jsonLine(filepath.Join(dir, "other_ignore.go"), "error")
+	if got.status != 1 || got.stdout != want || got.stderr != "" {
+		t.Errorf("exited %d with\n%s\nstderr %q, want 1 with\n%s", got.status, got.stdout, got.stderr, want)
+	}
+}
+
+// Under -tests=false Staticcheck checks no test file, so the pass over
+// excluded files leaves excluded test files alone too.
+func TestExcludedTestFilesFollowTheTestsFlag(t *testing.T) {
+	dir := writeModule(t, map[string]string{
+		"app.go":              "package app\n",
+		"integration.go":      "//go:build integration\n\npackage app\nvar  y = 1\n",
+		"integration_test.go": "//go:build integration\n\npackage app\nvar  w = 1\n",
+	})
+
+	got := lintModule(t, dir, t.TempDir(), "-f=json", "-checks=LV1005", "-tests=false")
+
+	want := jsonLine(filepath.Join(dir, "integration.go"), "error")
+	if got.status != 1 || got.stdout != want || got.stderr != "" {
+		t.Errorf("exited %d with\n%s\nstderr %q, want 1 with\n%s", got.status, got.stdout, got.stderr, want)
+	}
+}
+
 // Under -checks=inherit, each directory's staticcheck.conf decides whether
 // LV1005 checks its excluded files, as it does for the package there. Without
 // -checks the shipped selection applies instead (defaults.go).

@@ -112,7 +112,7 @@ for version in $versions; do
       status=1
       ;;
     *)
-      wrong=$(grep -F "# v$version" <<<"$action_pins" | grep -vF "wangjohn/levenshtein@$commit # v$version" || true)
+      wrong=$(grep -E "# v${version//./\\.}\$" <<<"$action_pins" | grep -vF "wangjohn/levenshtein@$commit # v$version" || true)
       if [[ -n $wrong ]]; then
         echo "v$version is commit $commit; these pins name another:" >&2
         echo "$wrong" >&2
