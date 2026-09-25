@@ -177,10 +177,8 @@ func unformattedFile(name string) (bool, error) {
 	}
 	fset := token.NewFileSet()
 	file, parseErr := parser.ParseFile(fset, name, source, parser.ParseComments|parser.SkipObjectResolution)
-	if parseErr != nil || policy.Generated(fset, file) || ignored(fset, file) {
-		return false, nil
-	}
-	return !policy.Formatted(source), nil
+	checked := parseErr == nil && !policy.Generated(fset, file) && !ignored(fset, file)
+	return checked && !policy.Formatted(source), nil
 }
 
 // ignored reports whether a directive suppresses LV1005's finding at the start
