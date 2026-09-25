@@ -1,0 +1,7 @@
+module example.com/deps-clean
+
+go 1.22
+
+// deps-vuln leaves Go modules to go-vuln, so this known-vulnerable
+// requirement must not be reported here.
+require golang.org/x/text v0.3.0

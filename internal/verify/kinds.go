@@ -95,6 +95,11 @@ var nativeKinds = map[CheckKind]nativeKind{
 		rerunReady: alwaysReady,
 		execute:    goCheckExecutor((*Native).secrets, "shared check failed"),
 	},
+	CheckDepsVuln: {
+		validate:   validateSharedGoCheck,
+		rerunReady: alwaysReady,
+		execute:    goCheckExecutor((*Native).depsVuln, "shared check failed"),
+	},
 }
 
 // sharedGoChecks are the kinds either executor can run. Their results are
@@ -114,14 +119,16 @@ var sharedGoChecks = map[CheckKind]bool{
 	CheckGoApidiff:        true,
 	CheckShellLint:        true,
 	CheckSecrets:          true,
+	CheckDepsVuln:         true,
 }
 
 // alwaysFresh names the kinds whose verdict depends on state no input
 // fingerprint covers, with the reason the report gives for not reusing it.
 // Their results are never cached and every Dagger execution gets a nonce.
 var alwaysFresh = map[CheckKind]string{
-	CheckGoVuln: "vulnerability scans always query current advisory data",
-	CheckGoMod:  "go mod verify always checks the current module cache",
+	CheckGoVuln:   "vulnerability scans always query current advisory data",
+	CheckGoMod:    "go mod verify always checks the current module cache",
+	CheckDepsVuln: "vulnerability scans always query current advisory data",
 }
 
 // baseDependent names the kinds whose input the CLI reads from git history,

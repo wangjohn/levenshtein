@@ -16,7 +16,9 @@ import (
 )
 
 // sourceRequest points a native shared check at any source directory, with
-// this repository as the pinned shared checkout.
+// this repository as the pinned shared checkout. Proxy settings pass through,
+// as a consumer passes them with pass_env, so deps-vuln can reach OSV from
+// behind one.
 func sourceRequest(t *testing.T, shared, source string, kind CheckKind) Request {
 	t.Helper()
 	source, err := filepath.EvalSymlinks(source)
@@ -31,12 +33,13 @@ func sourceRequest(t *testing.T, shared, source string, kind CheckKind) Request 
 			ID:          string(kind),
 			Check:       Check{Kind: kind, Target: "app", Environment: "host"},
 			Target:      Target{Dir: ".", Workspace: ".", Inputs: []string{"."}, Discovery: DiscoveryFilesystem},
-			Environment: Environment{Executor: ExecutorNative},
+			Environment: Environment{Executor: ExecutorNative, PassEnv: []string{"HTTPS_PROXY", "https_proxy", "NO_PROXY", "no_proxy", "SSL_CERT_FILE"}},
 		},
 	}
 }
 
-// copyFixture copies one of the runner's fixtures into a temporary directory.
+// copyFixture copies one of the runner's fixtures into a temporary directory,
+// dropping the .fixture suffix the dependency fixtures carry.
 func copyFixture(t *testing.T, shared, fixture string) string {
 	t.Helper()
 	from := filepath.Join(shared, "runner", "testdata", fixture)
@@ -53,7 +56,7 @@ func copyFixture(t *testing.T, shared, fixture string) string {
 		if err != nil {
 			return err
 		}
-		writeTestFile(t, filepath.Join(to, rel), string(data))
+		writeTestFile(t, filepath.Join(to, strings.TrimSuffix(rel, ".fixture")), string(data))
 		return nil
 	})
 	if err != nil {

@@ -109,7 +109,8 @@ findings of medium severity and above, natively in `branch` and `pre-merge` and
 in Dagger in `branch-dagger` and `main`. So do [`shell-lint`](checks.md#shell-scripts)
 over `scripts/` and `verify`, and [`secrets`](checks.md#secrets) over the whole
 repository less `runner/testdata/secrets-leaky`, the fixture that exists to be
-found.
+found. Levenshtein has no dependencies outside Go, so it runs no `deps-vuln`
+check of its own.
 
 `security.yml` runs beside it: zizmor's GitHub Action with the workflow token on
 every pull request, push to `main`, and weekly, so the audits that query GitHub
@@ -230,7 +231,7 @@ GOTOOLCHAIN=local go test -race ./...
 
 In this repository `./verify branch` and the per-kind runs (`go-lint`, `go-vet`, `go-mod`, `go-test`, `workflow-lint`, `workflow-security`, `shell-lint`, `secrets`) run natively and need no container runtime, only Go 1.27.1 and the generated SDK from `dagger develop`, since the `runner` module compiles against it. `pre-merge` adds `self-test`, which runs in Dagger. `./verify mutation` runs mutation testing of the branch's changed Go files in Dagger, outside `pre-merge`. `./verify branch-dagger` runs the same static checks in Dagger, and `./verify main` is the full hermetic audit.
 
-The generated Go SDK needs a Dagger session, including during unit tests. The deliberately broken Go module lives under `runner/testdata`, outside ordinary test discovery. The self-test requires good code, vendored dependencies, and embedded templates to pass, bad code to emit each intended rule, broken/empty modules to fail verification, the pinned zizmor to pass `workflow-secure` and report `workflow-insecure`'s template injection, `go test -race` to pass `test-pass`, report `test-fail` and `test-race` as findings, and refuse `test-build` as an error, the pinned ShellCheck to pass `shell-good` and report each of `shell-bad`'s diagnostics, and gitleaks to pass `secrets-clean` and report `secrets-leaky`'s made-up key without its value. A compiler failure cannot substitute for an expected lint finding.
+The generated Go SDK needs a Dagger session, including during unit tests. The deliberately broken Go module lives under `runner/testdata`, outside ordinary test discovery. The self-test requires good code, vendored dependencies, and embedded templates to pass, bad code to emit each intended rule, broken/empty modules to fail verification, the pinned zizmor to pass `workflow-secure` and report `workflow-insecure`'s template injection, `go test -race` to pass `test-pass`, report `test-fail` and `test-race` as findings, and refuse `test-build` as an error, the pinned ShellCheck to pass `shell-good` and report each of `shell-bad`'s diagnostics, gitleaks to pass `secrets-clean` and report `secrets-leaky`'s made-up key without its value, and osv-scanner to pass `deps-clean` and report `deps-vulnerable`'s two npm packages but not its Go module. A compiler failure cannot substitute for an expected lint finding.
 
 `scripts/test-consumers` checks module and workspace vendoring through the launcher. It also adds synthetic private env files next to root and nested `.env.example` templates; each embed must match exactly one file, proving the templates survive filtering and the private files do not. A final case verifies undeclared dependencies still fail without vendoring.
 

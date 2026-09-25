@@ -14,11 +14,12 @@ import (
 	"strings"
 )
 
-// sourceSkipDirs are the directories shell-lint never enters, whatever the
-// target declares: fixtures kept deliberately broken, as the go command skips
-// testdata, and third-party code the repository does not maintain. secrets
-// scans them, since a credential is exposed wherever it is committed.
-// runner/shelllint.go keeps a copy; change both together.
+// sourceSkipDirs are the directories shell-lint and deps-vuln never enter,
+// whatever the target declares: fixtures kept deliberately broken or
+// vulnerable, as the go command skips testdata, and third-party code the
+// repository does not maintain. secrets scans them, since a credential is
+// exposed wherever it is committed. runner/shelllint.go keeps a copy; change
+// both together.
 var sourceSkipDirs = []string{"testdata", "vendor", "node_modules"}
 
 func sourceSkipDir(name string) bool {
