@@ -1,7 +1,9 @@
 package verify
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -14,6 +16,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/wangjohn/levenshtein/internal/checktool"
 )
 
 // writeReleasePin writes a toolchain.json into a fresh shared checkout that
@@ -21,11 +25,11 @@ import (
 func writeReleasePin(t *testing.T, tool releaseTool, binary, name string, asset []byte) string {
 	t.Helper()
 	sum := sha256.Sum256(asset)
-	pin := map[string]releasePin{string(tool): {
+	pin := map[string]checktool.ReleasePin{string(tool): {
 		Releases: "https://example.invalid/releases",
 		Version:  "1.2.3",
 		Binary:   binary,
-		Assets:   map[string]releaseAsset{runtime.GOOS + "/" + runtime.GOARCH: {Name: name, SHA256: hex.EncodeToString(sum[:])}},
+		Assets:   map[string]checktool.ReleaseAsset{runtime.GOOS + "/" + runtime.GOARCH: {Name: name, SHA256: hex.EncodeToString(sum[:])}},
 	}}
 	data, err := json.Marshal(pin)
 	if err != nil {
@@ -112,6 +116,30 @@ func TestInstallReleaseUsesABinaryAssetAsIs(t *testing.T) {
 	}
 }
 
+// zizmor's archives hold the binary at their root, and it is installed where
+// workflow-security has always kept it.
+func TestInstallReleaseTakesABinaryFromTheArchiveRoot(t *testing.T) {
+	binary := []byte("#!/bin/sh\necho zizmor 1.30.1\n")
+	archive := tarGz(t, "zizmor", binary)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(archive)
+	}))
+	defer server.Close()
+	shared := writeReleasePin(t, releaseZizmor, "zizmor", "zizmor-test.tar.gz", archive)
+	root := t.TempDir()
+
+	path, err := installRelease(context.Background(), shared, root, releaseZizmor, server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != filepath.Join(root, "tools", "zizmor-1.2.3", "zizmor") {
+		t.Fatalf("zizmor installed at %s", path)
+	}
+	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, binary) {
+		t.Fatalf("installed %q, %v", got, err)
+	}
+}
+
 func TestInstallReleaseRefusesAnUnpinnedPlatform(t *testing.T) {
 	shared := t.TempDir()
 	writeTestFile(t, filepath.Join(shared, "runner", "toolchain.json"), `{"shellcheck":{"releases":"https://example.invalid","version":"1.2.3","binary":"shellcheck","assets":{"plan9/mips":{"name":"shellcheck.tar.gz","sha256":"`+strings.Repeat("0", 64)+`"}}}}`)
@@ -148,15 +176,52 @@ func TestUntarEntryRefusesAnEntryOverTheLimit(t *testing.T) {
 
 // The shared checkout pins every platform the native executor runs on.
 func TestReleasePinsCoverNativePlatforms(t *testing.T) {
-	for _, tool := range []releaseTool{releaseShellCheck, releaseOSVScanner} {
+	for _, tool := range []releaseTool{releaseShellCheck, releaseOSVScanner, releaseZizmor} {
 		pin, err := readReleasePin("../..", tool)
 		if err != nil {
 			t.Fatal(err)
 		}
 		for _, platform := range []string{"darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"} {
-			if _, err := pin.asset(tool, platform); err != nil {
+			if _, err := pin.Asset(string(tool), platform); err != nil {
 				t.Error(err)
 			}
 		}
+	}
+}
+
+func tarGz(t *testing.T, name string, content []byte) []byte {
+	t.Helper()
+	var out bytes.Buffer
+	compressed := gzip.NewWriter(&out)
+	archive := tar.NewWriter(compressed)
+	if err := archive.WriteHeader(&tar.Header{Name: name, Mode: 0755, Size: int64(len(content)), Typeflag: tar.TypeReg}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := archive.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := compressed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return out.Bytes()
+}
+
+// A download may be exactly as large as its limit; one more byte is refused.
+func TestDownloadRefusesABodyOverItsLimit(t *testing.T) {
+	body := []byte("0123456789")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+
+	got, err := download(t.Context(), server.URL, len(body))
+	if err != nil || !bytes.Equal(got, body) {
+		t.Fatalf("a body at the limit must be returned whole: %q, %v", got, err)
+	}
+	if _, err := download(t.Context(), server.URL, len(body)-1); err == nil || !strings.Contains(err.Error(), "is larger than 9 bytes") {
+		t.Fatalf("a body over the limit must be refused: %v", err)
 	}
 }

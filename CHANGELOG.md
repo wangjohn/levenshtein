@@ -24,6 +24,14 @@ Consumers pin a release tag, or its commit SHA, as described in
 
 ### Changed
 
+- **Each pinned Go tool builds from a module of its own.** `actionlint`,
+  `apidiff`, `gitleaks`, `govulncheck`, and `gremlins` moved from one shared
+  `runner/tools` module to `runner/tools/<tool>`, each with a single `tool`
+  directive, so a Dependabot update of one tool needs no manual pin edit and
+  cannot move a version another is built with. Every tool still links exactly
+  the module versions it did before. `runner/toolchain.json` no longer repeats
+  the tools' versions, and Dependabot proposes each tool's updates in a pull
+  request of its own.
 - The Claude Code Stop hook template blocks only the first attempt to stop in a
   turn by default, so an agent that cannot fix a finding, or meets one that
   predates its change, ends with a report instead of looping.
@@ -51,6 +59,9 @@ Consumers pin a release tag, or its commit SHA, as described in
   updates the workflow template too, in the same single grouped pull request
   as the workflows, and `scripts/sync-action-pins` copies the pins into the
   docs.
+- A test fails when any version recorded twice (the Go version and image,
+  Staticcheck, the Dagger engine) disagrees with its copy. zizmor is pinned
+  in the same shape as ShellCheck and osv-scanner.
 
 ### Fixed
 
@@ -238,6 +249,16 @@ Consumers pin a release tag, or its commit SHA, as described in
   repository is fingerprinted from disk.
 - Git discovery finds each input's paths by binary search in the sorted
   listing instead of scanning the whole listing once per input.
+
+### Security
+
+- The Dagger `go-test`, `go-generate`, and `go-mutation` steps, which run the
+  repository's own code as root, mount Go module and build cache volumes of
+  their own. Before, they shared the volumes that build `levenshtein-lint`,
+  `levenshtein-gocheck`, and the pinned tools, so a malicious test could edit a
+  linter's module source in the cache and change later linter builds on a
+  persistent engine. The tool-build volumes are renamed too, so an engine that
+  ran older checks starts them clean.
 
 ## [0.2.0] - 2026-09-25
 

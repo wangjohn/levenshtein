@@ -13,65 +13,6 @@ import (
 	"testing"
 )
 
-// gocheckVerdict is what an executor must make of one levenshtein-gocheck run.
-type gocheckVerdict string
-
-const (
-	gocheckPass    gocheckVerdict = "pass"
-	gocheckFinding gocheckVerdict = "finding"
-	gocheckError   gocheckVerdict = "error"
-)
-
-// gocheckCase is one row of runner/testdata/gocheck-reports.json.
-type gocheckCase struct {
-	Name     string         `json:"name"`
-	Exit     int            `json:"exit"`
-	Stdout   string         `json:"stdout"`
-	Stderr   string         `json:"stderr"`
-	Want     gocheckVerdict `json:"want"`
-	Findings int            `json:"findings"`
-	Notes    int            `json:"notes"`
-	Contains string         `json:"contains"`
-}
-
-// This reads the same table as the runner's test, so the native executor
-// reads levenshtein-gocheck's report exactly as the Dagger path does.
-func TestGocheckReportAgreesWithTheRunner(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "runner", "testdata", "gocheck-reports.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var table struct {
-		Cases []gocheckCase `json:"cases"`
-	}
-	if err := json.Unmarshal(data, &table); err != nil {
-		t.Fatal(err)
-	}
-	if len(table.Cases) == 0 {
-		t.Fatal("gocheck-reports.json has no cases")
-	}
-
-	for _, tc := range table.Cases {
-		findings, notes, err := gocheckReport(CheckGoImports, tc.Exit, tc.Stdout, tc.Stderr)
-		switch tc.Want {
-		case gocheckPass:
-			if err != nil || len(findings) != 0 || len(notes) != tc.Notes {
-				t.Errorf("%s: want a pass with %d notes: findings=%v notes=%v error=%v", tc.Name, tc.Notes, findings, notes, err)
-			}
-		case gocheckFinding:
-			if err != nil || len(findings) != tc.Findings {
-				t.Errorf("%s: want %d findings: findings=%v error=%v", tc.Name, tc.Findings, findings, err)
-			}
-		case gocheckError:
-			if err == nil || !strings.Contains(err.Error(), tc.Contains) {
-				t.Errorf("%s: want an error containing %q: findings=%v error=%v", tc.Name, tc.Contains, findings, err)
-			}
-		default:
-			t.Errorf("%s: unknown want %q", tc.Name, tc.Want)
-		}
-	}
-}
-
 // runnerFunctions reads the Dagger functions the runner module exports: its
 // exported methods on *Levenshtein, named as Dagger names them, with their
 // parameter names.

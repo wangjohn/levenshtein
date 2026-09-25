@@ -1,74 +1,33 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"path"
-	"regexp"
 	"slices"
 	"sort"
 	"strings"
 
+	"dagger/levenshtein/internal/checktool"
 	"dagger/levenshtein/internal/dagger"
 )
 
-// sourceSkipDirs are the directories shell-lint and deps-vuln never enter:
-// fixtures kept deliberately broken or vulnerable, as the go command skips
-// testdata, and third-party code the repository does not maintain.
-// internal/verify/shelllint.go keeps a copy; change both together.
-var sourceSkipDirs = []string{"testdata", "vendor", "node_modules"}
-
-// shellHeadLimit is how much of an extensionless file shell-lint reads to find
-// a shebang.
-const shellHeadLimit = 256
-
-// shellShebang is a first line that runs sh, bash, dash or ksh, directly or
-// through env. internal/verify/shelllint.go keeps a copy; change both together.
-var shellShebang = regexp.MustCompile(`^#!\s*/(\S*/)?(env\s+(-S\s+)?)?(sh|bash|dash|ksh)(\s.*)?$`)
-
-// shellExtensions are the file extensions shell-lint always checks.
-var shellExtensions = []string{".sh", ".bash"}
-
-// shellRCNames are the configuration files ShellCheck discovers, which
-// shell-lint honors only at the repository root.
-var shellRCNames = []string{".shellcheckrc", "shellcheckrc"}
-
-// shellScript reports whether shell-lint checks a file: a .sh or .bash file, or
-// a file without an extension whose first line, read from at most the first
-// shellHeadLimit bytes, is a shell shebang. A NUL byte reads as \x01, since the
-// listing below is NUL-separated. internal/verify/shelllint.go keeps a copy;
-// change both together.
-func shellScript(file string, head []byte) bool {
-	extension := path.Ext(path.Base(file))
-	if slices.Contains(shellExtensions, extension) {
-		return true
-	}
-	if extension != "" {
-		return false
-	}
-
-	line, _, _ := bytes.Cut(head[:min(len(head), shellHeadLimit)], []byte("\n"))
-	return shellShebang.Match(bytes.ReplaceAll(line, []byte{0}, []byte{1}))
-}
-
 // shellListing prints every file outside the skipped directories as its path
 // and, for a file without an extension that starts with #!, the first line of
-// its first shellHeadLimit bytes, each followed by a NUL. NULs in that line
-// become \x01 so they cannot split the listing. That line is all shellScript
+// its first ShellHeadLimit bytes, each followed by a NUL. NULs in that line
+// become \x01 so they cannot split the listing. That line is all ShellScript
 // reads, and the listing is an exec's stdout, which Dagger streams to its
 // progress log and traces, so no other contents, such as the start of an
 // extensionless key file or a script's body, are printed.
 func shellListing() []string {
 	var prune []string
-	for i, dir := range sourceSkipDirs {
+	for i, dir := range checktool.SourceSkipDirs {
 		if i > 0 {
 			prune = append(prune, "-o")
 		}
 		prune = append(prune, "-name", dir)
 	}
-	script := fmt.Sprintf(`for f do printf '%%s\0' "$f"; case "${f##*/}" in *.*) ;; *) line=$(head -c %d "$f" | tr '\000' '\001' | head -n 1); case $line in '#!'*) printf '%%s' "$line" ;; esac ;; esac; printf '\0'; done`, shellHeadLimit)
+	script := fmt.Sprintf(`for f do printf '%%s\0' "$f"; case "${f##*/}" in *.*) ;; *) line=$(head -c %d "$f" | tr '\000' '\001' | head -n 1); case $line in '#!'*) printf '%%s' "$line" ;; esac ;; esac; printf '\0'; done`, checktool.ShellHeadLimit)
 	args := append([]string{"find", ".", "-type", "d", "("}, prune...)
 	return append(args, ")", "-prune", "-o", "-type", "f", "-exec", "sh", "-c", script, "sh", "{}", "+")
 }
@@ -84,13 +43,13 @@ func shellInputs(listing string) ([]string, string, error) {
 	var scripts, configs []string
 	for i := 0; i+1 < len(fields); i += 2 {
 		file := strings.TrimPrefix(fields[i], "./")
-		if slices.ContainsFunc(strings.Split(path.Dir(file), "/"), func(dir string) bool { return slices.Contains(sourceSkipDirs, dir) }) {
+		if slices.ContainsFunc(strings.Split(path.Dir(file), "/"), func(dir string) bool { return slices.Contains(checktool.SourceSkipDirs, dir) }) {
 			continue
 		}
-		if slices.Contains(shellRCNames, file) {
+		if slices.Contains(checktool.ShellRCNames, file) {
 			configs = append(configs, file)
 		}
-		if shellScript(file, []byte(fields[i+1])) {
+		if checktool.ShellScript(file, []byte(fields[i+1])) {
 			scripts = append(scripts, file)
 		}
 	}
@@ -132,81 +91,11 @@ func shellLint(ctx context.Context, source *dagger.Directory, tools toolchain, n
 		return nil, err
 	}
 
-	checked := ctr.WithExec(shellcheckArguments("/usr/local/bin/shellcheck", config, scripts), dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
-	exitCode, err := checked.ExitCode(ctx)
+	run, _, err := runTool(ctx, ctr, checktool.ShellcheckArguments("/usr/local/bin/shellcheck", config, scripts))
 	if err != nil {
 		return nil, err
 	}
-	stdout, err := checked.Stdout(ctx)
-	if err != nil {
-		return nil, err
-	}
-	stderr, err := checked.Stderr(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return shellFindings(exitCode, stdout, stderr)
-}
-
-// shellcheckArguments reports warnings and errors: ShellCheck's info and style
-// levels are matters of taste a shared gate should not impose. Without a root
-// configuration, --norc keeps ShellCheck from reading one elsewhere; with one,
-// --rcfile names it, so a nested file never applies either.
-// internal/verify/shelllint.go keeps a copy; change both together.
-func shellcheckArguments(binary, config string, scripts []string) []string {
-	args := []string{binary, "--format=json1", "--severity=warning", "--color=never"}
-	if config == "" {
-		args = append(args, "--norc")
-	} else {
-		args = append(args, "--rcfile="+config)
-	}
-	args = append(args, "--")
-	return append(args, scripts...)
-}
-
-// shellComment is one diagnostic in ShellCheck's json1 format. The tags are
-// ShellCheck's field names.
-type shellComment struct {
-	File    string `json:"file"`
-	Line    int    `json:"line"`
-	Column  int    `json:"column"`
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-
-// shellFindings turns one ShellCheck run into findings, one per diagnostic,
-// coded by its SC number. ShellCheck exits 0 without diagnostics and 1 with
-// them; 2 means a file could not be read, 3 bad syntax on the command line and
-// 4 an unrecognized option, and none of those is ever a pass. An exit that
-// contradicts the diagnostics is an error too. internal/verify/shelllint.go
-// keeps a copy; change both together.
-func shellFindings(exitCode int, stdout, stderr string) ([]diagnostic, error) {
-	if exitCode != 0 && exitCode != 1 {
-		return nil, fmt.Errorf("shellcheck exited %d: %s", exitCode, strings.TrimSpace(stderr+"\n"+stdout))
-	}
-
-	var report struct {
-		Comments []shellComment `json:"comments"`
-	}
-	if err := json.Unmarshal([]byte(stdout), &report); err != nil {
-		return nil, fmt.Errorf("shellcheck exited %d without its json1 report: %w: %s", exitCode, err, strings.TrimSpace(stderr))
-	}
-	if (exitCode == 0) != (len(report.Comments) == 0) {
-		return nil, fmt.Errorf("shellcheck exit %d does not match its %d diagnostics: %s", exitCode, len(report.Comments), strings.TrimSpace(stderr))
-	}
-
-	findings := make([]diagnostic, 0, len(report.Comments))
-	for _, comment := range report.Comments {
-		if comment.File == "" || comment.Line < 1 || comment.Code < 1 || comment.Message == "" {
-			return nil, fmt.Errorf("unexpected shellcheck diagnostic: %+v", comment)
-		}
-		findings = append(findings, diagnostic{
-			Code:     fmt.Sprintf("SC%d", comment.Code),
-			Message:  comment.Message,
-			Location: location{File: comment.File, Line: comment.Line, Column: comment.Column},
-		})
-	}
-	return findings, nil
+	return checktool.ShellFindings(run)
 }
 
 // shellLintSelfTest proves the pinned ShellCheck downloads, verifies and runs:

@@ -2,6 +2,8 @@ package verify
 
 import (
 	"strings"
+
+	"github.com/wangjohn/levenshtein/internal/checktool"
 )
 
 // checksDoc is where every Levenshtein rule is explained. Hints link to it by
@@ -49,7 +51,7 @@ func hintFor(f finding) string {
 	if !ok {
 		return ""
 	}
-	if f.Code == string(CheckGoMod) && (strings.Contains(f.Message, "SECURITY ERROR") || modifiedModule.MatchString(f.Message)) {
+	if f.Code == string(CheckGoMod) && checktool.ModTampered(f.Message) {
 		return ""
 	}
 	return strings.ReplaceAll(template, "{file}", f.Location.File)

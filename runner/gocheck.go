@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"dagger/levenshtein/internal/checktool"
 	"dagger/levenshtein/internal/dagger"
 
 	"github.com/vektah/gqlparser/v2/gqlerror"
@@ -23,49 +24,22 @@ const (
 	checkApidiff  checkName = "go-apidiff"
 )
 
+// gocheckBinary is where levenshtein-gocheck is installed.
+const gocheckBinary = "/go/bin/levenshtein-gocheck"
+
 // gochecker is the pinned Go image with levenshtein-gocheck built from this
 // module.
 func gochecker(tools toolchain) *dagger.Container {
 	return goContainer(tools).
 		WithDirectory("/policy", dag.CurrentModule().Source().Directory("lint")).
 		WithWorkdir("/policy").
-		WithExec([]string{"go", "build", "-trimpath", "-o", "/go/bin/levenshtein-gocheck", "./cmd/levenshtein-gocheck"})
+		WithExec([]string{"go", "build", "-trimpath", "-o", gocheckBinary, "./cmd/levenshtein-gocheck"})
 }
 
-// gocheckOutput is levenshtein-gocheck's report.
-type gocheckOutput struct {
-	Findings []diagnostic `json:"findings"`
-	Notes    []string     `json:"notes"`
-}
-
-// gocheckReport reads one levenshtein-gocheck run, refusing any result that
-// does not agree with itself: exit 0 must carry no findings and exit 1 some,
-// every one of the check's own code at a real location, with nothing on
-// stderr. Exit 2, the command's own error, and any other exit are tool errors,
-// never a pass. internal/verify/gocheck.go keeps a copy for the native
-// executor; both tests load testdata/gocheck-reports.json.
-func gocheckReport(check checkName, exitCode int, stdout, stderr string) ([]diagnostic, []string, error) {
-	if exitCode != 0 && exitCode != 1 {
-		return nil, nil, fmt.Errorf("%s could not run: %s", check, strings.TrimSpace(stderr+"\n"+stdout))
-	}
-	var output gocheckOutput
-	decoder := json.NewDecoder(strings.NewReader(stdout))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&output); err != nil {
-		return nil, nil, fmt.Errorf("%s printed an unreadable report: %w: %s", check, err, strings.TrimSpace(stdout+"\n"+stderr))
-	}
-	if (exitCode == 0) != (len(output.Findings) == 0) {
-		return nil, nil, fmt.Errorf("%s exit %d does not match its %d findings: %s", check, exitCode, len(output.Findings), stdout)
-	}
-	for _, found := range output.Findings {
-		if found.Code != string(check) || found.Message == "" || found.Location.File == "" || found.Location.Line < 1 {
-			return nil, nil, fmt.Errorf("%s reported an unexpected finding: %+v", check, found)
-		}
-	}
-	if strings.TrimSpace(stderr) != "" {
-		return nil, nil, fmt.Errorf("%s could not produce a clean result: %s", check, stderr)
-	}
-	return output.Findings, output.Notes, nil
+// gocheckerBinary is levenshtein-gocheck alone, for a container that runs the
+// repository's code and so must not build it.
+func gocheckerBinary(tools toolchain) *dagger.File {
+	return gochecker(tools).File(gocheckBinary)
 }
 
 // runGocheck runs one levenshtein-gocheck invocation in ctr and reads its
@@ -75,20 +49,11 @@ func runGocheck(ctx context.Context, ctr *dagger.Container, check checkName, arg
 	if nonce != "" {
 		ctr = ctr.WithEnvVariable("LEVENSHTEIN_RUN_NONCE", nonce)
 	}
-	checked := ctr.WithExec(append([]string{"/go/bin/levenshtein-gocheck"}, args...), dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
-	exitCode, err := checked.ExitCode(ctx)
+	run, _, err := runTool(ctx, ctr, append([]string{gocheckBinary}, args...))
 	if err != nil {
 		return nil, nil, err
 	}
-	stdout, err := checked.Stdout(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	stderr, err := checked.Stderr(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	return gocheckReport(check, exitCode, stdout, stderr)
+	return checktool.GocheckReport(checktool.Kind(check), run)
 }
 
 // validModule accepts a module directory that stays inside the source.
@@ -123,12 +88,15 @@ func goImports(ctx context.Context, source *dagger.Directory, module, rules stri
 // goGenerate runs go generate ./... in the container's own copy of the
 // source, which it may change, and reports every file that differs afterwards.
 // The pinned image carries git, which does the comparison, and the Go
-// toolchain; a generator that needs any other tool is an error.
+// toolchain; a generator that needs any other tool is an error. The
+// generators are the repository's own code, so they run with untrusted caches
+// and levenshtein-gocheck is built apart from them.
 func goGenerate(ctx context.Context, source *dagger.Directory, module string, tools toolchain, nonce string) ([]diagnostic, []string, error) {
 	if _, err := source.File(path.Join(module, "go.mod")).Contents(ctx); err != nil {
 		return nil, nil, fmt.Errorf("module %q needs a readable go.mod: %w", module, err)
 	}
-	ctr := gochecker(tools).
+	ctr := untrustedGoContainer(tools).
+		WithFile(gocheckBinary, gocheckerBinary(tools)).
 		WithDirectory("/src", source).
 		WithWorkdir("/src")
 	return runGocheck(ctx, ctr, checkGenerate, []string{"generate", "-root=/src", "-module=" + module}, nonce)

@@ -3,16 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"path"
 	"path/filepath"
-	"regexp"
-	"slices"
 	"sort"
 	"strings"
 
+	"dagger/levenshtein/internal/checktool"
 	"dagger/levenshtein/internal/dagger"
 
 	"github.com/vektah/gqlparser/v2/gqlerror"
@@ -46,11 +43,58 @@ func knownCheck(check checkName) bool {
 	return false
 }
 
+// cacheTrust says whose code has run with a set of Go cache volumes mounted.
+// Go does not re-verify extracted module source when it builds, so code that
+// can write the module cache can change what every later build in it compiles.
+type cacheTrust string
+
+const (
+	// cacheTools volumes build the linters and the other pinned tools, and
+	// back checks that only read the repository.
+	cacheTools cacheTrust = "tools"
+	// cacheUntrusted volumes back the steps that run the repository's own
+	// code as root: its tests, its generators, and mutation testing.
+	cacheUntrusted cacheTrust = "untrusted"
+)
+
+// goCache is one Go cache directory and the Dagger volume mounted there.
+type goCache struct {
+	Path   string
+	Volume string
+}
+
+// goCaches are the module and build cache volumes for one kind of step, keyed
+// by the pinned Go version and by trust, so no tool is ever built from a cache
+// the repository's code could have written.
+func goCaches(tools toolchain, trust cacheTrust) []goCache {
+	suffix := string(trust) + "-" + tools.Go
+	return []goCache{
+		{Path: "/go/pkg/mod", Volume: "levenshtein-go-mod-" + suffix},
+		{Path: "/root/.cache/go-build", Volume: "levenshtein-go-build-" + suffix},
+	}
+}
+
+func goContainerWith(tools toolchain, trust cacheTrust) *dagger.Container {
+	ctr := dag.Container().From(tools.GoImage).WithEnvVariable("GOTOOLCHAIN", "local")
+	for _, cache := range goCaches(tools, trust) {
+		ctr = ctr.WithMountedCache(cache.Path, dag.CacheVolume(cache.Volume))
+	}
+	return ctr
+}
+
+// goContainer is the pinned Go image with the caches tools are built from.
+// Nothing that runs the repository's code may use it; see
+// untrustedGoContainer.
 func goContainer(tools toolchain) *dagger.Container {
-	return dag.Container().From(tools.GoImage).
-		WithEnvVariable("GOTOOLCHAIN", "local").
-		WithMountedCache("/go/pkg/mod", dag.CacheVolume("levenshtein-go-mod-"+tools.Go)).
-		WithMountedCache("/root/.cache/go-build", dag.CacheVolume("levenshtein-go-build-"+tools.Go))
+	return goContainerWith(tools, cacheTools)
+}
+
+// untrustedGoContainer is the pinned Go image with caches of its own, for the
+// steps that run the repository's code. A tool such a step needs is built in
+// goContainer and copied in, or, where it is built here, is only ever trusted
+// by that step.
+func untrustedGoContainer(tools toolchain) *dagger.Container {
+	return goContainerWith(tools, cacheUntrusted)
 }
 
 func executeCheck(ctx context.Context, source *dagger.Directory, module string, tools toolchain, check checkName, nonce string) ([]diagnostic, error) {
@@ -136,54 +180,32 @@ func executeCheck(ctx context.Context, source *dagger.Directory, module string, 
 		}
 	}
 
-	checked := ctr.WithExec(command, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
-	exitCode, err := checked.ExitCode(ctx)
+	run, _, err := runTool(ctx, ctr, command)
 	if err != nil {
 		return nil, err
+	}
+	return checktool.ToolExit(checktool.Kind(check), module, run)
+}
+
+// runTool runs args in ctr and returns how the process finished, whatever its
+// exit code, with the container it ran in, which holds any report it wrote.
+// runGremlins and runCommunityLinter still spell this sequence out; moving
+// them onto runTool is left to a follow-up.
+func runTool(ctx context.Context, ctr *dagger.Container, args []string) (checktool.Run, *dagger.Container, error) {
+	checked := ctr.WithExec(args, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
+	exitCode, err := checked.ExitCode(ctx)
+	if err != nil {
+		return checktool.Run{}, nil, err
 	}
 	stdout, err := checked.Stdout(ctx)
 	if err != nil {
-		return nil, err
+		return checktool.Run{}, nil, err
 	}
 	stderr, err := checked.Stderr(ctx)
 	if err != nil {
-		return nil, err
+		return checktool.Run{}, nil, err
 	}
-	return commandFindings(check, module, exitCode, stdout, stderr)
-}
-
-// Preserve native tool output, including its precise locations, in the report.
-func commandFindings(check checkName, module string, exitCode int, stdout, stderr string) ([]diagnostic, error) {
-	if exitCode == 0 {
-		return nil, nil
-	}
-	message := strings.TrimSpace(stdout + "\n" + stderr)
-	failureCode := 1
-	if check == checkVuln {
-		failureCode = 3 // govulncheck distinguishes vulnerabilities from tool errors.
-	}
-	if exitCode != failureCode || message == "" {
-		return nil, fmt.Errorf("%s exited %d: %s", check, exitCode, message)
-	}
-	return []diagnostic{{
-		Code:     string(check),
-		Message:  message,
-		Location: location{File: module, Line: 1},
-	}}, nil
-}
-
-// modStep is one of the two go commands a go-mod check runs, in order: whether
-// go.mod and go.sum are already what tidy would write, then whether the
-// downloaded dependencies still match the hashes go.sum recorded.
-type modStep string
-
-const (
-	modTidy   modStep = "tidy -diff"
-	modVerify modStep = "verify"
-)
-
-func (s modStep) args() []string {
-	return append([]string{"go", "mod"}, strings.Fields(string(s))...)
+	return checktool.Run{ExitCode: exitCode, Stdout: stdout, Stderr: stderr}, checked, nil
 }
 
 // goMod checks the module's manifests on their own. Tidy ignores a workspace
@@ -204,21 +226,12 @@ func goMod(ctx context.Context, source *dagger.Directory, module string, tools t
 	}
 
 	var findings []diagnostic
-	for _, step := range []modStep{modTidy, modVerify} {
-		checked := ctr.WithExec(step.args(), dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
-		exitCode, err := checked.ExitCode(ctx)
+	for _, step := range checktool.ModSteps {
+		run, _, err := runTool(ctx, ctr, step.Args())
 		if err != nil {
 			return nil, err
 		}
-		stdout, err := checked.Stdout(ctx)
-		if err != nil {
-			return nil, err
-		}
-		stderr, err := checked.Stderr(ctx)
-		if err != nil {
-			return nil, err
-		}
-		found, err := modFindings(step, module, exitCode, stdout, stderr)
+		found, err := checktool.ModFindings(step, module, run)
 		if err != nil {
 			return nil, err
 		}
@@ -227,65 +240,15 @@ func goMod(ctx context.Context, source *dagger.Directory, module string, tools t
 	return findings, nil
 }
 
-// modifiedModule is how go mod verify names a download that no longer matches
-// the hash recorded when it was fetched.
-var modifiedModule = regexp.MustCompile(`(?m)^\S+ \S+: (zip has been modified|dir has been modified|missing ziphash)`)
-
-// modFindings tells a go-mod step's diagnostics from a tool error. Both
-// commands exit 1 either way, so the output decides: tidy -diff prints a diff
-// on stdout only when the manifests are untidy, verify names each module whose
-// download was modified, and either reports a SECURITY ERROR when a download
-// disagrees with go.sum. Anything else, such as an unreachable module proxy, is
-// an error and never a pass. internal/verify keeps a copy for the native
-// executor; change both together.
-func modFindings(step modStep, module string, exitCode int, stdout, stderr string) ([]diagnostic, error) {
-	if exitCode == 0 {
-		return nil, nil
-	}
-	message := strings.TrimSpace(stdout + "\n" + stderr)
-	mismatch := strings.Contains(stderr, "SECURITY ERROR")
-	switch step {
-	case modTidy:
-		mismatch = mismatch || strings.TrimSpace(stdout) != ""
-	case modVerify:
-		mismatch = mismatch || modifiedModule.MatchString(stderr)
-	}
-	if exitCode != 1 || !mismatch {
-		return nil, fmt.Errorf("go mod %s exited %d: %s", step, exitCode, message)
-	}
-	return []diagnostic{{
-		Code:     string(checkMod),
-		Message:  message,
-		Location: location{File: module, Line: 1},
-	}}, nil
-}
-
-// testTimeout is go test's own per-package limit, named on the command line so
-// nothing can lift it. A test that hangs past it panics with a goroutine dump
-// and fails its package, which is a finding; the CLI bounds the whole call.
-const testTimeout = "10m"
-
-// testArgs is the go-test invocation. -json lets the check tell a failing test
-// from a package that did not build, which the exit code cannot. go test's
-// built-in vet subset is off because go-vet owns those diagnostics, and go test
-// would otherwise report them as a build failure. A fresh run bypasses go
-// test's own result cache, which lives in the shared build cache volume.
-// internal/verify keeps a copy for the native executor; change both together.
-func testArgs(fresh bool) []string {
-	args := []string{"go", "test", "-race", "-json", "-vet=off", "-timeout=" + testTimeout}
-	if fresh {
-		args = append(args, "-count=1")
-	}
-	return append(args, "./...")
-}
-
 // goTest runs the module's tests with the race detector, which needs cgo; the
-// pinned golang image carries gcc for it.
+// pinned golang image carries gcc for it. The tests are the repository's own
+// code, so they run with untrusted caches. A fresh run bypasses go test's own
+// result cache, which lives in the build cache volume.
 func goTest(ctx context.Context, source *dagger.Directory, module string, tools toolchain, nonce string) ([]diagnostic, error) {
 	if _, err := source.File(path.Join(module, "go.mod")).Contents(ctx); err != nil {
 		return nil, fmt.Errorf("module %q needs a readable go.mod: %w", module, err)
 	}
-	ctr := goContainer(tools).
+	ctr := untrustedGoContainer(tools).
 		WithEnvVariable("CGO_ENABLED", "1").
 		WithDirectory("/src", source).
 		WithWorkdir(path.Join("/src", module))
@@ -297,151 +260,11 @@ func goTest(ctx context.Context, source *dagger.Directory, module string, tools 
 		return nil, fmt.Errorf("module %q package discovery failed or found no packages: %v", module, err)
 	}
 
-	checked := ctr.WithExec(testArgs(nonce != ""), dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
-	exitCode, err := checked.ExitCode(ctx)
+	run, _, err := runTool(ctx, ctr, checktool.TestArgs(nonce != ""))
 	if err != nil {
 		return nil, err
 	}
-	stdout, err := checked.Stdout(ctx)
-	if err != nil {
-		return nil, err
-	}
-	stderr, err := checked.Stderr(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return testFindings(module, exitCode, stdout, stderr)
-}
-
-// testAction is the kind of one go test -json event, as test2json names it.
-// Only the actions the check reads are listed.
-type testAction string
-
-const (
-	testPass        testAction = "pass"
-	testSkip        testAction = "skip"
-	testFail        testAction = "fail"
-	testOutput      testAction = "output"
-	testBuildOutput testAction = "build-output"
-)
-
-// testEvent is the part of a go test -json event the check reads. A package
-// whose test binary could not be built or set up fails with FailedBuild set;
-// its compiler output arrives as build-output events. The tags are
-// test2json's field names.
-type testEvent struct {
-	Action      testAction `json:"Action"`
-	Package     string     `json:"Package"`
-	Test        string     `json:"Test"`
-	Output      string     `json:"Output"`
-	FailedBuild string     `json:"FailedBuild"`
-}
-
-func testEvents(stdout string) ([]testEvent, error) {
-	var events []testEvent
-	decoder := json.NewDecoder(strings.NewReader(stdout))
-	for {
-		var event testEvent
-		err := decoder.Decode(&event)
-		if errors.Is(err, io.EOF) {
-			return events, nil
-		}
-		if err != nil {
-			return nil, fmt.Errorf("go test -json printed something other than events: %w", err)
-		}
-		events = append(events, event)
-	}
-}
-
-// testTranscript is the text go test prints without -json, rebuilt from the
-// events.
-func testTranscript(events []testEvent) string {
-	var text strings.Builder
-	for _, event := range events {
-		if event.Action == testOutput || event.Action == testBuildOutput {
-			text.WriteString(event.Output)
-		}
-	}
-	return text.String()
-}
-
-// packageTranscript is one failed package's output without the tests in it
-// that passed or were skipped. Output from a test that never reported a result,
-// such as the one running when the package timed out, is kept.
-func packageTranscript(events []testEvent, pkg string) string {
-	finished := map[string]bool{}
-	for _, event := range events {
-		if event.Package == pkg && event.Test != "" && (event.Action == testPass || event.Action == testSkip) {
-			finished[event.Test] = true
-		}
-	}
-
-	var text strings.Builder
-	for _, event := range events {
-		if event.Package == pkg && event.Action == testOutput && !finished[event.Test] {
-			text.WriteString(event.Output)
-		}
-	}
-	return strings.TrimSpace(text.String())
-}
-
-// testFindings tells failing tests from everything else. go test exits 1 both
-// when a test fails and when a package does not build, so the events decide:
-// a package that failed with FailedBuild set ([build failed] or [setup failed])
-// is an error, since its tests never ran, and so is an exit 1 with no failed
-// package at all, such as a module with no packages. Every other package with a
-// failed test, or that failed itself, is a finding carrying its own output,
-// which covers a failed or panicking test, a data race the race detector
-// reported, and a test that hit the timeout. That holds even when go test
-// exits 0, which it does when a TestMain drops m.Run's result and exits 0 after
-// a test failed. A run where no test passed, because none ran or every one
-// skipped, is refused rather than reported as a pass.
-// internal/verify keeps a copy for the native executor; change both together.
-func testFindings(module string, exitCode int, stdout, stderr string) ([]diagnostic, error) {
-	events, err := testEvents(stdout)
-	if err != nil {
-		return nil, fmt.Errorf("go test exited %d without readable -json output: %w: %s", exitCode, err, strings.TrimSpace(stderr))
-	}
-	transcript := strings.TrimSpace(testTranscript(events) + "\n" + stderr)
-	if exitCode != 0 && exitCode != 1 {
-		return nil, fmt.Errorf("go test exited %d: %s", exitCode, transcript)
-	}
-
-	var failed, broken []string
-	for _, event := range events {
-		if event.Action != testFail {
-			continue
-		}
-		if event.FailedBuild != "" {
-			if !slices.Contains(broken, event.Package) {
-				broken = append(broken, event.Package)
-			}
-		} else if !slices.Contains(failed, event.Package) {
-			failed = append(failed, event.Package)
-		}
-	}
-	if len(broken) != 0 {
-		return nil, fmt.Errorf("go test could not build %s: %s", strings.Join(broken, ", "), transcript)
-	}
-	if len(failed) == 0 {
-		if exitCode != 0 {
-			return nil, fmt.Errorf("go test exited %d: %s", exitCode, transcript)
-		}
-		if !slices.ContainsFunc(events, func(event testEvent) bool { return event.Action == testPass && event.Test != "" }) {
-			return nil, fmt.Errorf("module %q ran no tests, or skipped every one; refusing an empty pass: %s", module, transcript)
-		}
-		return nil, nil
-	}
-
-	findings := make([]diagnostic, 0, len(failed))
-	for _, pkg := range failed {
-		findings = append(findings, diagnostic{
-			Code:     string(checkTest),
-			Message:  packageTranscript(events, pkg),
-			Location: location{File: module, Line: 1},
-		})
-	}
-	return findings, nil
+	return checktool.TestFindings(module, run)
 }
 
 // SharedCheck runs one pinned upstream check for a target.

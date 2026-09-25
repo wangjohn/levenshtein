@@ -1,5 +1,5 @@
 {
-  "comment": "Core finding URLs shared by internal/verify/findings_test.go and runner/community_test.go; both copies of coreURL must agree with every row.",
+  "comment": "Core finding URLs, the pages CoreURL in internal/checktool must return; internal/checktool/lint_test.go loads this table.",
   "cases": [
     {"code": "SA4006", "url": "https://staticcheck.dev/docs/checks/#SA4006"},
     {"code": "S1002", "url": "https://staticcheck.dev/docs/checks/#S1002"},

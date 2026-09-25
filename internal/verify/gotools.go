@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/wangjohn/levenshtein/internal/checktool"
 )
 
 // The Dagger path pins a Go image by digest, so the container's toolchain is
@@ -252,28 +254,8 @@ func lintSelection(ctx context.Context, work goRun, binary string, shipped, adde
 	if run.ExitCode != 0 {
 		return nil, fmt.Errorf("listing the linter's rules failed: %s", strings.TrimSpace(run.Stderr))
 	}
-	if err := registered(added, run.Stdout); err != nil {
+	if err := checktool.Registered(added, run.Stdout); err != nil {
 		return nil, err
 	}
 	return append(slices.Clone(shipped), added...), nil
-}
-
-// registered checks every pattern against the linter's -list-checks output,
-// one rule per line with its name first. runner/main.go has a copy; both tests
-// load runner/testdata/registered.json.
-func registered(patterns []string, listing string) error {
-	var names []string
-	for line := range strings.Lines(listing) {
-		if fields := strings.Fields(line); len(fields) > 0 {
-			names = append(names, fields[0])
-		}
-	}
-
-	for _, pattern := range patterns {
-		name := strings.TrimPrefix(pattern, "-")
-		if !slices.ContainsFunc(names, func(rule string) bool { return selects(name, rule) }) {
-			return fmt.Errorf("go-lint check %q matches no rule levenshtein-lint registers", pattern)
-		}
-	}
-	return nil
 }
