@@ -7,16 +7,36 @@ how Levenshtein works today.
 
 ## Next
 
-Native commands, pinned-tool validation, timeouts, artifacts, and shared
-preparation within a run are implemented. Local result caching, separate
-preparation/build keys, artifact restoration, and fresh execution are
-implemented. Cross-worker cache transport and consumer adoption below remain
-planned. Rust/Python compatibility fixtures validate the shared interface;
-see [fixture checks](language-fixtures.md).
+### Shipped since the plan was written
 
-The near-term plan: pilot explicit Go product checks in a Go services repo,
-then wrap an existing native check in a Swift application repo, and measure
-cache reuse before adding cross-worker persistence.
+The interface and cache work in build steps 1 and 2 below is done: native
+commands with pinned-tool validation, timeouts, artifacts, and shared
+preparation; local result caching with separate preparation/build keys,
+artifact restoration, and fresh execution; and Rust/Python fixtures that
+validate the shared interface ([fixture checks](language-fixtures.md)). Beyond
+the original plan, Levenshtein now has:
+
+- a GitHub Action whose caches carry completed results and the Staticcheck
+  cache across workers, and tagged releases with archives
+  ([consumer CI](consumer-ci.md), [releases](releases.md));
+- native execution of the shared Go checks, so `go-lint` needs no container
+  runtime;
+- text, GitHub annotation, and SARIF output, and a findings baseline for
+  adopting the rules with existing findings
+  ([configuration](configuration.md#output-formats));
+- community rule modules ([community lint rules](community-rules.md));
+- new check kinds for module manifests, tests, import boundaries, generated
+  code, API compatibility, workflow security, shell scripts, secrets, and
+  non-Go dependency vulnerabilities ([check kinds](check-kinds.md));
+- mutation testing ([mutation](mutation.md)).
+
+### Still planned
+
+The consumer pilots below: explicit Go product checks in a Go services repo,
+then an existing native check wrapped in a Swift application repo, measuring
+cache reuse on each (build steps 3 to 6). Multi-job result aggregation and
+cache transport for CI providers other than GitHub Actions are not
+implemented.
 
 ## Pilot repositories
 
@@ -165,9 +185,9 @@ checks while keeping compatible build caches. Start native commands without
 result caching; enable it only with complete inputs, a provisioned
 environment identity, and an explicit `command.rerun_args`.
 
-Local caches work today. Cross-worker cache transport and multi-job result
-aggregation are not implemented; keep required platform jobs individually
-required. Do not share writable result caches with untrusted PRs.
+Local caches work today, and the GitHub Action restores them across workers.
+Multi-job result aggregation is not implemented; keep required platform jobs
+individually required. Do not share writable result caches with untrusted PRs.
 
 ## Later, when needed
 
