@@ -27,6 +27,7 @@ archives:
       - runner/gocheck.go
       - runner/releases.go
       - runner/shelllint.go
+      - runner/secrets.go
       - runner/community.go
       - runner/rule-modules.json
       - runner/go.mod

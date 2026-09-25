@@ -45,6 +45,7 @@ var locatedKinds = map[CheckKind]bool{
 	CheckGoGenerate: true,
 	CheckGoApidiff:  true,
 	CheckShellLint:  true,
+	CheckSecrets:    true,
 }
 
 // item is one check's result as the renderers see it: its findings sorted by

@@ -345,6 +345,9 @@ func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce strin
 	if err := shellLintSelfTest(ctx, fixtures, tools, nonce); err != nil {
 		return err
 	}
+	if err := secretsSelfTest(ctx, fixtures, tools, nonce); err != nil {
+		return err
+	}
 	if err := goTestSelfTest(ctx, fixtures, tools, nonce); err != nil {
 		return err
 	}

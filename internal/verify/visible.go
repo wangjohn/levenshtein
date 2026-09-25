@@ -2,7 +2,9 @@ package verify
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -61,4 +63,36 @@ func skippedDir(dir string, skip func(name string) bool) bool {
 		return false
 	}
 	return slices.ContainsFunc(strings.Split(filepath.ToSlash(dir), "/"), skip)
+}
+
+// stageFiles copies files, repository-relative, from source into a new
+// temporary directory and returns it with a function that removes it. A tool
+// that scans a directory rather than a list of files runs there natively, so it
+// can neither read an undeclared or excluded file nor discover a
+// configuration the Dagger path would not have.
+func stageFiles(source string, files []string) (string, func(), error) {
+	root, err := os.OpenRoot(source)
+	if err != nil {
+		return "", func() {}, err
+	}
+	defer func() { _ = root.Close() }() // Directory handle cleanup.
+
+	dir, err := os.MkdirTemp("", "levenshtein-stage-")
+	if err != nil {
+		return "", func() {}, err
+	}
+	cleanup := func() { _ = os.RemoveAll(dir) }
+
+	for _, file := range files {
+		rel := filepath.FromSlash(file)
+		info, err := root.Stat(rel)
+		if err == nil {
+			err = copyFile(root, rel, filepath.Join(dir, rel), info.Mode().Perm())
+		}
+		if err != nil {
+			cleanup()
+			return "", func() {}, fmt.Errorf("staging %s: %w", file, err)
+		}
+	}
+	return dir, cleanup, nil
 }

@@ -132,8 +132,14 @@ Consumers pin a release tag, or its commit SHA, as described in
   `style` are not reported. It honors one root `.shellcheckrc` and otherwise
   reads none. The upstream release archive is pinned by SHA-256 per platform
   and verified before it runs ([details](docs/checks.md#shell-scripts)).
-  It requires a repository-root target and is not in any default gate: add it
-  to runs of your own.
+- `secrets`, a shared check on both executors that scans the target's files,
+  not its history, with gitleaks 8.30.1's default rules. Each leak is a finding
+  coded by its rule, and every value is redacted before gitleaks reports or
+  logs it, so no secret reaches the report or the cache. It honors a root
+  `.gitleaks.toml` and `.gitleaksignore` and `gitleaks:allow` comments; gitleaks
+  is built from `runner/tools` ([details](docs/checks.md#secrets)).
+  `shell-lint` and `secrets` require a repository-root target and are not in
+  any default gate: add them to runs of your own.
 - `go-lint` runs three more upstream analyzers: `unparam` (unused parameters
   and results of unexported functions), `musttag` (untagged fields in structs
   passed to JSON, XML, YAML, and TOML encoders and decoders), and `recvcheck`
@@ -223,8 +229,10 @@ Consumers pin a release tag, or its commit SHA, as described in
   include `workflow-security`. `security.yml` keeps zizmor's GitHub Action for
   the online audits and now names the same inputs as the shared check.
 - Levenshtein's own `branch`, `pre-merge`, `branch-dagger`, and `main` runs
-  include `shell-lint` over `scripts/` and `verify`. It found no problem in
-  Levenshtein's own scripts.
+  include `shell-lint` over `scripts/` and `verify`, and `secrets` over the
+  repository less its deliberately leaky fixture. Neither found a problem in
+  Levenshtein's own files; its secrets-handling tests mark their made-up key
+  with `gitleaks:allow`.
 - Levenshtein's own `levenshtein.json` has a native `go-test` run over the
   repository and `runner/lint` for local use. It is not part of `branch`,
   `pre-merge`, or `main`, because CI's `tests` job already runs

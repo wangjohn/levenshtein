@@ -26,3 +26,25 @@ func TestVisibleFilesMatchTheDaggerImport(t *testing.T) {
 		t.Fatalf("visible files %v, want %v", files, want)
 	}
 }
+
+func TestStageFilesCopiesOnlyTheNamedFiles(t *testing.T) {
+	source := t.TempDir()
+	writeTestFile(t, filepath.Join(source, "a", "b.txt"), "b\n")
+	writeTestFile(t, filepath.Join(source, "c.txt"), "c\n")
+
+	staged, cleanup, err := stageFiles(source, []string{"a/b.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(filepath.Join(staged, "a", "b.txt")); err != nil || string(got) != "b\n" {
+		t.Fatalf("staged %q, %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(staged, "c.txt")); !os.IsNotExist(err) {
+		t.Fatalf("an unnamed file was staged: %v", err)
+	}
+
+	cleanup()
+	if _, err := os.Stat(staged); !os.IsNotExist(err) {
+		t.Fatalf("cleanup must remove the staged directory: %v", err)
+	}
+}
