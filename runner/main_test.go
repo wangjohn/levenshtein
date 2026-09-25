@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
@@ -109,7 +110,6 @@ func TestPinsAgree(t *testing.T) {
 		{"the go directive of runner/go.mod", goDirective(t, "go.mod"), tools.Go},
 		{"the go directive of runner/lint/go.mod", goDirective(t, "lint/go.mod"), tools.Go},
 		{"the go directive of runner/community/go.mod", goDirective(t, "community/go.mod"), tools.Go},
-		{"the go directive of runner/tools/go.mod", goDirective(t, "tools/go.mod"), tools.Go},
 		{"Staticcheck in runner/lint/go.mod", goRequire(t, "lint/go.mod", "honnef.co/go/tools"), tools.Staticcheck},
 		{"Staticcheck in runner/community/go.mod", goRequire(t, "community/go.mod", "honnef.co/go/tools"), tools.Staticcheck},
 		{"x/tools in runner/community/go.mod", goRequire(t, "community/go.mod", "golang.org/x/tools"), goRequire(t, "lint/go.mod", "golang.org/x/tools")},
@@ -122,50 +122,28 @@ func TestPinsAgree(t *testing.T) {
 		}
 	}
 
+	for _, tool := range pinnedTools {
+		file := path.Join("tools", tool.Dir, "go.mod")
+		if got := goDirective(t, file); got != tools.Go {
+			t.Errorf("the go directive of runner/%s is %q, want %q", file, got, tools.Go)
+		}
+		if got := goTools(t, file); !slices.Equal(got, []string{tool.Pkg}) {
+			t.Errorf("runner/%s must build %s alone, so bumping it moves no other tool; it builds %v", file, tool.Pkg, got)
+		}
+	}
+	entries, err := os.ReadDir("tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if !slices.ContainsFunc(pinnedTools, func(tool pinnedTool) bool { return tool.Dir == entry.Name() }) {
+			t.Errorf("runner/tools/%s is not a module pinnedTools builds", entry.Name())
+		}
+	}
+
 	for line := range strings.SplitSeq(strings.TrimSpace(readPinFile(t, "../scripts/dagger-checksums.txt")), "\n") {
 		if !strings.Contains(line, "dagger_v"+dagger+"_") {
 			t.Errorf("scripts/dagger-checksums.txt must name only Dagger %s archives: %q", dagger, line)
-		}
-	}
-}
-
-// runner/tools builds several unrelated tools from one module, so a bump to
-// one can raise another through a shared dependency. Each tool's module is
-// pinned in toolchain.json as well, and must not move unless that pin moves.
-func TestToolsModuleKeepsEveryToolAtItsPin(t *testing.T) {
-	var pinned struct {
-		Tools struct {
-			Modules map[string]string `json:"modules"`
-		} `json:"tools"`
-	}
-	if err := json.Unmarshal(toolchainJSON, &pinned); err != nil {
-		t.Fatal(err)
-	}
-	block := regexp.MustCompile(`(?s)\ntool \((.*?)\)`).FindStringSubmatch(readPinFile(t, "tools/go.mod"))
-	if block == nil || len(pinned.Tools.Modules) == 0 {
-		t.Fatal("runner/tools/go.mod needs a tool block and toolchain.json a tools object")
-	}
-
-	var built []string
-	for tool := range strings.FieldsSeq(block[1]) {
-		module := ""
-		for path := range pinned.Tools.Modules {
-			if tool == path || strings.HasPrefix(tool, path+"/") {
-				module = path
-			}
-		}
-		if module == "" {
-			t.Errorf("runner/tools/go.mod builds %s, whose module toolchain.json does not pin", tool)
-			continue
-		}
-		built = append(built, module)
-	}
-	for path, version := range pinned.Tools.Modules {
-		if !slices.Contains(built, path) {
-			t.Errorf("toolchain.json pins %s, which runner/tools/go.mod builds no tool from", path)
-		}
-		if got := goRequire(t, "tools/go.mod", path); got != version {
-			t.Errorf("runner/tools/go.mod requires %s %s, but toolchain.json pins %s", path, got, version)
 		}
 	}
 }
@@ -187,6 +165,20 @@ func goDirective(t *testing.T, file string) string {
 		t.Fatalf("%s has no go directive", file)
 	}
 	return match[1]
+}
+
+// goTools is the packages a go.mod file's tool directives name.
+func goTools(t *testing.T, file string) []string {
+	t.Helper()
+	contents := readPinFile(t, file)
+	var tools []string
+	for _, match := range regexp.MustCompile(`(?m)^tool (\S+)$`).FindAllStringSubmatch(contents, -1) {
+		tools = append(tools, match[1])
+	}
+	for _, block := range regexp.MustCompile(`(?s)\ntool \((.*?)\)`).FindAllStringSubmatch(contents, -1) {
+		tools = append(tools, strings.Fields(block[1])...)
+	}
+	return tools
 }
 
 // goRequire is the version a go.mod file requires of one module, directly or

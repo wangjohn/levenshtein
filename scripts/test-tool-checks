@@ -3,7 +3,8 @@ set -euo pipefail
 root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 temporary=$(mktemp -d)
 trap 'rm -rf "$temporary"' EXIT
-(cd "$root/runner/tools" && go build -o "$temporary/actionlint" github.com/rhysd/actionlint/cmd/actionlint && go build -o "$temporary/govulncheck" golang.org/x/vuln/cmd/govulncheck)
+(cd "$root/runner/tools/actionlint" && go build -o "$temporary/actionlint" github.com/rhysd/actionlint/cmd/actionlint)
+(cd "$root/runner/tools/govulncheck" && go build -o "$temporary/govulncheck" golang.org/x/vuln/cmd/govulncheck)
 
 # Test discovery in an exported source tree with no .git directory.
 mkdir -p "$temporary/source/.github/workflows"

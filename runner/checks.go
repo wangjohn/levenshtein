@@ -97,6 +97,32 @@ func untrustedGoContainer(tools toolchain) *dagger.Container {
 	return goContainerWith(tools, cacheUntrusted)
 }
 
+// pinnedTool is a Go tool built from a module of its own, runner/tools/<Dir>,
+// so updating one tool never moves a version another is built with.
+type pinnedTool struct {
+	Dir string
+	Pkg string
+}
+
+var (
+	toolActionlint  = pinnedTool{Dir: "actionlint", Pkg: "github.com/rhysd/actionlint/cmd/actionlint"}
+	toolApidiff     = pinnedTool{Dir: "apidiff", Pkg: "golang.org/x/exp/cmd/apidiff"}
+	toolGitleaks    = pinnedTool{Dir: "gitleaks", Pkg: "github.com/zricethezav/gitleaks/v8"}
+	toolGovulncheck = pinnedTool{Dir: "govulncheck", Pkg: "golang.org/x/vuln/cmd/govulncheck"}
+	toolGremlins    = pinnedTool{Dir: "gremlins", Pkg: "github.com/go-gremlins/gremlins/cmd/gremlins"}
+)
+
+// pinnedTools is every module under runner/tools.
+var pinnedTools = []pinnedTool{toolActionlint, toolApidiff, toolGitleaks, toolGovulncheck, toolGremlins}
+
+// withTool builds tool from its own module into output, using ctr's Go caches.
+func withTool(ctr *dagger.Container, tool pinnedTool, output string) *dagger.Container {
+	dir := path.Join("/tools", tool.Dir)
+	return ctr.WithDirectory(dir, dag.CurrentModule().Source().Directory(path.Join("tools", tool.Dir))).
+		WithWorkdir(dir).
+		WithExec([]string{"go", "build", "-trimpath", "-o", output, tool.Pkg})
+}
+
 func executeCheck(ctx context.Context, source *dagger.Directory, module string, tools toolchain, check checkName, nonce string) ([]diagnostic, error) {
 	//exhaustive:ignore Other checks use standalone tools below.
 	switch check {
@@ -125,17 +151,15 @@ func executeCheck(ctx context.Context, source *dagger.Directory, module string, 
 	if check == checkVet {
 		command = []string{"go", "vet", "./..."}
 	} else {
-		packages := map[checkName]string{
-			checkWorkflow: "github.com/rhysd/actionlint/cmd/actionlint",
-			checkVuln:     "golang.org/x/vuln/cmd/govulncheck",
+		builds := map[checkName]pinnedTool{
+			checkWorkflow: toolActionlint,
+			checkVuln:     toolGovulncheck,
 		}
-		pkg, ok := packages[check]
+		tool, ok := builds[check]
 		if !ok {
 			return nil, fmt.Errorf("unsupported check %q", check)
 		}
-		ctr = ctr.WithDirectory("/tools", dag.CurrentModule().Source().Directory("tools")).
-			WithWorkdir("/tools").
-			WithExec([]string{"go", "build", "-trimpath", "-o", "/usr/local/bin/check", pkg})
+		ctr = withTool(ctr, tool, "/usr/local/bin/check")
 		command = []string{"/usr/local/bin/check", "./..."}
 		if check == checkWorkflow {
 			// Shell/Python tools are separate checks, not ambient optional dependencies.

@@ -1,19 +1,9 @@
 {
-  "comment": "goImage is repeated as GO_IMAGE in sdk/patched-go/src/patched_go/__init__.py, which cannot read this file from its own module context. go, goImage, staticcheck, and tools are also recorded in .go-version, the go.mod files, and that SDK; TestPinsAgree and TestToolsModuleKeepsEveryToolAtItsPin in runner/main_test.go fail until every copy agrees.",
+  "comment": "goImage is repeated as GO_IMAGE in sdk/patched-go/src/patched_go/__init__.py, which cannot read this file from its own module context. go, goImage, and staticcheck are also recorded in .go-version, the go.mod files, and that SDK; TestPinsAgree in runner/main_test.go fails until every copy agrees. The Go tools each pin their own version in a module of their own under runner/tools, so they are not repeated here.",
   "go": "1.27.1",
   "goImage": "golang:1.27.1-trixie@sha256:9baa6b4187bbb98d240372a8a235ac0bb6b5ddd52bba1431dc2f7c0705862728",
   "staticcheck": "v0.8.1",
   "staticcheckRelease": "2026.2.1",
-  "tools": {
-    "comment": "The module each Go tool in runner/tools/go.mod is built from, at the version it must stay at. The tools share one module, so updating one can raise another through a dependency they share; runner/main_test.go fails until a moved tool's pin here moves too, which makes every tool bump a deliberate one. Shared libraries such as golang.org/x/tools still resolve to the highest version any tool needs, which Go's compatibility rules allow and the self-test and scripts/test-tool-checks exercise; one module per tool would stop that too, at the cost of five go.mod files to keep tidy and update.",
-    "modules": {
-      "github.com/go-gremlins/gremlins": "v0.6.0",
-      "github.com/rhysd/actionlint": "v1.7.12",
-      "github.com/zricethezav/gitleaks/v8": "v8.30.1",
-      "golang.org/x/exp": "v0.0.0-20260908205506-85c1c2202aba",
-      "golang.org/x/vuln": "v1.8.0"
-    }
-  },
   "checks": [
     "all",
     "-ST1000",
@@ -50,7 +40,7 @@
     }
   },
   "osvScanner": {
-    "comment": "deps-vuln runs this upstream release on either executor, downloading the binary for the host or engine platform and checking its SHA-256 before it runs. The digests are the ones upstream publishes in the release's osv-scanner_SHA256SUMS; refresh them from that file whenever version changes. osv-scanner is not built from runner/tools because its dependencies would move the versions actionlint and govulncheck are built with.",
+    "comment": "deps-vuln runs this upstream release on either executor, downloading the binary for the host or engine platform and checking its SHA-256 before it runs. The digests are the ones upstream publishes in the release's osv-scanner_SHA256SUMS; refresh them from that file whenever version changes. osv-scanner is not built from a module under runner/tools because building it would take about 190 modules; upstream's checksummed release binaries are pinned instead.",
     "releases": "https://github.com/google/osv-scanner/releases/download",
     "version": "2.6.0",
     "assets": {

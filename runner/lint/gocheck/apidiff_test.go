@@ -10,13 +10,13 @@ import (
 	"testing"
 )
 
-// buildApidiff builds the apidiff that runner/tools pins, as both executors
+// buildApidiff builds the apidiff that runner/tools/apidiff pins, as both executors
 // do, so the test runs the real tool rather than a recording of it.
 func buildApidiff(t *testing.T) string {
 	t.Helper()
 	binary := filepath.Join(t.TempDir(), "apidiff")
 	cmd := exec.CommandContext(t.Context(), "go", "build", "-trimpath", "-o", binary, "golang.org/x/exp/cmd/apidiff")
-	cmd.Dir = filepath.Join("..", "..", "tools")
+	cmd.Dir = filepath.Join("..", "..", "tools", "apidiff")
 	cmd.Env = testEnv()
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("building the pinned apidiff: %v\n%s", err, output)

@@ -28,22 +28,23 @@ done
 
 # Scan the generated executable as well as the source checks in ./verify go-vuln.
 (cd runner && go build -o "$temporary/runtime" .)
-(cd runner/tools && go build -o "$temporary/govulncheck" golang.org/x/vuln/cmd/govulncheck)
+(cd runner/tools/govulncheck && go build -o "$temporary/govulncheck" golang.org/x/vuln/cmd/govulncheck)
 "$temporary/govulncheck" -mode=binary "$temporary/runtime"
 
-# The tools runner/tools pins (gremlins, gitleaks, actionlint, apidiff,
-# govulncheck) run over consumer source, so scan what they compile to as well:
-# a tools module has no code of its own for a source scan to follow.
+# The tools pinned under runner/tools (gremlins, gitleaks, actionlint,
+# apidiff, govulncheck), one module each, run over consumer source, so scan
+# what they compile to as well: a tool module has no code of its own for a
+# source scan to follow.
 mkdir "$temporary/tools"
-tools=()
-while IFS= read -r tool; do
-  tools+=("$tool")
-done < <(cd runner/tools && go list tool)
-if (( ${#tools[@]} == 0 )); then
-  echo 'runner/tools declares no tools; update this check' >&2
+modules=(runner/tools/*/go.mod)
+if [[ ! -f ${modules[0]} ]]; then
+  echo 'runner/tools holds no tool modules; update this check' >&2
   exit 1
 fi
-(cd runner/tools && go build -o "$temporary/tools/" "${tools[@]}")
+for module in "${modules[@]}"; do
+  directory=$(dirname -- "$module")
+  (cd "$directory" && go build -o "$temporary/tools/" tool)
+done
 for binary in "$temporary"/tools/*; do
   echo "Scanning $(basename -- "$binary")"
   "$temporary/govulncheck" -mode=binary "$binary"

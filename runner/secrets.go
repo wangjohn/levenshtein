@@ -29,10 +29,7 @@ func secrets(ctx context.Context, source *dagger.Directory, tools toolchain, non
 		return nil, err
 	}
 
-	ctr := goContainer(tools).
-		WithDirectory("/tools", dag.CurrentModule().Source().Directory("tools")).
-		WithWorkdir("/tools").
-		WithExec([]string{"go", "build", "-trimpath", "-o", "/usr/local/bin/gitleaks", "github.com/zricethezav/gitleaks/v8"}).
+	ctr := withTool(goContainer(tools), toolGitleaks, "/usr/local/bin/gitleaks").
 		WithDirectory("/src", source).
 		WithWorkdir("/src")
 	if nonce != "" {

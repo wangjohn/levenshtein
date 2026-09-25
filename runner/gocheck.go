@@ -102,12 +102,9 @@ func goGenerate(ctx context.Context, source *dagger.Directory, module string, to
 	return runGocheck(ctx, ctr, checkGenerate, []string{"generate", "-root=/src", "-module=" + module}, nonce)
 }
 
-// apidiffer is gochecker with the apidiff that tools/go.mod pins.
+// apidiffer is gochecker with the apidiff that tools/apidiff/go.mod pins.
 func apidiffer(tools toolchain) *dagger.Container {
-	return gochecker(tools).
-		WithDirectory("/tools", dag.CurrentModule().Source().Directory("tools")).
-		WithWorkdir("/tools").
-		WithExec([]string{"go", "build", "-trimpath", "-o", "/usr/local/bin/apidiff", "golang.org/x/exp/cmd/apidiff"})
+	return withTool(gochecker(tools), toolApidiff, "/usr/local/bin/apidiff")
 }
 
 // goApidiff compares the exported API of the module in base with the one in

@@ -166,8 +166,8 @@ type helper struct {
 
 var (
 	helperLint       = helper{Name: "levenshtein-lint", Module: "runner/lint", Pkg: "./cmd/levenshtein-lint"}
-	helperActionlint = helper{Name: "actionlint", Module: "runner/tools", Pkg: "github.com/rhysd/actionlint/cmd/actionlint"}
-	helperVulncheck  = helper{Name: "govulncheck", Module: "runner/tools", Pkg: "golang.org/x/vuln/cmd/govulncheck"}
+	helperActionlint = helper{Name: "actionlint", Module: "runner/tools/actionlint", Pkg: "github.com/rhysd/actionlint/cmd/actionlint"}
+	helperVulncheck  = helper{Name: "govulncheck", Module: "runner/tools/govulncheck", Pkg: "golang.org/x/vuln/cmd/govulncheck"}
 )
 
 // cacheRoot is where native Go checks keep the state they own: built helpers,

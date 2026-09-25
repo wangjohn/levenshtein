@@ -13,7 +13,7 @@ import (
 	"github.com/wangjohn/levenshtein/internal/checktool"
 )
 
-var helperGitleaks = helper{Name: "gitleaks", Module: "runner/tools", Pkg: "github.com/zricethezav/gitleaks/v8"}
+var helperGitleaks = helper{Name: "gitleaks", Module: "runner/tools/gitleaks", Pkg: "github.com/zricethezav/gitleaks/v8"}
 
 func (n *Native) secrets(ctx context.Context, req Request, work goRun) ([]finding, toolRun, error) {
 	files, err := visibleFiles(ctx, req, nil)
