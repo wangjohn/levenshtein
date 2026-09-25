@@ -255,7 +255,11 @@ native `command` checks with `cache: true`), it:
    inode, and permissions. `Cache.Flush` persists one record per root under
    `cache.Dir/stat/<digest(root)>.json` through the same checksummed envelope
    the result records use; `cmd/levenshtein/main.go` calls it as the run ends.
-   Each entry records when its content was read, and loading drops entries
+   Every record, result or stat, is capped at 64 MiB on write as well as read,
+   so an oversized result is reported as not cached rather than written and
+   never read back. A memo too large for one record is split by path hash into
+   `<digest(root)>-<n>.json` shards beside it, with the first record giving
+   the count. Each entry records when its content was read, and loading drops entries
    whose modification time is within two seconds of that moment, which is
    git's racy-index guard. A flush keeps entries the run used and unused
    entries whose file still has the recorded stat, so deleted files drop out.

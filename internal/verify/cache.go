@@ -75,6 +75,11 @@ type envelope struct {
 	Data     json.RawMessage `json:"Data"`
 }
 
+// recordLimit is the largest record, a result or a stat memo shard, that is
+// written or read. A write over it is refused rather than left for every later
+// read to reject. It is a variable so tests can reach the boundary cheaply.
+var recordLimit = 64 << 20
+
 func writeRecord(path string, value any) error {
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -83,6 +88,9 @@ func writeRecord(path string, value any) error {
 	body, err := json.Marshal(envelope{Checksum: digest(json.RawMessage(data)), Data: data})
 	if err != nil {
 		return err
+	}
+	if len(body) > recordLimit {
+		return fmt.Errorf("record of %d bytes is over the %d-byte cache record limit", len(body), recordLimit)
 	}
 	return atomicWrite(path, body, 0600)
 }
@@ -94,9 +102,12 @@ func readRecord(path string, value any) error {
 	}
 	defer func() { _ = f.Close() }() // Read-only file cleanup.
 
-	data, err := io.ReadAll(io.LimitReader(f, 64<<20))
+	data, err := io.ReadAll(io.LimitReader(f, int64(recordLimit)+1))
 	if err != nil {
 		return err
+	}
+	if len(data) > recordLimit {
+		return fmt.Errorf("record is over the %d-byte cache record limit", recordLimit)
 	}
 
 	var e envelope

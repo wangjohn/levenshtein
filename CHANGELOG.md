@@ -292,6 +292,11 @@ Consumers pin a release tag, or its commit SHA, as described in
   still killed with the command's process group, which happens after every
   run, not only on timeout as docs/architecture.md said; daemons that start
   their own session are unaffected.
+- The file stat memo keeps working in repositories above roughly 280,000
+  files. Its single record outgrew the 64 MiB read limit, so it was written on
+  every run and never read back; it is now split across as many records as it
+  needs. A cache record over the limit is refused when written, and a result
+  too large to cache says so in its cache `reason`.
 
 ## [0.1.0] - 2026-09-22
 
