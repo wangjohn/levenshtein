@@ -229,8 +229,9 @@ func TestExcludedFilesFollowTheRunOptions(t *testing.T) {
 	}
 }
 
-// Without -checks, each directory's staticcheck.conf decides whether LV1005
-// checks its excluded files, as it does for the package there.
+// Under -checks=inherit, each directory's staticcheck.conf decides whether
+// LV1005 checks its excluded files, as it does for the package there. Without
+// -checks the shipped selection applies instead (defaults.go).
 func TestExcludedFilesFollowStaticcheckConf(t *testing.T) {
 	dir := writeModule(t, map[string]string{
 		"staticcheck.conf":         "checks = [\"LV1005\"]\n",
@@ -241,7 +242,7 @@ func TestExcludedFilesFollowStaticcheckConf(t *testing.T) {
 		"nested/nested_windows.go": "package nested\nvar  z = 1\n",
 	})
 
-	got := lintModule(t, dir, t.TempDir(), "-f=json")
+	got := lintModule(t, dir, t.TempDir(), "-f=json", "-checks=inherit")
 
 	want := jsonLine(filepath.Join(dir, "integration.go"), "error")
 	if got.status != 1 || got.stdout != want || got.stderr != "" {
