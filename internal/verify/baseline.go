@@ -234,17 +234,45 @@ func completed(result Result) bool {
 	return result.Status == StatusPassed || result.Status == StatusFailed
 }
 
-// covers reports whether an entry belongs to a planned check: same kind and
-// same target directory.
-func covers(check PlannedCheck, entry BaselineEntry) bool {
-	return check.Check.Kind == entry.Kind && check.Target.Dir == entry.Dir
+// covers reports whether a completed check judges an entry: same kind, same
+// target directory, and a code the check could have reported.
+func covers(check PlannedCheck, result Result, entry BaselineEntry) bool {
+	return check.Check.Kind == entry.Kind && check.Target.Dir == entry.Dir && couldReport(check, result, entry.Code)
+}
+
+// couldReport reports whether a go-lint check ran the rule behind a code. A
+// check that skipped its rule modules ran no community rule, and one whose
+// own patterns turn a rule off never ran it, so neither says anything about
+// that rule's entries; another check may still run it. The shipped selection
+// is not known here, so a core rule the check's patterns leave alone counts
+// as run.
+func couldReport(check PlannedCheck, result Result, code string) bool {
+	if check.Check.Kind != CheckGoLint {
+		return true
+	}
+	if !isCommunityPattern(code) {
+		return allowed(append([]string{"all"}, check.Check.coreLintChecks()...), code)
+	}
+	if slices.ContainsFunc(result.Warnings, func(w Warning) bool { return w.Kind == WarningRuleModulesSkipped }) {
+		return false
+	}
+	var patterns []string
+	for _, module := range check.RuleModules {
+		patterns = append(patterns, module.Select...)
+	}
+	for _, pattern := range check.Check.lintChecks() {
+		if isCommunityPattern(pattern) {
+			patterns = append(patterns, pattern)
+		}
+	}
+	return communityAllowed(patterns, code)
 }
 
 // Apply marks the findings the baseline records as baselined, adds a stale
 // finding for each entry that records more findings than a check that covers
 // it found, and recomputes every affected status. Only checks of a baseline
 // kind that completed are touched: an entry is judged only when a check of its
-// kind ran over its target directory and reached a verdict. When several such
+// kind ran its rule over its target directory and reached a verdict. When several such
 // checks ran, each matches the entry on its own, and it is stale only when
 // every one of them left part of it unused.
 func (b Baseline) Apply(report Report) Report {
@@ -263,7 +291,7 @@ func (b Baseline) Apply(report Report) Report {
 		left := map[baselineKey]int{}
 		var covering []int
 		for index, entry := range b.Entries {
-			if covers(check, entry) {
+			if covers(check, result, entry) {
 				left[entry.key()] = entry.Count
 				covering = append(covering, index)
 			}
@@ -350,8 +378,9 @@ func (b Baseline) staleFinding(index, missing int) finding {
 }
 
 // Record returns the baseline that holds exactly the failing findings a run
-// reported for every baseline-kind check it ran, and keeps the entries of kinds and
-// directories the run did not cover. It refuses a run in which any check did
+// reported for every baseline-kind check it ran, and keeps the entries no
+// check of the run covers, such as another directory's or those of a rule no
+// check ran. It refuses a run in which any check did
 // not reach a verdict, because its findings are unknown. When several checks
 // cover the same entry, it records the most findings any one of them reported.
 func (b Baseline) Record(report Report) (Baseline, BaselineChange, error) {
@@ -365,11 +394,11 @@ func (b Baseline) Record(report Report) (Baseline, BaselineChange, error) {
 		return Baseline{}, BaselineChange{}, fmt.Errorf("not every check reached a verdict, so the baseline was not written: %s", strings.Join(unfinished, ", "))
 	}
 
-	type scope struct {
-		Kind CheckKind
-		Dir  string
+	type judge struct {
+		check  PlannedCheck
+		result Result
 	}
-	covered := map[scope]bool{}
+	var judges []judge
 	counts := map[baselineKey]int{}
 	var change BaselineChange
 	checks := report.planned()
@@ -383,7 +412,7 @@ func (b Baseline) Record(report Report) (Baseline, BaselineChange, error) {
 			continue
 		}
 
-		covered[scope{Kind: check.Check.Kind, Dir: check.Target.Dir}] = true
+		judges = append(judges, judge{check: check, result: result})
 		local := map[baselineKey]int{}
 		for _, f := range findings {
 			if f.Code != baselineStaleCode && !f.Advisory {
@@ -399,7 +428,7 @@ func (b Baseline) Record(report Report) (Baseline, BaselineChange, error) {
 	before := map[baselineKey]int{}
 	for _, entry := range b.Entries {
 		before[entry.key()] = entry.Count
-		if !covered[scope{Kind: entry.Kind, Dir: entry.Dir}] {
+		if !slices.ContainsFunc(judges, func(j judge) bool { return covers(j.check, j.result, entry) }) {
 			counts[entry.key()] = entry.Count
 		}
 	}

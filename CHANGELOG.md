@@ -248,6 +248,11 @@ Consumers pin a release tag, or its commit SHA, as described in
 
 ### Fixed
 
+- A baseline no longer judges a `go-lint` entry by a check that could not
+  have reported it. A native check, which skips community rules, reported
+  every community-rule entry as stale, and `--write-baseline` deleted them;
+  a check whose `lint.checks` turned a rule off (such as `-unparam`) did the
+  same to that rule's entries. Such entries are now neither stale nor removed.
 - `musttag` no longer fails, unnoticed, on the test main `go test` generates
   for a package with tests; the new analyzer guard surfaced the swallowed
   error.
