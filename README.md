@@ -131,6 +131,7 @@ Levenshtein is new and is being tried out on a few Go repos. The config format i
 - [Community lint rules](docs/community-rules.md): publish rules as a Go module, or run someone else's
 - [Configuration](docs/configuration.md): targets, runs, commands, and caching
 - [Using it in CI](docs/consumer-ci.md): GitHub Actions and other providers
+- [Coding agents](docs/agents.md): templates for Claude Code hooks, `AGENTS.md`, a workflow, and a starter config
 - [Releases](docs/releases.md): prebuilt binaries
 - [Semantic lint](docs/semantic-lint.md): an optional review by a language model
 - [Mutation testing](docs/mutation.md): an optional check that your tests catch deliberate bugs in changed code
