@@ -275,6 +275,11 @@ Consumers pin a release tag, or its commit SHA, as described in
   module being linted. Converting a literal to a library's open-ended type,
   such as `corev1.ResourceName("nvidia.com/gpu")`, was reported because the
   library declares a few constants of it.
+- LV1005 checks the Go files the default build leaves out, such as
+  `foo_windows.go` and files behind `//go:build integration` or
+  `//go:build ignore`, which `gofmt -l` checks and LV1005 skipped. The
+  linter keys Staticcheck's cache on those files too, so formatting one clears
+  its finding on the next run.
 
 ## [0.1.0] - 2026-09-22
 

@@ -372,6 +372,8 @@ The rule does not ask for more than one blank line, and it says nothing about sp
 
 LV1005 compares a file's bytes with what `go/format` produces and reports once per file when they differ. It exists so a consumer gets formatting enforcement from `./verify go-lint` without a separate `gofmt` step in CI. The fix is always plain `gofmt -w`, never a suppression. Generated files are skipped. For a cgo file it checks the original source, not cgo's rewrite in the build cache.
 
+It also checks the Go files in a package's directory that the default build leaves out, as `gofmt -l` would: files for another platform such as `foo_windows.go`, and files behind a build tag such as `//go:build integration` or `//go:build ignore`, test files included. Excluded files are not type-checked, so the other rules do not see them. A directory with no package the default build keeps, such as one holding only a `//go:build ignore` generator, is not checked. Staticcheck's cache keys a package on the files the build compiles, so the linter adds a digest of every excluded file under the linted patterns to that key: formatting an excluded file clears its finding on the next run, and in a module that has excluded files, changing one re-lints every package.
+
 ## Tests that can fail: LV1006
 
 LV1006 reports a test that passes whatever the code under test does. It looks at each `TestXxx(t *testing.T)` in a `_test.go` file, including one that names `testing.T` through an alias such as `type T = testing.T`, and reports two shapes:

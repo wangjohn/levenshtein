@@ -582,6 +582,9 @@ func run(args []string) int {
 	// selected rules keeps a rule that is turned off from running at all, so
 	// it cannot fail the run, and gives each selection its own cache entries.
 	checks := checkList(command.FlagSet())
+	if checks == nil || allowed(checks, policy.Formatting.Name) {
+		keyIgnoredFiles(command.FlagSet().Args())
+	}
 	guard := newGuard(stop)
 	for _, family := range families {
 		if checks == nil || allowed(checks, family.Analyzer.Name) {
