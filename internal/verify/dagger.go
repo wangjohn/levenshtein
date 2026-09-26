@@ -24,6 +24,8 @@ type Dagger struct {
 	mu     sync.Mutex
 	client *dagger.Client
 	shared string
+	// cacheKeys memoizes repositoryKey by source for the session.
+	cacheKeys sync.Map
 }
 
 func (d *Dagger) Close() error {
@@ -218,6 +220,11 @@ func (d *Dagger) execute(ctx context.Context, req Request, args *daggerArgs) err
 	if function == "sharedCheck" {
 		query = query.Arg("check", string(req.Check.Kind))
 	}
+	// Only the functions that run the repository's code take the key, so the
+	// others' calls stay identical, and Dagger's cache shared, across clones.
+	if runsRepositoryCode(req.Check.Kind) {
+		query = query.Arg("cacheKey", d.cacheKey(ctx, req.Source))
+	}
 	// The added patterns are a function argument, so Dagger's own call cache
 	// keys on them just as the CLI's fingerprint does. The runner splits them
 	// between its core and community linters.
@@ -249,6 +256,21 @@ func (d *Dagger) execute(ctx context.Context, req Request, args *daggerArgs) err
 		query = query.Bind(args.report)
 	}
 	return query.Execute(ctx)
+}
+
+// cacheKey is source's repositoryKey, derived once per session.
+func (d *Dagger) cacheKey(ctx context.Context, source string) string {
+	if key, ok := d.cacheKeys.Load(source); ok {
+		return key.(string)
+	}
+	key := repositoryKey(ctx, source)
+	// A git run the context cut short fell back to the source root; the
+	// next check asks again rather than keeping that for the session.
+	if ctx.Err() != nil {
+		return key
+	}
+	memoized, _ := d.cacheKeys.LoadOrStore(source, key)
+	return memoized.(string)
 }
 
 func (d *Dagger) connect(ctx context.Context, shared string) error {

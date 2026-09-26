@@ -120,6 +120,19 @@ func hostGit() (string, bool) {
 	return "", false
 }
 
+// hostGitEnv is the whole environment hostGit runs with: PATH and HOME, so no
+// GIT_ variable, and nothing else the caller's environment holds, can choose
+// the repository or the configuration git reads.
+func hostGitEnv() []string {
+	env := []string{}
+	for _, name := range []string{"PATH", "HOME"} {
+		if value, ok := os.LookupEnv(name); ok {
+			env = append(env, name+"="+value)
+		}
+	}
+	return env
+}
+
 // listGit runs git itself: the index and the ignore rules are git's, and
 // reimplementing them would disagree with the repository in exactly the cases
 // that matter. The child gets PATH and HOME only, so committed configuration
@@ -134,12 +147,7 @@ func hostGit() (string, bool) {
 // answer. An error means git could not answer this time, including when ctx
 // ends first.
 func listGit(ctx context.Context, source string) (*gitListing, error) {
-	env := []string{}
-	for _, name := range []string{"PATH", "HOME"} {
-		if value, ok := os.LookupEnv(name); ok {
-			env = append(env, name+"="+value)
-		}
-	}
+	env := hostGitEnv()
 	path, ok := hostGit()
 	if !ok {
 		return &gitListing{}, nil
