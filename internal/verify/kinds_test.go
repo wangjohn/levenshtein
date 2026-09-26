@@ -2,6 +2,7 @@ package verify
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -51,6 +52,25 @@ func TestOnlyCommandChecksWriteTheirWorkspace(t *testing.T) {
 		if readOnlyWorkspace(kind) == (kind == CheckCommand) {
 			t.Errorf("%s: readOnlyWorkspace = %v", kind, readOnlyWorkspace(kind))
 		}
+	}
+}
+
+// Exactly the kinds whose Dagger functions run the repository's own code pass
+// the clone's cache key, so each clone's untrusted caches stay its own and
+// every other call stays shareable across clones.
+func TestOnlyRepositoryCodeKindsPassACacheKey(t *testing.T) {
+	t.Parallel()
+	want := []CheckKind{CheckGoTest, CheckGoMutation, CheckGoGenerate}
+
+	var got []CheckKind
+	for _, kind := range checkKinds {
+		if runsRepositoryCode(kind) {
+			got = append(got, kind)
+		}
+	}
+
+	if !slices.Equal(got, want) {
+		t.Errorf("kinds passing a cache key = %v, want %v", got, want)
 	}
 }
 

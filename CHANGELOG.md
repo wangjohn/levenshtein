@@ -294,8 +294,22 @@ says which interfaces are versioned and what to expect when you bump your pin.
   persistent engine. The tool-build volumes are renamed too, so an engine that
   ran older checks starts them clean. The tools those steps need, gremlins and
   `levenshtein-gocheck`, are built from the tool-build volumes and copied in.
-  The three steps still share their own volumes, across repositories, on one
-  engine.
+- Those untrusted volumes are now kept per clone: the CLI passes the three
+  Dagger functions a `cacheKey`, the SHA-256 of the checkout's git common
+  directory (or of its resolved path outside a work tree), and they mount
+  `levenshtein-go-{mod,build}-untrusted-<go>-<key prefix>`. Every worktree of
+  one clone shares them; separate clones, and repositories, never do. Before,
+  every repository on a persistent engine shared them, so one repository's
+  tests could change the module sources or build cache another's `go-test`,
+  `go-generate`, or `go-mutation` compiled. A direct Dagger call without a key
+  uses `unkeyed` volumes. The key is not part of the result fingerprint.
+- Before each of those steps runs anything, `go mod verify` checks the module
+  cache's copies of the module's dependencies against the hashes recorded when
+  they were downloaded, which Go ties to `go.sum`; a copy changed since is a
+  check error rather than compiled. The build cache is protected only by the
+  per-clone volumes, so shared self-hosted runners that check untrusted
+  repositories should still use ephemeral engines
+  ([SECURITY.md](SECURITY.md#not-a-sandbox)).
 
 ## [0.2.0] - 2026-09-25
 

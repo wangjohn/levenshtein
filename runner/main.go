@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -217,6 +218,9 @@ func (m *Levenshtein) selfTest(ctx context.Context, tools toolchain, nonce strin
 	if err := goTestSelfTest(ctx, fixtures, tools, nonce); err != nil {
 		return err
 	}
+	if err := moduleCacheSelfTest(ctx, fixtures.Directory("module-cache"), tools); err != nil {
+		return err
+	}
 	if err := gocheckSelfTest(ctx, fixtures, tools, nonce); err != nil {
 		return err
 	}
@@ -268,7 +272,7 @@ func workflowSecuritySelfTest(ctx context.Context, fixtures *dagger.Directory, t
 // test and a data race are findings with go test's own output, and that a test
 // that does not compile is an error rather than a finding.
 func goTestSelfTest(ctx context.Context, fixtures *dagger.Directory, tools toolchain, nonce string) error {
-	passing, err := goTest(ctx, fixtures.Directory("test-pass"), ".", tools, nonce)
+	passing, err := goTest(ctx, fixtures.Directory("test-pass"), ".", tools, scopeSelfTest, nonce)
 	if err != nil || len(passing) != 0 {
 		return fmt.Errorf("test-pass fixture must pass go-test: findings=%v error=%v", passing, err)
 	}
@@ -280,7 +284,7 @@ func goTestSelfTest(ctx context.Context, fixtures *dagger.Directory, tools toolc
 		{"test-fail", "Add(2, 2) = 4, want 5"},
 		{"test-race", "WARNING: DATA RACE"},
 	} {
-		findings, err := goTest(ctx, fixtures.Directory(fixture.name), ".", tools, nonce)
+		findings, err := goTest(ctx, fixtures.Directory(fixture.name), ".", tools, scopeSelfTest, nonce)
 		if err != nil {
 			return fmt.Errorf("%s fixture must fail for its test, not a tool error: %w", fixture.name, err)
 		}
@@ -289,9 +293,50 @@ func goTestSelfTest(ctx context.Context, fixtures *dagger.Directory, tools toolc
 		}
 	}
 
-	broken, err := goTest(ctx, fixtures.Directory("test-build"), ".", tools, nonce)
+	broken, err := goTest(ctx, fixtures.Directory("test-build"), ".", tools, scopeSelfTest, nonce)
 	if err == nil || !strings.Contains(err.Error(), "go test could not build example.com/test-build") {
 		return fmt.Errorf("test-build fixture must be an error, not a finding: findings=%v error=%v", broken, err)
+	}
+	return nil
+}
+
+// moduleCacheSelfTest proves a step that runs repository code refuses a module
+// cache whose copy of a dependency changed after download, as code an earlier
+// step ran could change it. It downloads the consumer fixture's dependency
+// from the fixture's file proxy into volumes of its own, checks that go-test
+// passes, edits the dependency's source in the cache, and checks that go-test
+// is now an error rather than a run of the edited code. Every exec gets a
+// fresh value so Dagger runs each one again, in order, whatever the nonce.
+func moduleCacheSelfTest(ctx context.Context, fixtures *dagger.Directory, tools toolchain) error {
+	consumer := fixtures.Directory("consumer")
+	ctr := untrustedGoContainer(tools, scopeTamperSelfTest).
+		WithEnvVariable("LEVENSHTEIN_RUN_NONCE", rand.Text()).
+		WithDirectory("/proxy", fixtures.Directory("proxy")).
+		WithDirectory("/src", consumer).
+		WithWorkdir("/src")
+	dependency := "/go/pkg/mod/example.com/cached@v1.0.0"
+	// Start from a fresh download, whatever an earlier self-test left.
+	_, err := ctr.WithEnvVariable("GOPROXY", "file:///proxy").
+		WithEnvVariable("GONOSUMDB", "example.com").
+		WithExec([]string{"sh", "-c", "chmod -R u+w /go/pkg/mod/example.com 2>/dev/null; rm -rf /go/pkg/mod/example.com /go/pkg/mod/cache/download/example.com && go mod download"}).
+		Sync(ctx)
+	if err != nil {
+		return fmt.Errorf("module-cache fixture must download its dependency from the file proxy: %w", err)
+	}
+
+	clean, err := goTest(ctx, consumer, ".", tools, scopeTamperSelfTest, rand.Text())
+	if err != nil || len(clean) != 0 {
+		return fmt.Errorf("module-cache fixture must pass go-test with the dependency as downloaded: findings=%v error=%v", clean, err)
+	}
+
+	_, err = ctr.WithExec([]string{"sh", "-c", "chmod -R u+w " + dependency + " && echo 'func init() { panic(\"modified in the module cache\") }' >> " + dependency + "/cached.go"}).
+		Sync(ctx)
+	if err != nil {
+		return fmt.Errorf("module-cache fixture could not modify its dependency: %w", err)
+	}
+	modified, err := goTest(ctx, consumer, ".", tools, scopeTamperSelfTest, rand.Text())
+	if err == nil || !strings.Contains(err.Error(), "the Go module cache was modified since download") {
+		return fmt.Errorf("module-cache fixture must be an error once its dependency changed in the cache, not a run of the changed code: findings=%v error=%v", modified, err)
 	}
 	return nil
 }
@@ -300,17 +345,17 @@ func goTestSelfTest(ctx context.Context, fixtures *dagger.Directory, tools toolc
 // outcome of each, so a verdict that fails for the wrong reason still fails
 // the self-test.
 func mutationSelfTest(ctx context.Context, fixtures *dagger.Directory, tools toolchain, nonce string) error {
-	strong, err := mutate(ctx, fixtures.Directory("strong"), ".", tools, []string{"add.go"}, nil, defaultAcceptedPath, "", nonce)
+	strong, err := mutate(ctx, fixtures.Directory("strong"), ".", tools, scopeSelfTest, []string{"add.go"}, nil, defaultAcceptedPath, "", nonce)
 	if err != nil || len(strong.Findings) != 0 || strong.Summary.Killed != 1 {
 		return fmt.Errorf("mutation/strong must pass with one killed mutant: %+v %v", strong, err)
 	}
 
-	accepted, err := mutate(ctx, fixtures.Directory("accepted"), ".", tools, []string{"clamp.go"}, nil, defaultAcceptedPath, "", nonce)
+	accepted, err := mutate(ctx, fixtures.Directory("accepted"), ".", tools, scopeSelfTest, []string{"clamp.go"}, nil, defaultAcceptedPath, "", nonce)
 	if err != nil || len(accepted.Findings) != 0 || accepted.Summary.Accepted != 2 {
 		return fmt.Errorf("mutation/accepted must pass with both boundary survivors accepted: %+v %v", accepted, err)
 	}
 
-	weak, err := mutate(ctx, fixtures.Directory("weak"), ".", tools, []string{"clamp.go"}, nil, defaultAcceptedPath, "", nonce)
+	weak, err := mutate(ctx, fixtures.Directory("weak"), ".", tools, scopeSelfTest, []string{"clamp.go"}, nil, defaultAcceptedPath, "", nonce)
 	if err != nil {
 		return fmt.Errorf("mutation/weak must fail for its survivors, not a tool error: %w", err)
 	}
@@ -324,7 +369,7 @@ func mutationSelfTest(ctx context.Context, fixtures *dagger.Directory, tools too
 	}
 
 	// With only line 5 changed, the line-8 survivor is reported, not failed.
-	scoped, err := mutate(ctx, fixtures.Directory("weak"), ".", tools, []string{"clamp.go"}, map[string][]lineRange{"clamp.go": {{Start: 5, End: 5}}}, defaultAcceptedPath, "", nonce)
+	scoped, err := mutate(ctx, fixtures.Directory("weak"), ".", tools, scopeSelfTest, []string{"clamp.go"}, map[string][]lineRange{"clamp.go": {{Start: 5, End: 5}}}, defaultAcceptedPath, "", nonce)
 	if err != nil {
 		return fmt.Errorf("mutation/weak with changed lines must not be a tool error: %w", err)
 	}
