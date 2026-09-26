@@ -37,6 +37,42 @@ func lintEntry(file, code, message string, count int) BaselineEntry {
 	return BaselineEntry{Kind: CheckGoLint, Dir: ".", File: file, Code: code, Message: message, Count: count}
 }
 
+// configOf is a configuration that declares exactly the given checks, each
+// with a target and an environment named after its ID, and the rule modules
+// they run. A go-lint check that runs none opts out of them.
+func configOf(checks ...PlannedCheck) Config {
+	cfg := Config{
+		Version:      1,
+		Targets:      map[string]Target{},
+		Environments: map[string]Environment{},
+		Checks:       map[string]Check{},
+		RuleModules:  map[string]RuleModule{},
+	}
+	for _, planned := range checks {
+		lint := planned.Check.Lint
+		if planned.Check.Kind == CheckGoLint && len(planned.RuleModules) == 0 {
+			lint = &LintCheck{Checks: planned.Check.lintChecks(), RuleModules: new(false)}
+		}
+		cfg.Checks[planned.ID] = Check{Kind: planned.Check.Kind, Target: planned.ID, Environment: planned.ID, Lint: lint}
+		cfg.Targets[planned.ID] = planned.Target
+		cfg.Environments[planned.ID] = planned.Environment
+		for _, module := range planned.RuleModules {
+			cfg.RuleModules[module.Path] = RuleModule{Version: module.Version, Namespace: module.Namespace, Select: module.Select}
+		}
+	}
+	return cfg
+}
+
+// applyWith and recordWith judge a report against a configuration that declares the
+// report's checks and any others given.
+func applyWith(b Baseline, report Report, others ...PlannedCheck) Report {
+	return b.Apply(report, configOf(append(slices.Clone(report.Plan.Checks), others...)...))
+}
+
+func recordWith(b Baseline, report Report, others ...PlannedCheck) (Baseline, BaselineChange, error) {
+	return b.Record(report, configOf(append(slices.Clone(report.Plan.Checks), others...)...))
+}
+
 func findingsOf(t *testing.T, result Result) []finding {
 	t.Helper()
 	return detailFindings(result.Details)
@@ -67,7 +103,7 @@ func TestBaselineAcceptsRecordedFindingsWhereverTheyMove(t *testing.T) {
 		lintFinding("a.go", 40, "errcheck", "unchecked error"),
 		lintFinding("a.go", 90, "errcheck", "unchecked  error"),
 	))
-	applied := baseline.Apply(report)
+	applied := applyWith(baseline, report)
 
 	if applied.Status != StatusPassed || applied.Results[0].Status != StatusPassed || applied.Results[0].Error != "" {
 		t.Fatalf("fully baselined run must pass: %+v", applied)
@@ -96,7 +132,7 @@ func TestBaselineFailsOnNewFindings(t *testing.T) {
 		"another message":                   {lintFinding("a.go", 1, "errcheck", "unchecked error"), lintFinding("a.go", 3, "errcheck", "unchecked error in Close")},
 	} {
 		t.Run(name, func(t *testing.T) {
-			applied := baseline.Apply(reportOf([]PlannedCheck{check}, failedResult("lint", findings...)))
+			applied := applyWith(baseline, reportOf([]PlannedCheck{check}, failedResult("lint", findings...)))
 
 			result := applied.Results[0]
 			if applied.Status != StatusFailed || result.Status != StatusFailed || result.Error != "Go policy lint failed" {
@@ -132,7 +168,7 @@ func TestBaselineReportsStaleEntries(t *testing.T) {
 	baseline := Baseline{Path: testBaselinePath, Entries: entries, lines: lines}
 
 	t.Run("a fixed finding", func(t *testing.T) {
-		applied := baseline.Apply(reportOf([]PlannedCheck{check}, failedResult("lint",
+		applied := applyWith(baseline, reportOf([]PlannedCheck{check}, failedResult("lint",
 			lintFinding("a.go", 1, "errcheck", "unchecked error"),
 			lintFinding("b.go", 1, "SA5001", "check the error first"),
 		)))
@@ -153,7 +189,7 @@ func TestBaselineReportsStaleEntries(t *testing.T) {
 	})
 
 	t.Run("a passing or cached check", func(t *testing.T) {
-		applied := baseline.Apply(reportOf([]PlannedCheck{check}, Result{ID: "lint", Status: StatusPassed, Cache: CacheInfo{Status: CacheHit}}))
+		applied := applyWith(baseline, reportOf([]PlannedCheck{check}, Result{ID: "lint", Status: StatusPassed, Cache: CacheInfo{Status: CacheHit}}))
 
 		result := applied.Results[0]
 		if result.Status != StatusFailed || applied.Baseline.Stale != 2 || len(findingsOf(t, result)) != 2 {
@@ -173,7 +209,7 @@ func TestBaselineReportsStaleEntries(t *testing.T) {
 			Result{ID: "vet", Status: StatusPassed},
 			Result{ID: "other", Status: StatusPassed},
 		)
-		applied := baseline.Apply(report)
+		applied := applyWith(baseline, report)
 
 		if applied.Baseline.Stale != 0 || applied.Results[0].Status != StatusError || applied.Results[1].Status != StatusPassed || applied.Results[2].Status != StatusPassed {
 			t.Fatalf("only a completed check of the entry's kind and directory judges it: %+v", applied.Results)
@@ -188,7 +224,7 @@ func TestBaselineAcrossChecksOfOneDirectory(t *testing.T) {
 
 	// Only one check selects gocognit. Each check matches on its own, and the
 	// entry is stale only when every covering check leaves it unused.
-	applied := baseline.Apply(reportOf([]PlannedCheck{native, dagger},
+	applied := applyWith(baseline, reportOf([]PlannedCheck{native, dagger},
 		failedResult("native-lint", lintFinding("a.go", 1, "gocognit", "too complex")),
 		Result{ID: "lint", Status: StatusPassed},
 	))
@@ -196,7 +232,7 @@ func TestBaselineAcrossChecksOfOneDirectory(t *testing.T) {
 		t.Fatalf("an entry one check still matches is not stale: %+v", applied)
 	}
 
-	applied = baseline.Apply(reportOf([]PlannedCheck{native, dagger}, Result{ID: "native-lint", Status: StatusPassed}, Result{ID: "lint", Status: StatusPassed}))
+	applied = applyWith(baseline, reportOf([]PlannedCheck{native, dagger}, Result{ID: "native-lint", Status: StatusPassed}, Result{ID: "lint", Status: StatusPassed}))
 	if applied.Baseline.Stale != 1 || applied.Results[0].Status != StatusFailed || applied.Results[1].Status != StatusPassed {
 		t.Fatalf("an entry no covering check matches is reported once, on the first: %+v", applied.Results)
 	}
@@ -208,7 +244,7 @@ func TestBaselineKeepsOtherDetails(t *testing.T) {
 	details := json.RawMessage(`{"findings":[{"code":"errcheck","message":"unchecked error","location":{"file":"a.go","line":3,"column":1}}],"summary":{"kept":true}}`)
 	baseline := Baseline{Path: testBaselinePath, Entries: []BaselineEntry{lintEntry("a.go", "errcheck", "unchecked error", 1)}}
 
-	applied := baseline.Apply(reportOf([]PlannedCheck{check}, Result{ID: "lint", Status: StatusFailed, Details: details}))
+	applied := applyWith(baseline, reportOf([]PlannedCheck{check}, Result{ID: "lint", Status: StatusFailed, Details: details}))
 
 	var decoded struct {
 		Summary  map[string]bool `json:"summary"`
@@ -224,6 +260,8 @@ func TestRecordBaseline(t *testing.T) {
 	lint, api := lintCheck("lint", "."), lintCheck("lint-api", "services/api")
 	vet := lintCheck("vet", ".")
 	vet.Check.Kind = CheckGoVet
+	// A configured check the run leaves out covers the worker's entry.
+	worker := lintCheck("lint-worker", "services/worker")
 	existing := Baseline{Path: testBaselinePath, Entries: []BaselineEntry{
 		lintEntry("a.go", "errcheck", "fixed since", 1),
 		{Kind: CheckGoLint, Dir: "services/worker", File: "services/worker/w.go", Code: "SA5001", Message: "kept", Count: 2},
@@ -234,7 +272,7 @@ func TestRecordBaseline(t *testing.T) {
 		failedResult("vet", finding{Code: "go-vet", Message: "x.go:1: bad", Location: location{File: ".", Line: 1}}),
 	)
 
-	recorded, change, err := existing.Record(report)
+	recorded, change, err := recordWith(existing, report, worker)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,23 +296,31 @@ func TestRecordBaseline(t *testing.T) {
 	}
 
 	// Recording what the file already says changes nothing.
-	again, change, err := recorded.Record(report)
+	again, change, err := recordWith(recorded, report, worker)
 	if err != nil || change.Added != 0 || change.Removed != 0 || len(again.Entries) != len(want) {
 		t.Fatalf("second record: %+v %+v %v", again.Entries, change, err)
 	}
 
 	// The recorded baseline accepts the run it came from.
-	if applied := recorded.Apply(reportOf([]PlannedCheck{lint, api}, report.Results[0], report.Results[1])); applied.Status != StatusPassed {
+	if applied := applyWith(recorded, reportOf([]PlannedCheck{lint, api}, report.Results[0], report.Results[1]), worker); applied.Status != StatusPassed {
 		t.Fatalf("a run must pass the baseline it recorded: %+v", applied.Results)
 	}
 }
 
 // unproducible is a go-lint check that could not have reported one baselined
 // code. It still runs SA5001, whose entry is fixed, so an exemption that
-// reached past that code would hide a stale entry.
+// reached past that code would hide a stale entry. The configuration also
+// declares a Dagger check the run leaves out, which could report the code.
 type unproducible struct {
 	check PlannedCheck
 	code  string
+}
+
+func producer() PlannedCheck {
+	check := lintCheck("lint-dagger", ".")
+	check.Environment.Executor = ExecutorDagger
+	check.RuleModules = []PlannedRuleModule{{Path: "example.com/errs", Version: "v1.0.0", Namespace: "errs", Select: []string{"errs_*"}}}
+	return check
 }
 
 func unproducibleCases() map[string]unproducible {
@@ -307,7 +353,7 @@ func TestBaselineIgnoresEntriesACheckCouldNotProduce(t *testing.T) {
 	for name, tc := range unproducibleCases() {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			applied := tc.baseline().Apply(tc.report())
+			applied := applyWith(tc.baseline(), tc.report(), producer())
 
 			stale := findingsOf(t, applied.Results[0])
 			if applied.Baseline.Stale != 1 || len(stale) != 1 || !strings.Contains(stale[0].Message, "SA5001") {
@@ -322,7 +368,7 @@ func TestRecordBaselineKeepsEntriesACheckCouldNotProduce(t *testing.T) {
 	for name, tc := range unproducibleCases() {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			recorded, change, err := tc.baseline().Record(tc.report())
+			recorded, change, err := recordWith(tc.baseline(), tc.report(), producer())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -349,10 +395,10 @@ func TestBaselineJudgesEntriesACheckCouldProduce(t *testing.T) {
 	}}
 	report := reportOf([]PlannedCheck{check}, Result{ID: "lint", Status: StatusPassed})
 
-	if applied := baseline.Apply(report); applied.Baseline.Stale != 3 {
+	if applied := applyWith(baseline, report); applied.Baseline.Stale != 3 {
 		t.Fatalf("every entry is stale: %+v", applied.Baseline)
 	}
-	recorded, change, err := baseline.Record(report)
+	recorded, change, err := recordWith(baseline, report)
 	if err != nil || len(recorded.Entries) != 0 || change.Removed != 3 {
 		t.Fatalf("every entry is removed: %+v %+v %v", recorded.Entries, change, err)
 	}
@@ -378,11 +424,11 @@ func TestBaselineJudgesCommunityCodesNoPatternNames(t *testing.T) {
 	)
 	report := reportOf([]PlannedCheck{check}, found)
 
-	applied := baseline.Apply(report)
+	applied := applyWith(baseline, report)
 	if applied.Baseline.Baselined != 2 || applied.Baseline.Stale != 1 {
 		t.Fatalf("both entries accept their findings and the fixed one is stale: %+v", applied.Baseline)
 	}
-	recorded, _, err := baseline.Record(report)
+	recorded, _, err := recordWith(baseline, report)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -399,12 +445,12 @@ func TestBaselineLeavesAdvisoryFindingsAlone(t *testing.T) {
 	advisory.Advisory = true
 	report := reportOf([]PlannedCheck{check}, Result{ID: "lint", Status: StatusPassed, Details: findingsDetails([]finding{advisory})})
 
-	recorded, change, err := Baseline{Path: testBaselinePath}.Record(report)
+	recorded, change, err := recordWith(Baseline{Path: testBaselinePath}, report)
 	if err != nil || len(recorded.Entries) != 0 || change.Added != 0 {
 		t.Fatalf("an advisory finding must not be recorded: %+v %+v %v", recorded.Entries, change, err)
 	}
 
-	applied := recorded.Apply(report)
+	applied := applyWith(recorded, report)
 	if applied.Status != StatusPassed || findingsOf(t, applied.Results[0])[0].Baselined {
 		t.Fatalf("an advisory finding must pass unmarked: %+v", applied.Results)
 	}
@@ -415,11 +461,11 @@ func TestRecordBaselineRefusesUnfinishedRuns(t *testing.T) {
 	lint, other := lintCheck("lint", "."), lintCheck("other", "x")
 	for _, status := range []Status{StatusError, StatusIncomplete, StatusCancelled} {
 		report := reportOf([]PlannedCheck{lint, other}, failedResult("lint", lintFinding("a.go", 1, "errcheck", "e")), Result{ID: "other", Status: status})
-		if _, _, err := (Baseline{Path: testBaselinePath}).Record(report); err == nil || !strings.Contains(err.Error(), "other ("+string(status)+")") {
+		if _, _, err := recordWith(Baseline{Path: testBaselinePath}, report); err == nil || !strings.Contains(err.Error(), "other ("+string(status)+")") {
 			t.Errorf("%s: error = %v", status, err)
 		}
 	}
-	if _, _, err := (Baseline{Path: testBaselinePath}).Record(reportOf(nil)); err == nil {
+	if _, _, err := recordWith(Baseline{Path: testBaselinePath}, reportOf(nil)); err == nil {
 		t.Error("a run without checks must not write a baseline")
 	}
 }
@@ -562,7 +608,7 @@ func TestBaselinedCheckIsExecutedOnEveryRun(t *testing.T) {
 	for run, wantCache := range []CacheStatus{CacheMiss, CacheFresh, CacheFresh} {
 		result := runner.Execute(context.Background(), req)
 		result.ID = "lint"
-		applied := baseline.Apply(reportOf([]PlannedCheck{lintCheck("lint", ".")}, result))
+		applied := applyWith(baseline, reportOf([]PlannedCheck{lintCheck("lint", ".")}, result))
 
 		if executor.calls != run+1 || result.Status != StatusFailed || result.Cache.Status != wantCache {
 			t.Fatalf("run %d: calls %d, raw result %+v", run, executor.calls, result)

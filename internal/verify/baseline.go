@@ -269,7 +269,7 @@ func couldReport(check PlannedCheck, result Result, code string) bool {
 // kind ran its rule over its target directory and reached a verdict. When several such
 // checks ran, each matches the entry on its own, and it is stale only when
 // every one of them left part of it unused.
-func (b Baseline) Apply(report Report) Report {
+func (b Baseline) Apply(report Report, cfg Config) Report {
 	checks := report.planned()
 	results := slices.Clone(report.Results)
 	unused := map[int][]int{}
@@ -377,7 +377,7 @@ func (b Baseline) staleFinding(index, missing int) finding {
 // check ran. It refuses a run in which any check did
 // not reach a verdict, because its findings are unknown. When several checks
 // cover the same entry, it records the most findings any one of them reported.
-func (b Baseline) Record(report Report) (Baseline, BaselineChange, error) {
+func (b Baseline) Record(report Report, cfg Config) (Baseline, BaselineChange, error) {
 	var unfinished []string
 	for _, result := range report.Results {
 		if !completed(result) {
