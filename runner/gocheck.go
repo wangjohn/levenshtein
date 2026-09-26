@@ -89,17 +89,25 @@ func goImports(ctx context.Context, source *dagger.Directory, module, rules stri
 // source, which it may change, and reports every file that differs afterwards.
 // The pinned image carries git, which does the comparison, and the Go
 // toolchain; a generator that needs any other tool is an error. The
-// generators are the repository's own code, so they run with untrusted caches
-// and levenshtein-gocheck is built apart from them.
-func goGenerate(ctx context.Context, source *dagger.Directory, module string, tools toolchain, nonce string) ([]diagnostic, []string, error) {
+// generators are the repository's own code, so they run with scope's untrusted
+// caches, after verifyModuleCache, and levenshtein-gocheck is built apart from
+// them.
+func goGenerate(ctx context.Context, source *dagger.Directory, module string, tools toolchain, scope cacheScope, nonce string) ([]diagnostic, []string, error) {
 	if _, err := source.File(path.Join(module, "go.mod")).Contents(ctx); err != nil {
 		return nil, nil, fmt.Errorf("module %q needs a readable go.mod: %w", module, err)
 	}
-	ctr := untrustedGoContainer(tools).
+	ctr := untrustedGoContainer(tools, scope).
 		WithFile(gocheckBinary, gocheckerBinary(tools)).
 		WithDirectory("/src", source).
 		WithWorkdir("/src")
-	return runGocheck(ctx, ctr, checkGenerate, []string{"generate", "-root=/src", "-module=" + module}, nonce)
+	if nonce != "" {
+		ctr = ctr.WithEnvVariable("LEVENSHTEIN_RUN_NONCE", nonce)
+	}
+	args := []string{"generate", "-root=/src", "-module=" + module}
+	if err := verifyModuleCache(ctx, ctr, source, module, append([]string{gocheckBinary}, args...)); err != nil {
+		return nil, nil, err
+	}
+	return runGocheck(ctx, ctr, checkGenerate, args, nonce)
 }
 
 // apidiffer is gochecker with the apidiff that tools/apidiff/go.mod pins.
@@ -155,11 +163,11 @@ func gocheckSelfTest(ctx context.Context, fixtures *dagger.Directory, tools tool
 		}
 	}
 
-	fresh, notes, err := goGenerate(ctx, fixtures.Directory("generate-fresh"), ".", tools, nonce)
+	fresh, notes, err := goGenerate(ctx, fixtures.Directory("generate-fresh"), ".", tools, scopeSelfTest, nonce)
 	if err != nil || len(fresh) != 0 || !slices.ContainsFunc(notes, func(note string) bool { return strings.Contains(note, "ran 1 directive and changed 0 files") }) {
 		return fmt.Errorf("generate-fresh fixture must pass go-generate after running its directive: findings=%v notes=%v error=%v", fresh, notes, err)
 	}
-	stale, _, err := goGenerate(ctx, fixtures.Directory("generate-stale"), ".", tools, nonce)
+	stale, _, err := goGenerate(ctx, fixtures.Directory("generate-stale"), ".", tools, scopeSelfTest, nonce)
 	if err != nil {
 		return fmt.Errorf("generate-stale fixture must fail for its stale file, not a tool error: %w", err)
 	}
@@ -200,8 +208,16 @@ func (m *Levenshtein) GoGenerate(ctx context.Context,
 	module string,
 	// +optional
 	nonce string,
+	// Names the untrusted Go cache volumes the generators run with; see
+	// SharedCheck's cacheKey.
+	// +optional
+	cacheKey string,
 ) error {
 	if err := validModule(module); err != nil {
+		return err
+	}
+	scope, err := repositoryScope(cacheKey)
+	if err != nil {
 		return err
 	}
 	var tools toolchain
@@ -209,7 +225,7 @@ func (m *Levenshtein) GoGenerate(ctx context.Context,
 		return err
 	}
 
-	findings, _, err := goGenerate(ctx, source, module, tools, nonce)
+	findings, _, err := goGenerate(ctx, source, module, tools, scope, nonce)
 	if err != nil {
 		return err
 	}

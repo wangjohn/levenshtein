@@ -747,6 +747,10 @@ func (m *Levenshtein) GoMutation(ctx context.Context,
 	tags string,
 	// +optional
 	nonce string,
+	// Names the untrusted Go cache volumes gremlins runs the tests with; see
+	// SharedCheck's cacheKey.
+	// +optional
+	cacheKey string,
 ) (string, error) {
 	if !filepath.IsLocal(module) || path.Clean(module) != module || strings.Contains(module, "\\") {
 		return "", fmt.Errorf("invalid module path %q", module)
@@ -764,12 +768,16 @@ func (m *Levenshtein) GoMutation(ctx context.Context,
 	if strings.ContainsAny(tags, " \t\n\x00") {
 		return "", fmt.Errorf("invalid go-mutation tags %q", tags)
 	}
+	scope, err := repositoryScope(cacheKey)
+	if err != nil {
+		return "", err
+	}
 
 	var tools toolchain
 	if err := json.Unmarshal(toolchainJSON, &tools); err != nil {
 		return "", err
 	}
-	verdict, err := mutate(ctx, source, module, tools, files, changed, accepted, tags, nonce)
+	verdict, err := mutate(ctx, source, module, tools, scope, files, changed, accepted, tags, nonce)
 	if err != nil {
 		return "", err
 	}
@@ -789,7 +797,7 @@ func (m *Levenshtein) GoMutation(ctx context.Context,
 
 // mutate runs gremlins over the selected files and decides the verdict. The
 // self-test calls it directly on its fixtures.
-func mutate(ctx context.Context, source *dagger.Directory, module string, tools toolchain, files []string, lines map[string][]lineRange, accepted, tags, nonce string) (mutationVerdict, error) {
+func mutate(ctx context.Context, source *dagger.Directory, module string, tools toolchain, scope cacheScope, files []string, lines map[string][]lineRange, accepted, tags, nonce string) (mutationVerdict, error) {
 	in, all, err := mutationSources(ctx, source, module, files, accepted)
 	if err != nil {
 		return mutationVerdict{}, err
@@ -801,7 +809,7 @@ func mutate(ctx context.Context, source *dagger.Directory, module string, tools 
 	// that timed out a mutant under one needs to be repeated.
 	coefficient := gremlinsTimeoutCoef
 	for attempt := 1; ; attempt++ {
-		run, err := runGremlins(ctx, source, module, tools, patterns, tags, nonce, coefficient)
+		run, err := runGremlins(ctx, source, module, tools, scope, patterns, tags, nonce, coefficient)
 		if err != nil {
 			return mutationVerdict{}, err
 		}
@@ -855,11 +863,12 @@ func mutationSources(ctx context.Context, source *dagger.Directory, module strin
 	return mutationInput{Module: module, Files: files, Sources: sources, Accepted: entries, AcceptedPath: accepted, AcceptedText: text}, all, nil
 }
 
-// runGremlins builds the pinned gremlins and runs it once from the module root.
-// One invocation means one coverage pass; gremlins then tests each mutant
-// against its own package only.
-func runGremlins(ctx context.Context, source *dagger.Directory, module string, tools toolchain, patterns []string, tags, nonce string, coefficient int) (mutationRun, error) {
-	ctr := untrustedGoContainer(tools).
+// runGremlins builds the pinned gremlins and runs it once from the module root,
+// with scope's untrusted caches, after verifyModuleCache. One invocation means
+// one coverage pass; gremlins then tests each mutant against its own package
+// only.
+func runGremlins(ctx context.Context, source *dagger.Directory, module string, tools toolchain, scope cacheScope, patterns []string, tags, nonce string, coefficient int) (mutationRun, error) {
+	ctr := untrustedGoContainer(tools, scope).
 		WithFile("/usr/local/bin/gremlins", pinnedToolBinary(tools, toolGremlins)).
 		WithDirectory("/src", source).
 		WithDirectory(gremlinsReportDir, dag.Directory()).
@@ -870,8 +879,12 @@ func runGremlins(ctx context.Context, source *dagger.Directory, module string, t
 	if nonce != "" {
 		ctr = ctr.WithEnvVariable("LEVENSHTEIN_RUN_NONCE", nonce)
 	}
+	command := gremlinsCommand(coefficient, tags, patterns)
+	if err := verifyModuleCache(ctx, ctr, source, module, command); err != nil {
+		return mutationRun{}, err
+	}
 
-	run, checked, err := runTool(ctx, ctr, gremlinsCommand(coefficient, tags, patterns))
+	run, checked, err := runTool(ctx, ctr, command)
 	if err != nil {
 		return mutationRun{}, err
 	}
