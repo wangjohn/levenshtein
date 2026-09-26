@@ -355,8 +355,9 @@ restored, so neither is ever part of a cached result:
    `--no-baseline` nor `--write-baseline` is given, `Baseline.Apply` in
    `internal/verify/baseline.go` marks recorded findings `baselined`, adds a
    `baseline-stale` finding for each entry a covering check no longer
-   matches, recomputes the affected results' and the report's status, and
-   adds the report's `baseline` summary. The file is loaded before any check
+   matches, and one in the `baseline` summary for each entry no check in the
+   loaded configuration could report, recomputes the affected results' and
+   the report's status, and adds the report's `baseline` summary. The file is loaded before any check
    runs, so a malformed one exits 2.
 2. `WithHints` in `internal/verify/hints.go` fills in each finding's `hint`
    from one small table.

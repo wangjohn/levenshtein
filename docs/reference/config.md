@@ -189,4 +189,4 @@ Rule modules run only on Dagger; a native `go-lint` check skips them with a warn
 
 ## `baseline`
 
-A repository-relative path, such as `".levenshtein/baseline.json"`, that is not `"."` and is not a private path such as `.env` or anything under `.git`. A missing file records nothing. See [baseline](../configuration.md#baseline) for the file format and how findings match.
+A repository-relative path, such as `".levenshtein/baseline.json"`, that is not `"."` and is not a private path such as `.env` or anything under `.git`. A missing file records nothing. See [baseline](../configuration.md#baseline) for the file format and how findings match. Every run compares each entry with every check the file declares, not only the run's: an entry no declared check could report is [orphaned](../configuration.md#orphaned-entries) and fails the run, so removing a check, a rule module, or a rule from a `select` also means removing its entries, which `--write-baseline` does.

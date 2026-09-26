@@ -152,14 +152,14 @@ func runCommand(ctx context.Context, args []string, streams console) (int, error
 	// The baseline and hints apply to the finished report, after the cache has
 	// stored whatever it stores, so neither ever reaches a cached result.
 	if applyBaseline {
-		report = baseline.Apply(report)
+		report = baseline.Apply(report, cfg)
 	}
 	report = verify.WithHints(report)
 	if err := verify.Render(streams.out, report, opts.format, verify.RenderOptions{PathPrefix: opts.pathPrefix}); err != nil {
 		return 2, err
 	}
 	if opts.writeBaseline {
-		return recordBaseline(report, baseline, plan.Source, streams)
+		return recordBaseline(report, cfg, baseline, plan.Source, streams)
 	}
 	if report.Status != verify.StatusPassed {
 		return 1, nil
@@ -170,8 +170,8 @@ func runCommand(ctx context.Context, args []string, streams console) (int, error
 // recordBaseline writes the findings of a run that ignored the baseline into
 // the configured file. It exits 0 once the file is written, whatever the run
 // found, and 1 when a check did not reach a verdict, leaving the file alone.
-func recordBaseline(report verify.Report, existing verify.Baseline, source string, streams console) (int, error) {
-	recorded, change, err := existing.Record(report)
+func recordBaseline(report verify.Report, cfg verify.Config, existing verify.Baseline, source string, streams console) (int, error) {
+	recorded, change, err := existing.Record(report, cfg)
 	if err != nil {
 		return 1, err
 	}
