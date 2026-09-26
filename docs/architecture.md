@@ -108,7 +108,7 @@ untrusted volumes are also kept per clone: for these three kinds
 (`runsRepositoryCode` in their `kindSpec`) the executor passes a `cacheKey`
 argument, the SHA-256 of the checkout's git common directory
 (`repositoryKey` in `internal/verify/cachekey.go`, with git run as input
-discovery runs it), or of the resolved source root outside a work tree, and
+discovery runs it), or of the resolved source root outside a work tree or when the .git there does not belong to that common directory, and
 the runner names the volumes `levenshtein-go-{mod,build}-untrusted-<go>-<first
 16 hex digits>`. Every worktree of a clone shares them; separate clones never
 do. A direct call without a key uses `unkeyed` volumes, and the self-test uses

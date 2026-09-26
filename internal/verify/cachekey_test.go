@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/wangjohn/levenshtein/internal/testgit"
@@ -89,4 +90,70 @@ func TestRepositoryKeyIgnoresGitEnvironment(t *testing.T) {
 	if got := repositoryKey(t.Context(), repo); got != want {
 		t.Errorf("GIT_DIR changed the key from %s to %s", want, got)
 	}
+}
+
+// A directory that is not a clone, such as an unpacked archive, cannot claim
+// another clone's key with a .git file or a .git directory whose commondir
+// names that clone's git directory, nor with one that names one of the
+// clone's linked worktrees.
+func TestRepositoryKeyRejectsBorrowedGitDirectories(t *testing.T) {
+	git := testgit.Path(t)
+	testgit.Isolate(t)
+	base := t.TempDir()
+	victim := filepath.Join(base, "victim")
+	worktree := filepath.Join(base, "worktree")
+	if err := os.Mkdir(victim, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testgit.Run(t, git, victim, "init", "--quiet")
+	testgit.Run(t, git, victim, "commit", "--quiet", "--allow-empty", "-m", "initial")
+	testgit.Run(t, git, victim, "worktree", "add", "--quiet", "--detach", worktree)
+	victimGit := filepath.Join(victim, ".git")
+	worktreeGit := strings.TrimSpace(strings.TrimPrefix(readFile(t, filepath.Join(worktree, ".git")), "gitdir:"))
+
+	gitFile := filepath.Join(base, "git-file")
+	worktreeFile := filepath.Join(base, "worktree-file")
+	commonDir := filepath.Join(base, "common-dir")
+	for dir, files := range map[string]map[string]string{
+		gitFile:      {".git": "gitdir: " + victimGit + "\n"},
+		worktreeFile: {".git": "gitdir: " + worktreeGit + "\n"},
+		commonDir: {
+			".git/HEAD":      "ref: refs/heads/main\n",
+			".git/commondir": victimGit + "\n",
+		},
+	} {
+		for name, content := range files {
+			path := filepath.Join(dir, name)
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for _, dir := range []string{filepath.Join(commonDir, ".git", "objects"), filepath.Join(commonDir, ".git", "refs")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	want := repositoryKey(t.Context(), victim)
+	for _, dir := range []string{gitFile, worktreeFile, commonDir} {
+		if got := repositoryKey(t.Context(), dir); got == want {
+			t.Errorf("%s borrowed the victim clone's key %s", filepath.Base(dir), got)
+		}
+	}
+	if got := repositoryKey(t.Context(), worktree); got != want {
+		t.Errorf("the victim's own worktree lost its clone's key: %s, want %s", got, want)
+	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }
