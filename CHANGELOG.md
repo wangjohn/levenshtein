@@ -93,6 +93,10 @@ says which interfaces are versioned and what to expect when you bump your pin.
 
 ### Fixed
 
+- [docs/rules.md](docs/rules.md) listed `gocognit` and `deferInLoop`, which
+  are off by default, in its table of rules on by default. They are now in
+  an [opt-in rules](docs/rules.md#opt-in-rules) table, and a test fails when
+  either table disagrees with the selection `runner/toolchain.json` ships.
 - A baseline no longer judges a `go-lint` entry by a check that could not
   have reported it. A native check, which skips community rules, reported
   every community-rule entry as stale, and `--write-baseline` deleted them;
