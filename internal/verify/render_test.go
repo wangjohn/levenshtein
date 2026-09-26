@@ -318,6 +318,44 @@ func TestRenderSARIFCleanRunHasEmptyResults(t *testing.T) {
 	}
 }
 
+// An orphaned baseline entry belongs to no check, so every format shows it on
+// its own, at the entry's line in the baseline file.
+func TestRenderOrphanedBaselineEntries(t *testing.T) {
+	t.Parallel()
+	check := lintCheck("lint", ".")
+	check.Check.Lint = &LintCheck{Checks: []string{"-unparam"}}
+	entries, lines, err := parseBaseline([]byte("{\n  \"version\": 1,\n  \"findings\": [\n    {\"kind\":\"go-lint\",\"dir\":\".\",\"file\":\"a.go\",\"code\":\"unparam\",\"message\":\"result 0 is always nil\",\"count\":1}\n  ]\n}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := WithHints(Baseline{Path: testBaselinePath, Entries: entries, lines: lines}.Apply(reportOf([]PlannedCheck{check}, Result{ID: "lint", Status: StatusPassed}), configOf(check)))
+	message := `no configured check can report the 1 baselined go-lint unparam finding in a.go (dir "."), so this entry can never match; delete it, or run verify branch --write-baseline to drop it: result 0 is always nil`
+
+	text := render(t, report, FormatText, RenderOptions{})
+	want := ".levenshtein/baseline.json:4: baseline-stale " + message + "\n\nlint  passed\n\nbranch: failed, 1 of 1 checks passed, 1 orphaned baseline entry\n"
+	if text != want {
+		t.Fatalf("text:\n%s\nwant:\n%s", text, want)
+	}
+
+	github := render(t, report, FormatGitHub, RenderOptions{})
+	if want := "::error file=.levenshtein/baseline.json,line=4,title=baseline-stale (.levenshtein/baseline.json)::" + message + "\n"; github != want {
+		t.Fatalf("github:\n%s\nwant:\n%s", github, want)
+	}
+
+	var log struct {
+		Runs []struct {
+			Results []sarifResult `json:"results"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal([]byte(render(t, report, FormatSARIF, RenderOptions{})), &log); err != nil {
+		t.Fatal(err)
+	}
+	results := log.Runs[0].Results
+	if len(results) != 1 || results[0].RuleID != baselineStaleCode || results[0].Locations[0].PhysicalLocation.ArtifactLocation.URI != testBaselinePath || results[0].Locations[0].PhysicalLocation.Region.StartLine != 4 || results[0].BaselineState != sarifNew {
+		t.Fatalf("sarif results: %+v", results)
+	}
+}
+
 func TestRenderJSONRoundTrips(t *testing.T) {
 	t.Parallel()
 	report := renderFixture()

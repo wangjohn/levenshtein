@@ -37,8 +37,8 @@ The exit code is the same whichever `--format` is chosen.
 
 | Code | Ordinary run | `--write-baseline` | `--render` |
 | --- | --- | --- | --- |
-| `0` | Every selected check passed | The baseline file was written, whatever the run found | The report was written, whatever its status |
-| `1` | A check failed, errored, was cancelled, or is incomplete | A check did not reach a verdict, so the file was left alone | |
+| `0` | Every selected check passed, and no baseline entry is orphaned | The baseline file was written, whatever the run found | The report was written, whatever its status |
+| `1` | A check failed, errored, was cancelled, or is incomplete, or the [baseline](../configuration.md#outcomes) has an entry no configured check can report | A check did not reach a verdict, so the file was left alone | |
 | `2` | The command could not start: see below | As for an ordinary run, or the configuration names no `baseline` file | The input could not be read or is not a version 1 report |
 
 Exit `2` means nothing was verified, or the result could not be written. The causes are a bad flag or run name, an unreadable or invalid `levenshtein.json` or baseline file, a plan that fails validation (a missing target directory, an unknown check, an input spelled with different case than on disk), no shared checkout, a `--cache-dir` inside the source or shared checkout, a pinned [rule module](../community-rules.md) the release has withdrawn, and a failure to write the plan, report, or baseline. The `./verify` launcher also exits `2` when it cannot obtain the pinned Go or build the CLI. [Troubleshooting](../troubleshooting.md#exit-code-2) has remedies.

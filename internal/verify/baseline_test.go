@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -113,7 +114,7 @@ func TestBaselineAcceptsRecordedFindingsWhereverTheyMove(t *testing.T) {
 			t.Errorf("finding not marked baselined: %+v", f)
 		}
 	}
-	if *applied.Baseline != (BaselineSummary{File: testBaselinePath, Baselined: 2, Stale: 0}) {
+	if summary := *applied.Baseline; summary.File != testBaselinePath || summary.Baselined != 2 || summary.Stale != 0 || summary.Orphaned != nil {
 		t.Fatalf("summary = %+v", applied.Baseline)
 	}
 	if report.Results[0].Status != StatusFailed || findingsOf(t, report.Results[0])[0].Baselined {
@@ -377,6 +378,197 @@ func TestRecordBaselineKeepsEntriesACheckCouldNotProduce(t *testing.T) {
 				t.Fatalf("only the SA5001 entry is removed: %+v %+v", recorded.Entries, change)
 			}
 		})
+	}
+}
+
+// orphanCase is a configuration none of whose checks could report the last
+// entry of a baseline, and a run of part of it that reached a verdict.
+type orphanCase struct {
+	configured []PlannedCheck
+	run        []PlannedCheck
+	entry      BaselineEntry
+}
+
+func daggerLint(id, dir string, selected ...string) PlannedCheck {
+	check := lintCheck(id, dir)
+	check.Environment.Executor = ExecutorDagger
+	if len(selected) != 0 {
+		check.RuleModules = []PlannedRuleModule{{Path: "example.com/errs", Version: "v1.0.0", Namespace: "errs", Select: selected}}
+	}
+	return check
+}
+
+func orphanCases() map[string]orphanCase {
+	noModules := daggerLint("lint", ".")
+	dropped := daggerLint("lint", ".", "errs_other")
+	offHere, offThere := daggerLint("lint", "."), lintCheck("native-lint", ".")
+	offHere.Check.Lint = &LintCheck{Checks: []string{"-unparam"}}
+	offThere.Check.Lint = &LintCheck{Checks: []string{"all", "-unparam"}}
+	shell := lintCheck("shell", ".")
+	shell.Check.Kind = CheckShellLint
+	vet := lintCheck("vet", ".")
+	vet.Check.Kind = CheckGoVet
+
+	return map[string]orphanCase{
+		"rule module removed": {
+			configured: []PlannedCheck{noModules},
+			run:        []PlannedCheck{noModules},
+			entry:      lintEntry("a.go", "errs_nopanic", "panics", 1),
+		},
+		"rule dropped from the module's select": {
+			configured: []PlannedCheck{dropped},
+			run:        []PlannedCheck{dropped},
+			entry:      lintEntry("a.go", "errs_nopanic", "panics", 1),
+		},
+		"rule off in every go-lint check": {
+			configured: []PlannedCheck{offHere, offThere},
+			run:        []PlannedCheck{offHere, offThere},
+			entry:      lintEntry("a.go", "unparam", "result 0 is always nil", 1),
+		},
+		"check removed": {
+			configured: []PlannedCheck{offHere, shell},
+			run:        []PlannedCheck{shell},
+			entry:      BaselineEntry{Kind: CheckGoLint, Dir: "services/gone", File: "services/gone/x.go", Code: "SA5001", Message: "check first", Count: 1},
+		},
+		// A run that covers no check of the entry's kind still reports it,
+		// because no run could ever need it.
+		"partial run": {
+			configured: []PlannedCheck{offHere, vet},
+			run:        []PlannedCheck{vet},
+			entry:      BaselineEntry{Kind: CheckShellLint, Dir: ".", File: "run.sh", Code: "SC2086", Message: "quote it", Count: 1},
+		},
+	}
+}
+
+// baseline is a file whose first entry the configured go-lint check on "."
+// could produce and the run did not judge, and whose second, on line 5, is
+// the orphan.
+func (o orphanCase) baseline(t *testing.T) Baseline {
+	t.Helper()
+	kept, err := json.Marshal(lintEntry("kept.go", "errcheck", "unchecked error", 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	orphan, err := json.Marshal(o.entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := "{\n  \"version\": 1,\n  \"findings\": [\n    " + string(kept) + ",\n    " + string(orphan) + "\n  ]\n}\n"
+
+	entries, lines, err := parseBaseline([]byte(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return Baseline{Path: testBaselinePath, Entries: entries, lines: lines}
+}
+
+// report is a run in which every go-lint check on "." found the kept entry's
+// finding and every other check passed, so only the orphan can fail it.
+func (o orphanCase) report() Report {
+	var results []Result
+	for _, check := range o.run {
+		result := Result{ID: check.ID, Status: StatusPassed}
+		if check.Check.Kind == CheckGoLint && check.Target.Dir == "." {
+			result = failedResult(check.ID, lintFinding("kept.go", 1, "errcheck", "unchecked error"))
+		}
+		results = append(results, result)
+	}
+	return reportOf(o.run, results...)
+}
+
+func TestBaselineReportsOrphanedEntries(t *testing.T) {
+	t.Parallel()
+	for name, tc := range orphanCases() {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			applied := tc.baseline(t).Apply(tc.report(), configOf(tc.configured...))
+
+			if applied.Status != StatusFailed || applied.Baseline.Stale != 1 || len(applied.Baseline.Orphaned) != 1 {
+				t.Fatalf("an orphaned entry must fail the run: %s %+v", applied.Status, applied.Baseline)
+			}
+			orphan := applied.Baseline.Orphaned[0]
+			if orphan.Code != baselineStaleCode || orphan.Location != (location{File: testBaselinePath, Line: 5}) {
+				t.Fatalf("orphan finding = %+v", orphan)
+			}
+			for _, want := range []string{tc.entry.Code, tc.entry.File, tc.entry.Message, "verify branch --write-baseline"} {
+				if !strings.Contains(orphan.Message, want) {
+					t.Errorf("message %q does not mention %q", orphan.Message, want)
+				}
+			}
+			for _, result := range applied.Results {
+				if slices.ContainsFunc(findingsOf(t, result), func(f finding) bool { return f.Code == baselineStaleCode }) {
+					t.Errorf("an orphan belongs to no check, but %s reports it: %+v", result.ID, result)
+				}
+			}
+		})
+	}
+}
+
+func TestRecordBaselineRemovesOrphanedEntries(t *testing.T) {
+	t.Parallel()
+	for name, tc := range orphanCases() {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			baseline := tc.baseline(t)
+			recorded, change, err := baseline.Record(tc.report(), configOf(tc.configured...))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if !slices.Equal(recorded.Entries, baseline.Entries[:1]) || change.Removed != 1 || change.Added != 0 {
+				t.Fatalf("only the orphan is removed: %+v %+v", recorded.Entries, change)
+			}
+		})
+	}
+}
+
+// An entry that a configured check could report is left to that check, even
+// when the run leaves it out and no check of the run could report it.
+func TestBaselineKeepsEntriesAnotherConfiguredCheckCouldProduce(t *testing.T) {
+	t.Parallel()
+	native := lintCheck("lint", ".")
+	native.RuleModules = []PlannedRuleModule{{Path: "example.com/errs", Version: "v1.0.0", Namespace: "errs", Select: []string{"errs_*"}}}
+	shell := lintCheck("shell", ".")
+	shell.Check.Kind = CheckShellLint
+	api := daggerLint("lint-api", "services/api", "errs_*")
+	entries := []BaselineEntry{
+		lintEntry("a.go", "errs_nopanic", "panics", 1),
+		{Kind: CheckGoLint, Dir: "services/api", File: "services/api/a.go", Code: "errs_nopanic", Message: "panics", Count: 1},
+		{Kind: CheckShellLint, Dir: ".", File: "run.sh", Code: "SC2086", Message: "quote it", Count: 1},
+	}
+	baseline := Baseline{Path: testBaselinePath, Entries: entries}
+	cfg := configOf(native, api, shell, daggerLint("lint-dagger", ".", "errs_*"))
+	report := reportOf([]PlannedCheck{native, api}, Result{ID: "lint", Status: StatusPassed, Warnings: skippedRuleModules(Request{PlannedCheck: native})}, failedResult("lint-api", lintFinding("services/api/a.go", 1, "errs_nopanic", "panics")))
+
+	applied := baseline.Apply(report, cfg)
+	if applied.Status != StatusPassed || applied.Baseline.Stale != 0 || len(applied.Baseline.Orphaned) != 0 {
+		t.Fatalf("no entry is orphaned: %+v", applied.Baseline)
+	}
+	recorded, change, err := baseline.Record(report, cfg)
+	if err != nil || len(recorded.Entries) != len(entries) || change.Removed != 0 {
+		t.Fatalf("every entry is kept: %+v %+v %v", recorded.Entries, change, err)
+	}
+}
+
+// A check declared with "targets" produces entries in each target's directory,
+// and a check whose target is not declared produces none.
+func TestConfiguredChecksExpandTargets(t *testing.T) {
+	t.Parallel()
+	cfg := Config{
+		Targets:      map[string]Target{"app": {Dir: "."}, "api": {Dir: "services/api"}},
+		Environments: map[string]Environment{"host": {Executor: ExecutorNative}},
+		Checks: map[string]Check{
+			"lint":   {Kind: CheckGoLint, Targets: []string{"app", "api"}, Environment: "host"},
+			"broken": {Kind: CheckGoLint, Target: "missing", Environment: "host"},
+		},
+	}
+	entry := func(dir string) BaselineEntry {
+		return BaselineEntry{Kind: CheckGoLint, Dir: dir, File: path.Join(dir, "a.go"), Code: "SA5001", Message: "check first", Count: 1}
+	}
+	baseline := Baseline{Path: testBaselinePath, Entries: []BaselineEntry{entry("."), entry("services/api"), entry("services/gone")}}
+
+	if got := baseline.orphaned(reportOf(nil), cfg); !slices.Equal(got, []int{2}) {
+		t.Fatalf("orphaned entries = %v, want only the one in services/gone", got)
 	}
 }
 

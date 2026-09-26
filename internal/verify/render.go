@@ -63,6 +63,22 @@ func items(report Report) []item {
 	return out
 }
 
+// findingItems is items followed, when the baseline has orphaned entries, by
+// one more that holds their findings under the baseline file's name. Those
+// entries belong to no check, so the item has no check or row of its own.
+func findingItems(report Report) []item {
+	all := items(report)
+	if report.Baseline == nil || len(report.Baseline.Orphaned) == 0 {
+		return all
+	}
+	orphaned := slices.Clone(report.Baseline.Orphaned)
+	slices.SortStableFunc(orphaned, compareFindings)
+	return append(all, item{
+		result:   Result{ID: report.Baseline.File, Status: StatusFailed},
+		findings: orphaned,
+	})
+}
+
 func compareFindings(a, b finding) int {
 	return cmp.Or(
 		cmp.Compare(a.Location.File, b.Location.File),
@@ -102,11 +118,12 @@ func Render(w io.Writer, report Report, format Format, options RenderOptions) er
 // file:line:col: CODE message, grouped by check in plan order and sorted by
 // location within a check, then one status line per check and a total.
 // Findings the baseline accepts are counted, not listed. An advisory finding,
-// which never fails its check, is listed and marked as one.
+// which never fails its check, is listed and marked as one. Orphaned baseline
+// entries are listed after every check's findings and counted in the total.
 func renderText(w io.Writer, report Report, options RenderOptions) error {
 	var out strings.Builder
 	hidden := 0
-	for _, it := range items(report) {
+	for _, it := range findingItems(report) {
 		for _, f := range it.findings {
 			if f.Baselined {
 				hidden++
@@ -160,6 +177,10 @@ func renderText(w io.Writer, report Report, options RenderOptions) error {
 	fmt.Fprintf(&out, "\n%s: %s, %d of %d checks passed", report.Run, report.Status, passed, len(report.Results))
 	if hidden > 0 {
 		fmt.Fprintf(&out, ", %d baselined %s not shown", hidden, plural(hidden, "finding", "findings"))
+	}
+	if report.Baseline != nil && len(report.Baseline.Orphaned) > 0 {
+		orphaned := len(report.Baseline.Orphaned)
+		fmt.Fprintf(&out, ", %d orphaned baseline %s", orphaned, plural(orphaned, "entry", "entries"))
 	}
 	out.WriteString("\n")
 	_, err := io.WriteString(w, out.String())
@@ -229,7 +250,7 @@ func plural(n int, one, many string) string {
 // such as a tool error or an incomplete run.
 func renderGitHub(w io.Writer, report Report, options RenderOptions) error {
 	var out strings.Builder
-	for _, it := range items(report) {
+	for _, it := range findingItems(report) {
 		for _, f := range it.findings {
 			if f.Baselined {
 				continue
@@ -342,7 +363,7 @@ type sarifResult struct {
 
 type sarifResultProperty struct {
 	Check string    `json:"check"`
-	Kind  CheckKind `json:"kind"`
+	Kind  CheckKind `json:"kind,omitempty"`
 }
 
 type sarifLocation struct {
@@ -412,7 +433,7 @@ func helpURI(code, reported string) string {
 // code scanning needs a file and line for every result. Paths are relative to
 // %SRCROOT%, the checkout upload-sarif resolves them against.
 func renderSARIF(w io.Writer, report Report, options RenderOptions) error {
-	all := items(report)
+	all := findingItems(report)
 	rules, index := sarifRules(all)
 
 	// A scan's results are an array even when empty; code scanning rejects null.
@@ -494,7 +515,12 @@ func sarifRules(all []item) ([]sarifRule, map[string]int) {
 		if hint, ok := hints[code]; ok {
 			help = &sarifMessage{Text: strings.ReplaceAll(hint, "{file}", "<file>")}
 		}
-		rules = append(rules, sarifRule{ID: code, ShortDescription: sarifMessage{Text: code}, HelpURI: helpURI(code, urls[code]), Help: help, Properties: sarifProperties{Tags: []string{string(kinds[code])}}})
+		// An orphaned baseline entry's code comes from no check, so it has no kind to tag.
+		var tags []string
+		if kinds[code] != "" {
+			tags = []string{string(kinds[code])}
+		}
+		rules = append(rules, sarifRule{ID: code, ShortDescription: sarifMessage{Text: code}, HelpURI: helpURI(code, urls[code]), Help: help, Properties: sarifProperties{Tags: tags}})
 		index[code] = i
 	}
 	return rules, index
