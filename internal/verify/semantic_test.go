@@ -352,6 +352,18 @@ func TestSemanticLintToleratesUnansweredQuestions(t *testing.T) {
 	if result.Status != StatusError || !strings.Contains(result.Error, "no question was answered") || !strings.Contains(result.Error, "HTTP 400") {
 		t.Fatalf("a run without a single answer must be an error: %+v", result)
 	}
+
+	// Every request succeeds but carries no answers, so there is no request
+	// error to quote.
+	empty := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"model":"jev-1.13.0","answers":{},"usage":{"input_tokens":10}}`))
+	}))
+	t.Cleanup(empty.Close)
+	t.Setenv("TYPESAFE_BASE_URL", empty.URL)
+	result = (&Native{}).Execute(t.Context(), req)
+	if result.Status != StatusError || result.Error != "no question was answered: the API returned no answers" {
+		t.Fatalf("answers missing without a failed request: %+v", result)
+	}
 }
 
 func TestSemanticLintAppliesItsBudgets(t *testing.T) {

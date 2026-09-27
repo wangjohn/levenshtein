@@ -101,6 +101,32 @@ func TestIsolateClearsInheritedVariables(t *testing.T) {
 	}
 }
 
+// skipRecorder records a Skip instead of ending the test, so Path's decision
+// is observable.
+type skipRecorder struct {
+	testing.TB
+	skipped bool
+}
+
+func (s *skipRecorder) Skip(...any) {
+	s.skipped = true
+}
+
+func TestPathSkipsOnlyWithoutGit(t *testing.T) {
+	found := &skipRecorder{TB: t}
+	git := Path(found)
+	if found.skipped || filepath.Base(git) != "git" {
+		t.Fatalf("installed git must be returned, not skipped: %q skipped=%v", git, found.skipped)
+	}
+
+	t.Setenv("PATH", t.TempDir())
+	missing := &skipRecorder{TB: t}
+	Path(missing)
+	if !missing.skipped {
+		t.Fatal("a PATH without git must skip the test")
+	}
+}
+
 // TestNoTestRunsGitDirectly keeps every git command in the module's tests on
 // this package, so a new fixture cannot inherit the caller's repository. It
 // flags exec.Command and exec.CommandContext whose program is the literal

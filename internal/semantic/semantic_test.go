@@ -129,6 +129,20 @@ func TestParseCommitLogReadsAwkwardPaths(t *testing.T) {
 			t.Errorf("%s: %+v %v", tc.header, commits, err)
 		}
 	}
+
+	deleted := strings.Join([]string{
+		commitRecord + "0123456789abcdef\x1fRemove a file",
+		"diff --git \"a/q\\\"uote.go\" \"b/q\\\"uote.go\"",
+		"deleted file mode 100644",
+		"--- \"a/q\\\"uote.go\"",
+		"+++ /dev/null",
+		"@@ -1 +0,0 @@",
+		"-package q",
+	}, "\n")
+	commits, err := parseCommitLog(deleted)
+	if err != nil || len(commits) != 1 || !slices.Equal(commits[0].Files, []string{`q"uote.go`}) {
+		t.Errorf("a deleted file is named by its old side: %+v %v", commits, err)
+	}
 }
 
 func TestLoadChangeReviewsFilesWithAwkwardNames(t *testing.T) {
@@ -631,14 +645,23 @@ func TestRunStaysWithinItsBudgets(t *testing.T) {
 	defer server.Close()
 
 	opts := runOptions(r, server)
+	if _, err := Run(t.Context(), opts); err != nil {
+		t.Fatal(err)
+	}
+	total := calls.Load()
+	calls.Store(0)
+
 	opts.MaxRequests = 1
 	report, err := Run(t.Context(), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if calls.Load() != 1 || report.Requests != 1 {
-		t.Fatalf("max_requests 1 sent %d requests", calls.Load())
+	if total < 2 || calls.Load() != 1 || report.Requests != 1 {
+		t.Fatalf("max_requests 1 sent %d of %d requests", calls.Load(), total)
+	}
+	if want := fmt.Sprintf("%d of %d requests were not sent", total-1, total); !strings.HasPrefix(strings.Join(report.Notes, " "), want) {
+		t.Fatalf("notes must count the unsent requests as %q: %q", want, report.Notes)
 	}
 	if len(report.Skipped) == 0 || len(report.Missing) != 0 {
 		t.Fatalf("requests over the budget are skipped, not unanswered: skipped %v missing %v", report.Skipped, report.Missing)
@@ -660,6 +683,22 @@ func TestRunStaysWithinItsBudgets(t *testing.T) {
 	report, err = Run(t.Context(), opts)
 	if err != nil || calls.Load() != 0 || len(report.Skipped) == 0 || !strings.Contains(strings.Join(report.Notes, " "), "max_input_chars") {
 		t.Fatalf("an input budget below every request sends none: calls %d %+v %v", calls.Load(), report, err)
+	}
+}
+
+func TestFirstNCountsWhatItLeavesOut(t *testing.T) {
+	for _, tc := range []struct {
+		values []string
+		want   []string
+	}{
+		{values: []string{"a", "b"}, want: []string{"a", "b"}},
+		{values: []string{"a", "b", "c"}, want: []string{"a", "b", "c"}},
+		{values: []string{"a", "b", "c", "d"}, want: []string{"a", "b", "c", "1 more"}},
+		{values: []string{"a", "b", "c", "d", "e"}, want: []string{"a", "b", "c", "2 more"}},
+	} {
+		if got := firstN(tc.values, 3); !slices.Equal(got, tc.want) {
+			t.Errorf("firstN(%q, 3) = %q, want %q", tc.values, got, tc.want)
+		}
 	}
 }
 
