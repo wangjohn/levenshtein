@@ -14,7 +14,7 @@
     "lint": {
       "dir": "runner/lint",
       "workspace": ".",
-      "inputs": ["runner/lint", "runner/toolchain.json", "runner/testdata/selection.json", "runner/testdata/import-rules.json", "runner/testdata/imports-good", "runner/testdata/imports-bad", "runner/testdata/generate-fresh", "runner/testdata/generate-stale", "runner/testdata/apidiff", "runner/tools"]
+      "inputs": ["runner/lint", "runner/toolchain.json", "runner/testdata/selection.json", "runner/testdata/import-rules.json", "runner/testdata/imports-good", "runner/testdata/imports-bad", "runner/testdata/generate-fresh", "runner/testdata/generate-stale", "runner/testdata/apidiff", "runner/tools/apidiff"]
     },
     "community": {
       "dir": "runner/community",
@@ -31,10 +31,30 @@
       "workspace": ".",
       "inputs": ["sdk/patched-go/pyproject.toml", "sdk/patched-go/uv.lock"]
     },
-    "tools": {
-      "dir": "runner/tools",
+    "tools-actionlint": {
+      "dir": "runner/tools/actionlint",
       "workspace": ".",
-      "inputs": ["runner/tools"]
+      "inputs": ["runner/tools/actionlint"]
+    },
+    "tools-apidiff": {
+      "dir": "runner/tools/apidiff",
+      "workspace": ".",
+      "inputs": ["runner/tools/apidiff"]
+    },
+    "tools-gitleaks": {
+      "dir": "runner/tools/gitleaks",
+      "workspace": ".",
+      "inputs": ["runner/tools/gitleaks"]
+    },
+    "tools-govulncheck": {
+      "dir": "runner/tools/govulncheck",
+      "workspace": ".",
+      "inputs": ["runner/tools/govulncheck"]
+    },
+    "tools-gremlins": {
+      "dir": "runner/tools/gremlins",
+      "workspace": ".",
+      "inputs": ["runner/tools/gremlins"]
     },
     "workflows": {
       "dir": ".",
@@ -71,7 +91,7 @@
   "checks": {
     "go-lint": {"kind": "go-lint", "targets": ["root", "runner", "lint", "community", "example"], "environment": "go"},
     "go-vet": {"kind": "go-vet", "targets": ["root", "runner", "lint", "community", "example"], "environment": "go"},
-    "go-mod": {"kind": "go-mod", "targets": ["root", "lint", "community", "tools", "example"], "environment": "go"},
+    "go-mod": {"kind": "go-mod", "targets": ["root", "lint", "community", "tools-actionlint", "tools-apidiff", "tools-gitleaks", "tools-govulncheck", "tools-gremlins", "example"], "environment": "go"},
     "go-http": {"kind": "go-http", "targets": ["root", "runner", "lint", "community"], "environment": "go"},
     "go-sql": {"kind": "go-sql", "targets": ["root", "runner", "lint", "community"], "environment": "go"},
     "go-vuln": {"kind": "go-vuln", "targets": ["root", "runner", "lint", "community", "example"], "environment": "go"},
@@ -84,7 +104,7 @@
     "semantic-lint": {"kind": "semantic-lint", "target": "repository", "environment": "host"},
     "native-go-lint": {"kind": "go-lint", "targets": ["root", "runner", "lint", "community", "example"], "environment": "host-go"},
     "native-go-vet": {"kind": "go-vet", "targets": ["root", "runner", "lint", "community", "example"], "environment": "host-go"},
-    "native-go-mod": {"kind": "go-mod", "targets": ["root", "lint", "community", "tools", "example"], "environment": "host-go"},
+    "native-go-mod": {"kind": "go-mod", "targets": ["root", "lint", "community", "tools-actionlint", "tools-apidiff", "tools-gitleaks", "tools-govulncheck", "tools-gremlins", "example"], "environment": "host-go"},
     "native-go-test": {"kind": "go-test", "targets": ["repository", "lint", "community", "example"], "environment": "host-go"},
     "native-workflow-lint": {"kind": "workflow-lint", "target": "workflows", "environment": "host-go"},
     "native-workflow-security": {"kind": "workflow-security", "target": "actions", "environment": "host-go"},

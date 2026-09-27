@@ -19,7 +19,7 @@ import (
 )
 
 // helperApidiff is the pinned apidiff that levenshtein-gocheck drives.
-var helperApidiff = helper{Name: "apidiff", Module: "runner/tools", Pkg: "golang.org/x/exp/cmd/apidiff"}
+var helperApidiff = helper{Name: "apidiff", Module: "runner/tools/apidiff", Pkg: "golang.org/x/exp/cmd/apidiff"}
 
 // apidiffBaseTree is the target's declared inputs as they were at the merge
 // base with the base branch, exported on the host because neither the Dagger

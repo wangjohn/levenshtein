@@ -859,10 +859,8 @@ func mutationSources(ctx context.Context, source *dagger.Directory, module strin
 // One invocation means one coverage pass; gremlins then tests each mutant
 // against its own package only.
 func runGremlins(ctx context.Context, source *dagger.Directory, module string, tools toolchain, patterns []string, tags, nonce string, coefficient int) (mutationRun, error) {
-	ctr := goContainer(tools).
-		WithDirectory("/tools", dag.CurrentModule().Source().Directory("tools")).
-		WithWorkdir("/tools").
-		WithExec([]string{"go", "build", "-trimpath", "-o", "/usr/local/bin/gremlins", "github.com/go-gremlins/gremlins/cmd/gremlins"}).
+	ctr := untrustedGoContainer(tools).
+		WithFile("/usr/local/bin/gremlins", pinnedToolBinary(tools, toolGremlins)).
 		WithDirectory("/src", source).
 		WithDirectory(gremlinsReportDir, dag.Directory()).
 		WithWorkdir(path.Join("/src", module)).

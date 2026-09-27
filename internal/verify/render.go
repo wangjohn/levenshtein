@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"text/tabwriter"
+
+	"github.com/wangjohn/levenshtein/internal/checktool"
 )
 
 // Format is how the CLI writes a report. Every format describes the same
@@ -398,10 +400,7 @@ func helpURI(code, reported string) string {
 	if reported != "" {
 		return reported
 	}
-	if staticcheckCode.MatchString(code) {
-		return "https://staticcheck.dev/docs/checks/#" + code
-	}
-	return ""
+	return checktool.StaticcheckURL(code)
 }
 
 // renderSARIF writes one SARIF run for the whole report, with a rule per

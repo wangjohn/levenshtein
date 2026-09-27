@@ -32,8 +32,8 @@ func flagList(flags *flag.FlagSet, name string) []string {
 }
 
 // allowed reproduces Staticcheck's filterAnalyzerNames (lintcmd/lint.go in
-// honnef.co/go/tools v0.8.1) for one code. runner/main.go and
-// internal/verify/findings.go keep copies; all three load
+// honnef.co/go/tools v0.8.1) for one code. internal/checktool keeps a copy
+// (generated into runner/internal/checktool); both load
 // runner/testdata/selection.json in their tests. Patterns apply in order and
 // the last one that matches wins; a "-" prefix turns a code off.
 func allowed(checks []string, code string) bool {

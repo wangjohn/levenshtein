@@ -15,6 +15,9 @@ import (
 	"time"
 )
 
+// fakeSecret is the made-up key secrets-leaky carries, which no report may.
+const fakeSecret = "9f8a7Qm2Lx0Zc4Vb6Nn1Ty8Ru3Ew5Qd" // gitleaks:allow
+
 // The native executor reaches the same verdicts as the Dagger self-test
 // (runner/secrets.go) on the same fixtures. Building gitleaks needs the Go
 // module proxy.

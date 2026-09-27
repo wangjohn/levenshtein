@@ -2,6 +2,27 @@
   "version": 1,
   "accepted": [
     {
+      "file": "internal/checktool/lint.go",
+      "mutator": "CONDITIONALS_BOUNDARY",
+      "line": "if len(pattern) > 1 && pattern[0] == '-' {",
+      "function": "Allowed",
+      "reason": "a lone \"-\" selects no code whether it is read as the pattern \"-\" or as turning off the empty pattern"
+    },
+    {
+      "file": "internal/checktool/releases.go",
+      "mutator": "CONDITIONALS_BOUNDARY",
+      "line": "if parts := strings.Split(platform, \"/\"); len(parts) > 2 {",
+      "function": "ReleasePin.Asset",
+      "reason": "a platform with exactly two parts is rebuilt as the same os/arch string, so trimming it too changes nothing"
+    },
+    {
+      "file": "internal/checktool/shellcheck.go",
+      "mutator": "CONDITIONALS_BOUNDARY",
+      "line": "if comment.File == \"\" || comment.Line < 1 || comment.Code < 1 || comment.Message == \"\" {",
+      "function": "ShellFindings",
+      "reason": "ShellCheck codes start at SC1000, so rejecting a code of exactly 1 as well changes nothing a real report can contain; the line bound on the same condition is tested"
+    },
+    {
       "file": "internal/gitchange/gitchange.go",
       "mutator": "CONDITIONALS_BOUNDARY",
       "line": "if len(fields) < 2 {",
@@ -33,12 +54,6 @@
       "reason": "gremlins runs on Linux, where no declared path resolves under another spelling, so spelledExactly never fails there; TestMisspelledInputIsRejected covers the rejection on case-insensitive filesystems"
     },
     {
-      "file": "internal/verify/findings.go",
-      "mutator": "CONDITIONALS_BOUNDARY",
-      "line": "if len(pattern) > 1 && pattern[0] == '-' {",
-      "reason": "a lone \"-\" selects no code whether it is read as the pattern \"-\" or as turning off the empty pattern"
-    },
-    {
       "file": "internal/verify/gotools.go",
       "mutator": "ARITHMETIC_BASE",
       "line": "out := make([]string, 0, len(env)+len(pinned))",
@@ -61,12 +76,6 @@
       "mutator": "CONDITIONALS_BOUNDARY",
       "line": "if slash := strings.LastIndex(reference, \"/\"); slash > 0 {",
       "reason": "a reference starting with a slash names no check whether it is split or not, and the error quotes the whole reference either way"
-    },
-    {
-      "file": "internal/verify/shelllint.go",
-      "mutator": "CONDITIONALS_BOUNDARY",
-      "line": "if comment.File == \"\" || comment.Line < 1 || comment.Code < 1 || comment.Message == \"\" {",
-      "reason": "ShellCheck codes start at SC1000, so rejecting a code of exactly 1 as well changes nothing a real report can contain; the line bound on the same condition is tested"
     },
     {
       "file": "internal/verify/statcache.go",

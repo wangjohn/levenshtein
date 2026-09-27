@@ -55,7 +55,11 @@ jobs:
             go.sum
             runner/go.sum
             runner/lint/go.sum
-            runner/tools/go.sum
+            runner/tools/actionlint/go.sum
+            runner/tools/apidiff/go.sum
+            runner/tools/gitleaks/go.sum
+            runner/tools/govulncheck/go.sum
+            runner/tools/gremlins/go.sum
       - name: Set up the pinned Dagger CLI
         uses: ./.github/actions/setup-dagger
       - name: Restore or generate the Dagger Go SDK
@@ -178,7 +182,11 @@ jobs:
             runner/go.sum
             runner/lint/go.sum
             runner/community/go.sum
-            runner/tools/go.sum
+            runner/tools/actionlint/go.sum
+            runner/tools/apidiff/go.sum
+            runner/tools/gitleaks/go.sum
+            runner/tools/govulncheck/go.sum
+            runner/tools/gremlins/go.sum
             examples/rule-module/go.sum
       # testdata holds lint fixtures, some deliberately unformatted; LV1005
       # already enforces formatting on the checked modules through go-lint.
@@ -565,7 +573,11 @@ jobs:
             go.sum
             runner/go.sum
             runner/lint/go.sum
-            runner/tools/go.sum
+            runner/tools/actionlint/go.sum
+            runner/tools/apidiff/go.sum
+            runner/tools/gitleaks/go.sum
+            runner/tools/govulncheck/go.sum
+            runner/tools/gremlins/go.sum
       - name: Set up the pinned Dagger CLI
         uses: ./.github/actions/setup-dagger
       - name: Restore or generate the Dagger Go SDK

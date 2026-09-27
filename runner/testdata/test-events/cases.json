@@ -1,5 +1,5 @@
 {
-  "comment": "Real go test -race -json output from Go 1.27.1, with paths shortened to /src and timestamps dropped. Each case names its stdout (<name>.jsonl) and optional stderr (<name>.stderr), the exit code, and what go-test must make of it: a pass, one finding per failed package whose message contains 'contains' and not 'omits', or an error containing 'contains'. runner/checks_test.go and internal/verify/gotest_test.go both read this table, so the two copies of testFindings cannot drift apart.",
+  "comment": "Real go test -race -json output from Go 1.27.1, with paths shortened to /src and timestamps dropped. Each case names its stdout (<name>.jsonl) and optional stderr (<name>.stderr), the exit code, and what go-test must make of it: a pass, one finding per failed package whose message contains 'contains' and not 'omits', or an error containing 'contains'. internal/checktool/gotest_test.go reads this table for TestFindings, which both executors run.",
   "cases": [
     {"name": "pass", "exit": 0, "want": "pass"},
     {"name": "fail", "exit": 1, "want": "finding", "findings": 1, "contains": "Add(2, 2) = 4, want 5", "omits": "TestPasses"},

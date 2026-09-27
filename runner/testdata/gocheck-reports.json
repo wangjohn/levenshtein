@@ -1,5 +1,5 @@
 {
-  "comment": "levenshtein-gocheck outputs and what each executor must make of them. runner/gocheck_test.go and internal/verify/gocheck_test.go both read this table, so the two copies of gocheckReport cannot drift apart.",
+  "comment": "levenshtein-gocheck outputs and what each executor must make of them. internal/checktool/gocheck_test.go reads this table for GocheckReport, which both executors run.",
   "cases": [
     {"name": "clean", "exit": 0, "stdout": "{\"findings\":[],\"notes\":[\"1 rule checked 2 packages in .\"]}\n", "want": "pass", "notes": 1},
     {"name": "findings", "exit": 1, "stdout": "{\"findings\":[{\"code\":\"go-imports\",\"message\":\"./core may not import \\\"net/http\\\"\",\"location\":{\"file\":\"core/core.go\",\"line\":4,\"column\":2}}],\"notes\":[\"n\"]}\n", "want": "finding", "findings": 1},

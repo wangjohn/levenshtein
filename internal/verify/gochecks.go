@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/wangjohn/levenshtein/internal/checktool"
 )
 
 // Analysis is slow and its tools are expensive to build, so give them room; a
@@ -183,7 +185,7 @@ func (n *Native) goLint(ctx context.Context, req Request, work goRun) ([]finding
 	if err != nil {
 		return nil, run, err
 	}
-	findings, err := parseFindings(run.ExitCode, run.Stdout, run.Stderr, checks, req.Source)
+	findings, err := toolFindings(checktool.LintFindings(checktool.Run(run), checks, req.Source))
 	return findings, run, err
 }
 
@@ -196,7 +198,7 @@ func (n *Native) goVet(ctx context.Context, req Request, work goRun) ([]finding,
 	if err != nil {
 		return nil, run, err
 	}
-	findings, err := commandFindings(CheckGoVet, req.Target.Dir, run.ExitCode, run.Stdout, run.Stderr)
+	findings, err := toolFindings(checktool.ToolExit(checktool.KindGoVet, req.Target.Dir, checktool.Run(run)))
 	return findings, run, err
 }
 
@@ -214,13 +216,13 @@ func (n *Native) goMod(ctx context.Context, req Request, work goRun) ([]finding,
 	env := goEnv(work.Env, []string{"GOWORK=off"})
 	var findings []finding
 	var output toolRun
-	for _, step := range modSteps {
-		run, err := runTool(ctx, work.Dir, step.args(), env, goCheckTimeout)
+	for _, step := range checktool.ModSteps {
+		run, err := runTool(ctx, work.Dir, step.Args(), env, goCheckTimeout)
 		output = toolRun{ExitCode: run.ExitCode, Stdout: output.Stdout + run.Stdout, Stderr: output.Stderr + run.Stderr}
 		if err != nil {
 			return nil, output, err
 		}
-		found, err := modFindings(step, req.Target.Dir, run.ExitCode, run.Stdout, run.Stderr)
+		found, err := toolFindings(checktool.ModFindings(step, req.Target.Dir, checktool.Run(run)))
 		if err != nil {
 			return nil, output, err
 		}
@@ -242,7 +244,7 @@ func (n *Native) goVuln(ctx context.Context, req Request, work goRun) ([]finding
 	if err != nil {
 		return nil, run, err
 	}
-	findings, err := commandFindings(CheckGoVuln, req.Target.Dir, run.ExitCode, run.Stdout, run.Stderr)
+	findings, err := toolFindings(checktool.ToolExit(checktool.KindGoVuln, req.Target.Dir, checktool.Run(run)))
 	return findings, run, err
 }
 
@@ -260,7 +262,7 @@ func (n *Native) workflowLint(ctx context.Context, req Request, work goRun) ([]f
 	if err != nil {
 		return nil, run, err
 	}
-	findings, err := commandFindings(CheckWorkflowLint, req.Target.Dir, run.ExitCode, run.Stdout, run.Stderr)
+	findings, err := toolFindings(checktool.ToolExit(checktool.KindWorkflowLint, req.Target.Dir, checktool.Run(run)))
 	return findings, run, err
 }
 

@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/wangjohn/levenshtein/internal/checktool"
 )
 
 // baselineStaleCode is the finding a baseline entry becomes when the findings
@@ -239,7 +241,7 @@ func couldReport(check PlannedCheck, result Result, code string) bool {
 		return true
 	}
 	if !isCommunityPattern(code) {
-		return allowed(append([]string{"all"}, check.Check.coreLintChecks()...), code)
+		return checktool.Allowed(append([]string{"all"}, check.Check.coreLintChecks()...), code)
 	}
 	if len(check.RuleModules) == 0 || slices.ContainsFunc(result.Warnings, func(w Warning) bool { return w.Kind == WarningRuleModulesSkipped }) {
 		return false

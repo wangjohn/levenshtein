@@ -8,6 +8,14 @@ Root module:
 GOTOOLCHAIN=local go build ./... && GOTOOLCHAIN=local go test ./...
 ```
 
+The runner compiles a generated copy of `internal/checktool`, which both
+executors use to start pinned tools and read their results. After changing
+it, regenerate the copy; a root test fails until you do:
+
+```sh
+GOTOOLCHAIN=local go generate ./internal/checktool
+```
+
 Go lint policy analyzers:
 
 ```sh

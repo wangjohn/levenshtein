@@ -30,6 +30,7 @@ archives:
       - runner/secrets.go
       - runner/depsvuln.go
       - runner/community.go
+      - runner/internal/checktool/*.go
       - runner/rule-modules.json
       - runner/go.mod
       - runner/go.sum
