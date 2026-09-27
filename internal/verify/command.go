@@ -105,6 +105,7 @@ func command(ctx context.Context, dir string, args, env []string, timeout string
 
 	status := StatusError
 	message := ""
+	var warnings []Warning
 	switch {
 	case ctx.Err() != nil:
 		status, message = StatusCancelled, ctx.Err().Error()
@@ -112,6 +113,11 @@ func command(ctx context.Context, dir string, args, env []string, timeout string
 		message = "command timed out"
 	case err == nil:
 		status = StatusPassed
+	case errors.Is(err, exec.ErrWaitDelay):
+		// The command itself exited 0; only a background process it left,
+		// such as a build daemon, still held its output. That is a pass.
+		status = StatusPassed
+		warnings = []Warning{{Kind: WarningDetachedOutput, Message: fmt.Sprintf("the command exited 0, but a process it started still held its output %s later; output after the exit was dropped and the process was killed", cmd.WaitDelay)}}
 	default:
 		if errors.As(err, new(*exec.ExitError)) {
 			status = StatusFailed
@@ -119,7 +125,7 @@ func command(ctx context.Context, dir string, args, env []string, timeout string
 		message = err.Error()
 	}
 
-	return Result{Status: status, Error: message, Stdout: stdout.String(), Stderr: stderr.String()}
+	return Result{Status: status, Error: message, Stdout: stdout.String(), Stderr: stderr.String(), Warnings: warnings}
 }
 
 func validateTools(ctx context.Context, dir string, tools []Tool, env []string) *Result {

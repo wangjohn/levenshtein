@@ -53,6 +53,13 @@ type kindSpec struct {
 	// writesWorkspace is whether a check of the kind may write to the source
 	// workspace it runs in. Every other kind only reads it.
 	writesWorkspace bool
+	// goToolchain is whether the kind runs the Go toolchain over the target,
+	// natively or in the container. The toolchain reads every source file in a
+	// package directory, whatever a //go:embed pattern names below it, and
+	// whatever a test opens, including generated code the work tree ignores (a
+	// gitignored *.pb.go, a generated SDK), so the kind's file set adds the
+	// ignored paths the toolchain can load.
+	goToolchain bool
 	// defaultCheck is whether the no-configuration defaults declare a check
 	// of the kind, with a run of its own named after it.
 	defaultCheck bool
@@ -109,6 +116,7 @@ func describeKinds() []kindSpec {
 	return []kindSpec{
 		{
 			kind:         CheckGoLint,
+			goToolchain:  true,
 			summary:      "Staticcheck, the curated upstream analyzers and Levenshtein's own LV rules, plus any configured community rule modules on Dagger",
 			dagger:       "goLintReport",
 			native:       sharedNative((*Native).goLint, "Go policy lint failed"),
@@ -120,6 +128,7 @@ func describeKinds() []kindSpec {
 		},
 		{
 			kind:         CheckGoVet,
+			goToolchain:  true,
 			summary:      "The pinned Go toolchain's default vet checks",
 			dagger:       "sharedCheck",
 			native:       sharedNative((*Native).goVet, "shared check failed"),
@@ -128,6 +137,7 @@ func describeKinds() []kindSpec {
 		},
 		{
 			kind:         CheckGoMod,
+			goToolchain:  true,
 			summary:      "`go mod tidy -diff` and `go mod verify`: manifests tidy, downloads matching `go.sum`",
 			dagger:       "sharedCheck",
 			native:       sharedNative((*Native).goMod, "shared check failed"),
@@ -137,6 +147,7 @@ func describeKinds() []kindSpec {
 		},
 		{
 			kind:         CheckGoTest,
+			goToolchain:  true,
 			summary:      "`go test -race ./...` on the pinned toolchain",
 			dagger:       "sharedCheck",
 			native:       sharedNative((*Native).goTest, "shared check failed"),
@@ -144,6 +155,7 @@ func describeKinds() []kindSpec {
 		},
 		{
 			kind:         CheckGoHTTP,
+			goToolchain:  true,
 			summary:      "bodyclose alone: HTTP response bodies are closed",
 			dagger:       "sharedCheck",
 			baseline:     true,
@@ -152,6 +164,7 @@ func describeKinds() []kindSpec {
 		},
 		{
 			kind:         CheckGoSQL,
+			goToolchain:  true,
 			summary:      "sqlclosecheck alone: database rows and statements are closed",
 			dagger:       "sharedCheck",
 			baseline:     true,
@@ -160,6 +173,7 @@ func describeKinds() []kindSpec {
 		},
 		{
 			kind:         CheckGoVuln,
+			goToolchain:  true,
 			summary:      "govulncheck: reachable known vulnerabilities in Go dependencies",
 			dagger:       "sharedCheck",
 			native:       sharedNative((*Native).goVuln, "shared check failed"),
@@ -240,6 +254,7 @@ func describeKinds() []kindSpec {
 		},
 		{
 			kind:          CheckGoMutation,
+			goToolchain:   true,
 			summary:       "gremlins mutation testing of the Go files a branch changed",
 			dagger:        "goMutation",
 			baseDependent: mutationReason,
@@ -247,15 +262,17 @@ func describeKinds() []kindSpec {
 			reporting:     true,
 		},
 		{
-			kind:     CheckGoImports,
-			summary:  "The repository's layering rules: which of its packages may import which",
-			dagger:   "goImports",
-			native:   sharedNative((*Native).goImports, "shared check failed"),
-			baseline: true,
-			located:  true,
+			kind:        CheckGoImports,
+			goToolchain: true,
+			summary:     "The repository's layering rules: which of its packages may import which",
+			dagger:      "goImports",
+			native:      sharedNative((*Native).goImports, "shared check failed"),
+			baseline:    true,
+			located:     true,
 		},
 		{
 			kind:         CheckGoGenerate,
+			goToolchain:  true,
 			summary:      "`go generate ./...` in a scratch copy: every file it would add, change or delete",
 			dagger:       "goGenerate",
 			native:       sharedNative((*Native).goGenerate, "shared check failed"),
@@ -263,9 +280,10 @@ func describeKinds() []kindSpec {
 			defaultCheck: true,
 		},
 		{
-			kind:    CheckGoApidiff,
-			summary: "apidiff between the branch's merge base and the working tree: incompatible exported API changes",
-			dagger:  "goApidiff",
+			kind:        CheckGoApidiff,
+			goToolchain: true,
+			summary:     "apidiff between the branch's merge base and the working tree: incompatible exported API changes",
+			dagger:      "goApidiff",
 			native: &nativeKind{
 				validate:   validateSharedGoCheck,
 				rerunReady: alwaysReady,
@@ -343,6 +361,11 @@ func locatedKind(kind CheckKind) bool {
 // when the check passes.
 func reportsOnPass(kind CheckKind) bool {
 	return specOf(kind).reporting
+}
+
+// readsGoToolchain reports whether a kind runs the Go toolchain over its target.
+func readsGoToolchain(kind CheckKind) bool {
+	return specOf(kind).goToolchain
 }
 
 // rootOnly reports whether a kind needs a repository-root target.

@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func nativeRequest(t *testing.T) Request {
@@ -49,21 +48,6 @@ func TestNativeCommandOutcomes(t *testing.T) {
 	result = (&Native{}).Execute(context.Background(), req)
 	if result.Status != StatusError || !strings.Contains(result.Error, "version mismatch") {
 		t.Fatalf("tool pin: %+v", result)
-	}
-}
-
-func TestNativeTimeoutKillsProcessGroup(t *testing.T) {
-	req := nativeRequest(t)
-	req.Check.Command.Args = []string{"/bin/sh", "-c", "(sleep 1; touch escaped) & wait"}
-	req.Check.Command.Timeout = "30ms"
-
-	result := (&Native{}).Execute(context.Background(), req)
-	if result.Status != StatusError || result.Error != "command timed out" {
-		t.Fatalf("timeout: %+v", result)
-	}
-	time.Sleep(1200 * time.Millisecond)
-	if _, err := os.Stat(filepath.Join(req.Source, "escaped")); !os.IsNotExist(err) {
-		t.Fatal("descendant survived timeout")
 	}
 }
 

@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"os"
@@ -29,8 +30,7 @@ func daggerIncludes(inputs []string) ([]string, error) {
 		if input == "." {
 			includes = append(includes, "**")
 		} else {
-			path := filepath.ToSlash(input)
-			includes = append(includes, path, path+"/**")
+			includes = append(includes, subtreePatterns(filepath.ToSlash(input))...)
 		}
 	}
 	return includes, nil
@@ -52,75 +52,77 @@ func privateSourcePath(path string) bool {
 func daggerExcludes(excludes []string) []string {
 	out := []string{"**/.env", "**/.env.*", "!**/.env.example", "**/.git"}
 	for _, path := range excludes {
-		slash := filepath.ToSlash(path)
-		out = append(out, slash, slash+"/**")
+		out = append(out, subtreePatterns(filepath.ToSlash(path))...)
 	}
 	return out
 }
 
-// Reject aliases before asking Dagger to import files. A path inside an allowed
-// directory must not expose another part of the checkout through a symlink.
-func validateDaggerSource(source string, inputs, excludes []string) error {
-	dir, err := os.OpenRoot(source)
+// subtreePatterns match a path and everything below it.
+func subtreePatterns(pattern string) []string {
+	return []string{pattern, pattern + "/**"}
+}
+
+// daggerPatternMeta are the characters Dagger's include and exclude patterns
+// give a meaning; a backslash makes each literal.
+var daggerPatternMeta = strings.NewReplacer(`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`)
+
+// literalPattern is a pattern that matches exactly one repository path, however
+// the path is spelled. Declared paths are already literal; the paths git
+// reports as ignored can be named anything.
+func literalPattern(path string) string {
+	escaped := daggerPatternMeta.Replace(filepath.ToSlash(path))
+	if strings.HasPrefix(escaped, "!") {
+		escaped = `\` + escaped
+	}
+	return escaped
+}
+
+// importExcludes walks the file set a Dagger import carries and returns the
+// exclude patterns that leave out what the set omits, the ignored paths no
+// executor reads, so the container holds exactly what the key hashed. It
+// also rejects aliases before Dagger imports anything: a symlink in declared
+// content could expose another part of the checkout. A symlink in ignored
+// content the Go toolchain loads is imported as a link, as the key records it.
+// Private files are left to daggerExcludes.
+func importExcludes(ctx context.Context, set fileSet) ([]string, error) {
+	dir, err := os.OpenRoot(set.Root)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() { _ = dir.Close() }()
 
-	for _, input := range inputs {
-		if privateSourcePath(input) || excluded(input, excludes) {
-			continue
+	var out []string
+	err = set.walk(ctx, dir, func(rel string, info fs.FileInfo, scope pathScope) error {
+		switch {
+		case info == nil:
+		case privateSourcePath(rel):
+			if info.IsDir() {
+				return fs.SkipDir
+			}
+		case scope == scopeOmitted:
+			out = append(out, subtreePatterns(literalPattern(rel))...)
+		case scope == scopeDeclared && info.Mode()&os.ModeSymlink != 0:
+			return fmt.Errorf("Dagger source contains symlink %q; declare the real input path or exclude the link", rel)
 		}
-		prefix := ""
-		for part := range strings.SplitSeq(input, string(filepath.Separator)) {
-			prefix = filepath.Join(prefix, part)
-			info, err := dir.Lstat(prefix)
-			if os.IsNotExist(err) {
-				break
-			}
-			if err != nil {
-				return err
-			}
-			if info.Mode()&os.ModeSymlink != 0 {
-				return fmt.Errorf("Dagger input %q contains symlink %q; declare the real input path", input, prefix)
-			}
-		}
-
-		err := fs.WalkDir(snapshotFS{FS: dir.FS(), root: dir}, filepath.ToSlash(input), func(path string, entry fs.DirEntry, err error) error {
-			if privateSourcePath(path) || excluded(filepath.FromSlash(path), excludes) {
-				if entry != nil && entry.IsDir() {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if os.IsNotExist(err) {
-				return nil
-			}
-			if err != nil {
-				return err
-			}
-			if entry.Type()&os.ModeSymlink != 0 {
-				return fmt.Errorf("Dagger input %q contains symlink %q; declare the real input path", input, path)
-			}
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+		return nil
+	})
+	return out, err
 }
 
-func daggerSource(client *dagger.Client, source string, inputs, excludes []string) (*dagger.Directory, error) {
-	includes, err := daggerIncludes(inputs)
+// daggerSource imports the check's file set: its declared inputs, less its
+// excludes, the private files, and the ignored paths the set omits.
+func daggerSource(ctx context.Context, client *dagger.Client, req Request) (*dagger.Directory, error) {
+	includes, err := daggerIncludes(req.Target.Inputs)
 	if err != nil {
 		return nil, err
 	}
-	if err := validateDaggerSource(source, inputs, excludes); err != nil {
+	set := targetFiles(req)
+	omitted, err := importExcludes(ctx, set)
+	if err != nil {
 		return nil, err
 	}
-	return client.Host().Directory(source, dagger.HostDirectoryOpts{
+	return client.Host().Directory(set.Root, dagger.HostDirectoryOpts{
 		Include: includes,
-		Exclude: daggerExcludes(excludes),
+		Exclude: append(daggerExcludes(set.Excludes), omitted...),
 	}), nil
 }

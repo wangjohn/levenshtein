@@ -37,7 +37,8 @@ described under [report and exit codes](#report-and-exit-codes).
   `inputs` (literal paths, not globs) used for both Dagger source import and
   cache fingerprinting, optional `exclude` paths dropped from both, and a
   `discovery` mode (`git` or `filesystem`) selecting how the files under those
-  inputs are enumerated.
+  inputs are enumerated. Under `git`, the Go kinds also cover the ignored
+  paths the Go toolchain can load.
 - **Environment**: an `executor` (`dagger` or `native`), plus native-only
   options such as `identity`, `env`, `pass_env`, and pinned `tools`.
 - **Check**: a `kind` (`go-lint`, `go-vet`, `go-mod`, `go-test`, `go-imports`,
@@ -176,9 +177,9 @@ general form of the zizmor download: `runner/toolchain.json` pins each release's
 download location, version, and per-platform asset with its SHA-256, and the
 binary's path when the asset is a `.tar.gz`; the runner's `runner/releases.go`
 reads the same pins for `dag.HTTP`. `secrets` builds gitleaks from
-`runner/tools` like `actionlint`. `internal/verify/visible.go` lists the files
-under a target's inputs less its excludes and the private `.git`/`.env` paths,
-which is what the Dagger path imports; `shell-lint` checks the scripts among
+`runner/tools` like `actionlint`. `internal/verify/visible.go` lists the
+target's file set (see [the result cache](#result-cache)) less the private
+`.git`/`.env` paths, which is what the Dagger path imports; `shell-lint` checks the scripts among
 them in place, and `secrets` and `deps-vuln`, whose tools scan a directory and
 discover configuration in it, copy them into a temporary directory and scan
 that. Without a cache
@@ -200,8 +201,12 @@ produces the same `{"findings": [...]}` `Details` envelope as `daggerResult`,
 with locations relative to the source root, so a report does not say which
 executor produced it. Because the host's Go is not covered by any snapshot,
 `fingerprint` adds its `go env GOVERSION GOOS GOARCH` to the cache key for
-these kinds only, and the shared implementation snapshot covers `runner/` for
-them on either executor.
+these kinds only, with the settings that change what a build reports
+(`GOFLAGS`, `GOEXPERIMENT`, `GOFIPS140`, `GODEBUG`, `CGO_ENABLED`, the C
+compilers and their flags, and the architecture levels, `toolchainSettings` in
+`gotools.go`) whether they come from the environment or a `go env -w`; module
+download settings such as `GOPROXY` and `GOPRIVATE` stay out of it. The shared implementation snapshot
+covers `runner/` for them on either executor.
 
 `internal/verify/command.go` builds the actual `os/exec.Cmd` with a minimal
 inherited environment (`PATH`, `HOME`, `TMPDIR`, `TMP`, `TEMP`, `SystemRoot`,
@@ -209,8 +214,13 @@ plus explicit `pass_env`/`env` entries), defaults `LANG` to `C` unless
 configuration overrides it, and adds `LEVENSHTEIN_SOURCE`,
 `LEVENSHTEIN_WORKSPACE`, and `LEVENSHTEIN_RERUN_CHECKS`. `process_unix.go`
 puts the child in its own process group and kills the whole group
-(`SIGKILL` to `-pid`) on timeout or cancellation, so subprocesses cannot
-outlive a killed check.
+(`SIGKILL` to `-pid`) on timeout or cancellation, and again once the command
+has exited whatever its outcome, so subprocesses cannot outlive a check and
+keep changing the tree after its verdict. A daemon that moves to its own
+session, as build servers do, is outside the group and survives. Output is
+read for at most a second after the command exits; a command that exited 0
+while a background process still held its output passes, with a
+`detached-output` warning.
 
 ## Result cache
 
@@ -225,19 +235,46 @@ native `command` checks with `cache: true`), it:
    native shared Go checks also `runner`), the check
    definition itself, `runtime.GOOS`/`GOARCH`, (for native checks) the
    resolved environment variables, and (for native shared Go checks only) the
-   host toolchain's `go env GOVERSION GOOS GOARCH`.
+   host toolchain's `go env GOVERSION GOOS GOARCH` and result-changing Go
+   settings.
 
    Which files the declared inputs cover is decided by the target's
    `discovery`. `internal/verify/discovery.go` runs
    `git -c core.excludesFile= ls-files -z --cached --others
    --exclude-per-directory=.gitignore` (git found through absolute `PATH`
-   entries only) once per source per process, and again after each check
-   executes, and `snapshot` walks only the listed paths that fall under each
-   input. A listed path that is a directory (a submodule's gitlink or an
-   untracked nested repository) is walked in full. A source outside a work
+   entries only) once per source per process, and again after each check or
+   preparation/build stage executes, whatever its outcome. `snapshot` walks
+   only the listed paths that fall under each input, found by binary search in
+   the sorted listing. A listed path that is a directory (a submodule's gitlink
+   or an untracked nested repository), or one above a declared input, is walked
+   in full. A source outside a work
    tree, or a `git` that fails, falls back to the directory walk. The shared
    implementation always uses the directory walk, so a release archive with no
    work tree fingerprints like a checkout.
+
+   The enumeration is one `fileSet` (`internal/verify/enumerate.go`), and every
+   consumer of a target's files takes it from there, so a reused result covers
+   exactly what its check read: the fingerprint hashes it, `daggerSource`
+   imports it, and `visibleFiles` and `copyInputs` hand it to the native
+   readers. The same listing's `git ls-files --others --ignored --directory`
+   names the ignored paths, a wholly ignored directory as one entry; the walk
+   reports each one it leaves out as omitted, and the Dagger import excludes
+   exactly those, literally. Policy that differs between consumers is a named
+   filter over that one set: the private `.git`/`.env` paths are hashed but
+   never imported or scanned, and `shell-lint` and `deps-vuln` also skip
+   fixture and dependency directories. For the Go kinds (`kindSpec.goToolchain`)
+   `goLoader` (`internal/verify/goload.go`) keeps the ignored paths the Go
+   toolchain can load, on the host and in the container alike: Go and cgo
+   sources, module files and `vendor/modules.txt`, what a `//go:embed` in the
+   directory or above could name, `testdata`, and symlinks to directories in
+   the source. It prunes an ignored directory with no `.go` file below it by
+   reading directory names only, memoized with the listing, and records a
+   symlink it keeps by its link text. Planning rejects an input or exclude
+   that resolves only under another spelling, and a symlink above a declared
+   input is refused like one inside it.
+   `TestFileSetConformance` and the integration test
+   `TestDaggerImportMatchesTheKey` hold the key's file set equal to what each
+   executor reads.
 
    Content hashes run concurrently (`errgroup`, bounded by `GOMAXPROCS`) and go
    through the process-wide stat memo in `internal/verify/statcache.go`, keyed
@@ -245,15 +282,26 @@ native `command` checks with `cache: true`), it:
    inode, and permissions. `Cache.Flush` persists one record per root under
    `cache.Dir/stat/<digest(root)>.json` through the same checksummed envelope
    the result records use; `cmd/levenshtein/main.go` calls it as the run ends.
-   Each entry records when its content was read, and loading drops entries
+   Every record, result or stat, is capped at 64 MiB on write as well as read,
+   so an oversized result is reported as not cached rather than written and
+   never read back. A memo too large for one record is split by path hash into
+   `<digest(root)>-<n>.json` shards beside it, with the first record giving
+   the count. Each entry records when its content was read, and loading drops entries
    whose modification time is within two seconds of that moment, which is
    git's racy-index guard. A flush keeps entries the run used and unused
    entries whose file still has the recorded stat, so deleted files drop out.
 2. Takes a per-key file lock (`internal/verify/lock.go`, backed by
-   `gofrs/flock`) so concurrent processes do not race the same cache entry.
-   Native checks take an advisory per-source workspace lock first, whether or
-   not the check is cacheable, so processes sharing a cache directory do not
-   mutate one checkout at the same time.
+   `gofrs/flock`) so concurrent processes do not race the same cache entry,
+   then fingerprints again, since whoever held the lock may have changed the
+   inputs. A native check also enters its working tree
+   (`internal/verify/gate.go`) before it executes or restores artifacts,
+   whether or not it is cacheable, but not for a hit with nothing to restore.
+   Within a process, read-only kinds (the shared Go kinds and
+   `semantic-lint`) enter together and a `command` check, which can write the
+   tree, enters alone. The process holds one advisory per-source file lock
+   while any of its checks are inside, so processes sharing a cache directory
+   do not mutate one checkout at the same time. A check whose context ends
+   while it waits is reported as `cancelled`.
 3. On a hit, restores the recorded result and any declared `Artifacts` from
    `cache.Dir/results/<key>.json` (atomic, rejects symlinked destinations).
 4. On a miss or `rerun_checks`, executes the check, and on success saves the

@@ -27,7 +27,7 @@ const (
 )
 
 func (n *Native) secrets(ctx context.Context, req Request, work goRun) ([]finding, toolRun, error) {
-	files, err := visibleFiles(req.Source, req.Target.Inputs, req.Target.Exclude, nil)
+	files, err := visibleFiles(ctx, req, nil)
 	if err != nil {
 		return nil, toolRun{}, err
 	}

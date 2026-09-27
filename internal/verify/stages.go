@@ -30,18 +30,18 @@ type stageEntry struct {
 	Outputs string
 }
 
-func (n *Native) stage(ctx context.Context, req Request, kind StageKind, stage *Preparation) (StageResult, *Result) {
+func (n *Native) stage(ctx context.Context, req Request, kind StageKind, stage *Preparation) (StageResult, []Warning, *Result) {
 	start := time.Now()
 	req.RerunChecks = false // Freshness concerns verification, not reusable preparation.
 	inputs, err := snapshot(ctx, snapshotRequest{Root: req.Source, Paths: stage.Inputs, Excludes: stage.Outputs, Discovery: req.Target.Discovery})
 	if err != nil {
 		r := Result{Status: StatusError, Error: "stage inputs: " + err.Error()}
-		return StageResult{Kind: kind}, &r
+		return StageResult{Kind: kind}, nil, &r
 	}
 	impl, err := implementation(ctx, req)
 	if err != nil {
 		r := Result{Status: StatusError, Error: err.Error()}
-		return StageResult{Kind: kind}, &r
+		return StageResult{Kind: kind}, nil, &r
 	}
 
 	env := nativeEnv(req, stage.Env)
@@ -52,7 +52,7 @@ func (n *Native) stage(ctx context.Context, req Request, kind StageKind, stage *
 		d, err := snapshot(ctx, snapshotRequest{Root: req.Source, Paths: req.Preparation.Inputs, Excludes: req.Preparation.Outputs, Discovery: req.Target.Discovery})
 		if err != nil {
 			r := Result{Status: StatusError, Error: err.Error()}
-			return StageResult{Kind: kind}, &r
+			return StageResult{Kind: kind}, nil, &r
 		}
 		dependency = digest([]any{req.Preparation, d})
 	}
@@ -72,38 +72,42 @@ func (n *Native) stage(ctx context.Context, req Request, kind StageKind, stage *
 	if prior.Key == key && outputsExist(req.Source, stage.Outputs) {
 		output, err := snapshot(ctx, snapshotRequest{Root: req.Source, Paths: stage.Outputs, Outputs: true})
 		if err == nil && output == prior.Outputs {
-			return StageResult{Kind: kind, Key: key, Reused: true, DurationMS: time.Since(start).Milliseconds()}, nil
+			return StageResult{Kind: kind, Key: key, Reused: true, DurationMS: time.Since(start).Milliseconds()}, nil, nil
 		}
 	}
 
 	for _, out := range stage.Outputs {
 		if err := checkOutputPath(req.Source, out); err != nil {
 			r := Result{Status: StatusError, Error: err.Error()}
-			return info, &r
+			return info, nil, &r
 		}
 	}
 	if r := validateTools(ctx, filepath.Join(req.Source, req.Target.Workspace), req.Environment.Tools, env); r != nil {
-		return info, r
+		return info, nil, r
 	}
 
+	// A stage writes the tree, and the next key this run takes, the build's
+	// right after a preparation or any later check's, must see what it
+	// created, whether or not the stage succeeded.
 	result := command(ctx, filepath.Join(req.Source, req.Target.Workspace), stage.Command, env, stage.Timeout)
+	relist(req.Source)
 	if result.Status != StatusPassed {
 		failure := result.withOutcome(result.Status, string(kind)+": "+result.Error)
-		return info, &failure
+		return info, nil, &failure
 	}
 	if !outputsExist(req.Source, stage.Outputs) {
 		failure := result.withOutcome(StatusError, fmt.Sprintf("%s did not produce declared outputs", kind))
-		return info, &failure
+		return info, nil, &failure
 	}
 	output, err := snapshot(ctx, snapshotRequest{Root: req.Source, Paths: stage.Outputs, Outputs: true})
 	if err != nil {
 		failure := result.withOutcome(StatusError, err.Error())
-		return info, &failure
+		return info, nil, &failure
 	}
 
 	after, err := snapshot(ctx, snapshotRequest{Root: req.Source, Paths: stage.Inputs, Excludes: stage.Outputs, Discovery: req.Target.Discovery})
 	if err == nil && after == inputs && path != "" {
 		_ = writeRecord(path, stageEntry{Key: key, Outputs: output})
 	}
-	return StageResult{Kind: kind, Key: key, DurationMS: time.Since(start).Milliseconds()}, nil
+	return StageResult{Kind: kind, Key: key, DurationMS: time.Since(start).Milliseconds()}, result.Warnings, nil
 }

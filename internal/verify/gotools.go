@@ -23,10 +23,26 @@ type goToolchain struct {
 	Version string `json:"version"`
 	OS      string `json:"os"`
 	Arch    string `json:"arch"`
+	// Settings are the go env values, from the environment or a developer's
+	// go env -w, that change what the analysis builds and so what it reports.
+	Settings map[string]string `json:"settings,omitempty"`
 }
 
-// toolchains memoizes one identity per resolved go binary for the life of the
-// process; a run does not change its host toolchain mid-flight.
+// toolchainSettings are the go env variables a toolchain identity covers:
+// build flags and tags, experiments, the FIPS module and GODEBUG defaults,
+// cgo and its compilers (go test -race needs cgo), and the architecture
+// levels. Where modules come from (GOPROXY,
+// GOPRIVATE, GONOSUMDB and the like) changes no result, so a developer's own
+// module settings do not split their cache.
+var toolchainSettings = []string{
+	"GOFLAGS", "GOEXPERIMENT", "GOFIPS140", "GODEBUG", "CGO_ENABLED", "CC", "CXX",
+	"CGO_CFLAGS", "CGO_CPPFLAGS", "CGO_CXXFLAGS", "CGO_LDFLAGS",
+	"GOAMD64", "GOARM64", "GOARM", "GO386", "GOPPC64", "GORISCV64", "GOMIPS", "GOMIPS64", "GOWASM",
+}
+
+// toolchains memoizes one identity per resolved go binary and environment for
+// the life of the process; a run does not change its host toolchain or its go
+// env file mid-flight.
 var toolchains sync.Map
 
 // analysisEnv runs the check against the host's installed Go, never one Go
@@ -65,24 +81,32 @@ func toolchainIdentity(ctx context.Context, dir string, env []string) (goToolcha
 	if err != nil {
 		return goToolchain{}, err
 	}
-	if memoized, ok := toolchains.Load(binary); ok {
+	memo := digest([]any{binary, env})
+	if memoized, ok := toolchains.Load(memo); ok {
 		return memoized.(goToolchain), nil
 	}
 
-	run, err := runTool(ctx, dir, []string{binary, "env", "GOVERSION", "GOOS", "GOARCH"}, env, 30*time.Second)
+	args := append([]string{binary, "env", "-json", "GOVERSION", "GOOS", "GOARCH"}, toolchainSettings...)
+	run, err := runTool(ctx, dir, args, env, 30*time.Second)
 	if err != nil {
 		return goToolchain{}, err
 	}
 	if run.ExitCode != 0 {
 		return goToolchain{}, fmt.Errorf("go env failed: %s", strings.TrimSpace(run.Stderr))
 	}
-	values := strings.Fields(run.Stdout)
-	if len(values) != 3 {
+	var values map[string]string
+	if err := json.Unmarshal([]byte(run.Stdout), &values); err != nil || values["GOVERSION"] == "" {
 		return goToolchain{}, fmt.Errorf("go env returned %q", run.Stdout)
 	}
 
-	identity := goToolchain{Version: values[0], OS: values[1], Arch: values[2]}
-	toolchains.Store(binary, identity)
+	settings := map[string]string{}
+	for _, name := range toolchainSettings {
+		if value := values[name]; value != "" {
+			settings[name] = value
+		}
+	}
+	identity := goToolchain{Version: values["GOVERSION"], OS: values["GOOS"], Arch: values["GOARCH"], Settings: settings}
+	toolchains.Store(memo, identity)
 	return identity, nil
 }
 
