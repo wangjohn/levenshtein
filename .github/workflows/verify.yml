@@ -555,11 +555,11 @@ jobs:
     # go-mutation over the Go files the pull request changed (docs/mutation.md).
     # Like semantic-lint, it judges only the pull request's change, runs on
     # every pull_request event, and is not a required check. The job's limit
-    # covers go-mutation's own 45m timeout in levenshtein.json plus setup: a
-    # nine-file change took over 20 minutes here.
+    # covers go-mutation's own 90m timeout in levenshtein.json plus setup: a
+    # large pull request's mutation run takes 45 to 75 minutes here.
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 105
     steps:
       # The full history, so the CLI can find the merge base with the base branch.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

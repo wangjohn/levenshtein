@@ -219,3 +219,56 @@ func TestCacheHitsEnterTheWorkspaceOnlyToRestoreArtifacts(t *testing.T) {
 		t.Fatalf("an artifact restore did not wait for the workspace and then hit: %+v", result)
 	}
 }
+
+// Readers that have left the gate no longer count, so a writer that follows
+// them enters instead of waiting forever.
+func TestWriterEntersAfterReadersLeave(t *testing.T) {
+	g := &gate{}
+	for range 2 {
+		leave, err := g.acquire(t.Context(), "gate:reader", false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		leave()
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	leave, err := g.acquire(ctx, "gate:writer", true)
+	if err != nil {
+		t.Fatalf("a writer waited on readers that had left: %v", err)
+	}
+	leave()
+}
+
+// A writer that gives up waiting stops holding back readers, so a reader that
+// arrives after it enters beside the reader already inside.
+func TestCancelledWriterStopsHoldingBackReaders(t *testing.T) {
+	g := &gate{}
+	waits := waitingFor(t)
+	leave, err := g.acquire(t.Context(), "gate:reader", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer leave()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	queued := make(chan error, 1)
+	go func() {
+		_, err := g.acquire(ctx, "gate:writer", true)
+		queued <- err
+	}()
+	awaitWait(t, waits, "gate:writer")
+	cancel()
+	if err := <-queued; err == nil {
+		t.Fatal("a cancelled writer entered the gate")
+	}
+
+	ctx, cancel = context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	second, err := g.acquire(ctx, "gate:reader", false)
+	if err != nil {
+		t.Fatalf("a reader was held back by a writer that had given up: %v", err)
+	}
+	second()
+}
