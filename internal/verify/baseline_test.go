@@ -264,6 +264,139 @@ func TestRecordBaseline(t *testing.T) {
 	}
 }
 
+// unproducible is a go-lint check that could not have reported one baselined
+// code. It still runs SA5001, whose entry is fixed, so an exemption that
+// reached past that code would hide a stale entry.
+type unproducible struct {
+	check PlannedCheck
+	code  string
+}
+
+func unproducibleCases() map[string]unproducible {
+	skipped := lintCheck("lint", ".")
+	skipped.RuleModules = []PlannedRuleModule{{Path: "example.com/errs", Version: "v1.0.0", Namespace: "errs", Select: []string{"errs_*"}}}
+	disabled := lintCheck("lint", ".")
+	disabled.Check.Lint = &LintCheck{Checks: []string{"-unparam"}}
+	return map[string]unproducible{
+		"rule modules skipped": {check: skipped, code: "errs_nopanic"},
+		"rule turned off":      {check: disabled, code: "unparam"},
+	}
+}
+
+func (u unproducible) baseline() Baseline {
+	return Baseline{Path: testBaselinePath, Entries: []BaselineEntry{
+		lintEntry("a.go", "SA5001", "fixed since", 1),
+		lintEntry("a.go", u.code, "still there", 1),
+	}}
+}
+
+// report is a passing run of the check, with the warning a native check that
+// skipped its rule modules gives.
+func (u unproducible) report() Report {
+	result := Result{ID: "lint", Status: StatusPassed, Warnings: skippedRuleModules(Request{PlannedCheck: u.check})}
+	return reportOf([]PlannedCheck{u.check}, result)
+}
+
+func TestBaselineIgnoresEntriesACheckCouldNotProduce(t *testing.T) {
+	for name, tc := range unproducibleCases() {
+		t.Run(name, func(t *testing.T) {
+			applied := tc.baseline().Apply(tc.report())
+
+			stale := findingsOf(t, applied.Results[0])
+			if applied.Baseline.Stale != 1 || len(stale) != 1 || !strings.Contains(stale[0].Message, "SA5001") {
+				t.Fatalf("only the SA5001 entry is stale: %+v %+v", applied.Baseline, stale)
+			}
+		})
+	}
+}
+
+// Only a finding with the entry's own code shows that a check ran the rule.
+// Another rule's finding says nothing about it.
+func TestBaselineIgnoresEntriesWhenACheckReportsOnlyOtherCodes(t *testing.T) {
+	check := lintCheck("lint", ".")
+	check.Check.Lint = &LintCheck{Checks: []string{"-unparam"}}
+	baseline := Baseline{Path: testBaselinePath, Entries: []BaselineEntry{lintEntry("a.go", "unparam", "still there", 1)}}
+	report := reportOf([]PlannedCheck{check}, failedResult("lint", lintFinding("b.go", 3, "SA4006", "value never used")))
+
+	applied := baseline.Apply(report)
+
+	if applied.Baseline.Stale != 0 || applied.Baseline.Baselined != 0 {
+		t.Fatalf("the unparam entry is not judged: %+v", applied.Baseline)
+	}
+}
+
+func TestRecordBaselineKeepsEntriesACheckCouldNotProduce(t *testing.T) {
+	for name, tc := range unproducibleCases() {
+		t.Run(name, func(t *testing.T) {
+			recorded, change, err := tc.baseline().Record(tc.report())
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if len(recorded.Entries) != 1 || recorded.Entries[0].Code != tc.code || change.Removed != 1 {
+				t.Fatalf("only the SA5001 entry is removed: %+v %+v", recorded.Entries, change)
+			}
+		})
+	}
+}
+
+// A check that did run the rule, on Dagger or with the rule turned back on,
+// still judges and records its entries.
+func TestBaselineJudgesEntriesACheckCouldProduce(t *testing.T) {
+	check := lintCheck("lint", ".")
+	check.Environment.Executor = ExecutorDagger
+	check.RuleModules = []PlannedRuleModule{{Path: "example.com/errs", Version: "v1.0.0", Namespace: "errs", Select: []string{"errs_*"}}}
+	check.Check.Lint = &LintCheck{Checks: []string{"-unparam", "unparam", "-errs_other"}}
+	baseline := Baseline{Path: testBaselinePath, Entries: []BaselineEntry{
+		lintEntry("a.go", "SA5001", "fixed since", 1),
+		lintEntry("a.go", "errs_nopanic", "fixed since", 1),
+		lintEntry("a.go", "unparam", "fixed since", 1),
+	}}
+	report := reportOf([]PlannedCheck{check}, Result{ID: "lint", Status: StatusPassed})
+
+	if applied := baseline.Apply(report); applied.Baseline.Stale != 3 {
+		t.Fatalf("every entry is stale: %+v", applied.Baseline)
+	}
+	recorded, change, err := baseline.Record(report)
+	if err != nil || len(recorded.Entries) != 0 || change.Removed != 3 {
+		t.Fatalf("every entry is removed: %+v %+v %v", recorded.Entries, change, err)
+	}
+}
+
+// A Dagger check with rule modules runs rules no pattern names by their
+// current code: the community linter's own lvrules_* codes, which every such
+// check runs, and a rule a module still selects by its old name. Their
+// entries still accept the findings and go stale when fixed.
+func TestBaselineJudgesCommunityCodesNoPatternNames(t *testing.T) {
+	check := lintCheck("lint", ".")
+	check.Environment.Executor = ExecutorDagger
+	check.RuleModules = []PlannedRuleModule{{Path: "example.com/errs", Version: "v1.0.0", Namespace: "errs", Select: []string{"errs_old"}}}
+	baseline := Baseline{Path: testBaselinePath, Entries: []BaselineEntry{
+		lintEntry("a.go", "errs_new", "renamed rule", 1),
+		lintEntry("a.go", "lvrules_mixed", "mixed directive", 1),
+		lintEntry("b.go", "lvrules_renamed", "fixed since", 1),
+	}}
+	found := failedResult("lint",
+		lintFinding("a.go", 3, "errs_new", "renamed rule"),
+		lintFinding("a.go", 5, "errs_new", "renamed rule"),
+		lintFinding("a.go", 7, "lvrules_mixed", "mixed directive"),
+	)
+	report := reportOf([]PlannedCheck{check}, found)
+
+	applied := baseline.Apply(report)
+	if applied.Baseline.Baselined != 2 || applied.Baseline.Stale != 1 {
+		t.Fatalf("both entries accept their findings and the fixed one is stale: %+v", applied.Baseline)
+	}
+	recorded, _, err := baseline.Record(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []BaselineEntry{lintEntry("a.go", "errs_new", "renamed rule", 2), lintEntry("a.go", "lvrules_mixed", "mixed directive", 1)}
+	if !slices.Equal(recorded.Entries, want) {
+		t.Fatalf("recorded %+v, want %+v", recorded.Entries, want)
+	}
+}
+
 func TestBaselineLeavesAdvisoryFindingsAlone(t *testing.T) {
 	check := lintCheck("lint", ".")
 	advisory := lintFinding("a.go", 4, "ACME001", "prefer the helper")

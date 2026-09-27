@@ -20,7 +20,7 @@ func TestSharedChecksPlanFromVersionedConfiguration(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, check := range plan.Checks {
-			if daggerFunctions[check.Check.Kind] == "" {
+			if daggerFunction(check.Check.Kind) == "" {
 				t.Fatalf("unsupported plan: %+v", check)
 			}
 		}

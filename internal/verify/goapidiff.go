@@ -330,7 +330,7 @@ func (d *Dagger) executeApidiff(parent context.Context, req Request) Result {
 		return Result{Status: StatusError, Error: err.Error()}
 	}
 	var summary string
-	query := d.client.QueryBuilder().Select("levenshtein").Select(daggerFunctions[CheckGoApidiff]).
+	query := d.client.QueryBuilder().Select("levenshtein").Select(daggerFunction(CheckGoApidiff)).
 		Arg("nonce", executionNonce(req)).
 		Arg("source", source).
 		Arg("base", d.client.Host().Directory(base.Dir, dagger.HostDirectoryOpts{Exclude: daggerExcludes(nil)})).

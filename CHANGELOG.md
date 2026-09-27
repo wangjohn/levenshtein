@@ -9,8 +9,22 @@ Consumers pin a release tag, or its commit SHA, as described in
 
 ## [Unreleased]
 
+### Added
+
+- [docs/check-kinds.md](docs/check-kinds.md) lists every check kind with
+  what it checks, which executors run it, whether its results are cached,
+  whether a baseline can hold its findings, whether it needs a
+  repository-root target, and which default runs include it. The table is
+  generated from the verifier's own kind descriptors, and a test fails when
+  it falls out of date.
+
 ### Fixed
 
+- A baseline no longer judges a `go-lint` entry by a check that could not
+  have reported it. A native check, which skips community rules, reported
+  every community-rule entry as stale, and `--write-baseline` deleted them;
+  a check whose `lint.checks` turned a rule off (such as `-unparam`) did the
+  same to that rule's entries. Such entries are now neither stale nor removed.
 - Tests that build throwaway git repositories no longer write to the
   repository `go test` was started from. They inherited `GIT_DIR`,
   `GIT_INDEX_FILE`, and `GIT_WORK_TREE`, which git exports to hooks, so the
