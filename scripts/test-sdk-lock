@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Keep the patched Go SDK adapter's Python dependencies locked.
+#
+# Every Dagger run, Levenshtein's own and every consumer's, installs the
+# adapter in sdk/patched-go with Dagger's Python SDK runtime. When uv.lock is
+# present the runtime runs `uv lock` and `uv sync`, which install exactly the
+# locked versions and check their hashes; a lock that no longer matches
+# pyproject.toml is silently re-resolved from PyPI instead, and without one the
+# runtime resolves every dependency at run time. So the lock must exist and be
+# current, dagger-io must match the engine in .dagger-version, and the build
+# backend, which no lock covers, must be pinned exactly.
+#
+# Needs uv: scripts/install-fixture-tools --uv-only installs the reviewed one.
+set -euo pipefail
+root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+sdk=$root/sdk/patched-go
+
+fail() {
+  echo "$*" >&2
+  exit 1
+}
+
+[[ -f $sdk/uv.lock ]] || fail 'sdk/patched-go/uv.lock is missing; run: uv lock --directory sdk/patched-go'
+
+dagger=$(<"$root/.dagger-version")
+grep -qF "\"dagger-io==$dagger\"" "$sdk/pyproject.toml" \
+  || fail "sdk/patched-go/pyproject.toml must depend on exactly dagger-io==$dagger, the engine in .dagger-version"
+grep -qxE 'requires = \["uv_build==[0-9]+\.[0-9]+\.[0-9]+"\]' "$sdk/pyproject.toml" \
+  || fail 'sdk/patched-go/pyproject.toml must pin its build backend exactly (uv_build==X.Y.Z): uv.lock does not cover it'
+
+# One line per locked package: its name, version, whether it comes from a
+# registry, and whether any of its distributions carries a hash.
+packages=$(awk '
+  function flush() { if (name != "") print name, version, registry, hashed }
+  /^\[\[package\]\]$/ { flush(); name = ""; version = ""; registry = 0; hashed = 0; next }
+  /^name = / { gsub(/"/, "", $3); name = $3 }
+  /^version = / { gsub(/"/, "", $3); version = $3 }
+  /^source = \{ registry = / { registry = 1 }
+  /hash = "sha256:[0-9a-f]+"/ { hashed = 1 }
+  END { flush() }
+' "$sdk/uv.lock")
+locked=$(awk '$1 == "dagger-io" { print $2 }' <<<"$packages")
+[[ $locked == "$dagger" ]] || fail "sdk/patched-go/uv.lock locks dagger-io ${locked:-nowhere}, not $dagger; run: uv lock --directory sdk/patched-go"
+unhashed=$(awk '$3 == 1 && $4 == 0 { print $1 }' <<<"$packages")
+[[ -z $unhashed ]] || fail "sdk/patched-go/uv.lock has registry packages without hashes: $unhashed"
+
+command -v uv >/dev/null 2>&1 || fail 'uv is required; scripts/install-fixture-tools --uv-only installs the reviewed release'
+if ! uv lock --check --directory "$sdk"; then
+  fail 'sdk/patched-go/uv.lock does not match pyproject.toml; run: uv lock --directory sdk/patched-go'
+fi
+echo "sdk/patched-go/uv.lock is current and pins dagger-io $dagger"

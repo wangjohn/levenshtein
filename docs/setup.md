@@ -80,6 +80,7 @@ The checked-in `Levenshtein self-checks` workflow verifies this repo's runner an
 | `tests` | Host race/fixtures, `shellcheck`, SDK restore or regen, non-lint Dagger checks, consumer regressions |
 | `language-contracts` | Rust and Python contract fixtures |
 | `action` | The root `action.yml` as a consumer calls it, on a native fixture: one passing run and one that must fail with the planted finding |
+| `macos` | The root module's unit tests on `macos-latest`, without Dagger; not a required check |
 | `release-smoke` | `goreleaser check`, then a GoReleaser snapshot + archive test (skipped on draft PRs) |
 | `semantic-lint` | Advisory Jev review of the pull request; runs only on `pull_request` events; without the `TYPESAFE_API_KEY` secret the review step is skipped and the job passes with no findings |
 | `mutation` | [Mutation testing](mutation.md) of the Go files the pull request changed in the root module and `runner/lint`, as `./verify mutation`; runs only on `pull_request` events, with the full history so the merge base exists. `runner` is left out: its tests need a live Dagger session, which gremlins cannot give each mutant |
@@ -87,9 +88,20 @@ The checked-in `Levenshtein self-checks` workflow verifies this repo's runner an
 The `tests` job also holds the repository hygiene gates, all of them before its
 Go tests: `gofmt` over every tracked Go file outside `testdata`, whose lint
 fixtures are deliberately unformatted; `ruff check` over `scripts` and
-`sdk/patched-go`; and `scripts/test-doc-pins`, which requires every consumer
-example to pin the newest release in `CHANGELOG.md`. The Go test step writes a coverage profile that is uploaded
-as an artifact for seven days; no threshold gates the run.
+`sdk/patched-go`; `scripts/test-sdk-lock`, which requires `sdk/patched-go/uv.lock`
+to be current, hashed, and on the `dagger-io` of `.dagger-version`;
+`scripts/test-doc-pins`, after fetching the tags, which requires every consumer
+example to pin a tagged release in `CHANGELOG.md` by that tag's commit SHA; and
+`scripts/test-workflows`, which requires one pin per action across the
+workflows, templates and docs (Dependabot updates the workflows and the
+template in one grouped pull request; `scripts/sync-action-pins` copies its
+pins into the docs), per-commit concurrency groups outside pull
+requests, a `merge_group` trigger on every workflow with a required check, and
+secrets only in step `env`. The Go test step writes a coverage profile that is uploaded
+as an artifact for seven days; no threshold gates the run. `scripts/test-integration`
+then runs every `integration`-tagged test: natively before the Dagger setup,
+and the few it lists as needing Dagger after it, so a new integration test runs
+in CI without a workflow change.
 
 Module manifests are not a step of their own: the `lint` job's `branch` run
 includes the shared [`go-mod` check](checks.md#module-manifests)
@@ -109,8 +121,9 @@ findings of medium severity and above, natively in `branch` and `pre-merge` and
 in Dagger in `branch-dagger` and `main`. So do [`shell-lint`](checks.md#shell-scripts)
 over `scripts/` and `verify`, and [`secrets`](checks.md#secrets) over the whole
 repository less `runner/testdata/secrets-leaky`, the fixture that exists to be
-found. Levenshtein has no dependencies outside Go, so it runs no `deps-vuln`
-check of its own.
+found. Its only dependencies outside Go are the patched SDK adapter's locked
+Python packages, which a [`deps-vuln`](checks.md#dependency-vulnerabilities)
+check scans in `main` and in `vulnerabilities.yml`.
 
 `security.yml` runs beside it: zizmor's GitHub Action with the workflow token on
 every pull request, push to `main`, and weekly, so the audits that query GitHub
@@ -177,7 +190,7 @@ Treat warm lint wall time creeping toward warm tests as a CI performance regress
 
 ### Caches and self-config notes
 
-The `lint` and `tests` jobs (and `vulnerabilities`) restore a pinned Dagger CLI from the Actions cache when `.dagger-version` / `scripts/dagger-checksums.txt` are unchanged; install falls back to download on miss. That block and the generated-SDK restore/generate/save block each live in one composite action (`.github/actions/setup-dagger`, `.github/actions/dagger-sdk`) rather than being repeated per job. `language-contracts` uses the setup-go module cache over root `go.sum`.
+The `lint` and `tests` jobs (and `vulnerabilities`) restore the pinned Dagger release archive from the Actions cache when `.dagger-version` / `scripts/dagger-checksums.txt` are unchanged, and download it on a miss. The cache holds the archive, never the binary: `scripts/install-dagger` checks it against `scripts/dagger-checksums.txt` on every run, replaces one that does not match, and installs the CLI from it. That block and the generated-SDK restore/generate/save block each live in one composite action (`.github/actions/setup-dagger`, `.github/actions/dagger-sdk`) rather than being repeated per job. `language-contracts` uses the setup-go module cache over root `go.sum`.
 
 Generated SDK (`runner/dagger.gen.go`, `runner/internal/dagger`, `runner/internal/telemetry`) uses **exact** key `dagger-sdk-v2-…` (no `restore-keys`). Restore + save are separate steps; save runs only when `scripts/ci-dagger-sdk` reports `ready=true` after a miss. Readiness is decided by compiling: a restored SDK is usable exactly when `go build ./...` succeeds in `runner`, which needs no Dagger session. Anything that fails to compile — including a truncated or poisoned entry — is regenerated, and the script `mkdir`s `internal/telemetry` so the cache save still finds every path when codegen emits no sources there. Bump the `vN` prefix to abandon a stuck key. Warm check: Generate reports a reused SDK instead of running `dagger develop`. Invalidate when any of these change: `dagger.json`, `.dagger-version`, `scripts/dagger-checksums.txt`, `runner/go.mod`, `runner/go.sum`, `runner/toolchain.json`, `runner/*.go`, `sdk/patched-go/**`. `vulnerabilities.yml` still always runs `scripts/test-sdk-security`.
 

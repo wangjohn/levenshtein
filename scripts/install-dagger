@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+# Install the pinned Dagger CLI after checking its release archive against
+# scripts/dagger-checksums.txt.
+#
+# Usage: install-dagger [DESTINATION]
+#
+# DAGGER_ARCHIVE_DIR, when set, keeps the downloaded archive there and reuses
+# it on the next install. A kept archive is checked against the same checksum
+# every time, and replaced when it does not match, so a cache that restores
+# the directory can save the download but never supply a different binary.
 set -euo pipefail
 root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 version=$(<"$root/.dagger-version")
@@ -10,11 +19,34 @@ checksum=$(awk -v name="$archive" '$2 == name {print $1}' "$root/scripts/dagger-
 if [[ -z $checksum ]]; then echo "No reviewed checksum for $archive" >&2; exit 2; fi
 temporary=$(mktemp -d)
 trap 'rm -rf "$temporary"' EXIT
-curl --fail --silent --show-error --location --retry 3 \
-  "https://github.com/dagger/dagger/releases/download/v${version}/${archive}" \
-  --output "$temporary/$archive"
-actual=$(shasum -a 256 "$temporary/$archive")
-if [[ ${actual%% *} != "$checksum" ]]; then echo 'Dagger archive checksum mismatch' >&2; exit 1; fi
+
+matches() {
+  local actual
+  actual=$(shasum -a 256 "$1")
+  [[ ${actual%% *} == "$checksum" ]]
+}
+
+kept=''
+if [[ -n ${DAGGER_ARCHIVE_DIR:-} ]]; then
+  kept="$DAGGER_ARCHIVE_DIR/$archive"
+fi
+if [[ -n $kept && -f $kept ]] && matches "$kept"; then
+  echo "Reusing the verified $archive" >&2
+  cp "$kept" "$temporary/$archive"
+else
+  if [[ -n $kept && -f $kept ]]; then
+    echo "Discarding a kept $archive that does not match its reviewed checksum" >&2
+    rm -f -- "$kept"
+  fi
+  curl --fail --silent --show-error --location --retry 3 \
+    "https://github.com/dagger/dagger/releases/download/v${version}/${archive}" \
+    --output "$temporary/$archive"
+  if ! matches "$temporary/$archive"; then echo 'Dagger archive checksum mismatch' >&2; exit 1; fi
+  if [[ -n $kept ]]; then
+    mkdir -p "$DAGGER_ARCHIVE_DIR"
+    cp "$temporary/$archive" "$kept"
+  fi
+fi
 tar -xzf "$temporary/$archive" -C "$temporary" dagger
 mkdir -p "$destination"
 install -m 0755 "$temporary/dagger" "$destination/dagger"

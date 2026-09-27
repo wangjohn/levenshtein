@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Refuse to publish a release tag that main does not contain.
+#
+# Usage: release-on-main TAG [COMMIT] [BASE]
+#
+# A v* tag can be pushed on any commit, including one no pull request ever
+# reviewed, and .github/workflows/release.yml publishes whatever it names. This
+# check, the release workflow's first step, lets it publish only a vX.Y.Z tag
+# whose commit (default: the tag's) is an ancestor of BASE (default:
+# origin/main) and whose version is a release in CHANGELOG.md. It needs the
+# history back to the merge base, which a full checkout has.
+set -euo pipefail
+root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+
+if [[ $# -lt 1 || $# -gt 3 ]]; then
+  echo 'usage: scripts/release-on-main TAG [COMMIT] [BASE]' >&2
+  exit 2
+fi
+tag=$1
+commit=${2:-$tag}
+base=${3:-origin/main}
+
+if [[ ! $tag =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+  echo "$tag is not a release tag; releases are vX.Y.Z" >&2
+  exit 1
+fi
+version=${BASH_REMATCH[1]}
+if ! grep -qE "^## \[${version//./\\.}\]" "$root/CHANGELOG.md"; then
+  echo "CHANGELOG.md has no [$version] release; rename [Unreleased] in the release pull request (docs/releases.md)" >&2
+  exit 1
+fi
+
+if ! sha=$(git -C "$root" rev-parse --verify --quiet "$commit^{commit}"); then
+  echo "$commit is not a commit in this checkout" >&2
+  exit 1
+fi
+if ! git -C "$root" rev-parse --verify --quiet "$base^{commit}" > /dev/null; then
+  echo "$base is not in this checkout; fetch the full history" >&2
+  exit 1
+fi
+if ! git -C "$root" merge-base --is-ancestor "$sha" "$base"; then
+  echo "$tag points at $sha, which $base does not contain. Tag a commit merged to main (docs/releases.md)." >&2
+  exit 1
+fi
+echo "$tag ($sha) is on $base"
+echo "Next: pin the examples to wangjohn/levenshtein@$sha # $tag and run scripts/test-doc-pins --latest (docs/releases.md)."

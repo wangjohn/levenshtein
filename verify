@@ -1,29 +1,61 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# Exit 1 means a check failed, so anything that stops the launcher before the
+# CLI runs is a setup error, exit 2 (docs/setup.md). The trap covers what set -e
+# and set -u end early, and removes a half-built binary. exec skips it.
+partial=''
+finish() {
+  local status=$?
+  if [[ -n $partial ]]; then
+    rm -f -- "$partial"
+  fi
+  if ((status != 0)); then
+    exit 2
+  fi
+}
+trap finish EXIT
+fail() {
+  echo "$*" >&2
+  exit 2
+}
+
 root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # Build through Go's incremental cache. Keep the binary outside source inputs.
-cache_root=${XDG_CACHE_HOME:-${HOME}/.cache}
+cache_root=${XDG_CACHE_HOME:-}
+if [[ -z $cache_root ]]; then
+  [[ -n ${HOME:-} ]] || fail 'Set HOME or XDG_CACHE_HOME: the launcher caches the Levenshtein CLI build there. See docs/setup.md.'
+  cache_root=$HOME/.cache
+fi
 key=$(printf '%s' "$root" | cksum | awk '{print $1}')
 bin_dir="$cache_root/levenshtein/bin/$key"
-mkdir -p "$bin_dir"
-required=$(<"$root/.go-version")
+mkdir -p -- "$bin_dir" 2> /dev/null || fail "Cannot create the launcher's cache directory $bin_dir; set XDG_CACHE_HOME to a writable directory. See docs/setup.md."
+required=$(< "$root/.go-version") 2> /dev/null || fail "Cannot read $root/.go-version, which pins the Go version. See docs/setup.md."
+[[ -n $required ]] || fail "$root/.go-version is empty; it pins the Go version. See docs/setup.md."
 if ! command -v go > /dev/null 2>&1; then
-  echo "Go is required to build the Levenshtein CLI; it obtains Go $required itself. See docs/setup.md." >&2
-  exit 2
+  fail "Go is required to build the Levenshtein CLI; it obtains Go $required itself. See docs/setup.md."
 fi
 # Name the pinned toolchain instead of demanding it on PATH: any host Go
-# downloads and caches it. GOWORK=off keeps a caller's workspace out of the
-# build.
-export GOWORK=off GOTOOLCHAIN="go$required"
-if ! probe=$(go env GOVERSION 2>&1); then
+# downloads and caches it. The caller's Go settings describe their own build,
+# not this one: a workspace, a cross-compiling GOOS or GOARCH, experiments, or
+# GOFLAGS such as -mod=vendor would break the build or produce a binary this
+# host cannot run. Only the build sees these settings; the CLI gets the
+# caller's environment unchanged.
+go_env=(
+  env -u GOOS -u GOARCH -u GOARM -u GOARM64 -u GOAMD64 -u GO386 -u GOEXPERIMENT
+  GOWORK=off "GOTOOLCHAIN=go$required" 'GOFLAGS=-mod=readonly -buildvcs=false' CGO_ENABLED=0
+)
+if ! probe=$("${go_env[@]}" go env GOVERSION 2>&1); then
   echo "Go $required could not be obtained: $probe" >&2
-  echo "Install it, or allow the toolchain download (GOPROXY). See docs/setup.md." >&2
-  exit 2
+  fail 'Install it, or allow the toolchain download (GOPROXY). See docs/setup.md.'
 fi
-# A CLI that does not build is a setup error, exit 2 as documented, never the
-# exit 1 that means a check failed.
-if ! (cd "$root" && go build -o "$bin_dir/levenshtein" ./cmd/levenshtein); then
-  echo "Building the Levenshtein CLI failed. See docs/setup.md." >&2
-  exit 2
+# Build to a temporary name beside the binary and rename it into place, so a
+# concurrent launcher never runs a half-written file. A CLI that does not build
+# is a setup error, exit 2 as documented, never the exit 1 that means a check
+# failed.
+partial=$(mktemp "$bin_dir/levenshtein.XXXXXX") || fail "Cannot write to $bin_dir; set XDG_CACHE_HOME to a writable directory. See docs/setup.md."
+if ! (cd "$root" && "${go_env[@]}" go build -o "$partial" ./cmd/levenshtein); then
+  fail 'Building the Levenshtein CLI failed. See docs/setup.md.'
 fi
+mv -f -- "$partial" "$bin_dir/levenshtein" || fail "Cannot install the Levenshtein CLI in $bin_dir. See docs/setup.md."
+partial=''
 exec "$bin_dir/levenshtein" --shared "$root" --source "$root" "$@"

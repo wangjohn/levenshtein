@@ -7,9 +7,11 @@
 #   LEVENSHTEIN          the pinned Levenshtein checkout
 #                        (default: ../levenshtein beside the project)
 #   LEVENSHTEIN_RUN      the run to execute (default: branch); keep it native
-#   LEVENSHTEIN_STOP_ONCE=1
-#                        block only the first stop of a turn, so the agent can
-#                        finish with a report after one attempt at the fixes
+#   LEVENSHTEIN_STOP_ONCE (default: 1) blocks only the first stop of a turn,
+#                        so the agent can finish with a report after one
+#                        attempt at the fixes, even when a finding predates it
+#                        or it cannot fix one; 0 blocks every stop while the
+#                        run fails
 #
 # Exit 0 lets the agent stop, exit 2 blocks it with stderr as the reason, and
 # any other exit shows the user a hook error without blocking.
@@ -21,7 +23,17 @@ field() {
   command -v jq > /dev/null 2>&1 && printf '%s' "$input" | jq -r "$1 // empty" 2> /dev/null
 }
 
-if [[ ${LEVENSHTEIN_STOP_ONCE:-0} == 1 && $(field .stop_hook_active) == true ]]; then
+# Without jq, match the flag in the input's text, so blocking once stays the
+# default rather than turning into blocking every stop.
+continued() {
+  if command -v jq > /dev/null 2>&1; then
+    [[ $(field .stop_hook_active) == true ]]
+  else
+    [[ $input =~ \"stop_hook_active\"[[:space:]]*:[[:space:]]*true ]]
+  fi
+}
+
+if [[ ${LEVENSHTEIN_STOP_ONCE:-1} != 0 ]] && continued; then
   exit 0
 fi
 

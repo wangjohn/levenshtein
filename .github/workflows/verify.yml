@@ -31,10 +31,13 @@ on:
 permissions:
   contents: read
 
+# A pull request's runs share one group, and a new push cancels the superseded
+# run. Every other event groups by commit: GitHub keeps at most one pending run
+# per group and cancels any other waiting run even without cancel-in-progress,
+# so a group per branch would drop queued runs for back-to-back merges to main
+# and leave those commits without a status.
 concurrency:
-  group: verify-${{ github.event_name }}-${{ github.ref }}
-  # Cancel superseded pull_request runs only. Back-to-back pushes to main must
-  # each keep their own run so no merge commit is left without a status.
+  group: verify-${{ github.event_name }}-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'latest' || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -160,7 +163,9 @@ jobs:
 
   tests:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # The native integration tests build gitleaks and download ShellCheck and
+    # osv-scanner, on top of the Dagger run.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -196,6 +201,12 @@ jobs:
           src: |
             scripts
             sdk/patched-go
+      # Every Dagger run installs the SDK adapter's Python dependencies from
+      # sdk/patched-go/uv.lock; a stale lock is silently re-resolved from PyPI.
+      - name: Patched Go SDK lock
+        run: |
+          ./scripts/install-fixture-tools --uv-only "$RUNNER_TEMP/uv-bin"
+          PATH="$RUNNER_TEMP/uv-bin:$PATH" ./scripts/test-sdk-lock
       - name: Standalone runner tests and planning
         env:
           GOTOOLCHAIN: local
@@ -230,12 +241,14 @@ jobs:
         env:
           GOTOOLCHAIN: local
         run: ./scripts/test-example-rules
-      # The native executor runs the shared Go checks on the host, so this step
-      # must stay above the Dagger setup: it proves they need no container.
-      - name: Native shared Go checks
+      # Every integration-tagged test the script does not list as needing
+      # Dagger, found rather than named so a new one runs by default. The
+      # native executor runs the shared checks on the host, so this step must
+      # stay above the Dagger setup: it proves they need no container.
+      - name: Native integration tests
         env:
           GOTOOLCHAIN: local
-        run: go test -tags=integration ./internal/verify ./cmd/levenshtein -run 'TestNativeGoChecksAgreeWithTheFixtures|TestBaselineWithNativeGoLint' -count=1
+        run: ./scripts/test-integration native
       # The scripts carry no extension, so name them explicitly by shebang.
       # shellcheck ships with the ubuntu-24.04 runner image.
       - name: Shell script checks
@@ -243,8 +256,14 @@ jobs:
           mapfile -t bash_scripts < <(grep -rl '^#!/usr/bin/env bash' scripts templates)
           test "${#bash_scripts[@]}" -gt 0
           shellcheck verify "${bash_scripts[@]}"
-      - name: Documentation pins name the newest release
-        run: ./scripts/test-doc-pins
+      # The checkout is shallow and has no tags; test-doc-pins checks each
+      # pinned SHA against its release tag, so fetch the tags first.
+      - name: Documentation pins name tagged releases
+        run: |
+          git fetch --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'
+          ./scripts/test-doc-pins
+      - name: Workflow pins, concurrency, merge queue and secret scopes
+        run: ./scripts/test-workflows
       # Reads the enforced rulesets with this run's read-only token; see
       # docs/setup.md#required-checks-branch-protection.
       - name: Rulesets match the workflows and GitHub
@@ -257,8 +276,10 @@ jobs:
           ./scripts/test-tool-checks
       - name: Set up the pinned Dagger CLI
         uses: ./.github/actions/setup-dagger
-      - name: Consumer source boundary
-        run: go test -tags=integration ./internal/verify -run 'TestDaggerSourceBoundary|TestMutationKeepsTheSharedDaggerSession' -count=1
+      - name: Dagger integration tests
+        env:
+          GOTOOLCHAIN: local
+        run: ./scripts/test-integration dagger
       - name: Restore or generate the Dagger Go SDK
         uses: ./.github/actions/dagger-sdk
       - name: Unit tests
@@ -266,11 +287,17 @@ jobs:
         env:
           GOTOOLCHAIN: local
         run: dagger run go test -count=1 ./...
+      # Only the result records, as in the lint job: the verification cache
+      # directory also holds built tools and Staticcheck data, which must not
+      # travel in a cache every event writes.
       - name: Restore verification result cache
         id: verification-results
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ runner.temp }}/levenshtein-verification-v1
+          path: |
+            ${{ runner.temp }}/levenshtein-verification-v1/results
+            ${{ runner.temp }}/levenshtein-verification-v1/stages
+            ${{ runner.temp }}/levenshtein-verification-v1/stat
           # Seed from the newest tests entry: ./verify re-fingerprints every target
           # before reusing a result, so a stale directory can only help.
           key: verification-v1-tests-${{ runner.os }}-${{ github.sha }}
@@ -309,7 +336,10 @@ jobs:
           steps.verification-results.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ runner.temp }}/levenshtein-verification-v1
+          path: |
+            ${{ runner.temp }}/levenshtein-verification-v1/results
+            ${{ runner.temp }}/levenshtein-verification-v1/stages
+            ${{ runner.temp }}/levenshtein-verification-v1/stat
           key: ${{ steps.verification-results.outputs.cache-primary-key }}
       - name: Consumer regression checks
         env:
@@ -395,6 +425,25 @@ jobs:
           grep -q '"code": "SA5001"' "$REPORT"
           jq -e '.runs[0].results[] | select(.ruleId == "SA5001") | .locations[0].physicalLocation.artifactLocation.uri == "tests/fixtures/action/broken.go"' "$SARIF"
 
+  macos:
+    # The README lists macOS as supported, so the root module's unit tests run
+    # there too. No Dagger and no container runtime: this job is not required,
+    # and GitHub's macOS runners have neither.
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: go.sum
+      - name: Root module unit tests
+        env:
+          GOTOOLCHAIN: local
+        run: go test ./...
+
   release-smoke:
     # Keep release archives off the draft-PR lint critical path; still required
     # for ready PRs, merge queue, main, schedule, and manual dispatch.
@@ -447,8 +496,8 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    env:
-      TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+    # The API key reaches only the two steps that name it, never setup or any
+    # other step that runs code from the pull request.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -458,9 +507,18 @@ jobs:
         with:
           go-version-file: .go-version
           cache-dependency-path: go.sum
-      - name: Advisory semantic lint
-        if: env.TYPESAFE_API_KEY != ''
+      - name: Check for the API key
+        id: key
         env:
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+        run: |
+          if [[ -n $TYPESAFE_API_KEY ]]; then
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Advisory semantic lint
+        if: steps.key.outputs.present == 'true'
+        env:
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
           GOTOOLCHAIN: local
           NO_COLOR: '1'
         run: |
@@ -482,7 +540,7 @@ jobs:
           fi
           exit "$status"
       - name: Report skipped lint
-        if: env.TYPESAFE_API_KEY == ''
+        if: steps.key.outputs.present != 'true'
         run: echo 'TYPESAFE_API_KEY is not available to this run; semantic lint was skipped.' >> "$GITHUB_STEP_SUMMARY"
 
   mutation:

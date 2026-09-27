@@ -22,7 +22,7 @@ func TestRepositoryRunsPlanTheSameCheckIDs(t *testing.T) {
 		"pre-merge":     append(slices.Clone(native), "self-test"),
 		"mutation":      {"go-mutation", "go-mutation-lint"},
 		"branch-dagger": dagger,
-		"main":          append(slices.Clone(dagger), "self-test", "go-vuln/root", "go-vuln/runner", "go-vuln/lint", "go-vuln/community"),
+		"main":          append(slices.Clone(dagger), "self-test", "go-vuln/root", "go-vuln/runner", "go-vuln/lint", "go-vuln/community", "go-vuln/example", "deps-vuln"),
 	} {
 		plan, err := cfg.Plan("../..", name)
 		if err != nil {

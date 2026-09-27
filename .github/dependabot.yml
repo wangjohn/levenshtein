@@ -1,24 +1,30 @@
 version: 2
 updates:
-  # Workflows and the composite actions under .github/actions. Every action is
-  # SHA-pinned; Dependabot updates pinned SHAs and their version comments.
+  # Workflows, action.yml, the composite actions under .github/actions, and the
+  # consumer workflow template: for a directory other than /, Dependabot reads
+  # every YAML file in it. Every action is SHA-pinned; Dependabot updates pinned
+  # SHAs and their version comments. All of them, majors included, come in one
+  # pull request, whose only manual step is ./scripts/sync-action-pins for the
+  # pins in the Markdown docs (scripts/test-workflows fails until it runs).
+  # Levenshtein's own pin in the template moves with a release instead
+  # (docs/releases.md).
   # Every ecosystem waits a week after a release before proposing it, so a
   # compromised or withdrawn version is usually gone before a PR opens.
   - package-ecosystem: github-actions
     directories:
       - /
       - /.github/actions/*
+      - /templates/github/workflows
     schedule:
       interval: weekly
     cooldown:
       default-days: 7
+    ignore:
+      - dependency-name: wangjohn/levenshtein
     groups:
       github-actions:
         patterns:
           - "*"
-        update-types:
-          - minor
-          - patch
 
   - package-ecosystem: gomod
     directory: /
@@ -40,12 +46,18 @@ updates:
   # generated sources are gitignored, so Dependabot could not resolve the module
   # anyway. Bump it by changing .dagger-version and regenerating.
 
+  # Staticcheck (honnef.co/go/tools) is ignored here and in runner/community:
+  # both must stay on the pin runner/toolchain.json names, so it is bumped by
+  # hand in one change across all three (docs/community-rules.md). Proposing
+  # it for one module alone would only split the pin.
   - package-ecosystem: gomod
     directory: /runner/lint
     schedule:
       interval: weekly
     cooldown:
       default-days: 7
+    ignore:
+      - dependency-name: honnef.co/go/tools
     groups:
       go-dependencies:
         patterns:
@@ -55,7 +67,7 @@ updates:
           - patch
 
   # The community linter's runtime keeps the same Staticcheck pin as
-  # runner/lint; bump them together (docs/community-rules.md).
+  # runner/lint; see the note there.
   - package-ecosystem: gomod
     directory: /runner/community
     schedule:
@@ -64,6 +76,24 @@ updates:
       default-days: 7
     ignore:
       - dependency-name: honnef.co/go/tools
+    groups:
+      go-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  # The template community rule authors copy (examples/rule-module). It must
+  # build on runner/community's pins without moving them, which
+  # scripts/test-example-rules checks, so a proposal past those pins fails CI
+  # until runner/community moves first.
+  - package-ecosystem: gomod
+    directory: /examples/rule-module
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       go-dependencies:
         patterns:
@@ -86,14 +116,17 @@ updates:
           - minor
           - patch
 
-  # The temporary Dagger Go SDK generator. Its Dagger pin belongs to
-  # .dagger-version, so only the generator's own dependencies update here.
-  - package-ecosystem: pip
+  # The temporary Dagger Go SDK generator, locked by uv.lock. Its dagger-io
+  # pin belongs to .dagger-version (scripts/test-sdk-lock keeps them equal), so
+  # only the generator's other dependencies update here.
+  - package-ecosystem: uv
     directory: /sdk/patched-go
     schedule:
       interval: weekly
     cooldown:
       default-days: 7
+    ignore:
+      - dependency-name: dagger-io
     groups:
       python-dependencies:
         patterns:

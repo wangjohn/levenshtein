@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Copy the third-party action pins Dependabot keeps current into the copies it
+# does not update: the documentation (README.md, docs/*.md) and templates/.
+#
+# Usage: sync-action-pins
+#
+# The pins in .github/workflows, .github/actions/*/action.yml and action.yml
+# are the source. Every `uses: owner/repo[/path]@<sha> # <version>` of the same
+# action elsewhere is rewritten to that SHA and version comment. Levenshtein's
+# own pin is left alone: releases move it (docs/releases.md). Run this after a
+# Dependabot github-actions update; scripts/test-workflows fails until the
+# copies match.
+set -euo pipefail
+root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$root"
+
+shopt -s nullglob
+sources=(.github/workflows/*.yml .github/actions/*/action.yml action.yml)
+targets=(README.md docs/*.md)
+while IFS= read -r file; do
+  targets+=("$file")
+done < <(find templates -type f | LC_ALL=C sort)
+
+# "action sha comment" for every pin in the sources; the comment may be empty.
+pins=$(grep -hoE 'uses: [A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+@[0-9a-f]{40}( # [^[:space:]]+)?' "${sources[@]}" |
+  sed -E 's/^uses: ([^@]+)@([0-9a-f]{40})( # ([^[:space:]]+))?$/\1 \2 \4/' |
+  grep -v '^wangjohn/levenshtein ' | LC_ALL=C sort -u || true)
+if [[ -z $pins ]]; then
+  echo 'No action pins found in the workflows; update this script' >&2
+  exit 1
+fi
+conflicts=$(awk '{ print $1 }' <<<"$pins" | uniq -d)
+if [[ -n $conflicts ]]; then
+  echo "The workflows pin these actions to more than one commit; make them agree first:" >&2
+  echo "$conflicts" >&2
+  exit 1
+fi
+
+changed=0
+while read -r action sha comment; do
+  for file in "${targets[@]}"; do
+    before=$(cksum < "$file")
+    ACTION=$action SHA=$sha COMMENT=$comment perl -pi -e '
+      my $a = quotemeta $ENV{ACTION};
+      my $pin = "uses: $ENV{ACTION}\@$ENV{SHA}" . ($ENV{COMMENT} ne "" ? " # $ENV{COMMENT}" : "");
+      s/uses: $a\@[0-9a-f]{40}(?: # [^\s`]+)?/$pin/g;
+    ' "$file"
+    if [[ $(cksum < "$file") != "$before" ]]; then
+      echo "Updated $action in $file"
+      changed=1
+    fi
+  done
+done <<<"$pins"
+if (( changed == 0 )); then
+  echo 'Action pins in the templates and documentation already match the workflows'
+fi
