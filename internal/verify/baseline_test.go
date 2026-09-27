@@ -317,6 +317,21 @@ func TestBaselineIgnoresEntriesACheckCouldNotProduce(t *testing.T) {
 	}
 }
 
+// Only a finding with the entry's own code shows that a check ran the rule.
+// Another rule's finding says nothing about it.
+func TestBaselineIgnoresEntriesWhenACheckReportsOnlyOtherCodes(t *testing.T) {
+	check := lintCheck("lint", ".")
+	check.Check.Lint = &LintCheck{Checks: []string{"-unparam"}}
+	baseline := Baseline{Path: testBaselinePath, Entries: []BaselineEntry{lintEntry("a.go", "unparam", "still there", 1)}}
+	report := reportOf([]PlannedCheck{check}, failedResult("lint", lintFinding("b.go", 3, "SA4006", "value never used")))
+
+	applied := baseline.Apply(report)
+
+	if applied.Baseline.Stale != 0 || applied.Baseline.Baselined != 0 {
+		t.Fatalf("the unparam entry is not judged: %+v", applied.Baseline)
+	}
+}
+
 func TestRecordBaselineKeepsEntriesACheckCouldNotProduce(t *testing.T) {
 	t.Parallel()
 	for name, tc := range unproducibleCases() {

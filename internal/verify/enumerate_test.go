@@ -1,7 +1,9 @@
 package verify
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -237,23 +239,97 @@ func TestVisibleFilesLeaveOutIgnoredFiles(t *testing.T) {
 func TestMisspelledInputIsRejected(t *testing.T) {
 	t.Parallel()
 	root := fileSetRepository(t)
+	config := `{"version":1,"targets":{"t":{"dir":".","inputs":["PKG"]}},"environments":{"e":{"executor":"native"}},"checks":{"c":{"kind":"secrets","target":"t","environment":"e"}},"runs":{"r":{"checks":["c"]}}}`
+	cfg, err := Parse([]byte(config))
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	probe, err := os.Lstat(filepath.Join(root, "PKG"))
 	if err != nil || !probe.IsDir() {
-		t.Skip("the filesystem is case-sensitive, so a misspelled input is simply missing")
+		// On a case-sensitive filesystem the misspelled input is simply
+		// missing, which planning allows like any other missing input.
+		if _, err := cfg.Plan(root, "r"); err != nil {
+			t.Fatalf("a missing input was rejected as misspelled: %v", err)
+		}
+		return
 	}
 
 	_, err = sessionAt("").snapshot(t.Context(), snapshotRequest{Root: root, Paths: []string{"PKG"}, Discovery: DiscoveryGit})
 	if err == nil || !strings.Contains(err.Error(), `"pkg"`) {
 		t.Fatalf("a misspelled input was fingerprinted as empty: %v", err)
 	}
+	if _, err := cfg.Plan(root, "r"); err == nil || !strings.Contains(err.Error(), `"pkg"`) {
+		t.Fatalf("planned a misspelled input: %v", err)
+	}
+}
 
-	config := `{"version":1,"targets":{"t":{"dir":".","inputs":["PKG"]}},"environments":{"e":{"executor":"native"}},"checks":{"c":{"kind":"secrets","target":"t","environment":"e"}},"runs":{"r":{"checks":["c"]}}}`
+// spelling reads each directory's entries, so it finds the on-disk spelling of
+// a path on any filesystem, preferring an exact match to a case-folded one.
+func TestSpellingFollowsTheDirectoryEntries(t *testing.T) {
+	t.Parallel()
+	source := t.TempDir()
+	writeFile(t, filepath.Join(source, "Src", "Main.go"), sourceOne)
+	dir, err := os.OpenRoot(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = dir.Close() }()
+
+	for path, want := range map[string]string{
+		filepath.Join("src", "main.go"):    filepath.Join("Src", "Main.go"),
+		filepath.Join("Src", "Main.go"):    filepath.Join("Src", "Main.go"),
+		filepath.Join("src", "missing.go"): filepath.Join("Src", "missing.go"),
+		filepath.Join("other", "Main.go"):  filepath.Join("other", "Main.go"),
+	} {
+		if got := spelling(dir, path); got != want {
+			t.Errorf("spelling(%q) = %q, want %q", path, got, want)
+		}
+	}
+}
+
+// A source whose spelling cannot be checked, because it cannot be opened, is
+// an error rather than a pass.
+func TestSpellingCheckOfAnUnopenableSourceFails(t *testing.T) {
+	t.Parallel()
+	source := filepath.Join(t.TempDir(), "missing")
+
+	if err := spelledAsOnDisk(source, []string{"pkg"}); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("checked the spelling in a source that does not exist: %v", err)
+	}
+}
+
+// An input that names an ignored directory below a tracked one is keyed by
+// what the Go toolchain can load from it.
+func TestGoKindKeyCoversAnIgnoredInputDirectory(t *testing.T) {
+	t.Parallel()
+	root := fileSetRepository(t)
+	config := `{"version":1,"targets":{"t":{"dir":".","inputs":["gen/deep","pkg/assets"]}},"environments":{"e":{"executor":"native"}},"checks":{"c":{"kind":"go-vet","target":"t","environment":"e"}},"runs":{"r":{"checks":["c"]}}}`
 	cfg, err := Parse([]byte(config))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := cfg.Plan(root, "r"); err == nil || !strings.Contains(err.Error(), `"pkg"`) {
-		t.Fatalf("planned a misspelled input: %v", err)
+	plan, err := cfg.Plan(root, "r")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := Request{Source: root, PlannedCheck: plan.Checks[0]}
+
+	want := []string{"gen/deep/x.go", "pkg/assets/data.txt", "pkg/assets/link"}
+	if got := keyedFiles(t, req); !slices.Equal(got, want) {
+		t.Fatalf("key hashes %v, want %v", got, want)
+	}
+}
+
+// An input the filesystem cannot inspect fails the key rather than being
+// keyed as present and empty.
+func TestUninspectableInputFailsTheKey(t *testing.T) {
+	t.Parallel()
+	root := fileSetRepository(t)
+	name := strings.Repeat("n", 300) // Longer than any filesystem allows a name to be.
+
+	if _, err := sessionAt("").snapshot(t.Context(), snapshotRequest{Root: root, Paths: []string{name}, Discovery: DiscoveryGit}); err == nil {
+		t.Fatal("an input that could not be inspected was fingerprinted")
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -84,6 +85,36 @@ func TestOversizedResultIsReportedAndNotCached(t *testing.T) {
 	result := runner.Execute(t.Context(), req)
 	if result.Status != StatusPassed || !strings.Contains(result.Cache.Reason, "cache write unavailable") || !strings.Contains(result.Cache.Reason, "limit") {
 		t.Fatalf("an oversized result did not say it was not cached: %+v", result.Cache)
+	}
+}
+
+// Shard 0 says how many shards the memo has. A shard beyond that count, left
+// by an earlier, larger memo, is not read.
+func TestStatMemoReadsOnlyTheShardsItCounts(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	root := t.TempDir()
+	store := newStatStore(dir, recordLimit)
+	settled := statEntry{Stat: fileStat{ModNS: time.Now().Add(-time.Hour).UnixNano()}, Value: "644:x", HashedAt: time.Now().UnixNano()}
+	for i, record := range []statRecord{
+		{Root: root, Shards: 2, Entries: map[string]statEntry{"first.go": settled}},
+		{Root: root, Entries: map[string]statEntry{"second.go": settled}},
+		{Root: root, Entries: map[string]statEntry{"leftover.go": settled}},
+	} {
+		if err := writeRecord(store.shard(root, i), record, recordLimit); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	store.prepare(root)
+
+	var loaded []string
+	for key := range store.entries {
+		loaded = append(loaded, key.Path)
+	}
+	slices.Sort(loaded)
+	if want := []string{"first.go", "second.go"}; !slices.Equal(loaded, want) {
+		t.Fatalf("loaded %v, want %v", loaded, want)
 	}
 }
 
