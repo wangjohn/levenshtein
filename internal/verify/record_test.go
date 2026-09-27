@@ -24,6 +24,30 @@ func recordOfSize(t *testing.T, size int) string {
 	return strings.Repeat("a", size-len(empty))
 }
 
+// A memo is split only when its estimated size, paths and values alike, is over
+// half the record limit, and then into enough shards to bring each under it.
+func TestStatMemoShardsKeepEachUnderHalfTheLimit(t *testing.T) {
+	t.Parallel()
+	short := map[string]statEntry{"a": {Value: "xyz"}}
+	shortSize := len("a") + len("xyz") + statEntryOverhead
+	long := map[string]statEntry{"a": {Value: strings.Repeat("v", 1000)}}
+
+	for _, tc := range []struct {
+		name    string
+		entries map[string]statEntry
+		limit   int
+		want    int
+	}{
+		{name: "exactly half the limit", entries: short, limit: 2 * shortSize, want: 1},
+		{name: "just over half the limit", entries: short, limit: 2*shortSize - 2, want: 2},
+		{name: "a long value", entries: long, limit: 1024, want: 4},
+	} {
+		if got := shards(tc.entries, tc.limit); got != tc.want {
+			t.Errorf("%s: shards = %d, want %d", tc.name, got, tc.want)
+		}
+	}
+}
+
 // A record the reader would refuse is refused when it is written, instead of
 // being written and then silently failing every later read.
 func TestRecordLimitAppliesToWritesAndReads(t *testing.T) {

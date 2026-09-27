@@ -8,22 +8,24 @@
       "reason": "git always closes a hunk header with @@, so a header has at least three fields and never exactly two"
     },
     {
+      "file": "internal/verify/discovery.go",
+      "mutator": "INCREMENT_DECREMENT",
+      "line": "s.listingEpochs[source]++",
+      "function": "Session.relist",
+      "reason": "listing only asks whether the epoch moved since it read it; a decrement moves it just as surely, and it never returns to an earlier value"
+    },
+    {
+      "file": "internal/verify/enumerate.go",
+      "mutator": "CONDITIONALS_NEGATION",
+      "line": "if entry != nil && entry.IsDir() {",
+      "function": "fileSet.walkTree",
+      "reason": "without SkipDir the walk descends into the excluded directory, but every entry below it is excluded too; skipping only saves the walk"
+    },
+    {
       "file": "internal/verify/findings.go",
       "mutator": "CONDITIONALS_BOUNDARY",
       "line": "if len(pattern) > 1 && pattern[0] == '-' {",
       "reason": "a lone \"-\" selects no code whether it is read as the pattern \"-\" or as turning off the empty pattern"
-    },
-    {
-      "file": "internal/verify/fingerprint.go",
-      "mutator": "CONDITIONALS_NEGATION",
-      "line": "if entry != nil && entry.IsDir() {",
-      "reason": "without SkipDir the walk descends into the excluded directory, but every entry below it is excluded too; skipping only saves the walk"
-    },
-    {
-      "file": "internal/verify/gogenerate.go",
-      "mutator": "CONDITIONALS_NEGATION",
-      "line": "if entry != nil && entry.IsDir() {",
-      "reason": "without SkipDir the walk descends into the excluded directory, but every entry below it is excluded too; skipping only saves the walk"
     },
     {
       "file": "internal/verify/gotools.go",
