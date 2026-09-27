@@ -74,16 +74,38 @@ const (
 	diffPlaceholder = ".levenshtein-no-changed-go-lines"
 )
 
-// gitShim answers gremlins' one git command. It strips its own directory from
-// PATH before handing anything else, such as a test's git command, to git.
-const gitShim = `#!/bin/sh
+// gitShim is the git that gremlins finds first on PATH. It answers gremlins'
+// one git command with the diff at diffPath, and runs any other, such as a
+// test's, with realGit, the absolute path git had before the shim, or fails as
+// a missing git would when there was none. The tests inherit gremlins' PATH,
+// so the shim has to behave as git wherever they reach it: git puts its exec
+// path in front of PATH, and a test can link the git it finds into a PATH of
+// its own. Searching PATH from the shim would find the shim again there.
+func gitShim(realGit, diffPath string) string {
+	other := "echo 'git: not found' >&2\nexit 127\n"
+	if realGit != "" {
+		other = "exec '" + realGit + "' \"$@\"\n"
+	}
+	return `#!/bin/sh
 if [ "$#" -eq 3 ] && [ "$1" = diff ] && [ "$2" = --merge-base ] && [ "$3" = ` + gremlinsDiffRef + ` ]; then
-	exec cat ` + gremlinsDiffPath + `
+	exec cat '` + diffPath + `'
 fi
-PATH=${PATH#` + gremlinsShimDir + `:}
-export PATH
-exec git "$@"
-`
+` + other
+}
+
+// hostGit finds the git a container's PATH names before the shim is added, or
+// "" when it has none.
+func hostGit(ctx context.Context, ctr *dagger.Container) (string, error) {
+	out, err := ctr.WithExec([]string{"sh", "-c", "command -v git || true"}).Stdout(ctx)
+	if err != nil {
+		return "", err
+	}
+	found := strings.TrimSpace(out)
+	if !path.IsAbs(found) || strings.ContainsAny(found, "'\n") {
+		return "", nil
+	}
+	return found, nil
+}
 
 // mutationStatus is a gremlins mutant status as its JSON report spells it.
 type mutationStatus string
@@ -1000,9 +1022,13 @@ func runGremlins(ctx context.Context, source *dagger.Directory, module string, t
 		ctr = ctr.WithEnvVariable("LEVENSHTEIN_RUN_NONCE", nonce)
 	}
 	if diff != "" {
+		realGit, err := hostGit(ctx, untrustedGoContainer(tools, scope))
+		if err != nil {
+			return mutationRun{}, err
+		}
 		ctr = ctr.
 			WithNewFile(gremlinsDiffPath, diff).
-			WithNewFile(path.Join(gremlinsShimDir, "git"), gitShim, dagger.ContainerWithNewFileOpts{Permissions: 0o755}).
+			WithNewFile(path.Join(gremlinsShimDir, "git"), gitShim(realGit, gremlinsDiffPath), dagger.ContainerWithNewFileOpts{Permissions: 0o755}).
 			WithEnvVariable("PATH", gremlinsShimDir+":${PATH}", dagger.ContainerWithEnvVariableOpts{Expand: true})
 	}
 	command := gremlinsCommand(coefficient, tags, patterns, diff != "")

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -377,6 +379,73 @@ func TestChangedDiffNamesEachRunLineForGremlins(t *testing.T) {
 	}, "\n")
 	if got != want {
 		t.Fatalf("changedDiff =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestGitShimAnswersGremlinsAndPassesEverythingElseOn(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
+	root := t.TempDir()
+	shimDir := filepath.Join(root, "shim")
+	realDir := filepath.Join(root, "real")
+	linkDir := filepath.Join(root, "link")
+	emptyDir := filepath.Join(root, "empty")
+	diffPath := filepath.Join(root, "changed.diff")
+	for _, dir := range []string{shimDir, realDir, linkDir, emptyDir} {
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := map[string]string{
+		filepath.Join(shimDir, "git"):  gitShim(filepath.Join(realDir, "git"), diffPath),
+		filepath.Join(emptyDir, "git"): gitShim("", diffPath),
+		filepath.Join(realDir, "git"):  "#!/bin/sh\necho real \"$@\"\n",
+		diffPath:                       "the diff\n",
+	}
+	for name, body := range files {
+		if err := os.WriteFile(name, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A test that links the git it finds into a PATH of its own links the shim.
+	if err := os.Symlink(filepath.Join(shimDir, "git"), filepath.Join(linkDir, "git")); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		shim string
+		path []string
+		args []string
+		want string
+	}{
+		{"gremlins' command", shimDir, []string{shimDir, realDir}, []string{"diff", "--merge-base", gremlinsDiffRef}, "the diff\n"},
+		{"another diff", shimDir, []string{shimDir, realDir}, []string{"diff", "--merge-base", "main"}, "real diff --merge-base main\n"},
+		// Git runs its own commands with its exec path in front of PATH.
+		{"shim behind another entry", shimDir, []string{emptyDir, shimDir}, []string{"init", "--quiet"}, "real init --quiet\n"},
+		{"shim linked into its own PATH", linkDir, []string{linkDir}, []string{"status"}, "real status\n"},
+		{"no git", emptyDir, []string{emptyDir, realDir}, []string{"status"}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			shim := exec.CommandContext(ctx, filepath.Join(tc.shim, "git"), tc.args...)
+			shim.Env = []string{"PATH=" + strings.Join(append(tc.path, "/usr/bin", "/bin"), ":")}
+
+			out, err := shim.Output()
+
+			if tc.want == "" {
+				var exit *exec.ExitError
+				if !errors.As(err, &exit) || exit.ExitCode() != 127 || string(out) != "" {
+					t.Fatalf("without git the shim must fail as a missing git does: %q %v", out, err)
+				}
+				return
+			}
+			if err != nil || string(out) != tc.want {
+				t.Fatalf("output %q, error %v; want %q", out, err, tc.want)
+			}
+		})
 	}
 }
 
