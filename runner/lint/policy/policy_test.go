@@ -16,6 +16,12 @@ func TestTypedValues(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), TypedValues, "typed")
 }
 
+// testdata/module is a module that imports a type with constants from another
+// module; only the linted module's own types count as enums.
+func TestTypedValuesStayInTheModule(t *testing.T) {
+	analysistest.Run(t, filepath.Join(analysistest.TestData(), "module"), TypedValues, "./...")
+}
+
 func TestRecords(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), Records, "records", "consumer")
 }

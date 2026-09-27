@@ -7,7 +7,14 @@
 // pinned Staticcheck, and the runner merges both linters' findings into one
 // report. See docs/community-rules.md in the Levenshtein repository.
 //
+// Only that generated main imports this package. Rule authors never do: a
+// rule module exports plain analyzers from its lvrules package, and that
+// contract is what Levenshtein keeps stable. The builder generates the main
+// from the same Levenshtein release as this package, so this package's API,
+// and the Config and Report JSON it shares with the runner, carry no
+// compatibility promise and may change in any release.
+//
 // This package has no connection to the core linter in runner/lint beyond
-// sharing its Staticcheck pin. The failure guard in guard.go is a copy of the
-// core linter's; change both together.
+// sharing its Staticcheck pin. The failure guard in guard.go and the rule
+// adapter in adapt.go are copies of the core linter's; change both together.
 package community

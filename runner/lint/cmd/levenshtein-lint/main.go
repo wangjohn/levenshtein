@@ -157,7 +157,9 @@ func switches() *analysis.Analyzer {
 // As with exhaustive, a default case does not satisfy it: a new variant must
 // fail the switches that do not list it. Staticcheck's analyzers panic on
 // another analyzer's fact, as with contextcheck, so it runs without facts and
-// checks sum types declared in the package being linted.
+// checks sum types declared in the package being linted. A variant declared
+// in a test file, such as a fake, does not make the package's own switches
+// incomplete: the build without tests decides them (see builds.go).
 func sumTypes() *analysis.Analyzer {
 	analyzer := *checksumtype.Analyzer
 	analyzer.Name = "gochecksumtype"
@@ -172,7 +174,7 @@ func sumTypes() *analysis.Analyzer {
 		local.ImportPackageFact = func(*types.Package, analysis.Fact) bool { return false }
 		return run(&local)
 	}
-	return &analyzer
+	return perBuild(&analyzer, withoutTests)
 }
 
 // tagged runs musttag with the module of the package being linted. Without
@@ -238,7 +240,8 @@ func modulePath(pass *analysis.Pass) (string, error) {
 // MarshalJSON that Dagger's codegen adds to a module's main object, whose
 // hand-written methods take pointers. Nobody can change the generated receiver,
 // so counting it would report a mix the author cannot fix. cgo's rewrite of a
-// hand-written file counts as hand-written.
+// hand-written file counts as hand-written. Methods declared in test files
+// count, so the build with tests decides a type's receivers (see builds.go).
 func receivers() *analysis.Analyzer {
 	analyzer := recvcheck.NewAnalyzer(recvcheck.Settings{})
 	run := analyzer.Run
@@ -257,7 +260,7 @@ func receivers() *analysis.Analyzer {
 		handWritten.ResultOf = results
 		return run(&handWritten)
 	}
-	return analyzer
+	return perBuild(analyzer, withTests)
 }
 
 // checkedNil runs nilnesserr, whose constructor returns an error although it
@@ -326,9 +329,12 @@ func signatures() []*analysis.Analyzer {
 // checker rather than an analyzer, so this wraps it the way golangci-lint does.
 // Exported functions stay out of scope, as in unparam's own default: a
 // per-package pass cannot see their callers in other packages, and changing an
-// exported signature breaks those callers.
+// exported signature breaks those callers. A function in a non-test file is
+// judged by the package's own callers: the build without tests decides it, so
+// a test that passes other values or ignores a result changes nothing (see
+// builds.go).
 func unusedParams() *analysis.Analyzer {
-	return &analysis.Analyzer{
+	return perBuild(&analysis.Analyzer{
 		Name:     "unparam",
 		Doc:      "report unused function parameters and results",
 		Requires: []*analysis.Analyzer{buildssa.Analyzer},
@@ -356,7 +362,7 @@ func unusedParams() *analysis.Analyzer {
 			}
 			return nil, nil
 		},
-	}
+	}, withoutTests)
 }
 
 // withoutCgoHeaders hands unparam the package's files with cgo's generated
@@ -476,13 +482,36 @@ func testingHelpers() *analysis.Analyzer {
 // house analyzers are Levenshtein's own rules, documented in docs/checks.md.
 func house() []*analysis.Analyzer {
 	return []*analysis.Analyzer{
-		policy.TypedValues,
+		inModule(policy.TypedValues),
 		policy.Records,
 		policy.Fields,
 		policy.Spacing,
 		policy.Formatting,
 		policy.Assertions,
 	}
+}
+
+// inModule runs a house analyzer with Pass.Module naming the module of the
+// package being linted, which Staticcheck's runner leaves unset. LV1001 needs
+// it to tell the module's own string types from a library's. A package outside
+// any module, such as the test main go test generates, runs without one, and
+// LV1001 then treats every type as the module's own, as it did before.
+func inModule(analyzer *analysis.Analyzer) *analysis.Analyzer {
+	run := analyzer.Run
+	analyzer.Run = func(pass *analysis.Pass) (any, error) {
+		if pass.Module != nil {
+			return run(pass)
+		}
+		module, err := modulePath(pass)
+		if err != nil {
+			return run(pass)
+		}
+
+		withModule := *pass
+		withModule.Module = &analysis.Module{Path: module}
+		return run(&withModule)
+	}
+	return analyzer
 }
 
 // upstream adapts third-party analyzers to the shared rules with policy.Adapt
@@ -577,7 +606,15 @@ func run(args []string) int {
 			guard.wrap(analyzer, owner{Code: analyzer.Name})
 		}
 	}
-	return command.Execute()
+	status := command.Execute()
+
+	// LV1005 checks the files the builds leave out after the run, outside
+	// Staticcheck's cache (see excluded.go). Exit 2 is a run that never got
+	// as far as reporting.
+	if status == 2 || (checks != nil && !allowed(checks, policy.Formatting.Name)) {
+		return status
+	}
+	return checkExcluded(command.FlagSet(), checks, status, os.Stdout, os.Stderr)
 }
 
 // stop ends the run on the first analyzer failure.

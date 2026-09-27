@@ -154,6 +154,53 @@ func TestAHealthyRunCachesAndSelectsOnlyWhatTheCheckAsks(t *testing.T) {
 	}
 }
 
+// A rule that files its findings under a category of its own must still
+// report them under its code, and no rule reports in a generated file.
+// Staticcheck alone keeps only findings whose category names a registered
+// check, so faulty_styled would report nothing.
+func TestRulesReportUnderTheirCodesOutsideGeneratedFiles(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds a linter, which needs the module proxy")
+	}
+	out := t.TempDir()
+	if _, err := Build(context.Background(), pinnedRequest(t, faultyModule(t, "faulty")), t.TempDir(), out); err != nil {
+		t.Fatal(err)
+	}
+	cfg := community.Config{Modules: []community.ModuleConfig{{
+		Path: "example.com/lvrules-faulty", Version: "v0.0.0", Namespace: "faulty", Select: []string{"faulty_ok", "faulty_styled"},
+	}}}
+
+	run := runLinter(t, filepath.Join(out, Binary), t.TempDir(), cfg)
+
+	var got []string
+	decoder := json.NewDecoder(strings.NewReader(run.Stdout))
+	for decoder.More() {
+		var finding struct {
+			Code     string `json:"code"`
+			Message  string `json:"message"`
+			Location struct {
+				File string `json:"file"`
+			} `json:"location"`
+		}
+		if err := decoder.Decode(&finding); err != nil {
+			t.Fatalf("%v in output:\n%s", err, run.Stdout)
+		}
+		if strings.HasPrefix(finding.Code, "faulty_") {
+			got = append(got, finding.Code+" "+filepath.Base(finding.Location.File)+" "+finding.Message)
+		}
+	}
+	slices.Sort(got)
+	want := []string{
+		"faulty_ok consumer.go function Load",
+		"faulty_ok consumer.go function Old",
+		"faulty_styled consumer.go function Load",
+		"faulty_styled consumer.go function Old",
+	}
+	if !run.Reported || !slices.Equal(got, want) {
+		t.Errorf("reported %v, findings %q, want %q", run.Reported, got, want)
+	}
+}
+
 func TestANamespaceMismatchFailsTheBuild(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds a linter, which needs the module proxy")

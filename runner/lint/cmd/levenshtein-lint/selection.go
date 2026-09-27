@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"slices"
 	"strings"
 	"unicode"
 )
@@ -9,15 +10,25 @@ import (
 // checkList is the parsed -checks flag, or nil when it is Staticcheck's
 // default "inherit", which leaves the choice to staticcheck.conf.
 func checkList(flags *flag.FlagSet) []string {
-	value := strings.Trim(flags.Lookup("checks").Value.String(), `"`)
-	if value == "" || value == "inherit" {
+	checks := flagList(flags, "checks")
+	if slices.Equal(checks, []string{"inherit"}) {
 		return nil
 	}
-	checks := strings.Split(value, ",")
-	for i, check := range checks {
-		checks[i] = strings.TrimSpace(check)
-	}
 	return checks
+}
+
+// flagList is one of lintcmd's comma-separated list flags, such as -checks or
+// -fail, which print themselves quoted; an empty list is nil.
+func flagList(flags *flag.FlagSet, name string) []string {
+	value := strings.Trim(flags.Lookup(name).Value.String(), `"`)
+	if value == "" {
+		return nil
+	}
+	list := strings.Split(value, ",")
+	for i, item := range list {
+		list[i] = strings.TrimSpace(item)
+	}
+	return list
 }
 
 // allowed reproduces Staticcheck's filterAnalyzerNames (lintcmd/lint.go in

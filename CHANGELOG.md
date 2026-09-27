@@ -25,6 +25,18 @@ Consumers pin a release tag, or its commit SHA, as described in
   every community-rule entry as stale, and `--write-baseline` deleted them;
   a check whose `lint.checks` turned a rule off (such as `-unparam`) did the
   same to that rule's entries. Such entries are now neither stale nor removed.
+- A community rule that sets a diagnostic `Category` now reports under its
+  code. Staticcheck dropped every such finding, while the report still listed
+  the rule as selected. Community rules also skip generated files, as core
+  rules do.
+- A rule module can no longer hide the core linter's unused-directive
+  findings. Rule code runs in the community linter's process and could print
+  an `lvrules_mixed` finding at any line; the runner now drops a core
+  unused-directive finding only when the source at that position holds a
+  directive that really mixes core and community codes.
+- [docs/community-rules.md](docs/community-rules.md) no longer describes the
+  `lvrules-template` repository and the `lvrules-check` action as available;
+  both are still planned, so rule authors start from `examples/rule-module`.
 - Native checks in one run execute in parallel again, up to `--jobs`. Each
   check took the workspace file lock through its own handle, which also
   blocks the same process, so every native check ran alone, even read-only
@@ -100,6 +112,50 @@ Consumers pin a release tag, or its commit SHA, as described in
   flushes the cache, or closes the Dagger session. The first signal cancels
   the run as before; the second used to be swallowed until the process
   exited, so a hung teardown needed SIGKILL.
+- `go-mutation` no longer passes weak tests on a warm build cache. Gremlins
+  timed its coverage run, which `go test` could answer from its cache in
+  milliseconds, and gave every mutant ten times that; a package whose tests
+  took seconds then timed out every mutant, and timeouts counted as caught.
+  Gremlins now runs with `GOFLAGS=-count=1`, a timeout counts as caught only
+  under a limit of at least 10 seconds, a run that timed out a mutant under a
+  shorter limit is repeated with a higher coefficient, and if that still
+  falls short the check is incomplete. The summary warns about any package in
+  which at least half of the covered mutants, and at least two, timed out
+  ([details](docs/mutation.md#timeouts)).
+- **`go-mutation` judges accepted survivors more strictly**, so an entry can
+  no longer keep a weak test hidden. An entry whose mutants a test now kills,
+  or that time out, is stale and fails the check until it is removed. An
+  entry whose text matches survivors on more than one line accepts none of
+  them and fails with `go-mutation-ambiguous`; the new optional `function`
+  and `occurrence` fields say which line it means
+  ([details](docs/mutation.md#accepted-survivors)).
+- LV1002 checks structs built inside `switch`, type switch, and `select`
+  cases. A case holds its statements without a block of its own, so
+  `var s S; s.A = 1` inside one went unreported.
+- LV1006 checks a test whose parameter names `testing.T` through an alias, as
+  in `type T = testing.T; func TestX(t *T)`, which go test runs, and no longer
+  counts `t.Failed()` as a way to fail: it only reads the test's state.
+- LV1001 asks for typed constants only for string types declared in the
+  module being linted. Converting a literal to a library's open-ended type,
+  such as `corev1.ResourceName("nvidia.com/gpu")`, was reported because the
+  library declares a few constants of it.
+- LV1005 checks the Go files the default build leaves out, such as
+  `foo_windows.go` and files behind `//go:build integration` or
+  `//go:build ignore`, which `gofmt -l` checks and LV1005 skipped. The
+  linter checks them after Staticcheck's run, outside its cache, so formatting
+  one clears its finding on the next run and editing one re-lints no package.
+  Their findings appear in `text` and `json` output only
+  ([details](docs/checks.md#formatted-files-lv1005)).
+- `//lint:ignore recvcheck`, `//lint:ignore unparam`, and
+  `//lint:ignore gochecksumtype` suppress a finding that exists in only one of
+  a package's builds, with or without its tests, instead of being reported as
+  matching nothing by the other build. One build now decides each rule's
+  findings on non-test files: the build with tests for `recvcheck`, and the
+  build without them for `unparam` and `gochecksumtype`, so a test's calls no
+  longer change what `unparam` reports and a test's fake variant no longer
+  makes a sum type's switches incomplete. A directive that matches nothing is
+  still reported. The `//lint:file-ignore unparam` workaround is no longer
+  needed.
 - A reused result now covers every file its check read. Under `git` discovery
   the cache key left gitignored files out while the checks still read them:
   editing a gitignored generated `*.pb.go` or `vendor/` file replayed a cached

@@ -68,6 +68,11 @@ Each analyzer needs:
 Facts and suggested fixes are fine. Levenshtein reports findings; the module's
 own `singlechecker` wrapper applies fixes with `-fix`.
 
+Community rules report the way core rules do. Every finding reports under the
+rule's code, whatever `Category` the analyzer gives it. Findings in generated
+files, those with a `// Code generated ... DO NOT EDIT.` header, are dropped;
+the rule still runs on them, so the facts it exports stay correct.
+
 The module must build with the Go in `.go-version` and the Staticcheck in
 `runner/toolchain.json`. It may require newer versions of other dependencies,
 such as `golang.org/x/tools`, because community rules run in their own process.
@@ -108,17 +113,21 @@ appears in findings, patterns, and `//lint:ignore errs_nopanic <reason>`.
 
 ### Getting started
 
-1. `gonew github.com/wangjohn/lvrules-template github.com/you/lvrules-errors`
-   copies the template and rewrites the module path. Choose a namespace; the
-   template's CI fails while it is still `example`. Until the template
-   repository is published (phase 0), copy
-   [`examples/rule-module`](../examples/rule-module) instead.
+1. Copy [`examples/rule-module`](../examples/rule-module), rewrite its module
+   path, and choose a namespace; Levenshtein refuses `example` for any other
+   module. A published `lvrules-template` repository is planned (phase 0, not
+   yet done). Once it exists,
+   `gonew github.com/wangjohn/lvrules-template github.com/you/lvrules-errors`
+   will copy it and rewrite the module path, and its CI will fail while the
+   namespace is still `example`.
 2. Write the analyzer and add it to `Analyzers()`.
 3. Add fixtures under `testdata/src` with a `// want` comment on every expected
    finding, plus clean cases. Break the rule once to check that the test fails.
-4. CI runs the reusable `lvrules-check` action. It builds the module into a
-   community linter for each Levenshtein release you list and runs it on your
-   fixtures.
+4. Run the tests in your own CI. A reusable `lvrules-check` action is planned
+   (phase 0, not yet done): it will build the module into a community linter
+   for each Levenshtein release you list and run it on your fixtures. Until
+   then, `scripts/test-example-rules` shows how this repository does that for
+   the example module.
 5. Tag `v0.1.0` with release notes, name the repository `lvrules-<topic>`, and
    add the `levenshtein-lint-rules` topic.
 6. From phase 2, open a pull request to the catalog.
@@ -204,7 +213,10 @@ names only core codes or only community codes. Each linter checks only its own
 directives for staleness. A directive that mixes the two, such as
 `//lint:ignore SA4006,errs_nopanic`, is reported as `lvrules_mixed`, asking for
 one directive per linter on consecutive lines. The runner drops both linters'
-"unused directive" reports at that line.
+"unused directive" reports at that line. It drops the core linter's report
+only after reading the directive from the source and confirming that it mixes
+the two, so a rule module cannot hide a core finding by printing its own
+`lvrules_mixed` report.
 
 ### Findings and warnings
 

@@ -8,7 +8,13 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// Formatting removes the need for a separate gofmt step in CI.
+// UnformattedMessage is LV1005's finding. levenshtein-lint prints the same
+// finding for the files a build leaves out, which no analyzer sees.
+const UnformattedMessage = "file is not gofmt-formatted; run gofmt -w"
+
+// Formatting removes the need for a separate gofmt step in CI. It checks the
+// files each build compiles, which Staticcheck's cache keys a package on;
+// levenshtein-lint checks the files a build leaves out after the run.
 var Formatting = &analysis.Analyzer{
 	Name: "LV1005",
 	Doc:  "keep every Go file formatted the way gofmt writes it",
@@ -39,14 +45,16 @@ func runFormatting(pass *analysis.Pass) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		formatted, err := format.Source(source)
-		if err != nil {
-			// A file the formatter cannot parse is already a compile error elsewhere.
-			continue
-		}
-		if !bytes.Equal(source, formatted) {
-			pass.Reportf(start, "file is not gofmt-formatted; run gofmt -w")
+		if !Formatted(source) {
+			pass.Reportf(start, UnformattedMessage)
 		}
 	}
 	return nil, nil
+}
+
+// Formatted reports whether source is what gofmt writes. A file the formatter
+// cannot parse is already a compile error elsewhere, so it counts as formatted.
+func Formatted(source []byte) bool {
+	formatted, err := format.Source(source)
+	return err != nil || bytes.Equal(source, formatted)
 }
