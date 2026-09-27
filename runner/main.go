@@ -368,13 +368,29 @@ func mutationSelfTest(ctx context.Context, fixtures *dagger.Directory, tools too
 		return fmt.Errorf("mutation/weak must report exactly %v, with limits/ excluded; got %v (summary %+v)", want, survivors, weak.Summary)
 	}
 
-	// With only line 5 changed, the line-8 survivor is reported, not failed.
+	// With only line 5 changed, gremlins runs line 5's two mutants and skips
+	// line 8's without testing them.
 	scoped, err := mutate(ctx, fixtures.Directory("weak"), ".", tools, scopeSelfTest, []string{"clamp.go"}, map[string][]lineRange{"clamp.go": {{Start: 5, End: 5}}}, defaultAcceptedPath, "", nonce)
 	if err != nil {
 		return fmt.Errorf("mutation/weak with changed lines must not be a tool error: %w", err)
 	}
-	if len(scoped.Findings) != 1 || scoped.Findings[0].Location.Line != 5 || scoped.Summary.Unchanged != 1 || scoped.Summary.UnchangedList[0].Line != 8 {
-		return fmt.Errorf("mutation/weak limited to line 5 must fail only there and list line 8 as unchanged; got %+v", scoped)
+	if len(scoped.Findings) != 1 || scoped.Findings[0].Location.Line != 5 || scoped.Summary.Killed != 1 || scoped.Summary.Skipped != 2 || scoped.Summary.Unchanged != 0 {
+		return fmt.Errorf("mutation/weak limited to line 5 must fail only there and skip line 8; got %+v", scoped)
+	}
+
+	// A change that wrote none of the file's lines runs none of its mutants.
+	// Gremlins takes an empty diff to mean every line, so this also checks
+	// that the runner never hands it one.
+	untouched, err := mutate(ctx, fixtures.Directory("weak"), ".", tools, scopeSelfTest, []string{"clamp.go"}, map[string][]lineRange{"clamp.go": {}}, defaultAcceptedPath, "", nonce)
+	if err != nil || len(untouched.Findings) != 0 || untouched.Summary.Skipped != 4 || untouched.Summary.Killed != 0 {
+		return fmt.Errorf("mutation/weak with no changed lines must skip all four mutants: %+v %v", untouched, err)
+	}
+
+	// Accepted entries' lines run even when unchanged, so an entry stays
+	// judged: both still accept their survivors.
+	kept, err := mutate(ctx, fixtures.Directory("accepted"), ".", tools, scopeSelfTest, []string{"clamp.go"}, map[string][]lineRange{"clamp.go": {}}, defaultAcceptedPath, "", nonce)
+	if err != nil || len(kept.Findings) != 0 || kept.Summary.Accepted != 2 || kept.Summary.Skipped != 0 {
+		return fmt.Errorf("mutation/accepted with no changed lines must still run and accept both boundary survivors: %+v %v", kept, err)
 	}
 	return nil
 }

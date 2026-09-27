@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -219,6 +220,17 @@ func TestDecideMutationIsIncompleteOnlyWhenEveryCoveredMutantTimedOut(t *testing
 	}
 }
 
+// skippedOn marks every mutant on a line as gremlins does for a line outside
+// its diff: skipped without running the tests.
+func skippedOn(body string, lines ...int) string {
+	for _, line := range lines {
+		for _, status := range []string{"KILLED", "LIVED"} {
+			body = strings.ReplaceAll(body, `"status":"`+status+`","line":`+strconv.Itoa(line)+`,`, `"status":"SKIPPED","line":`+strconv.Itoa(line)+`,`)
+		}
+	}
+	return body
+}
+
 func TestDecideMutationFailsOnlyOnChangedLines(t *testing.T) {
 	in := mutationInput{
 		Module:  ".",
@@ -227,7 +239,7 @@ func TestDecideMutationFailsOnlyOnChangedLines(t *testing.T) {
 		Sources: sources(t, "weak", "clamp.go"),
 	}
 
-	verdict, err := decideMutation(reported(report(t, "weak")), in)
+	verdict, err := decideMutation(reported(skippedOn(report(t, "weak"), 8)), in)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,8 +247,148 @@ func TestDecideMutationFailsOnlyOnChangedLines(t *testing.T) {
 	if len(verdict.Findings) != 1 || verdict.Findings[0].Location.Line != 5 {
 		t.Fatalf("only the survivor on changed line 5 fails: %+v", verdict.Findings)
 	}
-	if verdict.Summary.Lived != 1 || verdict.Summary.Unchanged != 1 || verdict.Summary.UnchangedList[0].Line != 8 {
+	if verdict.Summary.Lived != 1 || verdict.Summary.Unchanged != 0 || verdict.Summary.Skipped != 2 {
+		t.Errorf("the line-8 mutants must be skipped, not run: %+v", verdict.Summary)
+	}
+}
+
+func TestDecideMutationListsSurvivorsOnAnAcceptedEntrysUnchangedLine(t *testing.T) {
+	// The entry names line 8, so its mutants run although the change did not
+	// write that line: the entry is now caught, and the other mutant on the
+	// line survives without failing the check.
+	entries := []acceptedEntry{{File: "clamp.go", Mutator: "CONDITIONALS_NEGATION", Line: "if n > hi {", Reason: "old"}}
+	in := mutationInput{
+		Module:   ".",
+		Files:    []string{"clamp.go"},
+		Lines:    map[string][]lineRange{"clamp.go": {{Start: 4, End: 6}}},
+		Sources:  sources(t, "weak", "clamp.go"),
+		Accepted: entries,
+	}
+
+	verdict, err := decideMutation(reported(report(t, "weak")), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := codes(verdict.Findings); !slices.Equal(got, []string{"go-mutation", "go-mutation-stale"}) {
+		t.Fatalf("findings = %v, want the line-5 survivor and the caught entry", verdict.Findings)
+	}
+	if verdict.Summary.Unchanged != 1 || verdict.Summary.UnchangedList[0].Line != 8 || verdict.Summary.Skipped != 0 {
 		t.Errorf("the line-8 survivor must be listed as unchanged: %+v", verdict.Summary)
+	}
+}
+
+func TestDecideMutationRejectsARunThatIgnoredTheChangedLines(t *testing.T) {
+	in := mutationInput{
+		Module:  ".",
+		Files:   []string{"clamp.go"},
+		Lines:   map[string][]lineRange{"clamp.go": {{Start: 5, End: 5}}},
+		Sources: sources(t, "weak", "clamp.go"),
+	}
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		// A diff gremlins could not match to the file skips every mutant, and
+		// an empty one runs them all; either would change the verdict unseen.
+		{"a changed line skipped", skippedOn(report(t, "weak"), 5, 8), "skipped clamp.go:5"},
+		{"an unchanged line run", report(t, "weak"), "ran clamp.go:8"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := decideMutation(reported(tc.body), in)
+
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("want an error mentioning %q, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
+func TestMutatedLinesAddsEveryLineAnAcceptedEntryNames(t *testing.T) {
+	weak := sources(t, "weak", "clamp.go")
+	in := mutationInput{
+		Files:   []string{"clamp.go", "new.go"},
+		Lines:   map[string][]lineRange{"clamp.go": {{Start: 5, End: 6}}},
+		Sources: map[string][]string{"clamp.go": weak["clamp.go"], "new.go": {"package weak", "", "var x = 1", ""}},
+		Accepted: []acceptedEntry{
+			{File: "clamp.go", Mutator: "CONDITIONALS_BOUNDARY", Line: "if n > hi {"},
+			{File: "clamp.go", Mutator: "CONDITIONALS_BOUNDARY", Line: "return n", Function: "Other"},
+			{File: "clamp.go", Mutator: "CONDITIONALS_BOUNDARY", Line: "if n < lo {"},
+			{File: "gone.go", Mutator: "CONDITIONALS_BOUNDARY", Line: "if n > hi {"},
+		},
+	}
+
+	got := mutatedLines(in)
+
+	// An entry is run on its line whatever its mutator, a qualifier that
+	// names another function adds nothing, and an untracked file runs whole.
+	want := map[string][]lineRange{
+		"clamp.go": {{Start: 5, End: 6}, {Start: 8, End: 8}},
+		"new.go":   {{Start: 1, End: 4}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("mutatedLines = %v, want %v", got, want)
+	}
+	if lines := mutatedLines(mutationInput{Files: in.Files, Sources: in.Sources, Accepted: in.Accepted}); lines != nil {
+		t.Errorf("module scope runs every line, got %v", lines)
+	}
+}
+
+func TestChangedDiffNamesEachRunLineForGremlins(t *testing.T) {
+	run := map[string][]lineRange{
+		"clamp.go":    {{Start: 5, End: 6}, {Start: 8, End: 8}},
+		"pkg/a b.go":  {{Start: 1, End: 1}},
+		"deleted.go":  nil,
+		"pkg/q\"x.go": {{Start: 2, End: 3}},
+	}
+
+	got := changedDiff(run)
+
+	// gremlins counts a hunk's added lines from its new start; quoted names
+	// survive spaces and quotes, and the placeholder keeps the diff non-empty,
+	// which gremlins would otherwise take as "every line changed".
+	want := strings.Join([]string{
+		`diff --git "a/.levenshtein-no-changed-go-lines" "b/.levenshtein-no-changed-go-lines"`,
+		`--- "a/.levenshtein-no-changed-go-lines"`,
+		`+++ "b/.levenshtein-no-changed-go-lines"`,
+		`@@ -0,0 +1,1 @@`,
+		`+`,
+		`diff --git "a/clamp.go" "b/clamp.go"`,
+		`--- "a/clamp.go"`,
+		`+++ "b/clamp.go"`,
+		`@@ -0,0 +5,2 @@`,
+		`+`,
+		`+`,
+		`@@ -0,0 +8,1 @@`,
+		`+`,
+		`diff --git "a/pkg/a b.go" "b/pkg/a b.go"`,
+		`--- "a/pkg/a b.go"`,
+		`+++ "b/pkg/a b.go"`,
+		`@@ -0,0 +1,1 @@`,
+		`+`,
+		`diff --git "a/pkg/q\"x.go" "b/pkg/q\"x.go"`,
+		`--- "a/pkg/q\"x.go"`,
+		`+++ "b/pkg/q\"x.go"`,
+		`@@ -0,0 +2,2 @@`,
+		`+`,
+		`+`,
+		``,
+	}, "\n")
+	if got != want {
+		t.Fatalf("changedDiff =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestGremlinsCommandReadsTheDiffOnlyWhenLinesAreLimited(t *testing.T) {
+	limited := gremlinsCommand(10, "", nil, true)
+	every := gremlinsCommand(10, "", nil, false)
+
+	if i := slices.Index(limited, "--diff"); i < 0 || limited[i+1] != gremlinsDiffRef {
+		t.Errorf("a limited run must pass --diff %s: %q", gremlinsDiffRef, limited)
+	}
+	if slices.Contains(every, "--diff") {
+		t.Errorf("a run over every line must not pass --diff, which mutates only changed lines: %q", every)
 	}
 }
 
@@ -262,16 +414,16 @@ func TestDecideMutationCountsEveryLineWithoutARange(t *testing.T) {
 
 func TestDecideMutationPassesADeletionOnlyChange(t *testing.T) {
 	// A file whose change only removed lines has an entry with no ranges, so
-	// every survivor in it is inherited.
+	// none of its mutants run.
 	in := mutationInput{Module: ".", Files: []string{"clamp.go"}, Lines: map[string][]lineRange{"clamp.go": {}}, Sources: sources(t, "weak", "clamp.go")}
 
-	verdict, err := decideMutation(reported(report(t, "weak")), in)
+	verdict, err := decideMutation(reported(skippedOn(report(t, "weak"), 5, 8)), in)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(verdict.Findings) != 0 || verdict.Summary.Unchanged != 2 {
-		t.Fatalf("a deletion-only change fails on nothing it did not write: %+v", verdict)
+	if len(verdict.Findings) != 0 || verdict.Summary.Skipped != 4 || verdict.Summary.Killed != 0 {
+		t.Fatalf("a deletion-only change runs nothing it did not write: %+v", verdict)
 	}
 }
 
@@ -561,7 +713,7 @@ func TestLongerCoefficientLiftsAShortLimitAboveTheFloor(t *testing.T) {
 	if limit := 29378255 * time.Nanosecond * time.Duration(coefficient); limit < 2*mutantTimeFloor {
 		t.Errorf("coefficient %d gives a %s limit, want at least twice the %s floor", coefficient, limit, mutantTimeFloor)
 	}
-	if got := gremlinsCommand(coefficient, "", nil); !slices.Contains(got, strconv.Itoa(coefficient)) {
+	if got := gremlinsCommand(coefficient, "", nil, false); !slices.Contains(got, strconv.Itoa(coefficient)) {
 		t.Errorf("the command %q must pass coefficient %d", got, coefficient)
 	}
 
