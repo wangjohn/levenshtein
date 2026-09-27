@@ -158,7 +158,8 @@ type LintCheck struct {
 
 // ImportsCheck holds a go-imports check's layering rules. The check passes
 // them to levenshtein-gocheck unchanged, so this shape mirrors ImportRules in
-// runner/lint/gocheck; change both together.
+// runner/lint/gocheck; change both together. Both round-trip the fixture in
+// runner/testdata/import-rules.json.
 type ImportsCheck struct {
 	Rules []ImportRule `json:"rules"`
 }

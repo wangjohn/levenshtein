@@ -3,6 +3,7 @@ package verify
 import "testing"
 
 func TestPreparationAndBuildHaveTheSamePlanningRules(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{"preparation", "build"} {
 		for _, tc := range []struct {
 			name   string
@@ -18,6 +19,7 @@ func TestPreparationAndBuildHaveTheSamePlanningRules(t *testing.T) {
 			{"valid", func(*Preparation) {}},
 		} {
 			t.Run(kind+"/"+tc.name, func(t *testing.T) {
+				t.Parallel()
 				stage := Preparation{Command: []string{"true"}, Inputs: []string{"lock"}, Outputs: []string{"ready"}}
 				tc.change(&stage)
 				var preparation, build string

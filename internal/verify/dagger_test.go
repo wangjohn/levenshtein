@@ -10,6 +10,7 @@ import (
 )
 
 func TestDaggerResultSeparatesLintFromInfrastructureFailures(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name   string
 		status Status
@@ -23,6 +24,7 @@ func TestDaggerResultSeparatesLintFromInfrastructureFailures(t *testing.T) {
 		{"lint", StatusFailed, gqlerror.List{&gqlerror.Error{Message: "lint failed", Extensions: map[string]any{"levenshteinFindings": []any{map[string]any{"code": "SA5001"}}}}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := daggerResult(tc.err)
 			if got.Status != tc.status {
 				t.Fatalf("%+v", got)
@@ -38,6 +40,7 @@ func TestDaggerResultSeparatesLintFromInfrastructureFailures(t *testing.T) {
 }
 
 func TestDaggerRejectsUnknownCheckBeforeStartingEngine(t *testing.T) {
+	t.Parallel()
 	const invalidCheckKind CheckKind = "typo"
 	runner := &Dagger{}
 
@@ -48,6 +51,7 @@ func TestDaggerRejectsUnknownCheckBeforeStartingEngine(t *testing.T) {
 }
 
 func TestDaggerToolFailureKeepsOutput(t *testing.T) {
+	t.Parallel()
 	got := daggerResult(gqlerror.List{&gqlerror.Error{
 		Message:    "process exited 1",
 		Extensions: map[string]any{"stdout": "loading packages", "stderr": "no required module provides package example.invalid/missing"},

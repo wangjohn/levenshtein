@@ -216,6 +216,16 @@ while a background process still held its output passes, with a
 
 ## Result cache
 
+What a run remembers between its checks lives on a `Session`
+(`internal/verify/session.go`), which the CLI opens for the run and
+`Session.Execute` hands to every `Request`: the file stat memo, one git
+listing per source, the shared implementation snapshot, and the host Go
+toolchain's identity. None of it is package state, so a later session in the
+same process, such as a watch loop or an editor integration would open, sees
+the tree and the shared checkout as they are then, and the package's tests
+run in parallel. The workspace gates in step 2 are the exception: they are one
+per source per process, whichever session asks.
+
 `internal/verify/cache.go` wraps an `Executor` in `CachedExecutor`. For an
 eligible check (Dagger checks, the shared Go kinds on either executor, or
 native `command` checks with `cache: true`), it:
@@ -234,7 +244,7 @@ native `command` checks with `cache: true`), it:
    `discovery`. `internal/verify/discovery.go` runs
    `git -c core.excludesFile= ls-files -z --cached --others
    --exclude-per-directory=.gitignore` (git found through absolute `PATH`
-   entries only) once per source per process, and again after each check or
+   entries only) once per source per session, and again after each check or
    preparation/build stage executes, whatever its outcome. `snapshot` walks
    only the listed paths that fall under each input, found by binary search in
    the sorted listing. A listed path that is a directory (a submodule's gitlink
@@ -269,9 +279,9 @@ native `command` checks with `cache: true`), it:
    executor reads.
 
    Content hashes run concurrently (`errgroup`, bounded by `GOMAXPROCS`) and go
-   through the process-wide stat memo in `internal/verify/statcache.go`, keyed
+   through the session's stat memo in `internal/verify/statcache.go`, keyed
    by root and relative path and validated against size, modification time,
-   inode, and permissions. `Cache.Flush` persists one record per root under
+   inode, and permissions. `Session.Flush` persists one record per root under
    `cache.Dir/stat/<digest(root)>.json` through the same checksummed envelope
    the result records use; `cmd/levenshtein/main.go` calls it as the run ends.
    Every record, result or stat, is capped at 64 MiB on write as well as read,
@@ -292,7 +302,9 @@ native `command` checks with `cache: true`), it:
    `semantic-lint`) enter together and a `command` check, which can write the
    tree, enters alone. The process holds one advisory per-source file lock
    while any of its checks are inside, so processes sharing a cache directory
-   do not mutate one checkout at the same time. A check whose context ends
+   do not mutate one checkout at the same time. Because that lock is taken
+   once per process, every session in the process shares the gates
+   (`processWorkspaces`) rather than keeping its own. A check whose context ends
    while it waits is reported as `cancelled`.
 3. On a hit, restores the recorded result and any declared `Artifacts` from
    `cache.Dir/results/<key>.json` (atomic, rejects symlinked destinations).
@@ -383,7 +395,10 @@ See [output formats](configuration.md#output-formats) and
   runtime and the builder that compiles it for a configuration's rule modules.
   It shares only its Staticcheck pin with `runner/lint`, so community rules can
   require newer versions of other dependencies without touching the core
-  linter.
+  linter. Since it cannot import `runner/lint`, its failure guard and the
+  adapter that keeps findings out of generated files are copies of the core
+  linter's that `go generate ./internal/copygen` in `runner/lint` writes;
+  `TestCommunityCopiesAreCurrent` fails while a copy differs from its source.
 - **`runner/tools/`**: one module per pinned Go tool (`actionlint`,
   `apidiff`, `gitleaks`, `govulncheck`, and `gremlins`), each naming its tool
   in a single `tool` directive, so their versions are locked independently of

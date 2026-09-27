@@ -47,6 +47,7 @@ func TestResultCopiesPreserveDiagnosticsAndMetadata(t *testing.T) {
 }
 
 func TestTypedStatusesKeepJSONSpellings(t *testing.T) {
+	t.Parallel()
 	data, err := json.Marshal(Result{Status: StatusPassed, Cache: CacheInfo{Status: CacheHit}})
 	if err != nil {
 		t.Fatal(err)

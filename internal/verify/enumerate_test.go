@@ -47,7 +47,6 @@ func fileSetRepository(t *testing.T) string {
 	}
 	runGit(t, root, "add", ".gitignore", "main.go", "pkg/lib.go", "pkg/embed.go", "build/tracked.txt")
 	runGit(t, root, "add", "-f", "gen/keep.pb.go")
-	relist(root)
 	return root
 }
 
@@ -71,7 +70,6 @@ func planFor(t *testing.T, root string, kind CheckKind, executor ExecutorKind) P
 // ignored Go file does, or go vet replays a pass over code it never saw.
 func TestGoKindKeyCoversIgnoredGoFiles(t *testing.T) {
 	root := fileSetRepository(t)
-	stats.configure(t.TempDir())
 	for _, executor := range []ExecutorKind{ExecutorDagger, ExecutorNative} {
 		t.Run(string(executor), func(t *testing.T) {
 			req := Request{Source: root, Shared: t.TempDir(), PlannedCheck: planFor(t, root, CheckGoVet, executor)}
@@ -97,7 +95,6 @@ func TestGoKindKeyCoversIgnoredGoFiles(t *testing.T) {
 // an ignored directory a package embeds changes it, links included.
 func TestGoKindKeySkipsUnloadableIgnoredTrees(t *testing.T) {
 	root := fileSetRepository(t)
-	stats.configure(t.TempDir())
 	for _, executor := range []ExecutorKind{ExecutorDagger, ExecutorNative} {
 		t.Run(string(executor), func(t *testing.T) {
 			req := Request{Source: root, Shared: t.TempDir(), PlannedCheck: planFor(t, root, CheckGoVet, executor)}
@@ -141,6 +138,7 @@ func TestGoKindKeySkipsUnloadableIgnoredTrees(t *testing.T) {
 // ignored link from one tracked package to another changes what the Go
 // toolchain compiles, and must change a Go kind's key.
 func TestGoKindKeyCoversIgnoredDirectoryLinks(t *testing.T) {
+	t.Parallel()
 	root := fileSetRepository(t)
 	writeFile(t, filepath.Join(root, ".gitignore"), "gen/\ndeps/\n*.log\n.env\nnode_modules/\n_build/\n*_generated.go\npkg/assets/\n*.out\n/impl\n")
 	writeFile(t, filepath.Join(root, "impl_a", "a.go"), sourceOne)
@@ -149,8 +147,6 @@ func TestGoKindKeyCoversIgnoredDirectoryLinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	runGit(t, root, "add", ".gitignore", "impl_a", "impl_b")
-	relist(root)
-	stats.configure(t.TempDir())
 	req := Request{Source: root, Shared: t.TempDir(), PlannedCheck: planFor(t, root, CheckGoVet, ExecutorNative)}
 
 	before, err := fingerprint(t.Context(), req)
@@ -177,13 +173,13 @@ func TestGoKindKeyCoversIgnoredDirectoryLinks(t *testing.T) {
 // the key or the go-generate copy could hold, so it stays out of both rather
 // than failing the copy.
 func TestGoKindOmitsIgnoredLinksOutOfTheSource(t *testing.T) {
+	t.Parallel()
 	root := fileSetRepository(t)
 	writeFile(t, filepath.Join(root, ".gitignore"), "gen/\ndeps/\n*.log\n.env\nnode_modules/\n_build/\n*_generated.go\npkg/assets/\n*.out\n/result\n")
 	if err := os.Symlink(t.TempDir(), filepath.Join(root, "result")); err != nil {
 		t.Fatal(err)
 	}
 	runGit(t, root, "add", ".gitignore")
-	relist(root)
 	req := Request{Source: root, PlannedCheck: planFor(t, root, CheckGoGenerate, ExecutorNative)}
 
 	err := copyInputs(t.Context(), req, t.TempDir())
@@ -196,13 +192,12 @@ func TestGoKindOmitsIgnoredLinksOutOfTheSource(t *testing.T) {
 // refusing a tree whose manifest disagrees with go.mod, so an edit to an
 // ignored manifest must change a Go kind's key.
 func TestGoKindKeyCoversIgnoredVendorManifest(t *testing.T) {
+	t.Parallel()
 	root := fileSetRepository(t)
 	writeFile(t, filepath.Join(root, ".gitignore"), "gen/\ndeps/\n*.log\n.env\nnode_modules/\n_build/\n*_generated.go\npkg/assets/\n*.out\nvendor/\n")
 	writeFile(t, filepath.Join(root, "vendor", "example.com", "dep", "dep.go"), sourceOne)
 	writeFile(t, filepath.Join(root, "vendor", "modules.txt"), "# example.com/dep v1.0.0\n## explicit; go 1.21\nexample.com/dep\n")
 	runGit(t, root, "add", ".gitignore")
-	relist(root)
-	stats.configure(t.TempDir())
 	req := Request{Source: root, Shared: t.TempDir(), PlannedCheck: planFor(t, root, CheckGoVet, ExecutorNative)}
 
 	before, err := fingerprint(t.Context(), req)
@@ -224,6 +219,7 @@ func TestGoKindKeyCoversIgnoredVendorManifest(t *testing.T) {
 // ignored file is in neither, so adding a secret to one cannot replay a pass
 // over a scan that read it.
 func TestVisibleFilesLeaveOutIgnoredFiles(t *testing.T) {
+	t.Parallel()
 	root := fileSetRepository(t)
 	req := Request{Source: root, PlannedCheck: planFor(t, root, CheckSecrets, ExecutorNative)}
 
@@ -241,6 +237,7 @@ func TestVisibleFilesLeaveOutIgnoredFiles(t *testing.T) {
 // case-insensitive filesystem but matches nothing git lists; it must not
 // silently contribute nothing to the key.
 func TestMisspelledInputIsRejected(t *testing.T) {
+	t.Parallel()
 	root := fileSetRepository(t)
 	config := `{"version":1,"targets":{"t":{"dir":".","inputs":["PKG"]}},"environments":{"e":{"executor":"native"}},"checks":{"c":{"kind":"secrets","target":"t","environment":"e"}},"runs":{"r":{"checks":["c"]}}}`
 	cfg, err := Parse([]byte(config))
@@ -258,7 +255,7 @@ func TestMisspelledInputIsRejected(t *testing.T) {
 		return
 	}
 
-	_, err = snapshot(t.Context(), snapshotRequest{Root: root, Paths: []string{"PKG"}, Discovery: DiscoveryGit})
+	_, err = sessionAt("").snapshot(t.Context(), snapshotRequest{Root: root, Paths: []string{"PKG"}, Discovery: DiscoveryGit})
 	if err == nil || !strings.Contains(err.Error(), `"pkg"`) {
 		t.Fatalf("a misspelled input was fingerprinted as empty: %v", err)
 	}
@@ -270,6 +267,7 @@ func TestMisspelledInputIsRejected(t *testing.T) {
 // spelling reads each directory's entries, so it finds the on-disk spelling of
 // a path on any filesystem, preferring an exact match to a case-folded one.
 func TestSpellingFollowsTheDirectoryEntries(t *testing.T) {
+	t.Parallel()
 	source := t.TempDir()
 	writeFile(t, filepath.Join(source, "Src", "Main.go"), sourceOne)
 	dir, err := os.OpenRoot(source)
@@ -293,6 +291,7 @@ func TestSpellingFollowsTheDirectoryEntries(t *testing.T) {
 // A source whose spelling cannot be checked, because it cannot be opened, is
 // an error rather than a pass.
 func TestSpellingCheckOfAnUnopenableSourceFails(t *testing.T) {
+	t.Parallel()
 	source := filepath.Join(t.TempDir(), "missing")
 
 	if err := spelledAsOnDisk(source, []string{"pkg"}); !errors.Is(err, fs.ErrNotExist) {
@@ -303,9 +302,8 @@ func TestSpellingCheckOfAnUnopenableSourceFails(t *testing.T) {
 // An input that names an ignored directory below a tracked one is keyed by
 // what the Go toolchain can load from it.
 func TestGoKindKeyCoversAnIgnoredInputDirectory(t *testing.T) {
+	t.Parallel()
 	root := fileSetRepository(t)
-	stats.configure(t.TempDir())
-
 	config := `{"version":1,"targets":{"t":{"dir":".","inputs":["gen/deep","pkg/assets"]}},"environments":{"e":{"executor":"native"}},"checks":{"c":{"kind":"go-vet","target":"t","environment":"e"}},"runs":{"r":{"checks":["c"]}}}`
 	cfg, err := Parse([]byte(config))
 	if err != nil {
@@ -326,11 +324,11 @@ func TestGoKindKeyCoversAnIgnoredInputDirectory(t *testing.T) {
 // An input the filesystem cannot inspect fails the key rather than being
 // keyed as present and empty.
 func TestUninspectableInputFailsTheKey(t *testing.T) {
+	t.Parallel()
 	root := fileSetRepository(t)
-	stats.configure(t.TempDir())
 	name := strings.Repeat("n", 300) // Longer than any filesystem allows a name to be.
 
-	if _, err := snapshot(t.Context(), snapshotRequest{Root: root, Paths: []string{name}, Discovery: DiscoveryGit}); err == nil {
+	if _, err := sessionAt("").snapshot(t.Context(), snapshotRequest{Root: root, Paths: []string{name}, Discovery: DiscoveryGit}); err == nil {
 		t.Fatal("an input that could not be inspected was fingerprinted")
 	}
 }
@@ -339,16 +337,17 @@ func TestUninspectableInputFailsTheKey(t *testing.T) {
 // discovery it follows the source symlink policy, which disables result reuse,
 // rather than hashing nothing (git) or the link target's files (filesystem).
 func TestInputThroughASymlinkFollowsTheSymlinkPolicy(t *testing.T) {
+	t.Parallel()
 	root := fileSetRepository(t)
 	if err := os.Symlink("pkg", filepath.Join(root, "link")); err != nil {
 		t.Fatal(err)
 	}
 	runGit(t, root, "add", "link")
-	relist(root)
 
 	for _, discovery := range discoveryKinds {
 		t.Run(string(discovery), func(t *testing.T) {
-			_, err := snapshot(t.Context(), snapshotRequest{Root: root, Paths: []string{filepath.Join("link", "lib.go")}, Discovery: discovery})
+			t.Parallel()
+			_, err := sessionAt("").snapshot(t.Context(), snapshotRequest{Root: root, Paths: []string{filepath.Join("link", "lib.go")}, Discovery: discovery})
 			if err == nil || !strings.Contains(err.Error(), "symlink") {
 				t.Fatalf("an input through a symlink was fingerprinted: %v", err)
 			}
@@ -359,16 +358,16 @@ func TestInputThroughASymlinkFollowsTheSymlinkPolicy(t *testing.T) {
 // git lists an untracked nested repository as one path, so an input inside it
 // has nothing listed under it; its files must still enter the key.
 func TestInputInsideANestedRepositoryIsFingerprinted(t *testing.T) {
+	t.Parallel()
 	root := fileSetRepository(t)
 	writeFile(t, filepath.Join(root, "nested", "lib.go"), sourceOne)
 	runGit(t, filepath.Join(root, "nested"), "init")
-	relist(root)
-	stats.configure(t.TempDir())
+	session := sessionAt("")
 	req := snapshotRequest{Root: root, Paths: []string{filepath.Join("nested", "lib.go")}, Discovery: DiscoveryGit}
 
-	before := mustSnapshot(t, req)
+	before := mustSnapshot(t, session, req)
 	writeFile(t, filepath.Join(root, "nested", "lib.go"), sourceThree+sourceThree)
-	if mustSnapshot(t, req) == before {
+	if mustSnapshot(t, session, req) == before {
 		t.Fatal("editing an input inside a nested repository left the key unchanged")
 	}
 }
@@ -390,7 +389,7 @@ var (
 // files anything reads.
 func keyedFiles(t *testing.T, req Request) []string {
 	t.Helper()
-	entries, err := snapshotEntries(t.Context(), keyedSource(req))
+	entries, err := sessionAt("").snapshotEntries(t.Context(), keyedSource(req))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,7 +412,7 @@ func withoutPrivate(files []string) []string {
 // private patterns, one pattern per path.
 func excludedPaths(t *testing.T, req Request) []string {
 	t.Helper()
-	excludes, err := importExcludes(t.Context(), targetFiles(req))
+	excludes, err := importExcludes(t.Context(), sessionAt(""), targetFiles(req))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -434,7 +433,6 @@ func excludedPaths(t *testing.T, req Request) []string {
 // compared in TestDaggerImportMatchesTheKey, which needs an engine.
 func TestFileSetConformance(t *testing.T) {
 	root := fileSetRepository(t)
-	stats.configure(t.TempDir())
 
 	t.Run("git discovery", func(t *testing.T) {
 		req := Request{Source: root, PlannedCheck: planFor(t, root, CheckSecrets, ExecutorNative)}
@@ -496,15 +494,13 @@ func TestFileSetConformance(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() { _ = os.Remove(link) }()
-		relist(root)
-		defer relist(root)
 
 		for _, kind := range []CheckKind{CheckSecrets, CheckGoVet} {
 			req := Request{Source: root, PlannedCheck: planFor(t, root, kind, ExecutorDagger)}
-			if _, err := snapshot(t.Context(), keyedSource(req)); err == nil || !strings.Contains(err.Error(), "symlink") {
+			if _, err := sessionAt("").snapshot(t.Context(), keyedSource(req)); err == nil || !strings.Contains(err.Error(), "symlink") {
 				t.Errorf("%s: the key hashed a symlink: %v", kind, err)
 			}
-			if _, err := importExcludes(t.Context(), targetFiles(req)); err == nil || !strings.Contains(err.Error(), "symlink") {
+			if _, err := importExcludes(t.Context(), sessionAt(""), targetFiles(req)); err == nil || !strings.Contains(err.Error(), "symlink") {
 				t.Errorf("%s: the Dagger import accepted a symlink: %v", kind, err)
 			}
 		}
@@ -515,6 +511,7 @@ func TestFileSetConformance(t *testing.T) {
 // hold the input itself and everything below it, and nothing that merely
 // shares its first bytes.
 func TestListedUnderFindsExactlyAnInputsPaths(t *testing.T) {
+	t.Parallel()
 	sep := string(filepath.Separator)
 	listed := []string{"a", "a-b", "a.go", "a" + sep + "x", "a" + sep + "y" + sep + "z", "ab", "b" + sep + "a"}
 	slices.Sort(listed)

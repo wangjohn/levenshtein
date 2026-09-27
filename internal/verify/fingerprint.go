@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
-	"sync"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -69,8 +68,9 @@ type hashTarget struct {
 
 // Snapshot hashes content, names and modes, including untracked files and missing
 // paths. Source symlinks disable result reuse; output snapshots retain link text.
-func snapshot(ctx context.Context, req snapshotRequest) (string, error) {
-	entries, err := snapshotEntries(ctx, req)
+// The session supplies the git listing and the file stat memo.
+func (s *Session) snapshot(ctx context.Context, req snapshotRequest) (string, error) {
+	entries, err := s.snapshotEntries(ctx, req)
 	if err != nil {
 		return "", err
 	}
@@ -79,7 +79,7 @@ func snapshot(ctx context.Context, req snapshotRequest) (string, error) {
 
 // snapshotEntries is what snapshot digests: one entry per enumerated path,
 // keyed by its root-relative path.
-func snapshotEntries(ctx context.Context, req snapshotRequest) (map[string]string, error) {
+func (s *Session) snapshotEntries(ctx context.Context, req snapshotRequest) (map[string]string, error) {
 	dir, err := os.OpenRoot(req.Root)
 	if err != nil {
 		return nil, err
@@ -96,13 +96,13 @@ func snapshotEntries(ctx context.Context, req snapshotRequest) (map[string]strin
 
 	entries := map[string]string{}
 	var files []hashTarget
-	err = set.walk(ctx, dir, func(rel string, info fs.FileInfo, scope pathScope) error {
+	err = set.walk(ctx, s, dir, func(rel string, info fs.FileInfo, scope pathScope) error {
 		return record(dir, req, rel, info, scope, entries, &files)
 	})
 	if err != nil {
 		return nil, err
 	}
-	if err := hashFiles(req.Root, dir, files, entries); err != nil {
+	if err := hashFiles(s.stats, req.Root, dir, files, entries); err != nil {
 		return nil, err
 	}
 	return entries, nil
@@ -146,7 +146,7 @@ func record(dir *os.Root, req snapshotRequest, rel string, info fs.FileInfo, sco
 
 // hashFiles reads every queued file, bounded by the available parallelism. The
 // resulting entries map does not depend on completion order.
-func hashFiles(root string, dir *os.Root, files []hashTarget, entries map[string]string) error {
+func hashFiles(stats *statStore, root string, dir *os.Root, files []hashTarget, entries map[string]string) error {
 	if len(files) == 0 {
 		return nil
 	}
@@ -157,7 +157,7 @@ func hashFiles(root string, dir *os.Root, files []hashTarget, entries map[string
 	group.SetLimit(runtime.GOMAXPROCS(0))
 	for i, file := range files {
 		group.Go(func() error {
-			value, err := fileEntry(root, dir, file)
+			value, err := fileEntry(stats, root, dir, file)
 			values[i] = value
 			return err
 		})
@@ -172,7 +172,7 @@ func hashFiles(root string, dir *os.Root, files []hashTarget, entries map[string
 	return nil
 }
 
-func fileEntry(root string, dir *os.Root, file hashTarget) (string, error) {
+func fileEntry(stats *statStore, root string, dir *os.Root, file hashTarget) (string, error) {
 	key := statKey{Root: root, Path: file.Path}
 	current := statOf(file.Info)
 	if value, ok := stats.lookup(key, current); ok {
@@ -219,8 +219,8 @@ type implementationKey struct {
 	Runner   bool
 }
 
-// implementations memoizes the shared checkout's snapshot for the life of the
-// process. A run pins one Levenshtein checkout, and that checkout does not
+// implementation is the shared checkout's snapshot, memoized for the life of
+// the session. A run pins one Levenshtein checkout, and that checkout does not
 // change while the run executes, but fingerprint is called up to four times per
 // check and every preparation stage hashes it again; walking go.mod, go.sum,
 // cmd, internal and the Dagger runtime each time dominated cache lookups.
@@ -228,9 +228,8 @@ type implementationKey struct {
 // The trade-off this records: editing the shared checkout while a run is in
 // flight does not change its fingerprints. Start a new run after changing the
 // pinned checkout.
-var implementations sync.Map
-
 func implementation(ctx context.Context, req Request) (string, error) {
+	session := sessionOf(req)
 	// A shared Go check runs the shared checkout's linter and house rules
 	// (runner/lint), reads its rule list (runner/toolchain.json) and builds its
 	// pinned tools (runner/tools) on either executor, so all of runner/ decides
@@ -238,7 +237,7 @@ func implementation(ctx context.Context, req Request) (string, error) {
 	// adds rules would reuse results the new rules never saw.
 	runner := req.Environment.Executor == ExecutorDagger || sharedGoCheck(req.Check.Kind)
 	key := implementationKey{Shared: req.Shared, Executor: req.Environment.Executor, Runner: runner}
-	if memoized, ok := implementations.Load(key); ok {
+	if memoized, ok := session.implementations.Load(key); ok {
 		return memoized.(string), nil
 	}
 
@@ -251,12 +250,12 @@ func implementation(ctx context.Context, req Request) (string, error) {
 	}
 	// The shared checkout is also shipped as a release archive with no work
 	// tree, so it is always enumerated the same way wherever it came from.
-	impl, err := snapshot(ctx, snapshotRequest{Root: req.Shared, Paths: paths, Discovery: DiscoveryFilesystem})
+	impl, err := session.snapshot(ctx, snapshotRequest{Root: req.Shared, Paths: paths, Discovery: DiscoveryFilesystem})
 	if err != nil {
 		return "", err
 	}
 
-	implementations.Store(key, impl)
+	session.implementations.Store(key, impl)
 	return impl, nil
 }
 
@@ -279,7 +278,7 @@ func keyedSource(req Request) snapshotRequest {
 }
 
 func fingerprint(ctx context.Context, req Request) (string, error) {
-	source, err := snapshot(ctx, keyedSource(req))
+	source, err := sessionOf(req).snapshot(ctx, keyedSource(req))
 	if err != nil {
 		return "", err
 	}
@@ -323,7 +322,7 @@ func hostToolchain(ctx context.Context, req Request, env []string) (string, erro
 	if err != nil {
 		return "", err
 	}
-	identity, err := toolchainIdentity(ctx, dir, env)
+	identity, err := sessionOf(req).toolchainIdentity(ctx, dir, env)
 	if err != nil {
 		return "", err
 	}

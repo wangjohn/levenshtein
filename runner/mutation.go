@@ -871,16 +871,7 @@ func runGremlins(ctx context.Context, source *dagger.Directory, module string, t
 		ctr = ctr.WithEnvVariable("LEVENSHTEIN_RUN_NONCE", nonce)
 	}
 
-	checked := ctr.WithExec(gremlinsCommand(coefficient, tags, patterns), dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
-	exitCode, err := checked.ExitCode(ctx)
-	if err != nil {
-		return mutationRun{}, err
-	}
-	stdout, err := checked.Stdout(ctx)
-	if err != nil {
-		return mutationRun{}, err
-	}
-	stderr, err := checked.Stderr(ctx)
+	run, checked, err := runTool(ctx, ctr, gremlinsCommand(coefficient, tags, patterns))
 	if err != nil {
 		return mutationRun{}, err
 	}
@@ -888,15 +879,14 @@ func runGremlins(ctx context.Context, source *dagger.Directory, module string, t
 	if err != nil {
 		return mutationRun{}, err
 	}
-	run := mutationRun{ExitCode: exitCode, Stdout: stdout, Stderr: stderr, Coefficient: coefficient}
 	if !slices.Contains(entries, path.Base(gremlinsReportPath)) {
-		return run, nil
+		return mutationRun{ExitCode: run.ExitCode, Stdout: run.Stdout, Stderr: run.Stderr, Coefficient: coefficient}, nil
 	}
 	report, err := checked.File(gremlinsReportPath).Contents(ctx)
 	if err != nil {
 		return mutationRun{}, err
 	}
-	return mutationRun{ExitCode: exitCode, Stdout: stdout, Stderr: stderr, Report: report, Reported: true, Coefficient: coefficient}, nil
+	return mutationRun{ExitCode: run.ExitCode, Stdout: run.Stdout, Stderr: run.Stderr, Report: report, Reported: true, Coefficient: coefficient}, nil
 }
 
 // gremlinsCommand is one gremlins invocation over the module.

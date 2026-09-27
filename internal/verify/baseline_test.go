@@ -43,6 +43,7 @@ func findingsOf(t *testing.T, result Result) []finding {
 }
 
 func TestNormalizeMessage(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{
 		"unchecked error":                            "unchecked error",
 		"  two\tspaces \n and a newline ":            "two spaces and a newline",
@@ -57,6 +58,7 @@ func TestNormalizeMessage(t *testing.T) {
 }
 
 func TestBaselineAcceptsRecordedFindingsWhereverTheyMove(t *testing.T) {
+	t.Parallel()
 	check := lintCheck("lint", ".")
 	baseline := Baseline{Path: testBaselinePath, Entries: []BaselineEntry{lintEntry("a.go", "errcheck", "unchecked error", 2)}}
 
@@ -180,6 +182,7 @@ func TestBaselineReportsStaleEntries(t *testing.T) {
 }
 
 func TestBaselineAcrossChecksOfOneDirectory(t *testing.T) {
+	t.Parallel()
 	native, dagger := lintCheck("native-lint", "."), lintCheck("lint", ".")
 	baseline := Baseline{Path: testBaselinePath, Entries: []BaselineEntry{lintEntry("a.go", "gocognit", "too complex", 1)}}
 
@@ -200,6 +203,7 @@ func TestBaselineAcrossChecksOfOneDirectory(t *testing.T) {
 }
 
 func TestBaselineKeepsOtherDetails(t *testing.T) {
+	t.Parallel()
 	check := lintCheck("lint", ".")
 	details := json.RawMessage(`{"findings":[{"code":"errcheck","message":"unchecked error","location":{"file":"a.go","line":3,"column":1}}],"summary":{"kept":true}}`)
 	baseline := Baseline{Path: testBaselinePath, Entries: []BaselineEntry{lintEntry("a.go", "errcheck", "unchecked error", 1)}}
@@ -216,6 +220,7 @@ func TestBaselineKeepsOtherDetails(t *testing.T) {
 }
 
 func TestRecordBaseline(t *testing.T) {
+	t.Parallel()
 	lint, api := lintCheck("lint", "."), lintCheck("lint-api", "services/api")
 	vet := lintCheck("vet", ".")
 	vet.Check.Kind = CheckGoVet
@@ -298,8 +303,10 @@ func (u unproducible) report() Report {
 }
 
 func TestBaselineIgnoresEntriesACheckCouldNotProduce(t *testing.T) {
+	t.Parallel()
 	for name, tc := range unproducibleCases() {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			applied := tc.baseline().Apply(tc.report())
 
 			stale := findingsOf(t, applied.Results[0])
@@ -326,8 +333,10 @@ func TestBaselineIgnoresEntriesWhenACheckReportsOnlyOtherCodes(t *testing.T) {
 }
 
 func TestRecordBaselineKeepsEntriesACheckCouldNotProduce(t *testing.T) {
+	t.Parallel()
 	for name, tc := range unproducibleCases() {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			recorded, change, err := tc.baseline().Record(tc.report())
 			if err != nil {
 				t.Fatal(err)
@@ -343,6 +352,7 @@ func TestRecordBaselineKeepsEntriesACheckCouldNotProduce(t *testing.T) {
 // A check that did run the rule, on Dagger or with the rule turned back on,
 // still judges and records its entries.
 func TestBaselineJudgesEntriesACheckCouldProduce(t *testing.T) {
+	t.Parallel()
 	check := lintCheck("lint", ".")
 	check.Environment.Executor = ExecutorDagger
 	check.RuleModules = []PlannedRuleModule{{Path: "example.com/errs", Version: "v1.0.0", Namespace: "errs", Select: []string{"errs_*"}}}
@@ -398,6 +408,7 @@ func TestBaselineJudgesCommunityCodesNoPatternNames(t *testing.T) {
 }
 
 func TestBaselineLeavesAdvisoryFindingsAlone(t *testing.T) {
+	t.Parallel()
 	check := lintCheck("lint", ".")
 	advisory := lintFinding("a.go", 4, "ACME001", "prefer the helper")
 	advisory.Advisory = true
@@ -415,6 +426,7 @@ func TestBaselineLeavesAdvisoryFindingsAlone(t *testing.T) {
 }
 
 func TestRecordBaselineRefusesUnfinishedRuns(t *testing.T) {
+	t.Parallel()
 	lint, other := lintCheck("lint", "."), lintCheck("other", "x")
 	for _, status := range []Status{StatusError, StatusIncomplete, StatusCancelled} {
 		report := reportOf([]PlannedCheck{lint, other}, failedResult("lint", lintFinding("a.go", 1, "errcheck", "e")), Result{ID: "other", Status: status})
@@ -428,6 +440,7 @@ func TestRecordBaselineRefusesUnfinishedRuns(t *testing.T) {
 }
 
 func TestBaselineFileRoundTrip(t *testing.T) {
+	t.Parallel()
 	source := t.TempDir()
 	baseline := Baseline{Path: testBaselinePath, Entries: []BaselineEntry{
 		lintEntry("a.go", "errcheck", "error of <Close> & friends", 1),
@@ -510,6 +523,7 @@ func TestLoadBaseline(t *testing.T) {
 }
 
 func TestBaselineWriteRefusesSymlinks(t *testing.T) {
+	t.Parallel()
 	source, outside := t.TempDir(), t.TempDir()
 	if err := os.Symlink(outside, filepath.Join(source, ".levenshtein")); err != nil {
 		t.Fatal(err)
@@ -520,6 +534,7 @@ func TestBaselineWriteRefusesSymlinks(t *testing.T) {
 }
 
 func TestPlanValidatesBaselinePath(t *testing.T) {
+	t.Parallel()
 	source := t.TempDir()
 	cfg := Config{
 		Version:      1,
@@ -553,6 +568,7 @@ func (e *findingExecutor) Execute(context.Context, Request) Result {
 // result cache never stores it: every run executes it again, fresh, and the
 // baseline reaches the same verdict each time.
 func TestBaselinedCheckIsExecutedOnEveryRun(t *testing.T) {
+	t.Parallel()
 	req := cacheRequest(t)
 	executor := &findingExecutor{}
 	runner := CachedExecutor{Cache: &Cache{Dir: t.TempDir()}, Executor: executor}
@@ -575,6 +591,7 @@ func TestBaselinedCheckIsExecutedOnEveryRun(t *testing.T) {
 // entryLines only locates entries for stale findings; a file with more
 // entries than it was asked about must not cost more than the extra lines.
 func TestEntryLinesStopsAtTheCountItWasGiven(t *testing.T) {
+	t.Parallel()
 	data := []byte("{\n  \"version\": 1,\n  \"findings\": [\n    {\"code\": \"a\"},\n    {\"code\": \"b\"}\n  ]\n}\n")
 
 	if got := entryLines(data, 2); !slices.Equal(got, []int{4, 5}) {

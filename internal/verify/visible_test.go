@@ -16,6 +16,7 @@ func visibleRequest(source string, inputs, excludes []string) Request {
 // A check that reads the target's files sees what the Dagger path imports:
 // declared inputs less excludes, private files, and symlinks.
 func TestVisibleFilesMatchTheDaggerImport(t *testing.T) {
+	t.Parallel()
 	source := t.TempDir()
 	for _, path := range []string{"app/main.sh", "app/.env", "app/.env.local", "app/.env.example", "app/build/out.sh", "docs/readme.md", "other/x.sh", "top.sh"} {
 		writeTestFile(t, filepath.Join(source, filepath.FromSlash(path)), "x\n")
@@ -34,6 +35,7 @@ func TestVisibleFilesMatchTheDaggerImport(t *testing.T) {
 }
 
 func TestStageFilesCopiesOnlyTheNamedFiles(t *testing.T) {
+	t.Parallel()
 	source := t.TempDir()
 	writeTestFile(t, filepath.Join(source, "a", "b.txt"), "b\n")
 	writeTestFile(t, filepath.Join(source, "c.txt"), "c\n")

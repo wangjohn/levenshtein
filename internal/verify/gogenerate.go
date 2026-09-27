@@ -72,7 +72,7 @@ func copyInputs(ctx context.Context, req Request, dest string) error {
 	defer func() { _ = root.Close() }() // Directory handle cleanup.
 
 	copied := map[string]bool{}
-	return targetFiles(req).walk(ctx, root, func(rel string, info fs.FileInfo, scope pathScope) error {
+	return targetFiles(req).walk(ctx, sessionOf(req), root, func(rel string, info fs.FileInfo, scope pathScope) error {
 		if info == nil || scope == scopeOmitted || copied[rel] {
 			return nil
 		}

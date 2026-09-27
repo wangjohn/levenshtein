@@ -84,7 +84,7 @@ func literalPattern(path string) string {
 // content could expose another part of the checkout. A symlink in ignored
 // content the Go toolchain loads is imported as a link, as the key records it.
 // Private files are left to daggerExcludes.
-func importExcludes(ctx context.Context, set fileSet) ([]string, error) {
+func importExcludes(ctx context.Context, session *Session, set fileSet) ([]string, error) {
 	dir, err := os.OpenRoot(set.Root)
 	if err != nil {
 		return nil, err
@@ -92,7 +92,7 @@ func importExcludes(ctx context.Context, set fileSet) ([]string, error) {
 	defer func() { _ = dir.Close() }()
 
 	var out []string
-	err = set.walk(ctx, dir, func(rel string, info fs.FileInfo, scope pathScope) error {
+	err = set.walk(ctx, session, dir, func(rel string, info fs.FileInfo, scope pathScope) error {
 		switch {
 		case info == nil:
 		case privateSourcePath(rel):
@@ -117,7 +117,7 @@ func daggerSource(ctx context.Context, client *dagger.Client, req Request) (*dag
 		return nil, err
 	}
 	set := targetFiles(req)
-	omitted, err := importExcludes(ctx, set)
+	omitted, err := importExcludes(ctx, sessionOf(req), set)
 	if err != nil {
 		return nil, err
 	}

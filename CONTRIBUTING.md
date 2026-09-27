@@ -22,6 +22,15 @@ Go lint policy analyzers:
 (cd runner/lint && GOTOOLCHAIN=local go test ./...)
 ```
 
+The community linter compiles generated copies of the core linter's failure
+guard (`runner/lint/cmd/levenshtein-lint/guard.go` and its test) and
+generated-file adapter (`runner/lint/policy/generated.go`). After changing
+one, regenerate the copies; a `runner/lint` test fails until you do:
+
+```sh
+(cd runner/lint && GOTOOLCHAIN=local go generate ./internal/copygen)
+```
+
 Community linter runtime and builder. The builder tests compile real linters, so they need the module proxy:
 
 ```sh

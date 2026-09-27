@@ -43,33 +43,19 @@ type gitListing struct {
 	note string
 }
 
-// gitListings memoizes one listing per source for the life of the process,
+// listing is source's git listing, memoized for the life of the session,
 // matching the run-scoped view the implementation snapshot already takes.
-var gitListings sync.Map
-
-// listingEpochs counts each source's relists, so a listing git produced before
-// a relist is never memoized after it. listingMu orders the count against the
-// memo.
-var (
-	listingMu     sync.Mutex
-	listingEpochs = map[string]uint64{}
-)
-
-// listingFetched, when set, is called after git lists a source and before the
-// listing is memoized. Tests use it to change the tree in between.
-var listingFetched func(source string)
-
-func listing(ctx context.Context, source string) *gitListing {
-	if memoized, ok := gitListings.Load(source); ok {
+func (s *Session) listing(ctx context.Context, source string) *gitListing {
+	if memoized, ok := s.listings.Load(source); ok {
 		return memoized.(*gitListing)
 	}
 
-	listingMu.Lock()
-	epoch := listingEpochs[source]
-	listingMu.Unlock()
+	s.listingMu.Lock()
+	epoch := s.listingEpochs[source]
+	s.listingMu.Unlock()
 
 	found, err := listGit(ctx, source)
-	if hook := listingFetched; hook != nil {
+	if hook := s.listingFetched; hook != nil {
 		hook(source)
 	}
 	if err != nil {
@@ -81,40 +67,40 @@ func listing(ctx context.Context, source string) *gitListing {
 
 	// A check that created files relisted while git ran, so this view may
 	// predate them. It serves this caller, but is not the run's.
-	listingMu.Lock()
-	defer listingMu.Unlock()
-	if listingEpochs[source] != epoch {
+	s.listingMu.Lock()
+	defer s.listingMu.Unlock()
+	if s.listingEpochs[source] != epoch {
 		return found
 	}
-	memoized, _ := gitListings.LoadOrStore(source, found)
+	memoized, _ := s.listings.LoadOrStore(source, found)
 	return memoized.(*gitListing)
 }
 
 // gitFiles reports the work tree's files under source, or false when the caller
 // must walk the filesystem instead.
-func gitFiles(ctx context.Context, source string) ([]string, bool) {
-	found := listing(ctx, source)
+func (s *Session) gitFiles(ctx context.Context, source string) ([]string, bool) {
+	found := s.listing(ctx, source)
 	return found.files, found.files != nil
 }
 
 // relist drops source's memoized listing so the next snapshot asks git again.
 // A check can create files, and a result must not be cached under a key that
 // could not see them.
-func relist(source string) {
-	listingMu.Lock()
-	defer listingMu.Unlock()
+func (s *Session) relist(source string) {
+	s.listingMu.Lock()
+	defer s.listingMu.Unlock()
 
-	listingEpochs[source]++
-	gitListings.Delete(source)
+	s.listingEpochs[source]++
+	s.listings.Delete(source)
 }
 
 // discoveryNote explains why a git-discovery target fell back to a filesystem
 // walk, for the result's cache Reason. It is empty in the ordinary cases.
-func discoveryNote(ctx context.Context, source string, mode DiscoveryKind) string {
+func (s *Session) discoveryNote(ctx context.Context, source string, mode DiscoveryKind) string {
 	if mode != DiscoveryGit {
 		return ""
 	}
-	return listing(ctx, source).note
+	return s.listing(ctx, source).note
 }
 
 // hostGit finds git on the process PATH, considering absolute entries only. A

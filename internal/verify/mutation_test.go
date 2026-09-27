@@ -19,6 +19,7 @@ func mutationConfig(check string) string {
 }
 
 func TestGoMutationOptionsArePlanned(t *testing.T) {
+	t.Parallel()
 	cfg, err := Parse([]byte(mutationConfig(`{"kind":"go-mutation","target":"app","environment":"go","mutation":{"base":"develop","accepted":"ci/accepted.json","tags":"integration,slow","timeout":"5m"}}`)))
 	if err != nil {
 		t.Fatal(err)
@@ -37,6 +38,7 @@ func TestGoMutationOptionsArePlanned(t *testing.T) {
 }
 
 func TestGoMutationDefaults(t *testing.T) {
+	t.Parallel()
 	got := Check{Kind: CheckGoMutation}.mutationOptions()
 
 	if got.Scope != MutationScopeChanged || got.Accepted != ".levenshtein/mutation-accepted.json" {
@@ -45,6 +47,7 @@ func TestGoMutationDefaults(t *testing.T) {
 }
 
 func TestGoMutationRejectsInvalidOptions(t *testing.T) {
+	t.Parallel()
 	for name, check := range map[string]string{
 		"unknown scope":         `{"kind":"go-mutation","target":"app","environment":"go","mutation":{"scope":"diff"}}`,
 		"base with module":      `{"kind":"go-mutation","target":"app","environment":"go","mutation":{"scope":"module","base":"main"}}`,
@@ -58,6 +61,7 @@ func TestGoMutationRejectsInvalidOptions(t *testing.T) {
 		"command on a mutation": `{"kind":"go-mutation","target":"app","environment":"go","command":{"args":["true"]}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			cfg, err := Parse([]byte(mutationConfig(check)))
 			if err == nil {
 				_, err = cfg.Plan(t.TempDir(), "r")
@@ -262,6 +266,7 @@ func TestMutationSelectionErrorNamesTheBase(t *testing.T) {
 }
 
 func TestDaggerResultMarksTimedOutMutantsIncomplete(t *testing.T) {
+	t.Parallel()
 	summary := `{"killed":1,"lived":1,"accepted":0,"not_covered":0,"timed_out":1,"not_viable":0,"skipped":0,"files":["clamp.go"]}`
 	err := &gqlerror.Error{Message: "mutation testing failed", Extensions: map[string]any{
 		"levenshteinFindings":   []any{map[string]any{"code": "go-mutation-timeout"}},
@@ -284,6 +289,7 @@ func TestDaggerResultMarksTimedOutMutantsIncomplete(t *testing.T) {
 }
 
 func TestMutationStdoutSummarizesAPassingRun(t *testing.T) {
+	t.Parallel()
 	summary := `{"killed":3,"lived":0,"unchanged_survivors":4,"accepted":1,"not_covered":2,"timed_out":1,"not_viable":0,"skipped":0,"uncovered":[{"file":"a.go","line":4,"column":2,"mutator":"ARITHMETIC_BASE"}],"files":["a.go","b.go"]}`
 
 	stdout, details := mutationStdout(mutationSummaryOf(Result{}, summary), "Go files changed since main", nil)
@@ -297,6 +303,7 @@ func TestMutationStdoutSummarizesAPassingRun(t *testing.T) {
 }
 
 func TestMutationStdoutShowsTheRunnersWarnings(t *testing.T) {
+	t.Parallel()
 	warning := "4 of 4 covered mutants in slow timed out under a 20s limit; they count as caught, so check that its tests finish well within that limit"
 	summary := `{"killed":1,"lived":0,"unchanged_survivors":0,"accepted":0,"not_covered":0,"timed_out":4,"not_viable":0,"skipped":0,"warnings":["` + warning + `"],"files":["fast/fast.go","slow/slow.go"]}`
 

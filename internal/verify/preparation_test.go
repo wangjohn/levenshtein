@@ -8,6 +8,7 @@ import (
 )
 
 func TestReviewConflictingPreparation(t *testing.T) {
+	t.Parallel()
 	req := nativeRequest(t)
 	req.Environment.Identity = "conflicting-preparation-fixture"
 	prepA := &Preparation{Command: []string{"/bin/sh", "-c", "printf A > ready"}, Inputs: []string{"lock"}, Outputs: []string{"ready"}}
@@ -25,6 +26,7 @@ func TestReviewConflictingPreparation(t *testing.T) {
 }
 
 func TestReviewToolEnvironment(t *testing.T) {
+	t.Parallel()
 	req := nativeRequest(t)
 	root := req.Source
 	for _, version := range []string{"expected", "wrong"} {

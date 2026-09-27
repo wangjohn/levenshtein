@@ -8,6 +8,7 @@ import (
 // Hints and the baseline rewrite findings in place, so every other field of a
 // result's details, such as go-mutation's summary, must survive the rewrite.
 func TestReplaceFindingsKeepsTheOtherFields(t *testing.T) {
+	t.Parallel()
 	findings := []finding{{Code: "SA4006", Message: "unused", Location: location{File: "a.go", Line: 3}}}
 
 	for name, tc := range map[string]struct {

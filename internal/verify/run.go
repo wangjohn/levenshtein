@@ -46,6 +46,8 @@ type Request struct {
 	Shared      string
 	RerunChecks bool
 	PlannedCheck
+	// session is the run this check belongs to; see sessionOf.
+	session *Session
 }
 
 type Executor interface {
@@ -86,9 +88,9 @@ func sharedPreparation(a, b PlannedCheck) bool {
 	return digest(a.Preparation) == digest(b.Preparation)
 }
 
-// Execute runs a plan's checks, at most jobs of them at once; jobs zero keeps
-// the default cap.
-func Execute(ctx context.Context, plan Plan, shared string, executors map[ExecutorKind]Executor, jobs int) Report {
+// Execute runs a plan's checks in this session, at most jobs of them at once;
+// jobs zero keeps the default cap.
+func (s *Session) Execute(ctx context.Context, plan Plan, shared string, executors map[ExecutorKind]Executor, jobs int) Report {
 	results := make([]Result, len(plan.Checks))
 	workers := checkParallelism(len(plan.Checks), jobs)
 	slots := make(chan struct{}, workers)
@@ -121,6 +123,7 @@ func Execute(ctx context.Context, plan Plan, shared string, executors map[Execut
 				Shared:       shared,
 				RerunChecks:  plan.RerunChecks,
 				PlannedCheck: check,
+				session:      s,
 			}, executors)
 			duration := time.Since(start).Milliseconds()
 			verifiedAt, executionMS := outcome.VerifiedAt, outcome.ExecutionMS

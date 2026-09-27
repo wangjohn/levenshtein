@@ -10,6 +10,7 @@ import (
 // targets list expand it. Branch and pre-merge run the static checks natively
 // and main audits them in Dagger, so the literal lists below are the contract.
 func TestRepositoryRunsPlanTheSameCheckIDs(t *testing.T) {
+	t.Parallel()
 	cfg, err := Load("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -46,6 +47,7 @@ func TestRepositoryRunsPlanTheSameCheckIDs(t *testing.T) {
 // the hermetic container path. Only self-test, which exists only in Dagger,
 // may cross that line.
 func TestRepositoryRunsSplitExecutors(t *testing.T) {
+	t.Parallel()
 	cfg, err := Load("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -80,6 +82,7 @@ const multiTarget = `{"version":1,
 "runs":{"both":{"checks":["go-lint"]},"one":{"checks":["go-lint/runner"]},"mixed":{"checks":["go-lint/root","self-test"]},%s}}`
 
 func TestTargetsExpandInDeclaredOrder(t *testing.T) {
+	t.Parallel()
 	cfg, err := Parse([]byte(strings.Replace(multiTarget, "%s", `"unused":{"checks":["self-test"]}`, 1)))
 	if err != nil {
 		t.Fatal(err)
@@ -113,6 +116,7 @@ func TestTargetsExpandInDeclaredOrder(t *testing.T) {
 // declare, a per-target reference to a single-target check, and a run that
 // selects the same planned check twice.
 func TestRejectInvalidTargetSelection(t *testing.T) {
+	t.Parallel()
 	for name, run := range map[string]string{
 		"both forms":      `"broken":{"checks":["both"]}`,
 		"neither form":    `"broken":{"checks":["neither"]}`,

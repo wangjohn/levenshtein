@@ -17,7 +17,8 @@ import (
 
 // PlannedRuleModule is one rule module a go-lint check runs, as the plan
 // reports it and the Dagger runner receives it. runner/community's
-// ModuleConfig reads the same JSON; change both together.
+// ModuleConfig reads the same JSON; change both together. Both, and the
+// runner's copy, round-trip runner/testdata/rule-module.json.
 type PlannedRuleModule struct {
 	Path      string                       `json:"path"`
 	Version   string                       `json:"version"`

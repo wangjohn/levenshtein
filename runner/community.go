@@ -23,7 +23,8 @@ import (
 
 // ruleModule is one rule module a go-lint check runs, in the JSON the CLI
 // sends (internal/verify's PlannedRuleModule) and the community linter reads
-// (runner/community's ModuleConfig); change all three together.
+// (runner/community's ModuleConfig); change all three together. All three
+// round-trip testdata/rule-module.json.
 type ruleModule struct {
 	Path      string                       `json:"path"`
 	Version   string                       `json:"version"`
@@ -348,16 +349,7 @@ func runCommunityLinter(ctx context.Context, source *dagger.Directory, module st
 			WithEnvVariable("STATICCHECK_CACHE", "/tmp/staticcheck-fresh")
 	}
 
-	checked := ctr.WithExec([]string{"levenshtein-community-lint", "-f=json", "-lvrules.config=/lvrules/config.json", "-lvrules.report=/lvrules/report.json", "./..."}, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
-	exitCode, err := checked.ExitCode(ctx)
-	if err != nil {
-		return communityRun{}, err
-	}
-	stdout, err := checked.Stdout(ctx)
-	if err != nil {
-		return communityRun{}, err
-	}
-	stderr, err := checked.Stderr(ctx)
+	run, checked, err := runTool(ctx, ctr, []string{"levenshtein-community-lint", "-f=json", "-lvrules.config=/lvrules/config.json", "-lvrules.report=/lvrules/report.json", "./..."})
 	if err != nil {
 		return communityRun{}, err
 	}
@@ -371,7 +363,7 @@ func runCommunityLinter(ctx context.Context, source *dagger.Directory, module st
 			return communityRun{}, err
 		}
 	}
-	return communityRun{ExitCode: exitCode, Stdout: stdout, Stderr: stderr, Report: report, Reported: reported}, nil
+	return communityRun{ExitCode: run.ExitCode, Stdout: run.Stdout, Stderr: run.Stderr, Report: report, Reported: reported}, nil
 }
 
 // communityReport is runner/community's Report.

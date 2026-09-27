@@ -9,6 +9,7 @@ import (
 )
 
 func TestShellInputsSkipFixturesAndHonorOneRootConfiguration(t *testing.T) {
+	t.Parallel()
 	source := t.TempDir()
 	for path, content := range map[string]string{
 		"build.sh":                   "echo build\n",
@@ -51,6 +52,7 @@ func TestShellInputsSkipFixturesAndHonorOneRootConfiguration(t *testing.T) {
 // A declared input below a skipped directory is skipped too, as the Dagger
 // path's listing prunes it from the root.
 func TestShellInputsSkipADeclaredInputUnderTestdata(t *testing.T) {
+	t.Parallel()
 	source := t.TempDir()
 	writeTestFile(t, filepath.Join(source, "runner", "testdata", "bad", "run.sh"), "cd /nowhere\n")
 
@@ -64,6 +66,7 @@ func TestShellInputsSkipADeclaredInputUnderTestdata(t *testing.T) {
 }
 
 func TestShellEnvDropsHostOptions(t *testing.T) {
+	t.Parallel()
 	env := shellEnv([]string{"PATH=/bin", "SHELLCHECK_OPTS=--severity=style", "HOME=/home/user"})
 	if !slices.Equal(env, []string{"PATH=/bin", "HOME=/home/user"}) {
 		t.Fatalf("unexpected ShellCheck environment: %v", env)
@@ -102,5 +105,6 @@ func assertPassReused(t *testing.T, check CheckKind) {
 // shell-lint depends only on the declared scripts, the configuration, and the
 // pinned ShellCheck, so a pass is reused like workflow-security's.
 func TestShellLintPassesAreReused(t *testing.T) {
+	t.Parallel()
 	assertPassReused(t, CheckShellLint)
 }

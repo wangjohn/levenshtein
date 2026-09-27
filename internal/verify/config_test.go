@@ -31,6 +31,7 @@ func TestVersionedPlanningNeedsNoTools(t *testing.T) {
 // module-list format, an unsupported version, a typo, an unknown or repeated
 // check, an escaping target, an empty run, and trailing JSON.
 func TestRejectInvalidConfiguration(t *testing.T) {
+	t.Parallel()
 	const versioned = `{"version":1,"targets":{"app":{"dir":%q,"inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"lint":{"kind":"go-lint","target":"app","environment":"go"}},"runs":{"branch":{"checks":%s}}}`
 	for _, input := range []string{
 		`null`, `{}`, `{"version":2}`, `{"version":1,"typo":true}`,
@@ -42,6 +43,7 @@ func TestRejectInvalidConfiguration(t *testing.T) {
 		fmt.Sprintf(versioned, ".", `["lint"]`) + ` {}`,
 	} {
 		t.Run(input, func(t *testing.T) {
+			t.Parallel()
 			cfg, err := Parse([]byte(input))
 			if err == nil {
 				_, err = cfg.Plan(t.TempDir(), "branch")
@@ -54,6 +56,7 @@ func TestRejectInvalidConfiguration(t *testing.T) {
 }
 
 func TestTargetCannotEscapeRepository(t *testing.T) {
+	t.Parallel()
 	source := t.TempDir()
 	if err := os.Symlink(t.TempDir(), filepath.Join(source, "outside")); err != nil {
 		t.Fatal(err)
@@ -83,15 +86,16 @@ func (f *fakeExecutor) Execute(context.Context, Request) Result {
 }
 
 func TestAccountForEverySelectedCheck(t *testing.T) {
+	t.Parallel()
 	plan := Plan{Checks: []PlannedCheck{{ID: "one", Environment: Environment{Executor: executorFake}}, {ID: "two", Environment: Environment{Executor: executorMissing}}}}
 	executor := &fakeExecutor{status: StatusFailed}
-	report := Execute(context.Background(), plan, "", map[ExecutorKind]Executor{executorFake: executor}, 0)
+	report := NewSession(nil).Execute(context.Background(), plan, "", map[ExecutorKind]Executor{executorFake: executor}, 0)
 	if report.Status != StatusFailed || len(report.Results) != 2 || report.Results[1].Status != StatusIncomplete {
 		t.Fatalf("lost required work: %+v", report)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	report = Execute(ctx, plan, "", map[ExecutorKind]Executor{executorFake: executor}, 0)
+	report = NewSession(nil).Execute(ctx, plan, "", map[ExecutorKind]Executor{executorFake: executor}, 0)
 	if executor.calls != 1 || report.Results[0].Status != StatusCancelled {
 		t.Fatalf("executed after cancellation: %+v", report)
 	}
@@ -115,6 +119,7 @@ func (o *orderedExecutor) Execute(_ context.Context, req Request) Result {
 }
 
 func TestParallelExecutePreservesPlanOrder(t *testing.T) {
+	t.Parallel()
 	plan := Plan{
 		Run: "branch",
 		Checks: []PlannedCheck{
@@ -130,7 +135,7 @@ func TestParallelExecutePreservesPlanOrder(t *testing.T) {
 	}}
 
 	start := time.Now()
-	report := Execute(context.Background(), plan, "", map[ExecutorKind]Executor{executorFake: executor}, 0)
+	report := NewSession(nil).Execute(context.Background(), plan, "", map[ExecutorKind]Executor{executorFake: executor}, 0)
 	elapsed := time.Since(start)
 	if report.Status != StatusPassed {
 		t.Fatalf("status: %+v", report)
@@ -172,6 +177,7 @@ func (r *recordingNative) Execute(ctx context.Context, req Request) Result {
 }
 
 func TestParallelExecuteSharedPreparationPreservesPlanOrder(t *testing.T) {
+	t.Parallel()
 	source, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -211,7 +217,7 @@ func TestParallelExecuteSharedPreparationPreservesPlanOrder(t *testing.T) {
 		},
 	}
 	native := &recordingNative{Native: Native{Cache: &Cache{Dir: t.TempDir()}}}
-	report := Execute(context.Background(), plan, t.TempDir(), map[ExecutorKind]Executor{
+	report := NewSession(nil).Execute(context.Background(), plan, t.TempDir(), map[ExecutorKind]Executor{
 		ExecutorNative: native,
 	}, 0)
 	if report.Status != StatusPassed {
@@ -246,6 +252,7 @@ func TestParallelExecuteSharedPreparationPreservesPlanOrder(t *testing.T) {
 // A cached command result is trusted only when the environment names its
 // toolchain and a fresh run has explicit arguments; either alone is not enough.
 func TestCacheableCommandNeedsIdentityAndRerunArgs(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		identity string
 		rerun    string
@@ -273,6 +280,7 @@ func TestCacheableCommandNeedsIdentityAndRerunArgs(t *testing.T) {
 // A file written for the earlier version 1 layout gets a migration pointer,
 // not just the decoder's field error.
 func TestRetiredCheckFieldsGetAMigrationHint(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		check  string
 		object string
@@ -297,6 +305,7 @@ func TestRetiredCheckFieldsGetAMigrationHint(t *testing.T) {
 // The LEVENSHTEIN_ prefix is reserved for the runner, whether a command check or
 // its environment declares the variable.
 func TestInvalidEnvironmentEntriesAreRejected(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		environment string
 		command     string
@@ -318,6 +327,7 @@ func TestInvalidEnvironmentEntriesAreRejected(t *testing.T) {
 // Only a Dagger check copies its inputs into the engine, so only a Dagger check
 // needs literal input paths; a native check may use a pattern.
 func TestOnlyDaggerChecksNeedLiteralInputs(t *testing.T) {
+	t.Parallel()
 	const pattern = `{"version":1,"targets":{"app":{"dir":".","inputs":["src/*.go"]}},"environments":{"env":{"executor":%q}},"checks":{"c":%s},"runs":{"branch":{"checks":["c"]}}}`
 	plan := func(executor ExecutorKind, check string) error {
 		cfg, err := Parse([]byte(fmt.Sprintf(pattern, executor, check)))

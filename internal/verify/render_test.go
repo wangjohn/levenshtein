@@ -43,6 +43,7 @@ func render(t *testing.T, report Report, format Format, options RenderOptions) s
 }
 
 func TestRenderText(t *testing.T) {
+	t.Parallel()
 	got := render(t, renderFixture(), FormatText, RenderOptions{})
 
 	want := `services/api/a.go:10:2: LV1005 file is not gofmt-formatted
@@ -72,6 +73,7 @@ branch: failed, 1 of 4 checks passed, 1 baselined finding not shown
 // Without a baseline, or with nothing in it matching, the summary line does
 // not mention baselined findings.
 func TestRenderTextMentionsBaselinedFindingsOnlyWhenThereAreSome(t *testing.T) {
+	t.Parallel()
 	check := lintCheck("lint", ".")
 	report := reportOf([]PlannedCheck{check}, failedResult("lint", lintFinding("a.go", 1, "errcheck", "unchecked error")))
 
@@ -82,6 +84,7 @@ func TestRenderTextMentionsBaselinedFindingsOnlyWhenThereAreSome(t *testing.T) {
 }
 
 func TestRenderTextPrefixesPaths(t *testing.T) {
+	t.Parallel()
 	got := render(t, renderFixture(), FormatText, RenderOptions{PathPrefix: "app"})
 	if !strings.HasPrefix(got, "app/services/api/a.go:10:2: LV1005") || !strings.Contains(got, "\napp: go-vet\n") {
 		t.Fatalf("paths not prefixed:\n%s", got)
@@ -89,6 +92,7 @@ func TestRenderTextPrefixesPaths(t *testing.T) {
 }
 
 func TestRenderGitHub(t *testing.T) {
+	t.Parallel()
 	got := render(t, renderFixture(), FormatGitHub, RenderOptions{PathPrefix: "app"})
 
 	want := strings.Join([]string{
@@ -104,6 +108,7 @@ func TestRenderGitHub(t *testing.T) {
 }
 
 func TestRenderGitHubAnnotatesFailuresWithoutFindings(t *testing.T) {
+	t.Parallel()
 	check := lintCheck("script", ".")
 	check.Check.Kind = CheckCommand
 	report := reportOf([]PlannedCheck{check}, Result{ID: "script", Status: StatusFailed, Error: "exit status 1"})
@@ -124,6 +129,7 @@ func advisoryFixture() Report {
 }
 
 func TestRenderTextMarksAdvisoryFindings(t *testing.T) {
+	t.Parallel()
 	got := render(t, advisoryFixture(), FormatText, RenderOptions{})
 
 	want := `a.go:4:1: ACME001 [advisory] prefer the helper
@@ -138,6 +144,7 @@ branch: passed, 1 of 1 checks passed
 }
 
 func TestRenderGitHubWarnsForAdvisoryFindings(t *testing.T) {
+	t.Parallel()
 	got := render(t, advisoryFixture(), FormatGitHub, RenderOptions{})
 
 	want := "::warning file=a.go,line=4,col=1,title=ACME001 (lint)::prefer the helper%0A%0Adocs: https://example.com/rules#ACME001\n"
@@ -147,6 +154,7 @@ func TestRenderGitHubWarnsForAdvisoryFindings(t *testing.T) {
 }
 
 func TestRenderSARIFWarnsForAdvisoryFindings(t *testing.T) {
+	t.Parallel()
 	var log struct {
 		Runs []struct {
 			Tool struct {
@@ -175,6 +183,7 @@ func TestRenderSARIFWarnsForAdvisoryFindings(t *testing.T) {
 }
 
 func TestGitHubEscaping(t *testing.T) {
+	t.Parallel()
 	if got := escapeData("100% done\r\nnext ::error::"); got != "100%25 done%0D%0Anext ::error::" {
 		t.Errorf("data: %q", got)
 	}
@@ -184,6 +193,7 @@ func TestGitHubEscaping(t *testing.T) {
 }
 
 func TestRenderSARIF(t *testing.T) {
+	t.Parallel()
 	var log struct {
 		Version string `json:"version"`
 		Runs    []struct {
@@ -279,6 +289,7 @@ func TestRenderSARIF(t *testing.T) {
 }
 
 func TestRenderSARIFWithoutBaselineOmitsBaselineState(t *testing.T) {
+	t.Parallel()
 	report := renderFixture()
 	report.Baseline = nil
 	if got := render(t, report, FormatSARIF, RenderOptions{}); strings.Contains(got, `"baselineState": "new"`) {
@@ -290,6 +301,7 @@ func TestRenderSARIFWithoutBaselineOmitsBaselineState(t *testing.T) {
 // code scanning rejects an upload whose results are null, so a clean run must
 // still write an empty array.
 func TestRenderSARIFCleanRunHasEmptyResults(t *testing.T) {
+	t.Parallel()
 	report := reportOf([]PlannedCheck{lintCheck("lint", ".")}, Result{ID: "lint", Status: StatusPassed})
 
 	var log struct {
@@ -307,6 +319,7 @@ func TestRenderSARIFCleanRunHasEmptyResults(t *testing.T) {
 }
 
 func TestRenderJSONRoundTrips(t *testing.T) {
+	t.Parallel()
 	report := renderFixture()
 	var decoded Report
 	if err := json.Unmarshal([]byte(render(t, report, FormatJSON, RenderOptions{})), &decoded); err != nil {
@@ -321,6 +334,7 @@ func TestRenderJSONRoundTrips(t *testing.T) {
 }
 
 func TestRenderSkipsSemanticFindings(t *testing.T) {
+	t.Parallel()
 	semantic := lintCheck("review", ".")
 	semantic.Check.Kind = CheckSemanticLint
 	details := json.RawMessage(`{"findings":[{"question":"q","severity":"advice","path":"a.go","line":3,"message":"consider this"}]}`)
@@ -335,6 +349,7 @@ func TestRenderSkipsSemanticFindings(t *testing.T) {
 }
 
 func TestRenderRejectsUnknownFormat(t *testing.T) {
+	t.Parallel()
 	//lint:ignore LV1001 the test needs a value outside the declared formats.
 	if err := Render(&bytes.Buffer{}, Report{}, Format("xml"), RenderOptions{}); err == nil {
 		t.Fatal("unknown format accepted")

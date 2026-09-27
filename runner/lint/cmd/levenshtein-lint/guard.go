@@ -15,8 +15,9 @@ import (
 // has finished, so a package whose analysis failed is never cached, wherever
 // the cache lives: a directory, or a GOCACHEPROG program.
 //
-// runner/community/guard.go is a copy for community rules; change both
-// together.
+// Community rules are guarded the same way, so runner/community/guard.go is
+// generated from this file: run go generate ./internal/copygen in runner/lint
+// after changing it.
 
 // guard wraps analyzers and stops the run on the first failure.
 type guard struct {

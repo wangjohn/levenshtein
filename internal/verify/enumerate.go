@@ -67,24 +67,24 @@ func under(path, input string) bool {
 }
 
 // walk enumerates the set, calling visit for each path. Under git discovery the
-// paths are the work tree's own listing: directories have no entries of their
-// own, and a listed file absent from disk is skipped rather than reported
-// missing, so a work tree enumerates like a fresh clone. A listed directory (a
-// submodule's gitlink or an untracked nested repository) is walked in full,
-// because git lists nothing inside it. Each ignored path is then reported once,
-// omitted, or for a Go toolchain set walked as far as the toolchain can load
-// it. Outside a work tree, or under filesystem discovery, every path under
-// each input is walked.
+// paths are the work tree's own listing, as session remembers it: directories
+// have no entries of their own, and a listed file absent from disk is skipped
+// rather than reported missing, so a work tree enumerates like a fresh clone.
+// A listed directory (a submodule's gitlink or an untracked nested repository)
+// is walked in full, because git lists nothing inside it. Each ignored path is
+// then reported once, omitted, or for a Go toolchain set walked as far as the
+// toolchain can load it. Outside a work tree, or under filesystem discovery,
+// every path under each input is walked.
 //
 // A symlink is reported, never followed, including one above a declared input:
 // an input reached through a link is an alias, which the source symlink
 // policy refuses to fingerprint.
-func (s fileSet) walk(ctx context.Context, dir *os.Root, visit visitFunc) error {
+func (s fileSet) walk(ctx context.Context, session *Session, dir *os.Root, visit visitFunc) error {
 	// One listing answers both what git lists and what it ignores, so the two
 	// halves of a walk cannot come from different runs of git.
 	found := &gitListing{}
 	if s.Discovery == DiscoveryGit {
-		found = listing(ctx, s.Root)
+		found = session.listing(ctx, s.Root)
 	}
 	listed, ignored, tracked := found.files, found.ignored, found.files != nil
 	loader := newGoLoader(dir, &found.goDirectories)

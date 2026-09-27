@@ -78,7 +78,7 @@ func installRelease(ctx context.Context, shared, root string, tool releaseTool, 
 	}
 
 	dir := filepath.Join(root, "tools", string(tool)+"-"+pin.Version)
-	unlock, err := lockFile(ctx, filepath.Join(root, "locks", "tool-"+string(tool)))
+	unlock, err := lockFile(ctx, filepath.Join(root, "locks", "tool-"+string(tool)), nil)
 	if err != nil {
 		return "", err
 	}

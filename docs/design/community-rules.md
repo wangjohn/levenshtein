@@ -85,7 +85,7 @@ A stale directive that names only advisory rules is rewritten to a warning in th
 
 Staticcheck's runner swallows an error an analyzer returns: the package passes, and the pass is cached. A panic kills the whole process. The failure guard wraps each selected analyzer and everything it requires, and stops the run at the first error or panic: the community linter writes its report with that failure and exits 4. Staticcheck writes a package's results to its cache only after every analyzer on the package has finished, so a failed package is never cached, wherever the cache lives, and no later or concurrent run can reuse it.
 
-The core linter carries a copy of the guard; it reports a failure on stderr and exits 2. It also registers only the rules a check selects, as the community linter does, so a rule that is turned off never runs and cannot fail the run.
+The community linter's guard is generated from the core linter's, which reports a failure on stderr and exits 2. The core linter also registers only the rules a check selects, as the community linter does, so a rule that is turned off never runs and cannot fail the run.
 
 ### Results
 

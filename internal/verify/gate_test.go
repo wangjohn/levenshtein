@@ -9,18 +9,18 @@ import (
 	"time"
 )
 
-// waitingFor installs the lock-wait hook for one test and returns a channel
-// that receives every lock name a caller starts waiting on.
-func waitingFor(t *testing.T) <-chan string {
+// waitingFor runs req in a session of its own whose lock-wait hook sends every
+// lock name a check in it starts waiting on to the returned channel.
+func waitingFor(t *testing.T, req *Request) <-chan string {
 	t.Helper()
 	waits := make(chan string, 16)
-	lockWaiting = func(name string) {
+	req.session = sessionAt("")
+	req.session.waiting = func(name string) {
 		select {
 		case waits <- name:
 		default:
 		}
 	}
-	t.Cleanup(func() { lockWaiting = nil })
 	return waits
 }
 
@@ -66,6 +66,7 @@ func (e *rendezvousExecutor) Execute(ctx context.Context, req Request) Result {
 // Read-only native checks share the working tree, so one run executes them
 // side by side instead of queueing them behind a single workspace lock.
 func TestReadOnlyNativeChecksRunConcurrently(t *testing.T) {
+	t.Parallel()
 	req := nativeRequest(t)
 	var checks []PlannedCheck
 	for _, id := range []string{"vet-a", "vet-b"} {
@@ -80,7 +81,7 @@ func TestReadOnlyNativeChecksRunConcurrently(t *testing.T) {
 	executor.arrived.Add(len(checks))
 	cached := CachedExecutor{Cache: &Cache{Dir: t.TempDir()}, Executor: executor}
 
-	report := Execute(t.Context(), Plan{Source: req.Source, Checks: checks}, req.Shared, map[ExecutorKind]Executor{ExecutorNative: cached}, 4)
+	report := sessionAt("").Execute(t.Context(), Plan{Source: req.Source, Checks: checks}, req.Shared, map[ExecutorKind]Executor{ExecutorNative: cached}, 4)
 	for _, result := range report.Results {
 		if result.Status != StatusPassed {
 			t.Fatalf("read-only native checks were serialized: %+v", result)
@@ -91,10 +92,11 @@ func TestReadOnlyNativeChecksRunConcurrently(t *testing.T) {
 // A check that writes the working tree still excludes every other native
 // check, in this process and in another one holding the workspace file lock.
 func TestCommandChecksExcludeOtherNativeChecks(t *testing.T) {
+	t.Parallel()
 	req := cacheRequest(t)
 	cache := &Cache{Dir: t.TempDir()}
-	waits := waitingFor(t)
-	unlock, err := lockFile(t.Context(), filepath.Join(cache.Dir, "locks", "workspace-"+digest(req.Source)))
+	waits := waitingFor(t, &req)
+	unlock, err := lockFile(t.Context(), filepath.Join(cache.Dir, "locks", "workspace-"+digest(req.Source)), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +116,7 @@ func TestCommandChecksExcludeOtherNativeChecks(t *testing.T) {
 		t.Fatalf("the check did not run once the workspace was free: %+v", result)
 	}
 
-	release, err := acquireWorkspace(t.Context(), cache.Dir, req.Source, true)
+	release, err := sessionAt("").acquireWorkspace(t.Context(), cache.Dir, req.Source, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,6 +133,7 @@ func TestCommandChecksExcludeOtherNativeChecks(t *testing.T) {
 // Cancelling a check that is still waiting for its workspace reports it as
 // cancelled, wherever the wait happens.
 func TestCancelWhileWaitingForTheWorkspaceIsCancelled(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		hold func(t *testing.T, cache *Cache, source string) func()
@@ -140,7 +143,7 @@ func TestCancelWhileWaitingForTheWorkspaceIsCancelled(t *testing.T) {
 			name: "in-process writer",
 			hold: func(t *testing.T, cache *Cache, source string) func() {
 				t.Helper()
-				release, err := acquireWorkspace(t.Context(), cache.Dir, source, true)
+				release, err := sessionAt("").acquireWorkspace(t.Context(), cache.Dir, source, true)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -152,7 +155,7 @@ func TestCancelWhileWaitingForTheWorkspaceIsCancelled(t *testing.T) {
 			name: "another process",
 			hold: func(t *testing.T, cache *Cache, source string) func() {
 				t.Helper()
-				unlock, err := lockFile(t.Context(), filepath.Join(cache.Dir, "locks", "workspace-"+digest(source)))
+				unlock, err := lockFile(t.Context(), filepath.Join(cache.Dir, "locks", "workspace-"+digest(source)), nil)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -162,10 +165,11 @@ func TestCancelWhileWaitingForTheWorkspaceIsCancelled(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			req := cacheRequest(t)
 			req.Check.Command.Cache = false
 			cache := &Cache{Dir: t.TempDir()}
-			waits := waitingFor(t)
+			waits := waitingFor(t, &req)
 			release := tc.hold(t, cache, req.Source)
 			defer release()
 			executor := &countingExecutor{status: StatusPassed}
@@ -187,6 +191,7 @@ func TestCancelWhileWaitingForTheWorkspaceIsCancelled(t *testing.T) {
 // for a check that holds the working tree; restoring artifacts writes the tree,
 // so that hit does.
 func TestCacheHitsEnterTheWorkspaceOnlyToRestoreArtifacts(t *testing.T) {
+	t.Parallel()
 	req := cacheRequest(t)
 	cache := &Cache{Dir: t.TempDir()}
 	executor := &countingExecutor{status: StatusPassed, artifact: "report.txt"}
@@ -197,7 +202,7 @@ func TestCacheHitsEnterTheWorkspaceOnlyToRestoreArtifacts(t *testing.T) {
 	withArtifact.Check.Command = &restoring
 	runner.Execute(t.Context(), req)
 	runner.Execute(t.Context(), withArtifact)
-	locked, err := lockFile(t.Context(), filepath.Join(cache.Dir, "locks", "workspace-"+digest(req.Source)))
+	locked, err := lockFile(t.Context(), filepath.Join(cache.Dir, "locks", "workspace-"+digest(req.Source)), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +215,7 @@ func TestCacheHitsEnterTheWorkspaceOnlyToRestoreArtifacts(t *testing.T) {
 		t.Fatalf("a hit with nothing to restore waited for the workspace: %+v", result)
 	}
 
-	waits := waitingFor(t)
+	waits := waitingFor(t, &withArtifact)
 	done := make(chan Result, 1)
 	go func() { done <- runner.Execute(t.Context(), withArtifact) }()
 	awaitWait(t, waits, "workspace-")
@@ -223,9 +228,10 @@ func TestCacheHitsEnterTheWorkspaceOnlyToRestoreArtifacts(t *testing.T) {
 // Readers that have left the gate no longer count, so a writer that follows
 // them enters instead of waiting forever.
 func TestWriterEntersAfterReadersLeave(t *testing.T) {
+	t.Parallel()
 	g := &gate{}
 	for range 2 {
-		leave, err := g.acquire(t.Context(), "gate:reader", false)
+		leave, err := g.acquire(t.Context(), "gate:reader", false, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -234,7 +240,7 @@ func TestWriterEntersAfterReadersLeave(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	leave, err := g.acquire(ctx, "gate:writer", true)
+	leave, err := g.acquire(ctx, "gate:writer", true, nil)
 	if err != nil {
 		t.Fatalf("a writer waited on readers that had left: %v", err)
 	}
@@ -244,9 +250,11 @@ func TestWriterEntersAfterReadersLeave(t *testing.T) {
 // A writer that gives up waiting stops holding back readers, so a reader that
 // arrives after it enters beside the reader already inside.
 func TestCancelledWriterStopsHoldingBackReaders(t *testing.T) {
+	t.Parallel()
 	g := &gate{}
-	waits := waitingFor(t)
-	leave, err := g.acquire(t.Context(), "gate:reader", false)
+	var req Request
+	waits := waitingFor(t, &req)
+	leave, err := g.acquire(t.Context(), "gate:reader", false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +263,7 @@ func TestCancelledWriterStopsHoldingBackReaders(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	queued := make(chan error, 1)
 	go func() {
-		_, err := g.acquire(ctx, "gate:writer", true)
+		_, err := g.acquire(ctx, "gate:writer", true, req.session.waiting)
 		queued <- err
 	}()
 	awaitWait(t, waits, "gate:writer")
@@ -266,7 +274,7 @@ func TestCancelledWriterStopsHoldingBackReaders(t *testing.T) {
 
 	ctx, cancel = context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	second, err := g.acquire(ctx, "gate:reader", false)
+	second, err := g.acquire(ctx, "gate:reader", false, nil)
 	if err != nil {
 		t.Fatalf("a reader was held back by a writer that had given up: %v", err)
 	}

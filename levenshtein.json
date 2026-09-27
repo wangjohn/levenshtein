@@ -14,12 +14,12 @@
     "lint": {
       "dir": "runner/lint",
       "workspace": ".",
-      "inputs": ["runner/lint", "runner/toolchain.json", "runner/testdata/selection.json", "runner/testdata/import-rules.json", "runner/testdata/imports-good", "runner/testdata/imports-bad", "runner/testdata/generate-fresh", "runner/testdata/generate-stale", "runner/testdata/apidiff", "runner/tools/apidiff"]
+      "inputs": ["runner/lint", "runner/toolchain.json", "runner/testdata/selection.json", "runner/testdata/import-rules.json", "runner/testdata/imports-good", "runner/testdata/imports-bad", "runner/testdata/generate-fresh", "runner/testdata/generate-stale", "runner/testdata/apidiff", "runner/tools/apidiff", "runner/community/generated.go", "runner/community/guard.go", "runner/community/guard_test.go"]
     },
     "community": {
       "dir": "runner/community",
       "workspace": ".",
-      "inputs": ["runner/community", "runner/toolchain.json", "runner/lint/go.mod", "runner/testdata/community-patterns.json"]
+      "inputs": ["runner/community", "runner/toolchain.json", "runner/lint/go.mod", "runner/lint/policy/testdata", "runner/testdata/community-patterns.json", "runner/testdata/rule-module.json"]
     },
     "example": {
       "dir": "examples/rule-module",

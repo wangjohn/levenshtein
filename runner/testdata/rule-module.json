@@ -1,0 +1,11 @@
+{
+  "comment": "One planned rule module with every field set. internal/verify's PlannedRuleModule, the runner's ruleModule and runner/community's ModuleConfig each decode it, refusing unknown fields, and encode it back unchanged.",
+  "module": {
+    "path": "example.com/lvrules-errors",
+    "version": "v1.4.0",
+    "namespace": "errs",
+    "select": ["errs_*", "-errs_wrapf"],
+    "advisory": ["errs_sentinel"],
+    "settings": {"errs_nopanic": {"allow": "recover"}}
+  }
+}

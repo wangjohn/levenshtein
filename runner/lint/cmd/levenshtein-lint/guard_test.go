@@ -1,4 +1,6 @@
-// These are copies of runner/community/guard_test.go; change both together.
+// runner/community/guard_test.go is generated from this file, so the community
+// copy of the guard is tested as this one is: run go generate ./internal/copygen
+// in runner/lint after changing it.
 
 package main
 

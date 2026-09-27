@@ -60,6 +60,7 @@ func runnerFunctions(t *testing.T) map[string][]string {
 // which nothing compiles together, so a renamed function or argument would
 // only fail inside an engine. This pins the whole-module checks' calls.
 func TestWholeModuleChecksCallRunnerFunctionsThatExist(t *testing.T) {
+	t.Parallel()
 	functions := runnerFunctions(t)
 	for _, kind := range checkKinds {
 		function := daggerFunction(kind)
@@ -110,6 +111,7 @@ func loadImportRuleTable(t *testing.T) importRuleTable {
 // Planning rejects exactly the rules levenshtein-gocheck would reject, so a
 // mistake is a configuration error before anything runs.
 func TestImportRulesAreValidatedWhenPlanned(t *testing.T) {
+	t.Parallel()
 	table := loadImportRuleTable(t)
 	for _, env := range []Environment{nativeGoEnvironment(), {Executor: ExecutorDagger}} {
 		for _, rules := range append(table.Valid, table.Fixture) {
@@ -131,6 +133,7 @@ func TestImportRulesAreValidatedWhenPlanned(t *testing.T) {
 
 // Only go-imports takes an imports object, on either executor.
 func TestImportsOptionsBelongToGoImports(t *testing.T) {
+	t.Parallel()
 	rules := &ImportsCheck{Rules: []ImportRule{{Packages: []string{"./..."}, Deny: []string{"unsafe"}, Reason: "no unsafe"}}}
 	for _, tc := range []struct {
 		kind CheckKind
@@ -153,6 +156,7 @@ func TestImportsOptionsBelongToGoImports(t *testing.T) {
 // refused rather than ignored, and the rules key the result, so changing them
 // runs the check again.
 func TestImportRulesParseAndKeyTheResult(t *testing.T) {
+	t.Parallel()
 	const config = `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"layers":{"kind":"go-imports","target":"app","environment":"go","imports":{"rules":[%s]}}},"runs":{"branch":{"checks":["layers"]}}}`
 	cfg, err := Parse(fmt.Appendf(nil, config, `{"packages":["./core/..."],"deny":["./api/..."],"tests":"exclude","reason":"layering"}`))
 	if err != nil {
@@ -191,6 +195,7 @@ func TestImportRulesParseAndKeyTheResult(t *testing.T) {
 // A configuration can hold many rules, so an error names the rule, counting
 // from one, that it is about.
 func TestValidateImportRulesNamesTheRule(t *testing.T) {
+	t.Parallel()
 	valid := ImportRule{Packages: []string{"./core/..."}, Deny: []string{"net/http"}, Reason: "core stays transport-free"}
 	invalid := ImportRule{Packages: []string{"core"}, Deny: []string{"net/http"}, Reason: "not relative"}
 

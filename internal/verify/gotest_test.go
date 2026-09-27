@@ -11,6 +11,7 @@ import (
 // The native check turns a failing package into a finding and reports go
 // test's text, not the event stream it parsed.
 func TestNativeGoTestReportsFailuresAsText(t *testing.T) {
+	t.Parallel()
 	dir, err := filepath.Abs(filepath.Join("..", "..", "runner", "testdata", "test-fail"))
 	if err != nil {
 		t.Fatal(err)

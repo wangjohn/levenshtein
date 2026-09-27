@@ -31,13 +31,15 @@
     {
       "file": "internal/verify/discovery.go",
       "mutator": "INCREMENT_DECREMENT",
-      "line": "listingEpochs[source]++",
+      "line": "s.listingEpochs[source]++",
+      "function": "Session.relist",
       "reason": "listing only asks whether the epoch moved since it read it; a decrement moves it just as surely, and it never returns to an earlier value"
     },
     {
       "file": "internal/verify/enumerate.go",
       "mutator": "CONDITIONALS_NEGATION",
       "line": "if entry != nil && entry.IsDir() {",
+      "function": "fileSet.walkTree",
       "reason": "without SkipDir the walk descends into the excluded directory, but every entry below it is excluded too; skipping only saves the walk"
     },
     {

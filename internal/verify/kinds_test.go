@@ -12,6 +12,7 @@ import (
 // shared Go kinds are the only ones both executors own; a repository chooses
 // between them with the environment.
 func TestEveryCheckKindHasACompleteExecutor(t *testing.T) {
+	t.Parallel()
 	seen := map[CheckKind]bool{}
 	for _, kind := range checkKinds {
 		native, ok := nativeKindOf(kind)
@@ -45,6 +46,7 @@ func TestGoKindsAreExactlyTheToolchainKinds(t *testing.T) {
 // Only a command check may write to the workspace it runs in; every other
 // kind can share it.
 func TestOnlyCommandChecksWriteTheirWorkspace(t *testing.T) {
+	t.Parallel()
 	for _, kind := range checkKinds {
 		if readOnlyWorkspace(kind) == (kind == CheckCommand) {
 			t.Errorf("%s: readOnlyWorkspace = %v", kind, readOnlyWorkspace(kind))
@@ -64,6 +66,7 @@ func sharedGoKinds() []CheckKind {
 }
 
 func TestNativeExecutorNamesItsKindsForUnknownCheck(t *testing.T) {
+	t.Parallel()
 	req := nativeRequest(t)
 	req.Check = Check{Kind: CheckSelfTest}
 
@@ -74,6 +77,7 @@ func TestNativeExecutorNamesItsKindsForUnknownCheck(t *testing.T) {
 }
 
 func TestCommandCheckWithoutOptionsIsAnError(t *testing.T) {
+	t.Parallel()
 	req := nativeRequest(t)
 	req.Check = Check{Kind: CheckCommand}
 

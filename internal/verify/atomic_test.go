@@ -9,6 +9,7 @@ import (
 )
 
 func TestAtomicArtifactKeepsRootAndPermissions(t *testing.T) {
+	t.Parallel()
 	parent := t.TempDir()
 	source := filepath.Join(parent, "source")
 	if err := os.Mkdir(source, 0700); err != nil {

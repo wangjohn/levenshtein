@@ -11,11 +11,12 @@ import (
 // from the filesystem.
 func validateFiles(t *testing.T, source string, inputs, excludes []string) error {
 	t.Helper()
-	_, err := importExcludes(t.Context(), fileSet{Root: source, Inputs: inputs, Excludes: excludes, Discovery: DiscoveryFilesystem})
+	_, err := importExcludes(t.Context(), sessionAt(""), fileSet{Root: source, Inputs: inputs, Excludes: excludes, Discovery: DiscoveryFilesystem})
 	return err
 }
 
 func TestDaggerInputsAreLiteralPaths(t *testing.T) {
+	t.Parallel()
 	for _, input := range []string{"../personal", "/private", "services/*", "!personal", "[ab]", "{a,b}", "a?", "a\nb"} {
 		if _, err := daggerIncludes([]string{input}); err == nil {
 			t.Errorf("accepted pattern or escaping input %q", input)
