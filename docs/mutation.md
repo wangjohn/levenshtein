@@ -50,7 +50,7 @@ The optional `mutation` object accepts:
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `base` | `GITHUB_BASE_REF`, else `main` | Branch whose merge base defines "changed". It is resolved locally, then as `origin/<base>`. |
+| `base` | `GITHUB_BASE_REF`, else `main` | Branch whose merge base defines "changed". It resolves to `origin/<base>`, so a stale local branch cannot widen the change; the local branch is used when it is the same commit or ahead, or when there is no `origin/<base>`. |
 | `scope` | `changed` | `module` mutates every eligible file in the target instead, and cannot be combined with `base`. |
 | `accepted` | `.levenshtein/mutation-accepted.json` | Repository-relative accepted-survivors file. A missing file accepts nothing. It must be inside the target's `inputs`, because the check reads it from the Dagger source. |
 | `tags` | none | Build tags for gremlins and the tests, as one comma-separated list. |

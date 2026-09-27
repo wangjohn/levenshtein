@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/wangjohn/levenshtein/internal/testgit"
 )
 
 const templatesDir = "../../templates"
@@ -99,7 +101,7 @@ func runHook(t *testing.T, script, input string, env ...string) (int, string) {
 	}
 	cmd := exec.CommandContext(t.Context(), path)
 	cmd.Stdin = strings.NewReader(input)
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = append(testgit.Env(), env...) // The hooks run git.
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	err = cmd.Run()
@@ -116,7 +118,7 @@ func runHook(t *testing.T, script, input string, env ...string) (int, string) {
 func TestStopHookTemplate(t *testing.T) {
 	hookTools(t, "bash", "git", "jq")
 	project := t.TempDir()
-	if out, err := exec.CommandContext(t.Context(), "git", "init", "-q", project).CombinedOutput(); err != nil {
+	if out, err := testgit.Command(t.Context(), "git", "", "init", "-q", project).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v %s", err, out)
 	}
 
@@ -172,12 +174,12 @@ func TestStopHookChecksUnpushedCommits(t *testing.T) {
 	project := t.TempDir()
 	git := func(args ...string) {
 		t.Helper()
-		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", project, "-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
+		cmd := testgit.Command(t.Context(), "git", "", append([]string{"-C", project, "-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v %s", args, err, out)
 		}
 	}
-	if out, err := exec.CommandContext(t.Context(), "git", "init", "-q", "--bare", remote).CombinedOutput(); err != nil {
+	if out, err := testgit.Command(t.Context(), "git", "", "init", "-q", "--bare", remote).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v %s", err, out)
 	}
 	git("init", "-q", "-b", "main")

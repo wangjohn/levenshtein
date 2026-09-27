@@ -2,7 +2,7 @@
 
 `semantic-lint` asks TypeSafe's Jev model bounded questions about the change on your branch and reports the answers as advisory findings. Jev is a System One model: given a state and typed questions, it returns probabilities in one pass. It does not write text or code, so it cannot rewrite anything. Code selects what to judge, phrases each question, and owns every threshold.
 
-**Status:** advisory pilot. Findings never change the check outcome. The result record keeps every raw judgment so thresholds can be calibrated against real pull requests before any question gates a merge.
+**Status:** advisory pilot. Findings and unanswered questions never change the check outcome. The result record keeps every raw judgment so thresholds can be calibrated against real pull requests before any question gates a merge.
 
 ## What it judges
 
@@ -26,12 +26,12 @@ Mechanical conventions belong in analyzers, not here. Spacing, struct field layo
 
 ## How it works
 
-1. **Diff.** The check resolves the configured base branch (locally, then as `origin/<base>`), takes the merge base with `HEAD`, and diffs the working tree against it with zero context. Untracked Go and Markdown files count as fully added. Deleted files contribute only to the change summary.
+1. **Diff.** The check resolves the configured base branch (as `origin/<base>`, unless the local branch is the same commit or ahead of it, or no `origin/<base>` exists), takes the merge base with `HEAD`, and diffs the working tree against it with zero context. Untracked Go and Markdown files count as fully added. Deleted files contribute only to the change summary.
 2. **State.** For Go, the current file is parsed and hunks are grouped by the top-level declaration they touch. The declaration text, the lines of the diff inside that declaration, the file's test flag, the preselected items, and, for functions with three or more added lines, package-level function signatures form one state. For Markdown, the state is the hunk, its enclosing section, and the preselected sentences. The change state holds commit subjects with their files and hunk headers, a per-file summary, the Markdown diff, and a digest of added Go symbols and configuration keys.
-3. **Ask.** Each state goes to the pinned model with all of its questions in one request, a few requests at a time. Oversized states drop package signatures, then truncate the declaration text, to stay inside the model's context.
+3. **Ask.** Each state goes to the pinned model with all of its questions in one request, a few requests at a time, the change state first. Oversized states drop package signatures, then truncate the declaration text, the Markdown diff, and the judged items, and finally trim the change state's `files` and `commits` lists, to stay inside the model's context. Two budgets bound the whole run: at most `max_requests` requests (default 60) and `max_input_chars` characters of state and questions (default 1,500,000, roughly 375,000 input tokens). States beyond either budget are not sent; a note names the budget and the files and symbols left out, and `details.skipped` lists them all.
 4. **Compose.** Answers are matched back to their question and location. Every judgment is recorded. Findings are the ones that crossed their threshold.
 
-The check passes whenever every question received an answer. It is `incomplete` when the response omits a question, and `error` when the API key is missing, the base branch cannot be found (including on a shallow clone), the API is unreachable or rejects the request, or the timeout elapses. Rate limiting and overload are retried a few times. Results are never cached: the model is pinned but not bitwise deterministic, and the cost of a rerun is a fraction of a cent.
+The check passes once at least one question is answered. A question the response omits, or whose request failed or was still waiting when the timeout elapsed, is listed as `unanswered path:line symbol question` in the output and in `details.missing`, and each distinct failure is listed as `request failed:` and in `details.errors`; neither changes the outcome. The check is `error` when the API key is missing, the base branch cannot be found or shares no commit with `HEAD` (including on a shallow clone), the timeout elapses before any answer arrives (`semantic-lint timed out`), or requests were sent and not one question was answered (`no question was answered: <reason>`), for example when the API rejects every request. Rate limiting, overload, server errors (HTTP 500, 502, 503, 504), and a request that gets no answer within 90 seconds are retried twice. Results are never cached: the model is pinned but not bitwise deterministic, so every run pays for its requests again, up to the budgets above.
 
 ## Configure
 
@@ -49,7 +49,7 @@ The check passes whenever every question received an answer. It is `incomplete` 
 }
 ```
 
-`semantic-lint` is a native check without a command. Its optional `semantic` object accepts `base`, `model` (a pinned release; aliases such as `jev-latest` are rejected), and `timeout` (default five minutes); the environment still supplies `env`, `pass_env`, and `tools`, except for the entries named under [API keys](#api-keys). The base branch is `base` when set, otherwise `GITHUB_BASE_REF` when GitHub Actions provides it for a pull request, otherwise `main`. A `semantic-lint` check cannot carry a `command` object, so args, rerun args, artifacts, preparation, build, and caching are not expressible for it. A run with `rerun_checks: true` needs no rerun args, because the check always executes.
+`semantic-lint` is a native check without a command. Its optional `semantic` object accepts `base`, `model` (a pinned release; aliases such as `jev-latest` are rejected), `timeout` (default five minutes), and the budgets `max_requests` (default 60) and `max_input_chars` (default 1500000), which must be positive; the environment still supplies `env`, `pass_env`, and `tools`, except for the entries named under [API keys](#api-keys). The base branch is `base` when set, otherwise `GITHUB_BASE_REF` when GitHub Actions provides it for a pull request, otherwise `main`. A `semantic-lint` check cannot carry a `command` object, so args, rerun args, artifacts, preparation, build, and caching are not expressible for it. A run with `rerun_checks: true` needs no rerun args, because the check always executes.
 
 The target's `dir` and `inputs` limit which changed files are judged. Paths under a `testdata` directory and private `.env` files are skipped. Keep the check in its own run while piloting, so ordinary runs stay offline and deterministic.
 
@@ -89,6 +89,7 @@ What leaves the machine: the diff hunks, the enclosing declarations or sections,
 
 - Only Go and Markdown files produce hunk questions. Renames appear as a deletion plus an addition.
 - A state is capped near the model's 32k-token budget. Very large declarations are truncated and package signatures are dropped first.
+- A run is capped by `max_requests` and `max_input_chars`. On a large refactor the change state and the first files fit and the rest are named in a note but not judged; raise the budgets, and `timeout` with them, to review more.
 - The model reads questions literally, degrades when the state is padded with irrelevant text, and cannot count or compare dates. Text inside the diff can influence answers, so do not gate on findings for changes from untrusted authors.
 - Calibration is a population property. A single probability is not a verdict, and TypeSafe publishes no accuracy figures for code review. The vendor's own workflow evaluation lands around 68 percent agreement with frontier-model labels.
 - Repeated runs return similar, not identical, probabilities. Findings near a threshold can flip between runs.
@@ -102,7 +103,6 @@ The result's `details.judgments` array holds every question, location, probabili
 Candidate extensions, in rough priority order. None are scheduled; each becomes work once real pull requests show the need.
 
 - **Cross-package duplicate detection.** `duplicates_package_helper` compares new code only with signatures from the same directory. The extension follows the retrieve-then-judge pattern: one `go/ast` pass indexes every non-test, non-generated function in the source with its signature, doc line, body, and identifiers; code ranks candidates for each new function by shared identifiers, parameter and return types, and length; the top five are sent with bodies capped near 1.5k characters; and one Noul per candidate asks whether the new function performs the same operation. Findings then name the existing function to call. Near-identical clones stay with a deterministic clone detector; the model earns its place on semantic duplicates after code has narrowed the field.
-- **Trim the change-level state for very large pull requests.** `fit` drops package signatures, declaration text, and the Markdown diff, but not the `files` and `commits` lists. A change touching several hundred files could exceed the state cap and fail as an infrastructure error. Keep hunk headers for the first files and replace the rest with a count.
 - **A review band around each threshold.** Report judgments within 0.1 of a Noul threshold under an `uncertain` heading rather than as findings or silence, matching the confidence floor Score questions already have. Run-to-run drift on this repository averaged 0.02 with a worst case near 0.2, so findings at the threshold can flip between runs.
 - **Per-question calibration summary in check output.** Print judged, fired, uncertain, and the probability range for each question so every run produces its own calibration record without opening the JSON.
 - **A labels file.** Check in hand labels of fired and near-miss judgments, keyed by catalog version, question, and location, so thresholds move on evidence and questions with stable precision can be promoted to analyzers.
@@ -115,4 +115,4 @@ Candidate extensions, in rough priority order. None are scheduled; each becomes 
 
 Everything else in the CLI is offline and deterministic; this check is neither. It reaches a third-party API over the network, its answers vary between runs, and it carries a vendor's wire format into a repository that otherwise depends on nothing. Moving `internal/semantic` into its own module would let the vendor coupling version separately and keep the core free of it.
 
-The adapter surface is already small: the `native.go` dispatch on the check kind, `validateSemanticLint`, and the `base`, `model`, and `timeout` options on `Check`. The split is deferred until calibration settles, because the catalog, the thresholds, and the state shape are still moving and a module boundary would make each change a two-repository edit.
+The adapter surface is already small: the `native.go` dispatch on the check kind, `validateSemanticLint`, and the `base`, `model`, `timeout`, `max_requests`, and `max_input_chars` options on `Check`. The split is deferred until calibration settles, because the catalog, the thresholds, and the state shape are still moving and a module boundary would make each change a two-repository edit.

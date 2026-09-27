@@ -4,20 +4,18 @@ package verify
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/wangjohn/levenshtein/internal/testgit"
 )
 
 // A go-mutation check bounds its own run with a timeout, but the Dagger
 // session belongs to the whole run. Two checks on one runner must both reach
 // the engine; before the fix the first one closed the session on return.
 func TestMutationKeepsTheSharedDaggerSession(t *testing.T) {
-	git, err := exec.LookPath("git")
-	if err != nil {
-		t.Skip("git is not installed")
-	}
+	git := testgit.Path(t)
 	shared, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -26,15 +24,10 @@ func TestMutationKeepsTheSharedDaggerSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
+	testgit.Isolate(t) // The check runs git with the process environment.
 	run := func(args ...string) {
 		t.Helper()
-		cmd := exec.CommandContext(t.Context(), git, args...)
-		cmd.Dir = source
-		cmd.Env = env
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
+		testgit.Run(t, git, source, args...)
 	}
 	fixture := filepath.Join(shared, "runner", "testdata", "mutation", "strong")
 	for _, name := range []string{"go.mod", "add.go", "add_test.go"} {

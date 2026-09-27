@@ -3,11 +3,12 @@ package verify
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/wangjohn/levenshtein/internal/testgit"
 )
 
 // listTree names every file and link under root, relative to it.
@@ -59,15 +60,7 @@ func TestCopyInputsCopiesWhatTheCheckMayRead(t *testing.T) {
 				t.Fatal(err)
 			}
 			if discovery == DiscoveryGit {
-				git, err := exec.LookPath("git")
-				if err != nil {
-					t.Skip("git is not installed")
-				}
-				cmd := exec.CommandContext(t.Context(), git, "init", "--quiet")
-				cmd.Dir = req.Source
-				if output, err := cmd.CombinedOutput(); err != nil {
-					t.Fatalf("git init: %v\n%s", err, output)
-				}
+				testgit.Run(t, testgit.Path(t), req.Source, "init", "--quiet")
 				relist(req.Source)
 			}
 

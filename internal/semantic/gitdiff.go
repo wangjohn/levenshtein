@@ -190,12 +190,12 @@ func parseCommitLog(raw string) ([]Commit, error) {
 				current.HunkHeaders = append(current.HunkHeaders, fmt.Sprintf("%s @@ -%d,%d +%d,%d @@ %s", path, hunk.OldStart, hunk.OldLines, hunk.NewStart, hunk.NewLines, hunk.Header))
 			}
 		case strings.HasPrefix(line, "--- "):
-			if name := strings.TrimPrefix(line, "--- "); path == "" && name != "/dev/null" {
-				path = strings.TrimPrefix(name, "a/")
+			if name, ok := diffPath(line, "--- ", "a/"); path == "" && ok {
+				path = name
 			}
 		case strings.HasPrefix(line, "+++ "):
-			if name := strings.TrimPrefix(line, "+++ "); name != "/dev/null" {
-				path = strings.TrimPrefix(name, "b/")
+			if name, ok := diffPath(line, "+++ ", "b/"); ok {
+				path = name
 			}
 		}
 	}
@@ -204,6 +204,17 @@ func parseCommitLog(raw string) ([]Commit, error) {
 		return nil, fmt.Errorf("reading commit log: %w", err)
 	}
 	return commits, nil
+}
+
+// diffPath reads the path from a "--- " or "+++ " header line without its side
+// prefix. It reports false for /dev/null, the missing side of an added or a
+// deleted file.
+func diffPath(line, header, side string) (string, bool) {
+	name := gitchange.HeaderName(strings.TrimPrefix(line, header))
+	if name == "/dev/null" {
+		return "", false
+	}
+	return strings.TrimPrefix(name, side), true
 }
 
 const maxUntrackedBytes = 256 << 10
@@ -295,12 +306,12 @@ func parseDiff(raw string, include func(string) bool) ([]FileChange, error) {
 		// starts with "+++ " or "--- " is content (an added "++ x" or a removed
 		// "-- x") and must not rename the file or vanish from the counts.
 		case !sawHunk && strings.HasPrefix(line, "--- "):
-			if name := strings.TrimPrefix(line, "--- "); path == "" && name != "/dev/null" {
-				path = strings.TrimPrefix(name, "a/")
+			if name, ok := diffPath(line, "--- ", "a/"); path == "" && ok {
+				path = name
 			}
 		case !sawHunk && strings.HasPrefix(line, "+++ "):
-			if name := strings.TrimPrefix(line, "+++ "); name != "/dev/null" {
-				path = strings.TrimPrefix(name, "b/")
+			if name, ok := diffPath(line, "+++ ", "b/"); ok {
+				path = name
 			}
 		case strings.HasPrefix(line, "@@ "):
 			sawHunk = true // Even a malformed header ends the header region.
