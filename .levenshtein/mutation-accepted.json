@@ -23,6 +23,7 @@
       "file": "internal/verify/enumerate.go",
       "mutator": "CONDITIONALS_BOUNDARY",
       "line": "for i := 1; i < len(parts); i++ {",
+      "function": "fileSet.walkIgnored",
       "reason": "in walkIgnored, also checking the input itself narrows its paths to the input only when git lists the input, and then everything listed below it is skipped as held anyway; the same line in reach is killed by tests of file inputs"
     },
     {
