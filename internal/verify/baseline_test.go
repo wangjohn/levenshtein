@@ -364,6 +364,22 @@ func TestBaselineIgnoresEntriesACheckCouldNotProduce(t *testing.T) {
 	}
 }
 
+// Only a finding with the entry's own code shows that a check ran the rule.
+// Another rule's finding says nothing about it.
+func TestBaselineIgnoresEntriesWhenACheckReportsOnlyOtherCodes(t *testing.T) {
+	t.Parallel()
+	check := lintCheck("lint", ".")
+	check.Check.Lint = &LintCheck{Checks: []string{"-unparam"}}
+	baseline := Baseline{Path: testBaselinePath, Entries: []BaselineEntry{lintEntry("a.go", "unparam", "still there", 1)}}
+	report := reportOf([]PlannedCheck{check}, failedResult("lint", lintFinding("b.go", 3, "SA4006", "value never used")))
+
+	applied := applyWith(baseline, report, producer())
+
+	if applied.Baseline.Stale != 0 || applied.Baseline.Baselined != 0 {
+		t.Fatalf("the unparam entry is not judged: %+v", applied.Baseline)
+	}
+}
+
 func TestRecordBaselineKeepsEntriesACheckCouldNotProduce(t *testing.T) {
 	t.Parallel()
 	for name, tc := range unproducibleCases() {
@@ -400,6 +416,8 @@ func daggerLint(id, dir string, selected ...string) PlannedCheck {
 
 func orphanCases() map[string]orphanCase {
 	noModules := daggerLint("lint", ".")
+	native := lintCheck("lint", ".")
+	native.RuleModules = daggerLint("lint", ".", "errs_*").RuleModules
 	dropped := daggerLint("lint", ".", "errs_other")
 	offHere, offThere := daggerLint("lint", "."), lintCheck("native-lint", ".")
 	offHere.Check.Lint = &LintCheck{Checks: []string{"-unparam"}}
@@ -413,6 +431,11 @@ func orphanCases() map[string]orphanCase {
 		"rule module removed": {
 			configured: []PlannedCheck{noModules},
 			run:        []PlannedCheck{noModules},
+			entry:      lintEntry("a.go", "errs_nopanic", "panics", 1),
+		},
+		"rule module only on a native check": {
+			configured: []PlannedCheck{native},
+			run:        []PlannedCheck{native},
 			entry:      lintEntry("a.go", "errs_nopanic", "panics", 1),
 		},
 		"rule dropped from the module's select": {
@@ -463,7 +486,9 @@ func (o orphanCase) baseline(t *testing.T) Baseline {
 }
 
 // report is a run in which every go-lint check on "." found the kept entry's
-// finding and every other check passed, so only the orphan can fail it.
+// finding and every other check passed, so only the orphan can fail it. A
+// native check with rule modules warns that it skipped them, as it does when
+// it runs.
 func (o orphanCase) report() Report {
 	var results []Result
 	for _, check := range o.run {
@@ -471,6 +496,7 @@ func (o orphanCase) report() Report {
 		if check.Check.Kind == CheckGoLint && check.Target.Dir == "." {
 			result = failedResult(check.ID, lintFinding("kept.go", 1, "errcheck", "unchecked error"))
 		}
+		result.Warnings = skippedRuleModules(Request{PlannedCheck: check})
 		results = append(results, result)
 	}
 	return reportOf(o.run, results...)

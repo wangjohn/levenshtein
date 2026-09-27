@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,30 @@ func recordOfSize(t *testing.T, size int) string {
 		t.Fatal(err)
 	}
 	return strings.Repeat("a", size-len(empty))
+}
+
+// A memo is split only when its estimated size, paths and values alike, is over
+// half the record limit, and then into enough shards to bring each under it.
+func TestStatMemoShardsKeepEachUnderHalfTheLimit(t *testing.T) {
+	t.Parallel()
+	short := map[string]statEntry{"a": {Value: "xyz"}}
+	shortSize := len("a") + len("xyz") + statEntryOverhead
+	long := map[string]statEntry{"a": {Value: strings.Repeat("v", 1000)}}
+
+	for _, tc := range []struct {
+		name    string
+		entries map[string]statEntry
+		limit   int
+		want    int
+	}{
+		{name: "exactly half the limit", entries: short, limit: 2 * shortSize, want: 1},
+		{name: "just over half the limit", entries: short, limit: 2*shortSize - 2, want: 2},
+		{name: "a long value", entries: long, limit: 1024, want: 4},
+	} {
+		if got := shards(tc.entries, tc.limit); got != tc.want {
+			t.Errorf("%s: shards = %d, want %d", tc.name, got, tc.want)
+		}
+	}
 }
 
 // A record the reader would refuse is refused when it is written, instead of
@@ -60,6 +85,36 @@ func TestOversizedResultIsReportedAndNotCached(t *testing.T) {
 	result := runner.Execute(t.Context(), req)
 	if result.Status != StatusPassed || !strings.Contains(result.Cache.Reason, "cache write unavailable") || !strings.Contains(result.Cache.Reason, "limit") {
 		t.Fatalf("an oversized result did not say it was not cached: %+v", result.Cache)
+	}
+}
+
+// Shard 0 says how many shards the memo has. A shard beyond that count, left
+// by an earlier, larger memo, is not read.
+func TestStatMemoReadsOnlyTheShardsItCounts(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	root := t.TempDir()
+	store := newStatStore(dir, recordLimit)
+	settled := statEntry{Stat: fileStat{ModNS: time.Now().Add(-time.Hour).UnixNano()}, Value: "644:x", HashedAt: time.Now().UnixNano()}
+	for i, record := range []statRecord{
+		{Root: root, Shards: 2, Entries: map[string]statEntry{"first.go": settled}},
+		{Root: root, Entries: map[string]statEntry{"second.go": settled}},
+		{Root: root, Entries: map[string]statEntry{"leftover.go": settled}},
+	} {
+		if err := writeRecord(store.shard(root, i), record, recordLimit); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	store.prepare(root)
+
+	var loaded []string
+	for key := range store.entries {
+		loaded = append(loaded, key.Path)
+	}
+	slices.Sort(loaded)
+	if want := []string{"first.go", "second.go"}; !slices.Equal(loaded, want) {
+		t.Fatalf("loaded %v, want %v", loaded, want)
 	}
 }
 

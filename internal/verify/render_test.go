@@ -3,6 +3,7 @@ package verify
 import (
 	"bytes"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -206,6 +207,9 @@ func TestRenderSARIF(t *testing.T) {
 						Help    *struct {
 							Text string `json:"text"`
 						} `json:"help"`
+						Properties struct {
+							Tags []string `json:"tags"`
+						} `json:"properties"`
 					} `json:"rules"`
 				} `json:"driver"`
 			} `json:"tool"`
@@ -262,6 +266,11 @@ func TestRenderSARIF(t *testing.T) {
 	}
 	if help := run.Tool.Driver.Rules[0].Help; help == nil || !strings.HasPrefix(help.Text, "run gofmt -w <file>") {
 		t.Fatalf("rule help: %+v", help)
+	}
+	for _, rule := range run.Tool.Driver.Rules {
+		if !slices.Equal(rule.Properties.Tags, []string{string(CheckGoLint)}) {
+			t.Fatalf("rule %s tags = %q, want its check's kind", rule.ID, rule.Properties.Tags)
+		}
 	}
 
 	if len(run.Results) != 3 {
@@ -344,11 +353,16 @@ func TestRenderOrphanedBaselineEntries(t *testing.T) {
 
 	var log struct {
 		Runs []struct {
+			Tool    sarifTool     `json:"tool"`
 			Results []sarifResult `json:"results"`
 		} `json:"runs"`
 	}
 	if err := json.Unmarshal([]byte(render(t, report, FormatSARIF, RenderOptions{})), &log); err != nil {
 		t.Fatal(err)
+	}
+	// The orphan's rule comes from no check, so it has no kind to tag.
+	if rules := log.Runs[0].Tool.Driver.Rules; len(rules) != 1 || rules[0].ID != baselineStaleCode || rules[0].Properties.Tags != nil {
+		t.Fatalf("sarif rules: %+v", rules)
 	}
 	results := log.Runs[0].Results
 	if len(results) != 1 || results[0].RuleID != baselineStaleCode || results[0].Locations[0].PhysicalLocation.ArtifactLocation.URI != testBaselinePath || results[0].Locations[0].PhysicalLocation.Region.StartLine != 4 || results[0].BaselineState != sarifNew {
