@@ -59,7 +59,53 @@ const (
 
 	// defaultAcceptedPath matches the CLI default and the +default below.
 	defaultAcceptedPath = ".levenshtein/mutation-accepted.json"
+
+	// Gremlins' --diff mode reads "git diff --merge-base REF" and runs only the
+	// mutants on lines that diff adds; every other mutant is SKIPPED without a
+	// test run. Dagger has no .git, so a git shim first on PATH answers that one
+	// command with the runner's own diff and hands any other to the real git.
+	gremlinsDiffRef  = "levenshtein-changed-lines"
+	gremlinsDiffPath = "/levenshtein/changed.diff"
+	gremlinsShimDir  = "/levenshtein/git"
+
+	// diffPlaceholder names no Go file. Gremlins treats an empty diff as
+	// "every line changed", so this entry keeps a diff that runs no line of any
+	// selected file from running all of them.
+	diffPlaceholder = ".levenshtein-no-changed-go-lines"
 )
+
+// gitShim is the git that gremlins finds first on PATH. It answers gremlins'
+// one git command with the diff at diffPath, and runs any other, such as a
+// test's, with realGit, the absolute path git had before the shim, or fails as
+// a missing git would when there was none. The tests inherit gremlins' PATH,
+// so the shim has to behave as git wherever they reach it: git puts its exec
+// path in front of PATH, and a test can link the git it finds into a PATH of
+// its own. Searching PATH from the shim would find the shim again there.
+func gitShim(realGit, diffPath string) string {
+	other := "echo 'git: not found' >&2\nexit 127\n"
+	if realGit != "" {
+		other = "exec '" + realGit + "' \"$@\"\n"
+	}
+	return `#!/bin/sh
+if [ "$#" -eq 3 ] && [ "$1" = diff ] && [ "$2" = --merge-base ] && [ "$3" = ` + gremlinsDiffRef + ` ]; then
+	exec cat '` + diffPath + `'
+fi
+` + other
+}
+
+// hostGit finds the git a container's PATH names before the shim is added, or
+// "" when it has none.
+func hostGit(ctx context.Context, ctr *dagger.Container) (string, error) {
+	out, err := ctr.WithExec([]string{"sh", "-c", "command -v git || true"}).Stdout(ctx)
+	if err != nil {
+		return "", err
+	}
+	found := strings.TrimSpace(out)
+	if !path.IsAbs(found) || strings.ContainsAny(found, "'\n") {
+		return "", nil
+	}
+	return found, nil
+}
 
 // mutationStatus is a gremlins mutant status as its JSON report spells it.
 type mutationStatus string
@@ -126,7 +172,10 @@ type mutationRun struct {
 }
 
 // mutationSummary is returned on every completed run, so a person sees the
-// counts and uncovered lines whether or not the check failed.
+// counts and uncovered lines whether or not the check failed. In a run limited
+// to changed lines, Skipped counts the mutants on other lines, which gremlins
+// does not run, and Unchanged counts survivors on unchanged lines that ran
+// only because an accepted entry names them.
 type mutationSummary struct {
 	Killed          int              `json:"killed"`
 	Lived           int              `json:"lived"`
@@ -250,10 +299,12 @@ func exclusions(all, selected []string) []string {
 // outcomes are decided, and it never relies on gremlins' own thresholds: they
 // are ignored as flags and off by one in configuration.
 //
-// A survivor fails the check only on a line the change wrote, so a pull request
-// is not failed for gaps it inherited; other survivors are listed in the
-// summary. A timed-out mutant counts as caught, the way PIT and Stryker count
-// it: a mutation that makes the code hang is one the tests noticed. That holds
+// Gremlins runs only the mutants on mutatedLines and skips the rest, and a run
+// that did otherwise is an error. A survivor fails the check only on a line the
+// change wrote, so a pull request is not failed for gaps it inherited; one on
+// an unchanged line an accepted entry names is listed in the summary. A
+// timed-out mutant counts as caught, the way PIT and Stryker count it: a
+// mutation that makes the code hang is one the tests noticed. That holds
 // only for a limit of at least mutantTimeFloor; a timeout under a shorter one,
 // or under a limit the run did not report, makes the run incomplete. A run is
 // also incomplete when every covered mutant timed out, and there were enough of
@@ -281,6 +332,7 @@ func decideMutation(run mutationRun, in mutationInput) (mutationVerdict, error) 
 	for _, file := range in.Files {
 		selected[file] = true
 	}
+	runLines := mutatedLines(in)
 	var lived, timedOut []mutationMutant
 	mutated := map[string]bool{}
 	covered := map[string]int{}
@@ -292,6 +344,15 @@ func decideMutation(run mutationRun, in mutationInput) (mutationVerdict, error) 
 		mutated[file.FileName] = true
 		for _, m := range file.Mutations {
 			mutant := mutationMutant{File: file.FileName, Line: m.Line, Column: m.Column, Mutator: m.Type}
+			// Gremlins skips exactly the mutants outside its diff. Any other
+			// split means it read a different diff than the runner wrote.
+			if onLines(runLines, mutant) == (m.Status == mutationSkipped) {
+				verb := "ran"
+				if m.Status == mutationSkipped {
+					verb = "skipped"
+				}
+				return mutationVerdict{}, fmt.Errorf("gremlins %s %s:%d, against the lines it was given to mutate", verb, mutant.File, mutant.Line)
+			}
 			switch m.Status {
 			case mutationKilled:
 				summary.Killed++
@@ -338,7 +399,7 @@ func decideMutation(run mutationRun, in mutationInput) (mutationVerdict, error) 
 			summary.Accepted++
 			continue
 		}
-		if !onChangedLine(in.Lines, mutant) {
+		if !onLines(in.Lines, mutant) {
 			summary.Unchanged++
 			summary.UnchangedList = append(summary.UnchangedList, mutant)
 			continue
@@ -474,10 +535,10 @@ func joinLines(lines []int) string {
 	return strings.Join(text, ", ")
 }
 
-// onChangedLine reports whether a mutant sits on a line the change wrote. Nil
-// lines, as in module scope, count every line, and so does a file without an
-// entry, such as an untracked one whose every line is new.
-func onChangedLine(lines map[string][]lineRange, mutant mutationMutant) bool {
+// onLines reports whether a mutant sits on one of lines, such as the lines a
+// change wrote. Nil lines, as in module scope, count every line, and so does a
+// file without an entry, such as an untracked one whose every line is new.
+func onLines(lines map[string][]lineRange, mutant mutationMutant) bool {
 	if lines == nil {
 		return true
 	}
@@ -486,6 +547,79 @@ func onChangedLine(lines map[string][]lineRange, mutant mutationMutant) bool {
 		return true
 	}
 	return slices.ContainsFunc(ranges, func(r lineRange) bool { return r.Start <= mutant.Line && mutant.Line <= r.End })
+}
+
+// mutatedLines returns the lines gremlins runs mutants on: the changed lines,
+// every line of a file lines has no entry for, such as an untracked one, and
+// every line an accepted entry names, whatever its mutator. A file whose entry
+// has no ranges, such as one whose change only deleted lines, runs only its
+// accepted entries' lines. Running an entry's lines keeps judging it as it was
+// judged when whole files ran: stale once a test catches its mutant, ambiguous
+// when it fits survivors on several lines. Nil lines, as in module scope, run
+// every line and return nil.
+func mutatedLines(in mutationInput) map[string][]lineRange {
+	if in.Lines == nil {
+		return nil
+	}
+
+	index := newSourceIndex(in.Sources)
+	run := map[string][]lineRange{}
+	for _, file := range in.Files {
+		ranges, ok := in.Lines[file]
+		if !ok {
+			ranges = []lineRange{{Start: 1, End: max(len(in.Sources[file]), 1)}}
+		}
+		ranges = slices.Clone(ranges)
+		for _, entry := range in.Accepted {
+			if entry.File != file {
+				continue
+			}
+			for line := 1; line <= len(in.Sources[file]); line++ {
+				if index.names(entry, file, line) {
+					ranges = append(ranges, lineRange{Start: line, End: line})
+				}
+			}
+		}
+		run[file] = mergeRanges(ranges)
+	}
+	return run
+}
+
+// mergeRanges sorts ranges and joins those that overlap or touch.
+func mergeRanges(ranges []lineRange) []lineRange {
+	slices.SortFunc(ranges, func(a, b lineRange) int { return cmp.Compare(a.Start, b.Start) })
+	var merged []lineRange
+	for _, r := range ranges {
+		if last := len(merged) - 1; last >= 0 && r.Start <= merged[last].End+1 {
+			merged[last].End = max(merged[last].End, r.End)
+			continue
+		}
+		merged = append(merged, r)
+	}
+	return merged
+}
+
+// changedDiff writes run as the git diff gremlins' --diff mode reads: one
+// added-lines hunk per range, which gremlins counts from the hunk's new start.
+// Names are quoted, so spaces and quotes survive, and the placeholder comes
+// first, so a diff that runs no line of any file still has an entry.
+func changedDiff(run map[string][]lineRange) string {
+	var diff strings.Builder
+	write := func(file string, ranges []lineRange) {
+		a, b := strconv.Quote("a/"+file), strconv.Quote("b/"+file)
+		fmt.Fprintf(&diff, "diff --git %s %s\n--- %s\n+++ %s\n", a, b, a, b)
+		for _, r := range ranges {
+			count := r.End - r.Start + 1
+			fmt.Fprintf(&diff, "@@ -0,0 +%d,%d @@\n%s", r.Start, count, strings.Repeat("+\n", count))
+		}
+	}
+	write(diffPlaceholder, []lineRange{{Start: 1, End: 1}})
+	for _, file := range slices.Sorted(maps.Keys(run)) {
+		if len(run[file]) > 0 {
+			write(file, run[file])
+		}
+	}
+	return diff.String()
 }
 
 // parseLines reads the CLI's changed-line map. An empty argument makes every
@@ -625,13 +759,19 @@ func (s sourceIndex) occurrence(file string, line int, scoped bool) int {
 }
 
 func (s sourceIndex) matches(entry acceptedEntry, mutant mutationMutant) bool {
-	if entry.File != mutant.File || entry.Mutator != mutant.Mutator || strings.TrimSpace(entry.Line) != s.text(mutant.File, mutant.Line) {
+	return entry.Mutator == mutant.Mutator && s.names(entry, mutant.File, mutant.Line)
+}
+
+// names reports whether an entry means this line of file, by its text and any
+// function or occurrence, leaving the mutator aside.
+func (s sourceIndex) names(entry acceptedEntry, file string, line int) bool {
+	if entry.File != file || strings.TrimSpace(entry.Line) != s.text(file, line) {
 		return false
 	}
-	if entry.Function != "" && s.function(mutant.File, mutant.Line) != entry.Function {
+	if entry.Function != "" && s.function(file, line) != entry.Function {
 		return false
 	}
-	return entry.Occurrence == 0 || s.occurrence(mutant.File, mutant.Line, entry.Function != "") == entry.Occurrence
+	return entry.Occurrence == 0 || s.occurrence(file, line, entry.Function != "") == entry.Occurrence
 }
 
 // enclosingFunctions names the function around each line of a file, as Name or
@@ -804,12 +944,16 @@ func mutate(ctx context.Context, source *dagger.Directory, module string, tools 
 	}
 	in.Lines = lines
 	patterns := exclusions(all, files)
+	diff := ""
+	if run := mutatedLines(in); run != nil {
+		diff = changedDiff(run)
+	}
 
 	// A fast coverage run makes limits too short to trust, and only a run
 	// that timed out a mutant under one needs to be repeated.
 	coefficient := gremlinsTimeoutCoef
 	for attempt := 1; ; attempt++ {
-		run, err := runGremlins(ctx, source, module, tools, scope, patterns, tags, nonce, coefficient)
+		run, err := runGremlins(ctx, source, module, tools, scope, patterns, diff, tags, nonce, coefficient)
 		if err != nil {
 			return mutationVerdict{}, err
 		}
@@ -867,7 +1011,7 @@ func mutationSources(ctx context.Context, source *dagger.Directory, module strin
 // with scope's untrusted caches, after verifyModuleCache. One invocation means
 // one coverage pass; gremlins then tests each mutant against its own package
 // only.
-func runGremlins(ctx context.Context, source *dagger.Directory, module string, tools toolchain, scope cacheScope, patterns []string, tags, nonce string, coefficient int) (mutationRun, error) {
+func runGremlins(ctx context.Context, source *dagger.Directory, module string, tools toolchain, scope cacheScope, patterns []string, diff, tags, nonce string, coefficient int) (mutationRun, error) {
 	ctr := untrustedGoContainer(tools, scope).
 		WithFile("/usr/local/bin/gremlins", pinnedToolBinary(tools, toolGremlins)).
 		WithDirectory("/src", source).
@@ -879,7 +1023,17 @@ func runGremlins(ctx context.Context, source *dagger.Directory, module string, t
 	if nonce != "" {
 		ctr = ctr.WithEnvVariable("LEVENSHTEIN_RUN_NONCE", nonce)
 	}
-	command := gremlinsCommand(coefficient, tags, patterns)
+	if diff != "" {
+		realGit, err := hostGit(ctx, untrustedGoContainer(tools, scope))
+		if err != nil {
+			return mutationRun{}, err
+		}
+		ctr = ctr.
+			WithNewFile(gremlinsDiffPath, diff).
+			WithNewFile(path.Join(gremlinsShimDir, "git"), gitShim(realGit, gremlinsDiffPath), dagger.ContainerWithNewFileOpts{Permissions: 0o755}).
+			WithEnvVariable("PATH", gremlinsShimDir+":${PATH}", dagger.ContainerWithEnvVariableOpts{Expand: true})
+	}
+	command := gremlinsCommand(coefficient, tags, patterns, diff != "")
 	if err := verifyModuleCache(ctx, ctr, source, module, command); err != nil {
 		return mutationRun{}, err
 	}
@@ -902,9 +1056,13 @@ func runGremlins(ctx context.Context, source *dagger.Directory, module string, t
 	return mutationRun{ExitCode: run.ExitCode, Stdout: run.Stdout, Stderr: run.Stderr, Report: report, Reported: true, Coefficient: coefficient}, nil
 }
 
-// gremlinsCommand is one gremlins invocation over the module.
-func gremlinsCommand(coefficient int, tags string, patterns []string) []string {
+// gremlinsCommand is one gremlins invocation over the module. A limited run
+// mutates only the lines of the diff the git shim returns.
+func gremlinsCommand(coefficient int, tags string, patterns []string, limited bool) []string {
 	command := []string{"gremlins", "unleash", ".", "--workers", gremlinsWorkers, "--timeout-coefficient", strconv.Itoa(coefficient), "--output", gremlinsReportPath}
+	if limited {
+		command = append(command, "--diff", gremlinsDiffRef)
+	}
 	if tags != "" {
 		command = append(command, "--tags", tags)
 	}

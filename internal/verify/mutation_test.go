@@ -290,11 +290,11 @@ func TestDaggerResultMarksTimedOutMutantsIncomplete(t *testing.T) {
 
 func TestMutationStdoutSummarizesAPassingRun(t *testing.T) {
 	t.Parallel()
-	summary := `{"killed":3,"lived":0,"unchanged_survivors":4,"accepted":1,"not_covered":2,"timed_out":1,"not_viable":0,"skipped":0,"uncovered":[{"file":"a.go","line":4,"column":2,"mutator":"ARITHMETIC_BASE"}],"files":["a.go","b.go"]}`
+	summary := `{"killed":3,"lived":0,"unchanged_survivors":4,"accepted":1,"not_covered":2,"timed_out":1,"not_viable":0,"skipped":9,"uncovered":[{"file":"a.go","line":4,"column":2,"mutator":"ARITHMETIC_BASE"}],"files":["a.go","b.go"]}`
 
 	stdout, details := mutationStdout(mutationSummaryOf(Result{}, summary), "Go files changed since main", nil)
 
-	if stdout != "Go files changed since main: 2 files mutated; 3 killed, 1 timed out, 0 survived on changed lines, 4 survived elsewhere, 1 accepted, 2 not covered" {
+	if stdout != "Go files changed since main: 2 files mutated; 3 killed, 1 timed out, 0 survived on changed lines, 4 survived on unchanged lines, 1 accepted, 2 not covered, 9 skipped on unchanged lines" {
 		t.Errorf("stdout = %q", stdout)
 	}
 	if !strings.Contains(string(details), `"uncovered":[{"file":"a.go"`) {
@@ -311,7 +311,7 @@ func TestMutationStdoutShowsTheRunnersWarnings(t *testing.T) {
 
 	// A pass whose timeouts may hide a weak test has to say so where a person
 	// reads the result, not only in the details.
-	want := "Go files changed since main: 2 files mutated; 1 killed, 4 timed out, 0 survived on changed lines, 0 survived elsewhere, 0 accepted, 0 not covered\nwarning: " + warning
+	want := "Go files changed since main: 2 files mutated; 1 killed, 4 timed out, 0 survived on changed lines, 0 survived on unchanged lines, 0 accepted, 0 not covered, 0 skipped on unchanged lines\nwarning: " + warning
 	if stdout != want {
 		t.Errorf("stdout = %q, want %q", stdout, want)
 	}
