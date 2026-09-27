@@ -206,6 +206,18 @@ says which interfaces are versioned and what to expect when you bump your pin.
   them and fails with `go-mutation-ambiguous`; the new optional `function`
   and `occurrence` fields say which line it means
   ([details](docs/mutation.md#accepted-survivors)).
+- **`go-mutation` runs only the mutants on changed lines**, so its run time
+  follows the size of the change rather than of the files it touches. On a
+  pull request that touched a large file, about 80% of the covered mutants
+  were on unchanged lines, each costing a package test run that could never
+  fail the check. The runner hands gremlins a diff of the lines to run, and
+  gremlins skips every other mutant without testing it. Lines an accepted
+  entry names always run, so an entry is still stale once a test catches its
+  mutant, even on a line the branch did not touch. `unchanged` and
+  `unchanged_survivors` now list only survivors on such lines, mutants on
+  other unchanged lines are counted under `skipped`, and `uncovered` lists
+  only lines that ran. `scope: "module"` and untracked files still run every
+  line ([details](docs/mutation.md#which-lines-run)).
 - LV1002 checks structs built inside `switch`, type switch, and `select`
   cases. A case holds its statements without a block of its own, so
   `var s S; s.A = 1` inside one went unreported.
