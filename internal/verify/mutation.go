@@ -250,8 +250,8 @@ func mutationStdout(raw, note string, details json.RawMessage) (string, json.Raw
 			Summary json.RawMessage `json:"summary"`
 		}{json.RawMessage(raw)})
 	}
-	lines := []string{fmt.Sprintf("%s: %d files mutated; %d killed, %d timed out, %d survived on changed lines, %d survived elsewhere, %d accepted, %d not covered",
-		note, len(summary.Files), summary.Killed, summary.TimedOut, summary.Lived, summary.Unchanged, summary.Accepted, summary.NotCovered)}
+	lines := []string{fmt.Sprintf("%s: %d files mutated; %d killed, %d timed out, %d survived on changed lines, %d survived on unchanged lines, %d accepted, %d not covered, %d skipped on unchanged lines",
+		note, len(summary.Files), summary.Killed, summary.TimedOut, summary.Lived, summary.Unchanged, summary.Accepted, summary.NotCovered, summary.Skipped)}
 	for _, warning := range summary.Warnings {
 		lines = append(lines, "warning: "+warning)
 	}
