@@ -32,6 +32,16 @@ says which interfaces are versioned and what to expect when you bump your pin.
 
 ### Changed
 
+- **A baseline entry no configured check could report fails every run.**
+  An entry whose rule module was removed, whose rule was dropped from a
+  module's `select` or turned off in every `go-lint` check, or whose check
+  was removed from `levenshtein.json` used to be kept forever, because only
+  a check that could report it judged it. Such an entry is now
+  [orphaned](docs/configuration.md#orphaned-entries): every run, a partial
+  one included, fails with a `baseline-stale` finding for it in the report's
+  new `baseline.orphaned` list, and `--write-baseline` drops it whatever the
+  run. Entries a configured check the run left out could report are still
+  kept as they were.
 - **Each pinned Go tool builds from a module of its own.** `actionlint`,
   `apidiff`, `gitleaks`, `govulncheck`, and `gremlins` moved from one shared
   `runner/tools` module to `runner/tools/<tool>`, each with a single `tool`
@@ -83,6 +93,10 @@ says which interfaces are versioned and what to expect when you bump your pin.
 
 ### Fixed
 
+- [docs/rules.md](docs/rules.md) listed `gocognit` and `deferInLoop`, which
+  are off by default, in its table of rules on by default. They are now in
+  an [opt-in rules](docs/rules.md#opt-in-rules) table, and a test fails when
+  either table disagrees with the selection `runner/toolchain.json` ships.
 - A baseline no longer judges a `go-lint` entry by a check that could not
   have reported it. A native check, which skips community rules, reported
   every community-rule entry as stale, and `--write-baseline` deleted them;
@@ -280,8 +294,22 @@ says which interfaces are versioned and what to expect when you bump your pin.
   persistent engine. The tool-build volumes are renamed too, so an engine that
   ran older checks starts them clean. The tools those steps need, gremlins and
   `levenshtein-gocheck`, are built from the tool-build volumes and copied in.
-  The three steps still share their own volumes, across repositories, on one
-  engine.
+- Those untrusted volumes are now kept per clone: the CLI passes the three
+  Dagger functions a `cacheKey`, the SHA-256 of the checkout's git common
+  directory (or of its resolved path outside a work tree), and they mount
+  `levenshtein-go-{mod,build}-untrusted-<go>-<key prefix>`. Every worktree of
+  one clone shares them; separate clones, and repositories, never do. Before,
+  every repository on a persistent engine shared them, so one repository's
+  tests could change the module sources or build cache another's `go-test`,
+  `go-generate`, or `go-mutation` compiled. A direct Dagger call without a key
+  uses `unkeyed` volumes. The key is not part of the result fingerprint.
+- Before each of those steps runs anything, `go mod verify` checks the module
+  cache's copies of the module's dependencies against the hashes recorded when
+  they were downloaded, which Go ties to `go.sum`; a copy changed since is a
+  check error rather than compiled. The build cache is protected only by the
+  per-clone volumes, so shared self-hosted runners that check untrusted
+  repositories should still use ephemeral engines
+  ([SECURITY.md](SECURITY.md#not-a-sandbox)).
 
 ## [0.2.0] - 2026-09-25
 

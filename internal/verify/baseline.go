@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -42,11 +43,15 @@ type BaselineEntry struct {
 	Count   int       `json:"count"`
 }
 
-// BaselineSummary is what a report says about the baseline it applied.
+// BaselineSummary is what a report says about the baseline it applied. Stale
+// counts every stale entry, orphaned ones included. Orphaned holds a
+// baseline-stale finding for each entry no configured check could report,
+// which belongs to no check's result.
 type BaselineSummary struct {
-	File      string `json:"file"`
-	Baselined int    `json:"baselined"`
-	Stale     int    `json:"stale"`
+	File      string    `json:"file"`
+	Baselined int       `json:"baselined"`
+	Stale     int       `json:"stale"`
+	Orphaned  []finding `json:"orphaned,omitempty"`
 }
 
 // BaselineChange is what recording a run changed in the file: findings added
@@ -223,27 +228,38 @@ func covers(check PlannedCheck, result Result, entry BaselineEntry) bool {
 		return false
 	}
 	reported := slices.ContainsFunc(detailFindings(result.Details), func(f finding) bool { return f.Code == entry.Code })
-	return reported || couldReport(check, result, entry.Code)
+	skipped := slices.ContainsFunc(result.Warnings, func(w Warning) bool { return w.Kind == WarningRuleModulesSkipped })
+	return reported || couldReport(check, skipped, entry.Code)
+}
+
+// produces reports whether a configured check could ever report an entry: same
+// kind, same target directory, and a rule it runs. A native check skips its
+// rule modules, so it never produces a community rule's entries.
+func produces(check PlannedCheck, entry BaselineEntry) bool {
+	if check.Check.Kind != entry.Kind || check.Target.Dir != entry.Dir {
+		return false
+	}
+	return couldReport(check, check.Environment.Executor == ExecutorNative, entry.Code)
 }
 
 // communityLinterNamespace is the namespace of the community linter's own
 // codes, such as lvrules_mixed; runner/community defines them.
 const communityLinterNamespace = "lvrules"
 
-// couldReport reports whether a go-lint check ran the rule behind a code. A
+// couldReport reports whether a go-lint check runs the rule behind a code. A
 // check that skipped its rule modules ran no community rule, and one whose
 // own patterns turn a rule off never ran it, so neither says anything about
 // that rule's entries; another check may still run it. The shipped selection
 // is not known here, so a core rule the check's patterns leave alone counts
 // as run.
-func couldReport(check PlannedCheck, result Result, code string) bool {
+func couldReport(check PlannedCheck, skippedModules bool, code string) bool {
 	if check.Check.Kind != CheckGoLint {
 		return true
 	}
 	if !isCommunityPattern(code) {
 		return checktool.Allowed(append([]string{"all"}, check.Check.coreLintChecks()...), code)
 	}
-	if len(check.RuleModules) == 0 || slices.ContainsFunc(result.Warnings, func(w Warning) bool { return w.Kind == WarningRuleModulesSkipped }) {
+	if len(check.RuleModules) == 0 || skippedModules {
 		return false
 	}
 	// Every check that runs the community linter selects its own codes.
@@ -269,7 +285,12 @@ func couldReport(check PlannedCheck, result Result, code string) bool {
 // kind ran its rule over its target directory and reached a verdict. When several such
 // checks ran, each matches the entry on its own, and it is stale only when
 // every one of them left part of it unused.
-func (b Baseline) Apply(report Report) Report {
+//
+// An orphaned entry, one no check anywhere in the configuration could report,
+// fails the run whatever the run covers, because no run could ever use it.
+// It belongs to no check, so its stale finding is in the report's baseline
+// summary rather than in a result.
+func (b Baseline) Apply(report Report, cfg Config) Report {
 	checks := report.planned()
 	results := slices.Clone(report.Results)
 	unused := map[int][]int{}
@@ -329,10 +350,88 @@ func (b Baseline) Apply(report Report) Report {
 		results[i] = judged(result, stale[i])
 	}
 
+	var orphaned []finding
+	for _, index := range b.orphaned(report, cfg) {
+		orphaned = append(orphaned, b.orphanFinding(index, report.Run))
+	}
+
 	report.Results = results
 	report.Status = reportStatus(results)
-	report.Baseline = &BaselineSummary{File: b.Path, Baselined: baselined, Stale: staleCount}
+	if len(orphaned) != 0 && report.Status == StatusPassed {
+		report.Status = StatusFailed
+	}
+	report.Baseline = &BaselineSummary{File: b.Path, Baselined: baselined, Stale: staleCount + len(orphaned), Orphaned: orphaned}
 	return report
+}
+
+// configuredChecks is every check the configuration declares, bound to each
+// of its targets as a plan binds it, with the rule modules it would run. It
+// validates nothing, and leaves out a check whose target is not declared,
+// which could never run.
+func (cfg Config) configuredChecks() []PlannedCheck {
+	var checks []PlannedCheck
+	for _, id := range slices.Sorted(maps.Keys(cfg.Checks)) {
+		check := cfg.Checks[id]
+		targets := check.Targets
+		if len(targets) == 0 {
+			targets = []string{check.Target}
+		}
+		for _, name := range targets {
+			target, ok := cfg.Targets[name]
+			if !ok {
+				continue
+			}
+			bound := check.at(name)
+			checks = append(checks, PlannedCheck{
+				ID:          id,
+				Check:       bound,
+				Target:      target,
+				Environment: cfg.Environments[check.Environment],
+				RuleModules: cfg.plannedRuleModules(bound),
+			})
+		}
+	}
+	return checks
+}
+
+// orphaned lists, in file order, the entries no configured check could
+// report. A check of the run that covers an entry keeps it too, since what it
+// reported can show a rule the configuration selects by an old name.
+func (b Baseline) orphaned(report Report, cfg Config) []int {
+	configured := cfg.configuredChecks()
+	checks := report.planned()
+	var orphans []int
+	for index, entry := range b.Entries {
+		if slices.ContainsFunc(configured, func(check PlannedCheck) bool { return produces(check, entry) }) {
+			continue
+		}
+		if slices.ContainsFunc(report.Results, func(result Result) bool {
+			check, ok := checks[result.ID]
+			return ok && covers(check, result, entry)
+		}) {
+			continue
+		}
+		orphans = append(orphans, index)
+	}
+	return orphans
+}
+
+func (b Baseline) orphanFinding(index int, run string) finding {
+	entry := b.Entries[index]
+	return finding{
+		Code:     baselineStaleCode,
+		Message:  fmt.Sprintf("no configured check can report the %d baselined %s %s %s in %s (dir %q), so this entry can never match; delete it, or run verify %s --write-baseline to drop it: %s", entry.Count, entry.Kind, entry.Code, plural(entry.Count, "finding", "findings"), entry.File, entry.Dir, run, entry.Message),
+		Location: location{File: b.Path, Line: b.line(index)},
+	}
+}
+
+// line is where an entry starts in the file it was read from, or 1 when the
+// baseline was not read from a file.
+func (b Baseline) line(index int) int {
+	if index < len(b.lines) {
+		return b.lines[index]
+	}
+	return 1
 }
 
 // judged settles one completed result once its findings are marked: it fails
@@ -360,24 +459,22 @@ func judged(result Result, stale []finding) Result {
 
 func (b Baseline) staleFinding(index, missing int) finding {
 	entry := b.Entries[index]
-	line := 1
-	if index < len(b.lines) {
-		line = b.lines[index]
-	}
 	return finding{
 		Code:     baselineStaleCode,
 		Message:  fmt.Sprintf("%d of %d baselined %s findings in %s no longer occur: %s", missing, entry.Count, entry.Code, entry.File, entry.Message),
-		Location: location{File: b.Path, Line: line},
+		Location: location{File: b.Path, Line: b.line(index)},
 	}
 }
 
 // Record returns the baseline that holds exactly the failing findings a run
 // reported for every baseline-kind check it ran, and keeps the entries no
 // check of the run covers, such as another directory's or those of a rule no
-// check ran. It refuses a run in which any check did
-// not reach a verdict, because its findings are unknown. When several checks
-// cover the same entry, it records the most findings any one of them reported.
-func (b Baseline) Record(report Report) (Baseline, BaselineChange, error) {
+// check ran, unless no configured check could report them either: those
+// orphaned entries are dropped whatever the run. It refuses a run in which
+// any check did not reach a verdict, because its findings are unknown. When
+// several checks cover the same entry, it records the most findings any one
+// of them reported.
+func (b Baseline) Record(report Report, cfg Config) (Baseline, BaselineChange, error) {
 	var unfinished []string
 	for _, result := range report.Results {
 		if !completed(result) {
@@ -420,9 +517,10 @@ func (b Baseline) Record(report Report) (Baseline, BaselineChange, error) {
 
 	var entries []BaselineEntry
 	before := map[baselineKey]int{}
-	for _, entry := range b.Entries {
+	orphans := b.orphaned(report, cfg)
+	for index, entry := range b.Entries {
 		before[entry.key()] = entry.Count
-		if !slices.ContainsFunc(judges, func(j judge) bool { return covers(j.check, j.result, entry) }) {
+		if !slices.Contains(orphans, index) && !slices.ContainsFunc(judges, func(j judge) bool { return covers(j.check, j.result, entry) }) {
 			counts[entry.key()] = entry.Count
 		}
 	}

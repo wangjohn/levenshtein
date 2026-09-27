@@ -53,6 +53,10 @@ type kindSpec struct {
 	// writesWorkspace is whether a check of the kind may write to the source
 	// workspace it runs in. Every other kind only reads it.
 	writesWorkspace bool
+	// runsRepositoryCode is whether the kind's Dagger function runs the
+	// repository's own code, which it does with Go cache volumes kept per
+	// clone: the executor passes the clone's cache key (see repositoryKey).
+	runsRepositoryCode bool
 	// goToolchain is whether the kind runs the Go toolchain over the target,
 	// natively or in the container. The toolchain reads every source file in a
 	// package directory, whatever a //go:embed pattern names below it, and
@@ -146,12 +150,13 @@ func describeKinds() []kindSpec {
 			defaultRuns:  defaultGates,
 		},
 		{
-			kind:         CheckGoTest,
-			goToolchain:  true,
-			summary:      "`go test -race ./...` on the pinned toolchain",
-			dagger:       "sharedCheck",
-			native:       sharedNative((*Native).goTest, "shared check failed"),
-			defaultCheck: true,
+			kind:               CheckGoTest,
+			goToolchain:        true,
+			summary:            "`go test -race ./...` on the pinned toolchain",
+			dagger:             "sharedCheck",
+			native:             sharedNative((*Native).goTest, "shared check failed"),
+			runsRepositoryCode: true,
+			defaultCheck:       true,
 		},
 		{
 			kind:         CheckGoHTTP,
@@ -253,13 +258,14 @@ func describeKinds() []kindSpec {
 			},
 		},
 		{
-			kind:          CheckGoMutation,
-			goToolchain:   true,
-			summary:       "gremlins mutation testing of the Go files a branch changed",
-			dagger:        "goMutation",
-			baseDependent: mutationReason,
-			located:       true,
-			reporting:     true,
+			kind:               CheckGoMutation,
+			goToolchain:        true,
+			summary:            "gremlins mutation testing of the Go files a branch changed",
+			dagger:             "goMutation",
+			baseDependent:      mutationReason,
+			located:            true,
+			reporting:          true,
+			runsRepositoryCode: true,
 		},
 		{
 			kind:        CheckGoImports,
@@ -271,13 +277,14 @@ func describeKinds() []kindSpec {
 			located:     true,
 		},
 		{
-			kind:         CheckGoGenerate,
-			goToolchain:  true,
-			summary:      "`go generate ./...` in a scratch copy: every file it would add, change or delete",
-			dagger:       "goGenerate",
-			native:       sharedNative((*Native).goGenerate, "shared check failed"),
-			located:      true,
-			defaultCheck: true,
+			kind:               CheckGoGenerate,
+			goToolchain:        true,
+			summary:            "`go generate ./...` in a scratch copy: every file it would add, change or delete",
+			dagger:             "goGenerate",
+			native:             sharedNative((*Native).goGenerate, "shared check failed"),
+			located:            true,
+			runsRepositoryCode: true,
+			defaultCheck:       true,
 		},
 		{
 			kind:        CheckGoApidiff,
@@ -366,6 +373,12 @@ func reportsOnPass(kind CheckKind) bool {
 // readsGoToolchain reports whether a kind runs the Go toolchain over its target.
 func readsGoToolchain(kind CheckKind) bool {
 	return specOf(kind).goToolchain
+}
+
+// runsRepositoryCode reports whether a kind's Dagger function runs the
+// repository's own code, and so takes the clone's cache key.
+func runsRepositoryCode(kind CheckKind) bool {
+	return specOf(kind).runsRepositoryCode
 }
 
 // rootOnly reports whether a kind needs a repository-root target.

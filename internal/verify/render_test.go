@@ -3,6 +3,7 @@ package verify
 import (
 	"bytes"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -206,6 +207,9 @@ func TestRenderSARIF(t *testing.T) {
 						Help    *struct {
 							Text string `json:"text"`
 						} `json:"help"`
+						Properties struct {
+							Tags []string `json:"tags"`
+						} `json:"properties"`
 					} `json:"rules"`
 				} `json:"driver"`
 			} `json:"tool"`
@@ -263,6 +267,11 @@ func TestRenderSARIF(t *testing.T) {
 	if help := run.Tool.Driver.Rules[0].Help; help == nil || !strings.HasPrefix(help.Text, "run gofmt -w <file>") {
 		t.Fatalf("rule help: %+v", help)
 	}
+	for _, rule := range run.Tool.Driver.Rules {
+		if !slices.Equal(rule.Properties.Tags, []string{string(CheckGoLint)}) {
+			t.Fatalf("rule %s tags = %q, want its check's kind", rule.ID, rule.Properties.Tags)
+		}
+	}
 
 	if len(run.Results) != 3 {
 		t.Fatalf("results: %+v", run.Results)
@@ -315,6 +324,49 @@ func TestRenderSARIFCleanRunHasEmptyResults(t *testing.T) {
 
 	if len(log.Runs) != 1 || string(log.Runs[0].Results) != "[]" {
 		t.Fatalf("results of a clean run: %s", log.Runs[0].Results)
+	}
+}
+
+// An orphaned baseline entry belongs to no check, so every format shows it on
+// its own, at the entry's line in the baseline file.
+func TestRenderOrphanedBaselineEntries(t *testing.T) {
+	t.Parallel()
+	check := lintCheck("lint", ".")
+	check.Check.Lint = &LintCheck{Checks: []string{"-unparam"}}
+	entries, lines, err := parseBaseline([]byte("{\n  \"version\": 1,\n  \"findings\": [\n    {\"kind\":\"go-lint\",\"dir\":\".\",\"file\":\"a.go\",\"code\":\"unparam\",\"message\":\"result 0 is always nil\",\"count\":1}\n  ]\n}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := WithHints(Baseline{Path: testBaselinePath, Entries: entries, lines: lines}.Apply(reportOf([]PlannedCheck{check}, Result{ID: "lint", Status: StatusPassed}), configOf(check)))
+	message := `no configured check can report the 1 baselined go-lint unparam finding in a.go (dir "."), so this entry can never match; delete it, or run verify branch --write-baseline to drop it: result 0 is always nil`
+
+	text := render(t, report, FormatText, RenderOptions{})
+	want := ".levenshtein/baseline.json:4: baseline-stale " + message + "\n\nlint  passed\n\nbranch: failed, 1 of 1 checks passed, 1 orphaned baseline entry\n"
+	if text != want {
+		t.Fatalf("text:\n%s\nwant:\n%s", text, want)
+	}
+
+	github := render(t, report, FormatGitHub, RenderOptions{})
+	if want := "::error file=.levenshtein/baseline.json,line=4,title=baseline-stale (.levenshtein/baseline.json)::" + message + "\n"; github != want {
+		t.Fatalf("github:\n%s\nwant:\n%s", github, want)
+	}
+
+	var log struct {
+		Runs []struct {
+			Tool    sarifTool     `json:"tool"`
+			Results []sarifResult `json:"results"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal([]byte(render(t, report, FormatSARIF, RenderOptions{})), &log); err != nil {
+		t.Fatal(err)
+	}
+	// The orphan's rule comes from no check, so it has no kind to tag.
+	if rules := log.Runs[0].Tool.Driver.Rules; len(rules) != 1 || rules[0].ID != baselineStaleCode || rules[0].Properties.Tags != nil {
+		t.Fatalf("sarif rules: %+v", rules)
+	}
+	results := log.Runs[0].Results
+	if len(results) != 1 || results[0].RuleID != baselineStaleCode || results[0].Locations[0].PhysicalLocation.ArtifactLocation.URI != testBaselinePath || results[0].Locations[0].PhysicalLocation.Region.StartLine != 4 || results[0].BaselineState != sarifNew {
+		t.Fatalf("sarif results: %+v", results)
 	}
 }
 

@@ -27,7 +27,14 @@ This policy covers:
 
 Native `command` checks execute trusted repository code by design; they run as ordinary host processes with normal filesystem access and are not a sandbox. See [Configuration](docs/configuration.md#native-commands) for details.
 
-In Dagger, the checks that run repository code (`go-test`, `go-generate`, and `go-mutation`) use Go cache volumes separate from the ones the linters and pinned tools are built from; a way for repository code to change a tool build, or the verdict of a check that does not run repository code, through a shared cache is a Levenshtein vulnerability. Those three checks share their volumes with one another, for every repository a Dagger engine runs, so code one of them runs can affect a later `go-test`, `go-generate`, or `go-mutation` result on the same engine; give repositories you do not trust an engine of their own.
+In Dagger, the checks that run repository code (`go-test`, `go-generate`, and `go-mutation`) use Go module and build cache volumes separate from the ones the linters and pinned tools are built from; a way for repository code to change a tool build, or the verdict of a check that does not run repository code, through a shared cache is a Levenshtein vulnerability.
+
+Those untrusted volumes are kept per clone: the CLI names them by a hash of the checkout's git common directory, so every worktree of one clone shares them and separate clones never do, and the repository cannot choose the name. Code one of those checks runs can still affect a later `go-test`, `go-generate`, or `go-mutation` result for the same clone, on any of its worktrees. Across clones:
+
+- **Module sources** are verified before each of those steps runs anything: `go mod verify` compares the cached copy of every downloaded dependency with the hash recorded when it was downloaded, and Go compares that hash with the repository's `go.sum` when it loads the module, so a changed module source is a check error instead of being compiled. This covers the modules `go.sum` lists; a program a generator fetches with `go run pkg@version` is checked only by Go's own download checks.
+- **The build cache** has no such check. It is protected only by the per-clone name, so a repository reaching another clone's volumes, for example through a direct Dagger call without a key, which shares `unkeyed` volumes with every other such call, could change what that clone's tests compile.
+
+A way for one clone's code to reach another clone's untrusted volumes through the CLI, or to get a changed module source compiled, is a Levenshtein vulnerability. The per-clone name is not a sandbox: a shared self-hosted runner that checks repositories you do not trust should still give each job an ephemeral Dagger engine.
 
 ## Community lint rules
 

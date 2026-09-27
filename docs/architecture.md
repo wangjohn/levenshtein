@@ -103,7 +103,25 @@ describes the build, download, and lint containers behind it. The steps that
 run the consumer's own code (`go-test`, `go-generate`, and `go-mutation`) mount
 Go module and build cache volumes of their own (`untrustedGoContainer` in
 `runner/checks.go`), never the ones the linters and pinned tools are built
-from, so that code cannot change what a later tool build compiles.
+from, so that code cannot change what a later tool build compiles. Those
+untrusted volumes are also kept per clone: for these three kinds
+(`runsRepositoryCode` in their `kindSpec`) the executor passes a `cacheKey`
+argument, the SHA-256 of the checkout's git common directory
+(`repositoryKey` in `internal/verify/cachekey.go`, with git run as input
+discovery runs it), or of the resolved source root outside a work tree or when the .git there does not belong to that common directory, and
+the runner names the volumes `levenshtein-go-{mod,build}-untrusted-<go>-<first
+16 hex digits>`. Every worktree of a clone shares them; separate clones never
+do. A direct call without a key uses `unkeyed` volumes, and the self-test uses
+fixed `self-test` scopes. The key stays out of the result fingerprint, because
+it picks where Go keeps reusable work rather than what a verdict depends on,
+so separate clones of one commit still share a verdict. Before each of these
+steps runs anything, `verifyModuleCache` runs `go mod verify` in the same
+container, skipped for a vendored module or one without `go.sum`: it checks
+each downloaded module's cached source against the hash recorded at download,
+which Go checks against `go.sum` whenever it loads the module, and a mismatch
+is a check error. The step's own command rides along as ignored shell
+arguments, so Dagger reuses the verification exactly when it reuses the step.
+The build cache has no equivalent check; see [SECURITY.md](../SECURITY.md#not-a-sandbox).
 
 ### Native executor
 
@@ -355,8 +373,9 @@ restored, so neither is ever part of a cached result:
    `--no-baseline` nor `--write-baseline` is given, `Baseline.Apply` in
    `internal/verify/baseline.go` marks recorded findings `baselined`, adds a
    `baseline-stale` finding for each entry a covering check no longer
-   matches, recomputes the affected results' and the report's status, and
-   adds the report's `baseline` summary. The file is loaded before any check
+   matches, and one in the `baseline` summary for each entry no check in the
+   loaded configuration could report, recomputes the affected results' and
+   the report's status, and adds the report's `baseline` summary. The file is loaded before any check
    runs, so a malformed one exits 2.
 2. `WithHints` in `internal/verify/hints.go` fills in each finding's `hint`
    from one small table.

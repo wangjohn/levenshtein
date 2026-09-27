@@ -156,6 +156,6 @@ A maintainer approves every new namespace, and every update that changes the mod
 | Phase | Work | Gate |
 | --- | --- | --- |
 | 0 | Publish `lvrules-template` and the `lvrules-check` action as `v0`; document the contract and the `command` check as a stopgap | This spec is settled |
-| 1 | `rule_modules`, the community linter, selection, advisory findings, merged findings, `warnings`, error handling; the contract becomes stable | Two unrelated requests, from outside this repository and its pilots, for rules Levenshtein will not ship |
+| 1 | `rule_modules`, the community linter, selection, advisory findings, merged findings, `warnings`, error handling. Shipped in v0.2.0 with the contract still `v0`, unstable until [Levenshtein 1.0](../versioning.md#what-10-means) | Two unrelated requests, from outside this repository and its pilots, for rules Levenshtein will not ship |
 | 2 | Catalog, governance, admission CI, the shipped module list, the Renovate preset, `./verify rules`, renames | A second unrelated rule module, and two catalog maintainers |
 | 3 | Catalog page, corpus counts, native executor, private modules, network-less lint step | Catalog size, or a consumer who needs native or private modules |

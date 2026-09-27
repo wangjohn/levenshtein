@@ -34,14 +34,14 @@ To silence one finding, put `//lint:ignore <code> <reason>` on the line above it
 | `thelper`, `tparallel`, `testifylint` | Mistakes that only appear in `_test.go` files |
 | `testableexamples` | An `Example` function without an `// Output:` comment, which `go test` compiles but never runs, so it cannot fail ([evidence](rule-selection.md#measured-on-other-codebases)) |
 | `usetesting` | A test that changes the working directory or environment, or creates a temporary file or directory, in a way that outlives it ([why](#known-bug-patterns), [settings](#upstream-analyzer-settings)) |
-| `gocognit` | Off by default, opt-in: a function whose cognitive complexity is over 30 ([opt in](#opt-in-complexity-gocognit)) |
-| `deferInLoop` | Off by default, opt-in: a `defer` inside a loop, which holds every pass's resource until the function returns ([opt in](#opt-in-resources-deferinloop)) |
 | LV1001 | Give enum-like strings defined types and typed constants ([details](#typed-choices-lv1001)) |
 | LV1002 | Construct new structs together with literals, without opt-in markers ([details](#construct-value-records-together-lv1002)) |
 | LV1003 | Declare each struct field on its own line ([details](#one-field-per-line-lv1003)) |
 | LV1004 | Separate top-level declarations with a blank line ([details](#a-blank-line-between-declarations-lv1004)) |
 | LV1005 | Keep every file formatted the way `gofmt` writes it ([details](#formatted-files-lv1005)) |
 | LV1006 | Give every test a way to fail, and do not skip a test unconditionally ([details](#tests-that-can-fail-lv1006)) |
+
+A few more rules are registered but off; [opt-in rules](#opt-in-rules) lists them.
 
 ## The Staticcheck selection
 
@@ -179,6 +179,15 @@ These upstream analyzers need a word about scope or settings:
 ## Errors and enum switches
 
 Keep errcheck's upstream exclusions for operations documented never to fail. Intentionally ignored errors require explicit `_ =`, preferably with a reason; do not add broad Close/Write exclusions. Check write/flush/close errors when they affect persisted data. A default switch branch does not satisfy exhaustive; list all declared enum values, or use a narrow justified suppression for intentionally partial switches. These checks do not prove runtime enum validity or that an assigned error is handled.
+
+## Opt-in rules
+
+These rules are registered, and the shipped selection turns them off. A repository turns one on by [adding it to its `go-lint` check](#changing-the-selection-for-one-repository).
+
+| Rule | Policy |
+| --- | --- |
+| `gocognit` | A function whose cognitive complexity is over 30 ([opt in](#opt-in-complexity-gocognit)) |
+| `deferInLoop` | A `defer` inside a loop, which holds every pass's resource until the function returns ([opt in](#opt-in-resources-deferinloop)) |
 
 ## Opt-in complexity: gocognit
 
