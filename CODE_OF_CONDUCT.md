@@ -59,11 +59,8 @@ representative at an online or offline event.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the community leaders responsible for enforcement by opening an
-issue at https://github.com/wangjohn/levenshtein/issues. This repository
-publishes no private contact address; a report that must stay private can be
-sent through the same private channel the
-[security policy](SECURITY.md) describes.
+reported privately to the community leaders responsible for enforcement at
+john.jian.wang@gmail.com.
 All complaints will be reviewed and investigated promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the

@@ -31,6 +31,17 @@ func TestEveryCheckKindHasACompleteExecutor(t *testing.T) {
 	}
 }
 
+// docs/configuration.md tells readers that every go-* kind runs the Go
+// toolchain, and so covers the ignored files it can load, rather than listing
+// the kinds; a new kind has to keep that true or change the page.
+func TestGoKindsAreExactlyTheToolchainKinds(t *testing.T) {
+	for _, kind := range checkKinds {
+		if readsGoToolchain(kind) != strings.HasPrefix(string(kind), "go-") {
+			t.Errorf("%s: readsGoToolchain = %v", kind, readsGoToolchain(kind))
+		}
+	}
+}
+
 // Only a command check may write to the workspace it runs in; every other
 // kind can share it.
 func TestOnlyCommandChecksWriteTheirWorkspace(t *testing.T) {

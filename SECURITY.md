@@ -4,6 +4,14 @@
 
 Please report security vulnerabilities privately using [GitHub private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing/privately-reporting-a-security-vulnerability) on this repository (Security tab → "Report a vulnerability"). Do not open a public issue for a suspected vulnerability.
 
+You should get a response within 14 days.
+
+## Supported versions
+
+Levenshtein has not reached 1.0. Security fixes land on `main` and ship in the next release, and consumers get them by moving their pin to it.
+
+Only the newest release is supported: fixes are not backported to older releases. See [supported releases](docs/versioning.md#supported-releases).
+
 ## Scope
 
 This policy covers:
@@ -12,6 +20,8 @@ This policy covers:
 - The Dagger runner module (`runner/`)
 - The lint analyzers (`runner/lint/`)
 - The community linter's runtime and builder (`runner/community/`)
+- The GitHub Action (`action.yml`), which runs in consumers' workflows with their checkouts and tokens
+- The templates in `templates/`, which consumers copy into their repositories, including the workflow and the coding agent hooks
 
 ## Not a sandbox
 

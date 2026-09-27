@@ -16,18 +16,9 @@ parses flags and an optional run name (default `branch`), loads
 With `--dry-run`, it prints the plan and exits; no executor runs. Otherwise it
 builds a `Dagger` executor and a `Native` executor, wraps both in
 `CachedExecutor`, executes the plan, and prints the report, as JSON unless
-`--format` chooses text, GitHub workflow commands, or SARIF. Exit codes, the
-same for every format:
-
-- `0`: every selected check passed.
-- `1`: planning succeeded but a check failed, errored, or was cancelled/incomplete.
-- `2`: argument parsing, configuration loading, or planning failed. Also no
-  shared checkout (neither `--shared` nor `LEVENSHTEIN_SHARED_ROOT`), a
-  `--cache-dir` inside the source or shared checkout, a malformed baseline
-  file, or a failure to write the plan, report, or baseline. `--help` exits `0`.
-
-`--write-baseline` and `--render` have their own meanings for `0` and `1`,
-described under [report and exit codes](#report-and-exit-codes).
+`--format` chooses text, GitHub workflow commands, or SARIF. The
+[CLI reference](reference/cli.md#exit-codes) lists the exit codes; [report and
+exit codes](#report-and-exit-codes) below says where each is decided.
 
 ## Configuration concepts
 
@@ -41,14 +32,12 @@ described under [report and exit codes](#report-and-exit-codes).
   paths the Go toolchain can load.
 - **Environment**: an `executor` (`dagger` or `native`), plus native-only
   options such as `identity`, `env`, `pass_env`, and pinned `tools`.
-- **Check**: a `kind` (`go-lint`, `go-vet`, `go-mod`, `go-test`, `go-imports`,
-  `go-generate`, `go-apidiff`, `go-http`, `go-sql`, `go-vuln`, `workflow-lint`,
-  `workflow-security`, `shell-lint`, `secrets`, `deps-vuln`, `self-test`,
-  `command`, `semantic-lint`) bound to an
-  environment and to either one `target` or a list of `targets`, plus
-  kind-specific options for `command` and `semantic-lint` checks (see
-  [configuration](configuration.md)). `internal/verify/validation.go` enforces
-  which options apply to which kind.
+- **Check**: a `kind` (listed in [check kinds](check-kinds.md); the code's
+  list is `kindSpecs` in `internal/verify/kinds.go`) bound to an
+  environment and to either one `target` or a list of `targets`, plus at most
+  one kind-specific option object: `command`, `semantic`, `mutation`, `lint`,
+  `imports`, or `apidiff` (see [configuration](configuration.md)).
+  `internal/verify/validation.go` enforces which object applies to which kind.
 - **Run**: a named list of check IDs plus `rerun_checks`, which forces fresh
   verification (bypassing verdict caches) while keeping compatible
   dependency/build caches.
@@ -86,8 +75,9 @@ a preparation stage.
 `internal/verify/dagger.go` holds one Dagger SDK session (`dagger.Client`)
 per CLI invocation and serves the pinned module in `runner/` once
 (`client.ModuleSource(shared).AsModule().Serve`). Each check calls a
-function on that session (`goLintReport`, `selfTest`, `goImports`, `goGenerate`, `goApidiff`, or `sharedCheck` for
-vet/mod/test/HTTP/SQL/vuln/workflow-lint/workflow-security/shell-lint/secrets/deps-vuln) with a freshness nonce, plus the consumer
+function on that session, named by the `dagger` field of its kind's `kindSpec` in `kinds.go`
+(`goLintReport`, `selfTest`, `goMutation`, `goImports`, `goGenerate`,
+`goApidiff`, or `sharedCheck` for every other Dagger kind) with a freshness nonce, plus the consumer
 source directory and module path for every kind except `selfTest`;
 `sharedCheck` also receives the check kind. Consumer inputs travel as
 arguments, so they never become part of the module's own identity or cache
@@ -108,19 +98,18 @@ findings and warnings as JSON; a failing one attaches them as the
 `levenshteinFindings` and `levenshteinWarnings` extensions, and a
 `levenshteinError` extension marks a check that could not finish, such as one
 whose community rules failed, as `StatusError` while keeping its findings.
-[Community lint rules](community-rules.md#running-community-rules) describes the
-build, download, and lint containers behind it. The steps that run the
-consumer's own code (`go-test`, `go-generate`, and `go-mutation`) mount Go
-module and build cache volumes of their own (`untrustedGoContainer` in
+[The community rules design](design/community-rules.md#running-community-rules)
+describes the build, download, and lint containers behind it. The steps that
+run the consumer's own code (`go-test`, `go-generate`, and `go-mutation`) mount
+Go module and build cache volumes of their own (`untrustedGoContainer` in
 `runner/checks.go`), never the ones the linters and pinned tools are built
 from, so that code cannot change what a later tool build compiles.
 
 ### Native executor
 
-`internal/verify/native.go` runs `command`, `semantic-lint`, and the shared Go
-kinds `go-lint`, `go-vet`, `go-mod`, `go-test`, `go-imports`, `go-generate`,
-`go-apidiff`, `workflow-lint`, `workflow-security`, `shell-lint`, `secrets`, `deps-vuln` and `go-vuln` as trusted host
-processes (macOS or Linux only). There is no sandbox, so native
+`internal/verify/native.go` runs `command`, `semantic-lint`, and the shared
+kinds registered for it (see below) as trusted host processes (macOS or Linux
+only). There is no sandbox, so native
 commands have full host access. Before running, `validateTools` executes each
 `Environment.Tool`'s version command and compares its trimmed stdout against
 the pinned `Tool.Version`. For `command` checks, `internal/verify/stages.go`
@@ -132,11 +121,13 @@ still match a recorded run, which requires the environment to declare an
 
 #### Shared Go kinds on the native executor
 
-`internal/verify/kinds.go` registers `go-lint`, `go-vet`, `go-mod`, `go-test`,
-`go-imports`, `go-generate`, `go-apidiff`, `workflow-lint`, `workflow-security`, `shell-lint`, `secrets`, `deps-vuln` and `go-vuln` for the native executor as well as the Dagger one; `self-test`,
-`go-http` and `go-sql` stay Dagger-only ([check kinds](check-kinds.md) lists every kind; its table is generated from `kindSpecs` in the same file). `internal/verify/gotools.go` builds the
-helper binaries (`levenshtein-lint` from `runner/lint`, `actionlint` and
-`govulncheck`, each from its own module under `runner/tools`) out of the pinned shared checkout into
+The `kindSpecs` table in `internal/verify/kinds.go` registers every shared
+kind the native executor can run as well as the Dagger one ([check
+kinds](check-kinds.md) lists them); `self-test`, `go-http`, `go-sql`, and
+`go-mutation` stay Dagger-only. `internal/verify/gotools.go` builds the
+helper binaries (`levenshtein-lint` and `levenshtein-gocheck` from
+`runner/lint`; `actionlint`, `govulncheck`, `apidiff`, and `gitleaks` each
+from its own module under `runner/tools`) out of the pinned shared checkout into
 `cache.Dir/tools/` with `GOWORK=off GOTOOLCHAIN=local go build -trimpath`,
 serialized by a lock in `cache.Dir/locks`; Go's own build cache makes a repeat
 build cheap, so there is no staleness logic. `internal/verify/gochecks.go` then
@@ -316,12 +307,12 @@ with findings executes fresh on every run. That includes a check whose
 findings the [baseline](configuration.md#baseline) accepts: the baseline is
 applied to the report after this layer, never to what it stores.
 
-`go-vuln` and `go-mod` are never cached: `CachedExecutor.Execute` forces
-`RerunChecks` and returns `CacheStatus: "disabled"` for them unconditionally
-(the `alwaysFresh` field of their `kindSpec` in `kinds.go`), and the Dagger executor gives each
-call a nonce; `sharedCheck` refuses either kind without one. Vulnerability
-data changes independently of source fingerprints, and `go mod verify`
-checks the module cache, which no fingerprint covers.
+`go-vuln`, `deps-vuln`, and `go-mod` are never cached: `CachedExecutor.Execute`
+forces `RerunChecks` and returns `CacheStatus: "disabled"` for them
+unconditionally (the `alwaysFresh` field of their `kindSpec` in `kinds.go`),
+and the Dagger executor gives each call a nonce; `sharedCheck` refuses any of the three
+without one. Vulnerability data changes independently of source fingerprints,
+and `go mod verify` checks the module cache, which no fingerprint covers.
 
 `go-test` is cached like `go-vet`: its tests are meant to depend only on the
 target's declared inputs, and tests that do not belong in a `command` check.
@@ -385,7 +376,7 @@ See [output formats](configuration.md#output-formats) and
   Staticcheck-based lint binary (`levenshtein-lint`) and for
   `levenshtein-gocheck`, which runs the checks that judge a whole module, so its analyzer
   dependencies (Staticcheck's whole analyzer set, the curated upstream
-  analyzers listed in [Go lint rules](checks.md#go-lint-rules), and the house rules
+  analyzers listed in [Go lint rules](rules.md), and the house rules
   `LV1001`-`LV1006` in `runner/lint/policy`) do not leak into the Dagger
   module's own dependency resolution.
 - **`runner/community/`** (`runner/community/go.mod`): the community linter's

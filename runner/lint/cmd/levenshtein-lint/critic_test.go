@@ -9,7 +9,7 @@ import (
 
 // TestCriticSelection pins the go-critic checkers the linter runs, so a
 // go-critic upgrade that adds, renames, or retags a checker shows up in review
-// together with docs/checks.md.
+// together with docs/rules.md and docs/rule-selection.md.
 func TestCriticSelection(t *testing.T) {
 	var names []string
 	for _, analyzer := range critics() {

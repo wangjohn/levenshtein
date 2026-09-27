@@ -46,7 +46,7 @@ func TestRenderText(t *testing.T) {
 	got := render(t, renderFixture(), FormatText, RenderOptions{})
 
 	want := `services/api/a.go:10:2: LV1005 file is not gofmt-formatted
-    hint: run gofmt -w services/api/a.go; see https://github.com/wangjohn/levenshtein/blob/main/docs/checks.md#formatted-files-lv1005
+    hint: run gofmt -w services/api/a.go; see https://github.com/wangjohn/levenshtein/blob/main/docs/rules.md#formatted-files-lv1005
 services/api/b.go:3:2: errcheck unchecked error
     hint: handle the error, or discard it explicitly with _ = and a comment giving the reason
 .: go-vet
@@ -92,7 +92,7 @@ func TestRenderGitHub(t *testing.T) {
 	got := render(t, renderFixture(), FormatGitHub, RenderOptions{PathPrefix: "app"})
 
 	want := strings.Join([]string{
-		"::error file=app/services/api/a.go,line=10,col=2,title=LV1005 (lint/api)::file is not gofmt-formatted%0A%0Ahint: run gofmt -w services/api/a.go; see https://github.com/wangjohn/levenshtein/blob/main/docs/checks.md#formatted-files-lv1005",
+		"::error file=app/services/api/a.go,line=10,col=2,title=LV1005 (lint/api)::file is not gofmt-formatted%0A%0Ahint: run gofmt -w services/api/a.go; see https://github.com/wangjohn/levenshtein/blob/main/docs/rules.md#formatted-files-lv1005",
 		"::error file=app/services/api/b.go,line=3,col=2,title=errcheck (lint/api)::unchecked error%0A%0Ahint: handle the error, or discard it explicitly with _ = and a comment giving the reason",
 		"::error title=go-vet (vet)::# example.com/app%0Ax.go:1:2: bad, really: 100%25",
 		"::error title=Levenshtein test error::go test could not build x%0Afirst cause",

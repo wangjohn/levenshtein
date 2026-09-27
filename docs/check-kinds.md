@@ -1,7 +1,11 @@
 # Check kinds
 
-Every check in `levenshtein.json` has a `kind`. This table lists every
-kind and what it supports in one place. It is generated from the kind descriptors in
+Every check in `levenshtein.json` has a `kind`. This table is the one place
+that lists every kind and what it supports; other documents link here rather
+than repeat it. The [check kinds guide](check-kinds-guide.md) says which run
+each kind belongs in and how the tool-wrapping kinds behave, and
+[Go lint rules](rules.md) lists what `go-lint` enforces. The table is
+generated from the kind descriptors in
 `internal/verify/kinds.go`, and a test fails when the two disagree. After
 changing a descriptor, regenerate it with:
 

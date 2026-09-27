@@ -7,7 +7,7 @@ updates:
   # pull request, whose only manual step is ./scripts/sync-action-pins for the
   # pins in the Markdown docs (scripts/test-workflows fails until it runs).
   # Levenshtein's own pin in the template moves with a release instead
-  # (docs/releases.md).
+  # (docs/maintainers/releases.md).
   # Every ecosystem waits a week after a release before proposing it, so a
   # compromised or withdrawn version is usually gone before a PR opens.
   - package-ecosystem: github-actions
@@ -48,7 +48,7 @@ updates:
 
   # Staticcheck (honnef.co/go/tools) is ignored here and in runner/community:
   # both must stay on the pin runner/toolchain.json names, so it is bumped by
-  # hand in one change across all three (docs/community-rules.md). Proposing
+  # hand in one change across all three (docs/design/community-rules.md). Proposing
   # it for one module alone would only split the pin.
   - package-ecosystem: gomod
     directory: /runner/lint

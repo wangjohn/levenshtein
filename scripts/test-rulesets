@@ -64,7 +64,7 @@ for file in "${rulesets[@]}"; do
   fi
 done
 # .github/rulesets/proposed holds rulesets written for an admin to create
-# (docs/releases.md#protecting-release-tags). They are not enforced yet, so the
+# (docs/maintainers/releases.md#protecting-release-tags). They are not enforced yet, so the
 # live comparison leaves them out; they must still be rulesets GitHub accepts
 # the shape of, with a name no committed ruleset uses. Once one is created,
 # move it up to .github/rulesets so the comparison covers it.

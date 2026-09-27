@@ -38,10 +38,10 @@ func TestWithHintsKeepsExistingHints(t *testing.T) {
 	}
 }
 
-// Every rule link must land on a heading docs/checks.md has, using GitHub's
+// Every rule link must land on a heading docs/rules.md has, using GitHub's
 // anchor for it: lowercase, punctuation dropped, spaces as hyphens.
 func TestRuleDocsAnchorsExist(t *testing.T) {
-	data, err := os.ReadFile("../../docs/checks.md")
+	data, err := os.ReadFile("../../docs/rules.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,9 +54,9 @@ func TestRuleDocsAnchorsExist(t *testing.T) {
 	}
 
 	for code, link := range ruleDocs {
-		anchor, ok := strings.CutPrefix(link, checksDoc+"#")
+		anchor, ok := strings.CutPrefix(link, rulesDoc+"#")
 		if !ok || !anchors[anchor] {
-			t.Errorf("%s links to %q, which docs/checks.md has no heading for", code, link)
+			t.Errorf("%s links to %q, which docs/rules.md has no heading for", code, link)
 		}
 		if !strings.Contains(hints[code], link) {
 			t.Errorf("%s's hint does not link its rule: %q", code, hints[code])

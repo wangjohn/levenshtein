@@ -23,7 +23,7 @@ func CoreURL(code string) string {
 	if url := StaticcheckURL(code); url != "" {
 		return url
 	}
-	return "https://github.com/wangjohn/levenshtein/blob/main/docs/checks.md#go-lint-rules"
+	return "https://github.com/wangjohn/levenshtein/blob/main/docs/rules.md#rules-on-by-default"
 }
 
 // StaticcheckURL is Staticcheck's page for a code from one of its own

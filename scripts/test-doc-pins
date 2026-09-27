@@ -16,7 +16,7 @@
 # --latest also requires every pin to name the newest release in CHANGELOG.md.
 # Ordinary pull requests do not: a pushed tag must not fail every open pull
 # request until the examples move. The release process runs it in the pull
-# request that moves them (docs/releases.md).
+# request that moves them (docs/maintainers/releases.md).
 set -euo pipefail
 root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 remote=${LEVENSHTEIN_TAGS_REMOTE:-https://github.com/wangjohn/levenshtein.git}
@@ -67,7 +67,7 @@ tag_commit() {
 pins=$(git -C "$root" grep -noE \
   -e 'wangjohn/levenshtein@[^[:space:]`]+( # [^[:space:]`]+)?' \
   -e '--branch [^[:space:]]+ https://github\.com/wangjohn/levenshtein' \
-  -- '*.md' 'templates/**' ':!CHANGELOG.md' ':!docs/releases.md' || true)
+  -- '*.md' 'templates/**' ':!CHANGELOG.md' ':!docs/releases.md' ':!docs/maintainers/releases.md' || true)
 if [[ -z $pins ]]; then
   echo 'No Levenshtein pins found in the documentation; update this check' >&2
   exit 1

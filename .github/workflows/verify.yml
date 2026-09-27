@@ -2,7 +2,7 @@ name: Levenshtein self-checks
 
 # Verify Levenshtein's own runner and fixtures. The job layout, both caches and
 # their trust policy, and what to require in branch protection are explained in
-# docs/setup.md#levenshteins-own-ci. Application repos invoke the shared runner
+# docs/maintainers/ci.md. Application repos invoke the shared runner
 # from their existing CI and own their schedules (docs/consumer-ci.md).
 #
 # Event → ./verify run mapping (branch runs its checks natively; main in Dagger):
@@ -273,7 +273,7 @@ jobs:
       - name: Workflow pins, concurrency, merge queue and secret scopes
         run: ./scripts/test-workflows
       # Reads the enforced rulesets with this run's read-only token; see
-      # docs/setup.md#required-checks-branch-protection.
+      # docs/maintainers/ci.md#required-checks-branch-protection.
       - name: Rulesets match the workflows and GitHub
         env:
           GH_TOKEN: ${{ github.token }}

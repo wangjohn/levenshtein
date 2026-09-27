@@ -2,7 +2,7 @@
 
 Your CI checks out the application, chooses a run, and invokes a pinned Levenshtein version. Levenshtein prepares the check environment and returns results and an exit status. Application tests and CI schedules belong to the application repo.
 
-**Available now:** shared Go lint, vet, module manifest checks, HTTP/SQL cleanup checks, vulnerability scanning, tests (`go-test`), workflow lint and workflow security, mutation testing (`go-mutation`), native commands, local result/setup/build caching, text/GitHub/SARIF output, and a findings [baseline](configuration.md#baseline) for adopting the rules with existing findings. Start with one product target and a few useful checks; keep existing CI gates while proving equivalent behavior.
+[Check kinds](check-kinds.md) lists every check you can run. Start with one product target and a few useful checks; keep existing CI gates while proving equivalent behavior.
 
 ## The same command locally and in CI
 
@@ -48,7 +48,7 @@ A single Go module at the application root works without configuration. For adop
 
 Adjust paths to your repo. For Dagger checks, `inputs` is the source allowlist **and** cache input scope: include every required workspace module, local dependency, manifest, fixture, and lockfile. Missing optional paths are allowed. Private directories stay outside the allowlist. Do not use `"."` in a mixed product/private repository. Symlinked inputs are rejected; declare real paths. See [source boundaries](configuration.md#source-boundaries).
 
-Application tests stay in the application repo. Wrap existing test scripts with a native `command` check using the [native configuration](configuration.md#native-commands); the host must supply Go, Postgres, Xcode, or any other required tools/services. Native commands have host access and are not restricted by the Dagger allowlist. Self-contained unit tests can instead run as the shared [`go-test`](checks.md#tests) check, which runs `go test -race ./...` on either executor; tests that need a service stay in a `command` check.
+Application tests stay in the application repo. Wrap existing test scripts with a native `command` check using the [native configuration](configuration.md#native-commands); the host must supply Go, Postgres, Xcode, or any other required tools/services. Native commands have host access and are not restricted by the Dagger allowlist. Self-contained unit tests can instead run as the shared [`go-test`](check-kinds-guide.md#tests) check, which runs `go test -race ./...` on either executor; tests that need a service stay in a `command` check.
 
 For an advisory model review of each pull request, add a native environment, a `semantic-lint` check in its own run, and supply `TYPESAFE_API_KEY` from a CI secret with `fetch-depth: 0` on checkout. The check reads the key and the pull request's base branch from the host environment itself. Findings never fail the run. See [semantic lint](semantic-lint.md).
 
@@ -83,7 +83,7 @@ jobs:
       - uses: wangjohn/levenshtein@3d47ab4c589fdf3a30107b6dd3f0816c1f346c85 # v0.2.0
 ```
 
-With no `run` input, the action picks one from the event: a schedule runs `main`, a push or draft pull request runs `branch`, and a ready pull request, merge queue, or manual dispatch runs `pre-merge`. Pass `run:` to choose explicitly, for example one job per run. If a run includes [`go-mutation`](mutation.md) or `semantic-lint`, check out with `fetch-depth: 0`: both diff against the base branch.
+With no `run` input, the action picks one from the event: a schedule runs `main`, a push or draft pull request runs `branch`, and every other event, including a ready pull request, a merge queue, and a manual dispatch, runs `pre-merge`. Pass `run:` to choose explicitly, for example one job per run. If a run includes [`go-mutation`](mutation.md) or `semantic-lint`, check out with `fetch-depth: 0`: both diff against the base branch.
 
 | Input | Default | Meaning |
 | --- | --- | --- |
@@ -134,7 +134,7 @@ jobs:
 
 ## A native lint job without Docker
 
-`go-lint`, `go-vet`, `go-mod`, `go-test`, `go-imports`, `go-generate`, `go-apidiff`, `workflow-lint`, `workflow-security`, `shell-lint`, `secrets`, `deps-vuln`, and `go-vuln` also run on a [native environment](configuration.md#native-go-checks), using the host's Go instead of a container. Declare it in the application's `levenshtein.json`:
+Every shared kind except `go-http`, `go-sql`, and `go-mutation` also runs on a [native environment](configuration.md#native-go-checks) ([check kinds](check-kinds.md) has the list), using the host's Go instead of a container. Declare it in the application's `levenshtein.json`:
 
 ```json
 {
@@ -156,13 +156,13 @@ jobs:
 
 The workflow is unchanged. The job needs no container runtime, and the action's caches restore the Staticcheck analysis cache and completed results across workers, which Dagger's in-engine cache volumes cannot do on ephemeral runners; setup-go's cache keeps the helper builds fast. A native check's result key includes the host's Go version, operating system, and architecture, so a job that changes runner image or Go version re-verifies rather than reusing another host's verdict.
 
-To audit the workflows too, add a [`workflow-security`](checks.md#workflow-security) check on a repository-root target whose `inputs` include `.github` (and `action.yml` for an action repository), in its own run or beside `lint`. It runs zizmor's offline audits only, so keep [zizmor's GitHub Action](https://github.com/zizmorcore/zizmor-action) with the workflow token, ideally on a weekly schedule, if you also want the audits that query GitHub, such as `impostor-commit` and `known-vulnerable-actions`. The native check downloads the pinned zizmor archive into `--cache-dir`'s `tools/` directory, so restoring that directory saves the download.
+To audit the workflows too, add a [`workflow-security`](check-kinds-guide.md#workflow-security) check on a repository-root target whose `inputs` include `.github` (and `action.yml` for an action repository), in its own run or beside `lint`. It runs zizmor's offline audits only, so keep [zizmor's GitHub Action](https://github.com/zizmorcore/zizmor-action) with the workflow token, ideally on a weekly schedule, if you also want the audits that query GitHub, such as `impostor-commit` and `known-vulnerable-actions`. The native check downloads the pinned zizmor archive into `--cache-dir`'s `tools/` directory, so restoring that directory saves the download.
 
-The same repository-root target can carry [`shell-lint`](checks.md#shell-scripts) for its shell scripts and [`secrets`](checks.md#secrets) for committed credentials, beside `lint`: both are reused from the cache like `lint`, and the native checks keep the ShellCheck download and the gitleaks build under `--cache-dir`'s `tools/` directory. [`deps-vuln`](checks.md#dependency-vulnerabilities) scans npm, Python, Rust, Ruby, and other lockfiles with osv-scanner and, like `go-vuln`, queries current advisory data on every run, so put it where `go-vuln` goes: a run for dependency changes and a daily schedule. It leaves Go modules to `go-vuln`, and it is an error on a target without a lockfile, so a Go-only repository leaves it out.
+The same repository-root target can carry [`shell-lint`](check-kinds-guide.md#shell-scripts) for its shell scripts and [`secrets`](check-kinds-guide.md#secrets) for committed credentials, beside `lint`: both are reused from the cache like `lint`, and the native checks keep the ShellCheck download and the gitleaks build under `--cache-dir`'s `tools/` directory. [`deps-vuln`](check-kinds-guide.md#dependency-vulnerabilities) scans npm, Python, Rust, Ruby, and other lockfiles with osv-scanner and, like `go-vuln`, queries current advisory data on every run, so put it where `go-vuln` goes: a run for dependency changes and a daily schedule. It leaves Go modules to `go-vuln`, and it is an error on a target without a lockfile, so a Go-only repository leaves it out.
 
-To run the unit tests through Levenshtein as well, add a [`go-test`](checks.md#tests) check, which runs `go test -race ./...` and needs a C compiler on the worker (the GitHub-hosted Ubuntu and macOS images have one). Its result is reused like `lint`'s, so give it a target whose `inputs` cover everything the tests read, and put it in a run of its own or beside `lint` only if the workflow does not already run `go test -race` over the same modules. Tests that need a database or another service stay in a [`command` check](configuration.md#native-commands) that starts it, or in the job's existing test step.
+To run the unit tests through Levenshtein as well, add a [`go-test`](check-kinds-guide.md#tests) check, which runs `go test -race ./...` and needs a C compiler on the worker (the GitHub-hosted Ubuntu and macOS images have one). Its result is reused like `lint`'s, so give it a target whose `inputs` cover everything the tests read, and put it in a run of its own or beside `lint` only if the workflow does not already run `go test -race` over the same modules. Tests that need a database or another service stay in a [`command` check](configuration.md#native-commands) that starts it, or in the job's existing test step.
 
-A library can fail pull requests that break its exported API with a [`go-apidiff`](checks.md#api-compatibility) check. It compares with the merge base of the pull request's base branch, which GitHub names in `GITHUB_BASE_REF`, so check out with `fetch-depth: 0`; a shallow clone is an error that says so.
+A library can fail pull requests that break its exported API with a [`go-apidiff`](check-kinds-guide.md#api-compatibility) check. It compares with the merge base of the pull request's base branch, which GitHub names in `GITHUB_BASE_REF`, so check out with `fetch-depth: 0`; a shallow clone is an error that says so.
 
 ## CircleCI and other providers
 

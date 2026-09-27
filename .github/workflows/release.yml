@@ -3,7 +3,7 @@ name: Release
 # Publish the archives for a vX.Y.Z tag. release-smoke in verify.yml builds the
 # same configuration as a snapshot on every ready pull request, so this workflow
 # is the first place the archives are published, not the first place they build.
-# See docs/releases.md.
+# See docs/maintainers/releases.md.
 
 on:
   push:

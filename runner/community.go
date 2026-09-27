@@ -19,7 +19,7 @@ import (
 // Community rules run in levenshtein-community-lint, a second linter built
 // from runner/community and the rule modules a configuration pins. It runs in
 // its own process on the same pinned Staticcheck, and its findings merge into
-// the core linter's. See docs/community-rules.md.
+// the core linter's. See docs/design/community-rules.md.
 
 // ruleModule is one rule module a go-lint check runs, in the JSON the CLI
 // sends (internal/verify's PlannedRuleModule) and the community linter reads

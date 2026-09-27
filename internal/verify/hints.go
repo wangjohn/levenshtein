@@ -6,18 +6,18 @@ import (
 	"github.com/wangjohn/levenshtein/internal/checktool"
 )
 
-// checksDoc is where every Levenshtein rule is explained. Hints link to it by
+// rulesDoc is where every Levenshtein rule is explained. Hints link to it by
 // section, so a reader outside this repository can follow them.
-const checksDoc = "https://github.com/wangjohn/levenshtein/blob/main/docs/checks.md"
+const rulesDoc = "https://github.com/wangjohn/levenshtein/blob/main/docs/rules.md"
 
-// ruleDocs links each Levenshtein rule to its section of docs/checks.md.
+// ruleDocs links each Levenshtein rule to its section of docs/rules.md.
 var ruleDocs = map[string]string{
-	"LV1001": checksDoc + "#typed-choices-lv1001",
-	"LV1002": checksDoc + "#construct-value-records-together-lv1002",
-	"LV1003": checksDoc + "#one-field-per-line-lv1003",
-	"LV1004": checksDoc + "#a-blank-line-between-declarations-lv1004",
-	"LV1005": checksDoc + "#formatted-files-lv1005",
-	"LV1006": checksDoc + "#tests-that-can-fail-lv1006",
+	"LV1001": rulesDoc + "#typed-choices-lv1001",
+	"LV1002": rulesDoc + "#construct-value-records-together-lv1002",
+	"LV1003": rulesDoc + "#one-field-per-line-lv1003",
+	"LV1004": rulesDoc + "#a-blank-line-between-declarations-lv1004",
+	"LV1005": rulesDoc + "#formatted-files-lv1005",
+	"LV1006": rulesDoc + "#tests-that-can-fail-lv1006",
 }
 
 // hints are one-line instructions for codes whose fix is mechanical and well

@@ -7,7 +7,7 @@
 # The pins in .github/workflows, .github/actions/*/action.yml and action.yml
 # are the source. Every `uses: owner/repo[/path]@<sha> # <version>` of the same
 # action elsewhere is rewritten to that SHA and version comment. Levenshtein's
-# own pin is left alone: releases move it (docs/releases.md). Run this after a
+# own pin is left alone: releases move it (docs/maintainers/releases.md). Run this after a
 # Dependabot github-actions update; scripts/test-workflows fails until the
 # copies match.
 set -euo pipefail

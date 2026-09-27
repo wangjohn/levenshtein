@@ -26,7 +26,7 @@ if [[ ! $tag =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
 fi
 version=${BASH_REMATCH[1]}
 if ! grep -qE "^## \[${version//./\\.}\]" "$root/CHANGELOG.md"; then
-  echo "CHANGELOG.md has no [$version] release; rename [Unreleased] in the release pull request (docs/releases.md)" >&2
+  echo "CHANGELOG.md has no [$version] release; rename [Unreleased] in the release pull request (docs/maintainers/releases.md)" >&2
   exit 1
 fi
 
@@ -39,8 +39,8 @@ if ! git -C "$root" rev-parse --verify --quiet "$base^{commit}" > /dev/null; the
   exit 1
 fi
 if ! git -C "$root" merge-base --is-ancestor "$sha" "$base"; then
-  echo "$tag points at $sha, which $base does not contain. Tag a commit merged to main (docs/releases.md)." >&2
+  echo "$tag points at $sha, which $base does not contain. Tag a commit merged to main (docs/maintainers/releases.md)." >&2
   exit 1
 fi
 echo "$tag ($sha) is on $base"
-echo "Next: pin the examples to wangjohn/levenshtein@$sha # $tag and run scripts/test-doc-pins --latest (docs/releases.md)."
+echo "Next: pin the examples to wangjohn/levenshtein@$sha # $tag and run scripts/test-doc-pins --latest (docs/maintainers/releases.md)."
