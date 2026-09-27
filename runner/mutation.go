@@ -550,11 +550,13 @@ func onLines(lines map[string][]lineRange, mutant mutationMutant) bool {
 }
 
 // mutatedLines returns the lines gremlins runs mutants on: the changed lines,
-// every line of a file without changed-line ranges, and every line an accepted
-// entry names, whatever its mutator. Running an entry's lines keeps judging it
-// as it was judged when whole files ran: stale once a test catches its mutant,
-// ambiguous when it fits survivors on several lines. Nil lines, as in module
-// scope, run every line and return nil.
+// every line of a file lines has no entry for, such as an untracked one, and
+// every line an accepted entry names, whatever its mutator. A file whose entry
+// has no ranges, such as one whose change only deleted lines, runs only its
+// accepted entries' lines. Running an entry's lines keeps judging it as it was
+// judged when whole files ran: stale once a test catches its mutant, ambiguous
+// when it fits survivors on several lines. Nil lines, as in module scope, run
+// every line and return nil.
 func mutatedLines(in mutationInput) map[string][]lineRange {
 	if in.Lines == nil {
 		return nil
