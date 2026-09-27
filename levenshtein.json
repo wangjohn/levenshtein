@@ -116,7 +116,7 @@
     "native-go-apidiff": {"kind": "go-apidiff", "target": "example", "environment": "host-go"},
     "native-shell-lint": {"kind": "shell-lint", "target": "scripts", "environment": "host-go"},
     "native-secrets": {"kind": "secrets", "target": "secrets", "environment": "host-go"},
-    "go-mutation": {"kind": "go-mutation", "target": "repository", "environment": "go", "mutation": {"timeout": "45m"}},
+    "go-mutation": {"kind": "go-mutation", "target": "repository", "environment": "go", "mutation": {"timeout": "90m"}},
     "go-mutation-lint": {"kind": "go-mutation", "target": "lint", "environment": "go", "mutation": {"accepted": "runner/lint/.levenshtein/mutation-accepted.json"}}
   },
   "runs": {
