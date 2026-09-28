@@ -47,7 +47,6 @@ Every page, grouped by what you are trying to do. New to Levenshtein? Read the [
 - [Community rules design](design/community-rules.md): how the community linter is built and run, the proposed catalog, and the phasing
 - [Dependencies](dependencies.md): the libraries Levenshtein builds on, and the Dagger SDK patch
 - [Language fixtures](language-fixtures.md): the Rust and Python fixtures that test the configuration interface
-- [Roadmap](roadmap.md): the internal pilot plan
 
 ## Maintainers
 
