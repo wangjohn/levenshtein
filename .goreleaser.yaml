@@ -12,6 +12,8 @@ archives:
   - formats: [tar.gz]
     files:
       - README.md
+      - LICENSE
+      - NOTICE
       - docs/**
       - dagger.json
       - .dagger-version
@@ -48,3 +50,5 @@ sboms:
   - artifacts: archive
 checksum:
   name_template: checksums.txt
+release:
+  draft: true

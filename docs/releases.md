@@ -1,6 +1,6 @@
 # Release archives
 
-Each release publishes an archive of the CLI for macOS and Linux on amd64 and arm64, with SHA-256 checksums. Each archive includes the shared Dagger module, lint/tool modules, patched SDK adapter with its `uv.lock`, fixtures, and the source files used to identify its implementation. Keep the archive together so the binary and checks have the same revision.
+Each release publishes an archive of the CLI for macOS and Linux on amd64 and arm64, with SHA-256 checksums. Each archive includes the Apache 2.0 license, John Wang's notice, the shared Dagger module, lint/tool modules, patched SDK adapter with its `uv.lock`, fixtures, and the source files used to identify its implementation. Keep the archive together so the binary and checks have the same revision.
 
 The GitHub release also holds an SPDX SBOM per archive, `checksums.txt` covering every published file, and a build provenance attestation for the archives and the checksum file, which `gh attestation verify <file> --repo wangjohn/levenshtein` checks.
 

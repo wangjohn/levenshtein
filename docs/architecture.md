@@ -444,7 +444,7 @@ and `sdk/patched-go/README.md` for how to validate and eventually remove it.
 
 The sections above describe what the CLI does today. These are the contracts a
 new check implementation or cache layer has to satisfy, whatever language it
-serves. [The roadmap](roadmap.md) covers forward-looking expansion.
+serves.
 
 ### Language adapter contract
 

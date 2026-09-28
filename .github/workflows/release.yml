@@ -1,8 +1,8 @@
-name: Release
+name: Prepare draft release
 
-# Publish the archives for a vX.Y.Z tag. release-smoke in verify.yml builds the
+# Prepare draft archives for a vX.Y.Z tag. release-smoke in verify.yml builds the
 # same configuration as a snapshot on every ready pull request, so this workflow
-# is the first place the archives are published, not the first place they build.
+# uploads release assets for review after the snapshot build.
 # See docs/maintainers/releases.md.
 
 on:
@@ -46,7 +46,7 @@ jobs:
         uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           syft-version: v1.52.0
-      - name: Build and publish the release
+      - name: Build and upload the draft release
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
         with:
           version: v2.18.1

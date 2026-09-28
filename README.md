@@ -170,4 +170,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). To report a security issue, see [SECURIT
 
 ## License
 
-[MIT](LICENSE)
+[Apache License 2.0](LICENSE). Copyright 2026 John Wang; see [NOTICE](NOTICE).

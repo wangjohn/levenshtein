@@ -13,14 +13,15 @@ Snapshot builds create files in `dist/` and publish nothing.
 
 ## Publishing a release
 
-Publication is a tag, prepared by a release pull request:
+An annotated tag prepares a draft GitHub release, which the maintainer reviews
+and publishes after checking its assets and notes:
 
 1. In one pull request, rename `## [Unreleased]` in `CHANGELOG.md` to
    `## [X.Y.Z] - YYYY-MM-DD` above a fresh empty `[Unreleased]`. Leave the
    consumer examples on the previous release: they pin its commit SHA, and the
    new release has none yet.
 2. Merge it, then push an annotated tag on the merge commit.
-   `.github/workflows/release.yml` does the rest:
+   `.github/workflows/release.yml` builds and uploads the draft:
 
 ```sh
 git tag -a vX.Y.Z -m 'Levenshtein vX.Y.Z'
@@ -34,7 +35,10 @@ resolves to the same revision as the release
 ([running the linter directly](../rules.md#running-the-linter-directly)). It
 does not match the workflow's `v*` filter, so it publishes no archives.
 
-3. In a second pull request, move every consumer example to the new release:
+3. Review the draft notes and download an archive to verify its checksum and
+   run the documented smoke test. Confirm that SBOMs and attestations are
+   present, then publish the GitHub release. In a second pull request, move
+   every consumer example to the new release:
    `wangjohn/levenshtein@<sha> # vX.Y.Z`, where `<sha>` is
    `git rev-list -n1 vX.Y.Z`, and `--branch vX.Y.Z`. Run
    `scripts/test-doc-pins --latest` before opening it: it fails until every
@@ -51,7 +55,7 @@ not `vX.Y.Z`, whose version is not a release in `CHANGELOG.md`, or whose commit
 `main` does not contain, so a tag pushed on an unreviewed commit publishes
 nothing. It then builds with the pinned Go from `.go-version`, installs the
 pinned syft, and runs `goreleaser release --clean`.
-The GitHub release then holds:
+The draft GitHub release then holds:
 
 - the four platform archives (`linux`/`darwin` × `amd64`/`arm64`), each with the
   CLI and the shared check sources;
@@ -60,9 +64,9 @@ The GitHub release then holds:
 - a build provenance attestation for the archives and the checksum file, which
   `gh attestation verify <file> --repo wangjohn/levenshtein` checks.
 
-Nothing else is automated: the tag is created by a person, and a release is only
-as reviewed as the commit it points at, which the workflow requires to be on
-`main`. `release-smoke` in the self-checks
+Publication is manual after the draft assets and notes are reviewed. The tag
+is created by a person, and a release is only as reviewed as the commit it
+points at, which the workflow requires to be on `main`. `release-smoke` in the self-checks
 workflow validates `.goreleaser.yaml` and builds the same archives as a snapshot
 on every ready pull request, so a tag is not the first time the configuration
 runs.

@@ -12,6 +12,12 @@ says which interfaces are versioned and what to expect when you bump your pin.
 
 ### Added
 
+- The repository and its example rule module now use Apache License 2.0, with
+  John Wang named in `NOTICE`. Release archives include both the license and
+  notice. Earlier published releases retain their original MIT license.
+- Tagged release builds now prepare a draft GitHub release so the maintainer
+  can inspect its archives, checksums, SBOMs, attestations, and notes before
+  publishing it.
 - [docs/check-kinds.md](docs/check-kinds.md) lists every check kind with
   what it checks, which executors run it, whether its results are cached,
   whether a baseline can hold its findings, whether it needs a
