@@ -7,7 +7,8 @@ Exit `2` means `verify` stopped before verifying anything; the message on standa
 | Message or cause | What to do |
 | --- | --- |
 | `Go 1.27.1 could not be obtained` or `Building the Levenshtein CLI failed` (from the `./verify` launcher) | See [the pinned Go cannot be downloaded](#the-pinned-go-cannot-be-downloaded) |
-| `configuration needs "version": 1` | Add `"version": 1` to `levenshtein.json` |
+| `configuration needs "version": 1` (released pins) or `configuration needs "version": 1 or 2` (upcoming) | Add a supported version to `levenshtein.json`; use `1` for released pins. Version 2 is unreleased ([migration](configuration.md#community-rule-modules)) |
+| `configuration version 2 requires community rules to run on Dagger` | Use a Dagger environment for the selected check, or explicitly set `"lint": {"rule_modules": false}` for an intentional core-only native check ([community rules](configuration.md#community-rule-modules)) |
 | An unknown field, or a hint that a field moved | The file was written for another release. Check the field against [configuration](configuration.md) for the revision you pin; an older release rejects fields added after it |
 | A target's `dir` or `workspace` does not exist, or reaches outside the source through a symlink | Paths are relative to `--source`. Declare real paths, not symlinks ([source boundaries](configuration.md#source-boundaries)) |
 | `run "<name>" is missing or empty` | The run is not in `levenshtein.json`. A file replaces the defaults, so `branch`, `pre-merge`, and `main` exist only if it declares them |
