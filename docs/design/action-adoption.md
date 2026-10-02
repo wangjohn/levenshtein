@@ -1,6 +1,6 @@
 # GitHub Action adoption plan
 
-Status: implementation prepared; consumer smoke validation in progress;
+Status: implementation prepared; passing consumer validated; failing consumer validation in progress;
 Marketplace publication and listing links pending browser authentication.
 Created October 2, 2026.
 
@@ -111,7 +111,7 @@ Update `docs/consumer-ci.md` and `docs/maintainers/releases.md` in the same chan
 - [x] Run the repository's existing actionlint/workflow-security checks over the
   new template as well as the existing examples. Inspect their file coverage;
   do not assume adding a template makes it automatically included.
-- [ ] Compare the README workflow with the minimal template and inspect Markdown
+- [x] Compare the README workflow with the minimal template and inspect Markdown
   rendering and local links. Do not add a test suite just to compare prose.
 - [ ] Exercise the copied starter in a disposable single-module consumer repo
   on GitHub-hosted Ubuntu, without custom Levenshtein configuration. Test a
@@ -181,6 +181,9 @@ blocker should be recorded with GitHub's exact error and the remaining owner act
 - Consumer validation uses a disposable private repository with the copied
   starter workflow, one dependency-free Go module, and no custom configuration.
   [Smoke test pull request](https://github.com/wangjohn/levenshtein-action-adoption-smoke-20261002/pull/1).
+  The [passing run](https://github.com/wangjohn/levenshtein-action-adoption-smoke-20261002/actions/runs/37073516681)
+  passed `go-lint`, `go-vet`, and `go-mod`, emitted no findings, and completed
+  the annotation and summary steps. The first uncached run took about five minutes.
 - Publication blocker: the CLI is authenticated as the repository owner, but
   the available browser redirects the release edit form to GitHub sign-in.
   Marketplace validation/publication must finish through that authenticated form.

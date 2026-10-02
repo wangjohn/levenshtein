@@ -46,6 +46,7 @@ Every page, grouped by what you are trying to do. New to Levenshtein? Read the [
 
 ## Internals
 
+- [Action adoption plan](design/action-adoption.md): implementation status, consumer validation, and Marketplace publication handoff
 - [Architecture](architecture.md): how `verify` plans, executes, caches, and reports
 - [Community rules design](design/community-rules.md): how the community linter is built and run, the proposed catalog, and the phasing
 - [Dependencies](dependencies.md): the libraries Levenshtein builds on, and the Dagger SDK patch
