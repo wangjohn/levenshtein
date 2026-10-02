@@ -61,7 +61,7 @@ Add these checks to your repo's [configuration](docs/configuration.md).
 | [Generated files](docs/check-kinds-guide.md#generated-code) (`go-generate`) | Stale generated code: a committed file that changes when `go generate` runs |
 | [API compatibility](docs/check-kinds-guide.md#api-compatibility) (`go-apidiff`) | Removed exported function: a public API change that breaks existing callers |
 | [Mutation testing](docs/mutation.md) (`go-mutation`) | Missed boundary bug: changing `>` to `>=` without any test failing |
-| [Semantic lint](docs/semantic-lint.md) (`semantic-lint`, experimental) | Vague error message: an added error gives the caller no clue how to fix the problem; advisory review through Jev |
+| [Semantic lint](docs/semantic-lint.md) (`semantic-lint`) | Vague error message: an added error gives the caller no clue how to fix the problem; advisory review through Jev |
 | [Custom commands](docs/configuration.md#native-commands) (`command`) | Failed integration test: your repo's test script exits with an error |
 
 `go-http` and `go-sql` run resource rules already included in `go-lint`,
