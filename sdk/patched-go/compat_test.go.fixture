@@ -1,0 +1,112 @@
+package otel
+
+import (
+	"context"
+	"testing"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/log"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
+	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
+	"google.golang.org/protobuf/proto"
+)
+
+func TestLogValuesRoundTrip(t *testing.T) {
+	values := []attribute.Value{
+		attribute.StringValue("message"),
+		attribute.BoolValue(true),
+		attribute.Int64Value(42),
+		attribute.Float64Value(1.25),
+		attribute.ByteSliceValue([]byte{0, 255}),
+		attribute.SliceValue(attribute.Int64Value(1), attribute.StringValue("two")),
+		attribute.MapValue(attribute.KeyValue{
+			Key:   "nested",
+			Value: attribute.SliceValue(attribute.BoolValue(true)),
+		}),
+		attribute.BoolSliceValue([]bool{true, false}),
+		attribute.Int64SliceValue([]int64{1, 2}),
+		attribute.Float64SliceValue([]float64{1.5, 2.5}),
+		attribute.StringSliceValue([]string{"one", "two"}),
+	}
+
+	for _, value := range values {
+		wire := LogValueToPB(value)
+		reencoded := LogValueToPB(LogValueFromPB(wire))
+
+		if !proto.Equal(wire, reencoded) {
+			t.Errorf("%s lost data: %v became %v", value.Type(), wire, reencoded)
+		}
+		if wire.GetStringValue() == "INVALID" {
+			t.Errorf("%s is unsupported", value.Type())
+		}
+	}
+}
+
+func TestLogRecordAttributesAndBody(t *testing.T) {
+	processor := &collectLogProcessor{}
+	provider := sdklog.NewLoggerProvider(sdklog.WithProcessor(processor))
+	var record log.Record
+	record.SetBody(attribute.ByteSliceValue([]byte{0, 255}))
+	record.AddAttributes(attribute.String("name", "value"))
+
+	provider.Logger("compatibility").Emit(context.Background(), record)
+	if err := provider.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(processor.logs) != 1 {
+		t.Fatalf("logs = %v", processor.logs)
+	}
+	wire := logRecord(processor.logs[0])
+
+	want := &commonpb.AnyValue{Value: &commonpb.AnyValue_BytesValue{BytesValue: []byte{0, 255}}}
+	if !proto.Equal(wire.Body, want) {
+		t.Errorf("body = %v, want %v", wire.Body, want)
+	}
+	if len(wire.Attributes) != 1 || wire.Attributes[0].Key != "name" || wire.Attributes[0].Value.GetStringValue() != "value" {
+		t.Errorf("attributes = %v", wire.Attributes)
+	}
+}
+
+func TestWriterEmitsBodyAndAttributes(t *testing.T) {
+	processor := &collectLogProcessor{}
+	provider := sdklog.NewLoggerProvider(sdklog.WithProcessor(processor))
+	ctx := WithLoggerProvider(context.Background(), provider)
+	writer := NewWriter(ctx, "compatibility", attribute.String("name", "value"))
+
+	_, err := writer.Write([]byte("message"))
+	shutdownErr := provider.Shutdown(ctx)
+
+	if err != nil || shutdownErr != nil {
+		t.Fatalf("write: %v; shutdown: %v", err, shutdownErr)
+	}
+	if len(processor.logs) != 1 || processor.logs[0].Body().AsString() != "message" {
+		t.Fatalf("logs = %v", processor.logs)
+	}
+	found := false
+	processor.logs[0].WalkAttributes(func(kv attribute.KeyValue) bool {
+		if kv.Key == "name" && kv.Value.AsString() == "value" {
+			found = true
+		}
+		return true
+	})
+	if !found {
+		t.Error("writer lost its attributes")
+	}
+}
+
+func TestHTTPEndpointPaths(t *testing.T) {
+	for _, path := range []string{"/v1/traces", "/v1/metrics"} {
+		endpoints := map[string]string{
+			"http://localhost:4318":                 "http://localhost:4318" + path,
+			"http://localhost:4318/":                "http://localhost:4318/",
+			"http://localhost:4318/custom":          "http://localhost:4318/custom",
+			"https://collector.example?token=value": "https://collector.example" + path + "?token=value",
+		}
+
+		for endpoint, want := range endpoints {
+			if got := httpEndpointURL(endpoint, path); got != want {
+				t.Errorf("endpoint %q: got %q, want %q", endpoint, got, want)
+			}
+		}
+	}
+}

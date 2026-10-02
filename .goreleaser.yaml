@@ -43,6 +43,8 @@ archives:
       - sdk/patched-go/uv.lock
       - sdk/patched-go/src/**/*.py
       - sdk/patched-go/README.md
+      - sdk/patched-go/otel-go.patch
+      - sdk/patched-go/compat_test.go.fixture
       - runner/lint/**
       - runner/community/**
       - runner/testdata/**
