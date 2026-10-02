@@ -15,6 +15,10 @@ says which interfaces are versioned and what to expect when you bump your pin.
 - Release tag protection proposals now cover both `v*` and `runner/lint/v*`,
   with policy and release-guard regressions. Maintainer documentation separates
   proposed settings, verified live enforcement, main ancestry, and PR review.
+- Release archives include the changelog, contribution and security policies,
+  code of conduct, agent conventions, and consumer templates. Archive smoke
+  checks now reject missing metadata and broken extracted documentation links;
+  `scripts/test-release --metadata-only` runs these checks without Docker.
 - Bounded parser fuzz smoke covers configuration, baselines, tool diagnostics,
   and release archive entries; maintainers can run longer sessions with
   `scripts/test-fuzz`.
