@@ -100,7 +100,7 @@ appears in findings, patterns, and `//lint:ignore errs_nopanic <reason>`.
 
 ### Getting started
 
-1. Copy [`examples/rule-module`](../examples/rule-module), rewrite its module
+1. Copy [`examples/rule-module`](https://github.com/wangjohn/levenshtein/tree/main/examples/rule-module), rewrite its module
    path, and choose a namespace; Levenshtein refuses `example` for any other
    module. A published `lvrules-template` repository is planned (phase 0, not
    yet done). Once it exists,
@@ -120,7 +120,7 @@ appears in findings, patterns, and `//lint:ignore errs_nopanic <reason>`.
 6. Once the [catalog](design/community-rules.md#the-catalog) exists (phase 2),
    open a pull request to it.
 
-[`examples/rule-module`](../examples/rule-module) is the working template:
+[`examples/rule-module`](https://github.com/wangjohn/levenshtein/tree/main/examples/rule-module) is the working template:
 one rule, `example_nopanic`, documented in its README. This repository's CI
 keeps it working:
 

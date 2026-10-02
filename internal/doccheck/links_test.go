@@ -15,8 +15,16 @@ import (
 	"unicode"
 )
 
-// repoRoot is the repository root, relative to this package's directory.
-const repoRoot = "../.."
+// repoRoot defaults to the checkout. Archive smoke checks override it so file
+// existence and heading resolution use only extracted documentation.
+var repoRoot = docRoot()
+
+func docRoot() string {
+	if root := os.Getenv("LEVENSHTEIN_DOC_ROOT"); root != "" {
+		return root
+	}
+	return "../.."
+}
 
 // skippedDirs hold Markdown that is not documentation: fixtures, vendored or
 // generated trees, and build output.
@@ -247,5 +255,29 @@ func TestParseSkipsCodeAndNumbersDuplicateHeadings(t *testing.T) {
 	}
 	if !doc.anchors["title"] || !doc.anchors["title-1"] || doc.anchors["hidden"] {
 		t.Errorf("anchors = %v", doc.anchors)
+	}
+}
+
+func TestExtractedDocsDoNotFallBackToCheckout(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("LEVENSHTEIN_DOC_ROOT", root)
+	previous := repoRoot
+	repoRoot = docRoot()
+	t.Cleanup(func() { repoRoot = previous })
+
+	text := "# Extracted\n"
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	docs := map[string]document{"README.md": parse(text)}
+
+	if problem := resolve(docs, "README.md", "#extracted"); problem != "" {
+		t.Errorf("extracted heading: %s", problem)
+	}
+	if problem := resolve(docs, "README.md", "#missing"); problem == "" {
+		t.Error("missing extracted heading resolved")
+	}
+	if problem := resolve(docs, "README.md", "LICENSE"); problem == "" {
+		t.Error("license absent from archive resolved through checkout")
 	}
 }
