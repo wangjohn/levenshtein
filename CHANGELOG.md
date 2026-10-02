@@ -25,6 +25,8 @@ says which interfaces are versioned and what to expect when you bump your pin.
   skip-with-warning behavior, with migration guidance on fresh results.
   Report and baseline file versions remain 1; released consumer templates
   continue using configuration version 1.
+- A contributor check entry point (`scripts/test-contributor`) with explicit test
+  tiers, and a public roadmap with priorities and starter contribution tasks.
 - Release archives include the changelog, contribution and security policies,
   code of conduct, agent conventions, and consumer templates. Archive smoke
   checks now reject missing metadata and broken extracted documentation links;
