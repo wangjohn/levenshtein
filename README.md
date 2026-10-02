@@ -13,11 +13,10 @@ give agents feedback they can act on while they work, and give us more than
 the agent's word that a change is ready.
 
 I built Levenshtein while setting up a bunch of new Go repos. I wanted one
-place to keep a high-quality set of rules I could rely on, without researching
-analyzers and copying lint configs every time. Each repo pins a revision and
-runs `./verify`, so developers, coding agents, and CI use the same rules and
-tool versions. Improvements live here, and repos pick them up when they
-update their pin.
+place to keep a high-quality set of rules I could rely on for all of my repos,
+without researching analyzers and copying lint configs every time. Each repo
+pins a Levenshtein revision and runs `./verify`, so that all my repos use the 
+same rules and tool versions (and updates are easy to roll out everywhere).
 
 You can easily add your own lint rules or commands alongside the built-in
 checks in your repo’s configuration.
@@ -133,9 +132,10 @@ configuration error.
 [Troubleshooting](docs/troubleshooting.md) ·
 [All docs](docs/README.md)
 
-Levenshtein is still being tried out on a few Go repos. See the
-[changelog](CHANGELOG.md) and [versioning policy](docs/versioning.md) before
-updating the version your repo uses. If you're happy with a single repo's `golangci-lint` setup,
+See the [changelog](CHANGELOG.md) and [versioning policy](docs/versioning.md) before
+updating the version your repo uses.
+
+If you're happy with a single repo's `golangci-lint` setup,
 you may not need this; the [FAQ](docs/faq.md#levenshtein-or-golangci-lint)
 compares the two.
 
