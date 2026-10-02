@@ -23,6 +23,9 @@ says which interfaces are versioned and what to expect when you bump your pin.
 - Release tag protection proposals now cover both `v*` and `runner/lint/v*`,
   with policy and release-guard regressions. Maintainer documentation separates
   proposed settings, verified live enforcement, main ancestry, and PR review.
+- Bounded parser fuzz smoke covers configuration, baselines, tool diagnostics,
+  and release archive entries; maintainers can run longer sessions with
+  `scripts/test-fuzz`.
 
 - The repository and its example rule module now use Apache License 2.0, with
   John Wang named in `NOTICE`. Release archives include both the license and
@@ -47,6 +50,14 @@ says which interfaces are versioned and what to expect when you bump your pin.
   contains and whose version `CHANGELOG.md` releases (`scripts/release-on-main`).
   [docs/maintainers/releases.md](docs/maintainers/releases.md#protecting-release-tags)
   has the tag rulesets and immutable-release setting an admin can apply.
+
+### Fixed
+
+- Gocheck reports reject trailing JSON or malformed output instead of accepting
+  a clean prefix, and lint reports reject diagnostics missing a rule code.
+  Gocheck and ShellCheck reject reports without their diagnostic arrays.
+  Release archive traversal also bounds decompressed skipped
+  entries to the existing 128 MiB release limit.
 
 ### Changed
 
