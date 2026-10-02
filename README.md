@@ -27,7 +27,9 @@ The Go rules build on Staticcheck and other established linters, with a few
 rules of our own. They catch bugs and encourage code that's easier to read
 and maintain. For example, checking an error before using a file, closing
 HTTP response bodies, and defining constants for the values a status can take.
-We leave most naming and comment-style preferences out.
+We leave most naming and comment-style preferences out. Readability rules express
+shared preferences; a style warning does not mean the code has a runtime bug.
+You can [adjust rule selection](docs/configuration.md#lint-selection).
 
 For example, `--format text` can report warnings like these:
 
@@ -51,8 +53,8 @@ and module checks; the others can be added to your repo's configuration.
 By default, `./verify` runs Go lint, `go vet`, and module checks. The
 `pre-merge` run does the same; `main` also checks Go dependencies for known
 vulnerabilities and reruns checks instead of reusing saved results. You can
-add the other checks to your own runs, including an experimental
-[set of rules run using Jev](docs/semantic-lint.md).
+add the other checks to your own runs, including an experimental, advisory
+[set of rules run using Jev](docs/semantic-lint.md) through an external paid service.
 
 The **[lint and CI/CD rules index](docs/checks.md)** links to all the rules,
 checks, and CI policies, with explanations of why each rule is enabled or
@@ -81,6 +83,9 @@ Go modules, or you want extra checks or your own commands. If there's already
 a lot to fix, a [baseline](docs/configuration.md#baseline) records existing
 lint warnings so you can start by blocking new ones. You can also add rules
 published as Go modules through [community rules](docs/community-rules.md).
+[Native checks](docs/configuration.md#native-go-checks) use your host's Go; see
+[native setup](docs/setup.md#prerequisites) for provisioning.
+[Community rules currently require Dagger](docs/community-rules.md#executors).
 
 In GitHub Actions, use the shared action:
 
@@ -101,15 +106,17 @@ links to our CI and release policies and the files that enforce them.
 ## Quickstart
 
 To try the Go lint rules in a module, run this from its root. You need Go 1.21
-or later; it downloads the Go version the linter needs:
+or later; it downloads the Go version the linter needs. Toolchain and dependency
+downloads need access to a module proxy:
 
 ```sh
-go run github.com/wangjohn/levenshtein/runner/lint/cmd/levenshtein-lint@latest ./...
+go run github.com/wangjohn/levenshtein/runner/lint/cmd/levenshtein-lint@v0.2.0 ./...
 ```
 
-That runs the linter alone. For the default checks described above, you need
-Go and Docker Desktop, Colima, or another Docker-compatible runtime. On macOS
-or Linux:
+That runs the [linter alone](docs/rules.md#running-the-linter-directly). For the
+default checks described above, you need Go 1.21 or later and Docker Desktop,
+Colima, or another Docker-compatible runtime; see [setup](docs/setup.md#prerequisites).
+On macOS or Linux:
 
 ```sh
 git clone --depth 1 --branch v0.2.0 https://github.com/wangjohn/levenshtein
@@ -117,10 +124,13 @@ git clone --depth 1 --branch v0.2.0 https://github.com/wangjohn/levenshtein
 ```
 
 A single Go module needs no config. The first run downloads and builds the
-tools; later runs reuse saved results where possible if the code and tools
-haven't changed. `verify` reports problems without changing your files. It
-exits `0` when checks pass, `1` when a check fails, and `2` for a command or
-configuration error.
+tools; later runs reuse saved results where possible if the code, tools, and
+configuration haven't changed. The default checks report problems without
+rewriting source code. `--write-baseline` rewrites the configured baseline;
+configured native commands, preparation/build stages, and produced or restored
+artifacts can write files in your workspace. See
+[configuration](docs/configuration.md#native-commands). `verify` exits `0` when
+checks pass, `1` when a check fails, and `2` for a command or configuration error.
 
 ## Documentation
 
