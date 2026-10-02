@@ -19,6 +19,8 @@ func TestIdentity(t *testing.T) {
 		{name: "unavailable", wantVersion: "development", wantCommit: "unavailable", wantState: StateUnavailable},
 		{name: "partial release", version: "1.2.3", wantVersion: "development", wantCommit: "unavailable", wantState: StateUnavailable},
 		{name: "release", version: "1.2.3", commit: "abc", wantVersion: "1.2.3", wantCommit: "abc", wantState: StateClean},
+		{name: "linked dirty snapshot", version: "0.3.0-SNAPSHOT", commit: "abc", info: &debug.BuildInfo{Settings: []debug.BuildSetting{{Key: "vcs.revision", Value: "abc"}, {Key: "vcs.modified", Value: "true"}}}, wantVersion: "0.3.0-SNAPSHOT", wantCommit: "abc", wantState: StateDirty},
+		{name: "linked clean release", version: "1.2.3", commit: "abc", info: &debug.BuildInfo{Settings: []debug.BuildSetting{{Key: "vcs.revision", Value: "abc"}, {Key: "vcs.modified", Value: "false"}}}, wantVersion: "1.2.3", wantCommit: "abc", wantState: StateClean},
 		{name: "dirty", info: &debug.BuildInfo{Settings: []debug.BuildSetting{{Key: "vcs.revision", Value: "abc"}, {Key: "vcs.modified", Value: "true"}, {Key: "-ldflags", Value: "secret"}}}, wantVersion: "development", wantCommit: "abc", wantState: StateDirty},
 		{name: "clean", info: &debug.BuildInfo{Settings: []debug.BuildSetting{{Key: "vcs.revision", Value: "abc"}, {Key: "vcs.modified", Value: "false"}}}, wantVersion: "development", wantCommit: "abc", wantState: StateClean},
 	} {
