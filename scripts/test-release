@@ -67,23 +67,23 @@ if [[ $native == true ]]; then
   expected_commit=$3
   expected_os=$4
   expected_arch=$5
-  test "$(go env GOHOSTOS)" = "$expected_os"
-  test "$(go env GOHOSTARCH)" = "$expected_arch"
-  identity=$("$shared/levenshtein" --version)
+  test "$(go env GOHOSTOS)" = "$expected_os" || { echo "Archive OS does not match host" >&2; exit 1; }
+  test "$(go env GOHOSTARCH)" = "$expected_arch" || { echo "Archive architecture does not match host" >&2; exit 1; }
+  identity=$("$shared/levenshtein" --version) || exit 1
   expected_prefix="levenshtein $expected_version commit=$expected_commit state="
-  [[ $identity == "$expected_prefix"* ]]
-  [[ $identity == *" go=go"*" os=$expected_os arch=$expected_arch" ]]
+  [[ $identity == "$expected_prefix"* ]] || { echo "Archive version or commit does not match snapshot" >&2; exit 1; }
+  [[ $identity == *" go=go"*" os=$expected_os arch=$expected_arch" ]] || { echo "Archive executable platform identity does not match" >&2; exit 1; }
   state=${identity#"$expected_prefix"}
   state=${state%% *}
-  [[ $state == clean || $state == dirty ]]
+  [[ $state == clean || $state == dirty ]] || { echo "Archive build state is unavailable" >&2; exit 1; }
   echo "$identity"
 
-  cd "$temporary"
-  cp "$root/tests/fixtures/action/"* app/
-  "$shared/levenshtein" pre-merge --source "$temporary/app" --shared "$shared" --dry-run > plan.json
-  jq -e '.run == "pre-merge" and (.checks | length == 2) and all(.checks[]; .environment.executor == "native")' plan.json
-  "$shared/levenshtein" pre-merge --source "$temporary/app" --shared "$shared" --cache-dir "$temporary/cache" > good.json
-  jq -e '(.results | length == 2) and all(.results[]; .status == "passed")' good.json
+  cd "$temporary" || exit 1
+  cp "$root/tests/fixtures/action/"* app/ || exit 1
+  "$shared/levenshtein" pre-merge --source "$temporary/app" --shared "$shared" --dry-run > plan.json || exit 1
+  jq -e '.run == "pre-merge" and (.checks | length == 2) and all(.checks[]; .environment.executor == "native")' plan.json || exit 1
+  "$shared/levenshtein" pre-merge --source "$temporary/app" --shared "$shared" --cache-dir "$temporary/cache" > good.json || exit 1
+  jq -e '(.results | length == 2) and all(.results[]; .status == "passed")' good.json || exit 1
   cat > app/broken.go <<'GO'
 package greeting
 
