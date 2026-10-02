@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "targets": {"sample": {"dir": ".", "inputs": ["sample.go", "go.mod"]}},
+  "environments": {"go": {"executor": "native"}},
+  "checks": {"lint": {"kind": "go-lint", "target": "sample", "environment": "go"}},
+  "runs": {
+    "branch": {"checks": ["lint"]},
+    "audit": {"checks": ["lint"], "rerun_checks": true}
+  }
+}

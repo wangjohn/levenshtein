@@ -10,6 +10,8 @@ Every page, grouped by what you are trying to do. New to Levenshtein? Read the [
 - [Go lint rules](rules.md): every rule `go-lint` enforces, why, and how to suppress a finding
 - [Rule selection](rule-selection.md): how rules are chosen, the measurements, and every analyzer left off
 - [Versioning](versioning.md): what a release may change and what to expect when you bump your pin
+- [Performance measurements](evaluation/performance.md): reproducible synthetic costs and cache correctness
+- [Pilot worksheet](evaluation/pilot.md): recording real adoption evidence with consent
 - [Changelog](../CHANGELOG.md): what each release changed
 
 ## Adopt
