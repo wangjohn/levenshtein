@@ -8,7 +8,7 @@ The project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). 
 
 | Surface | Where it is defined | Version marker |
 | --- | --- | --- |
-| Configuration schema | `levenshtein.json`, [configuration](configuration.md) | `"version": 1` or `2` (version 2 is unreleased). Any other value is rejected. Unknown fields are rejected too, so a file that uses a newer field fails on an older release |
+| Configuration schema | `levenshtein.json`, [configuration](configuration.md) | `"version": 1` or `2` (version 2 is available starting with v0.3.0). Any other value is rejected. Unknown fields are rejected too, so a file that uses a newer field fails on an older release |
 | JSON report | The `json` output format, [results](configuration.md#results) | The report's `version`, currently 1. `--render` refuses any other |
 | Baseline file | [The baseline file](configuration.md#the-file) | Its `version`, currently 1 |
 | CLI | Flags, the run argument, and exit codes, [CLI reference](reference/cli.md) | The release |
@@ -21,7 +21,7 @@ Anything else, such as the text of a finding's message, the Dagger module's func
 
 ## What counts as breaking
 
-The configuration schema grows by optional fields. A field added to version 1 means nothing in a file that does not use it, so existing files keep their meaning and their cached results; `lint`, `rule_modules`, `baseline`, and the `imports` and `apidiff` objects were all added this way. A change that would give an existing file a different meaning, or reject one that used to be accepted, needs a new schema version. Version 2 (unreleased) retains the version 1 shape and requires selected native `go-lint` checks with configured community modules to explicitly opt out with `lint.rule_modules=false`, or move to Dagger. Version 1 keeps its accepted skip-with-warning behavior, so existing files are not silently reinterpreted. JSON report and baseline versions remain 1.
+The configuration schema grows by optional fields. A field added to version 1 means nothing in a file that does not use it, so existing files keep their meaning and their cached results; `lint`, `rule_modules`, `baseline`, and the `imports` and `apidiff` objects were all added this way. A change that would give an existing file a different meaning, or reject one that used to be accepted, needs a new schema version. Version 2 (available starting with v0.3.0) retains the version 1 shape and requires selected native `go-lint` checks with configured community modules to explicitly opt out with `lint.rule_modules=false`, or move to Dagger. Version 1 keeps its accepted skip-with-warning behavior, so existing files are not silently reinterpreted. JSON report and baseline versions remain 1.
 
 The other surfaces follow one rule before 1.0: a patch release never adds a finding on code that has not changed. It holds only fixes that cannot make a passing repository fail, and documentation. Anything that can, including a newer Staticcheck or gitleaks, moves the minor number.
 

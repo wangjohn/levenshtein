@@ -1,6 +1,6 @@
 # Release archives
 
-Releases provide CLI archives for macOS and Linux on amd64 and arm64, with SHA-256 checksums. The prepared 0.3.0 distribution is not yet published. Its archives include the Apache 2.0 license, John Wang's notice, the [changelog](../CHANGELOG.md), [contribution guide](../CONTRIBUTING.md), [security policy](../SECURITY.md), [code of conduct](../CODE_OF_CONDUCT.md), [agent conventions](../AGENTS.md), documentation, and [consumer templates](../templates), as well as the shared Dagger module, lint/tool modules, patched SDK adapter with its `uv.lock`, fixtures, and the source files used to identify its implementation. Keep the archive together so the binary and checks have the same revision.
+Releases provide CLI archives for macOS and Linux on amd64 and arm64, with SHA-256 checksums. Starting with v0.3.0, archives include the Apache 2.0 license, John Wang's notice, the [changelog](../CHANGELOG.md), [contribution guide](../CONTRIBUTING.md), [security policy](../SECURITY.md), [code of conduct](../CODE_OF_CONDUCT.md), [agent conventions](../AGENTS.md), documentation, and [consumer templates](../templates), as well as the shared Dagger module, lint/tool modules, patched SDK adapter with its `uv.lock`, fixtures, and the source files used to identify its implementation. Keep the archive together so the binary and checks have the same revision.
 
 Published v0.2.0 and earlier releases retain their MIT license and original
 archive contents; the new metadata is not retroactively added. Use the license

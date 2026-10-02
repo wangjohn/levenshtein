@@ -10,19 +10,13 @@ says which interfaces are versioned and what to expect when you bump your pin.
 
 ## [Unreleased]
 
-### Added
-
-- A minimal GitHub Actions starter workflow, prominent README setup instructions,
-  and a maintainer checklist for publishing the existing action to Marketplace.
-
-## [0.3.0] - Unreleased (release preparation; not published)
+## [0.3.0] - 2026-10-02
 
 ### Upgrading from 0.2.0
 
-This is preparation for **0.3.0**, not a published release. The minor version is
-required by the [versioning policy](docs/versioning.md): fixes below can turn
-previous passes into findings or check errors, and the CLI/report interfaces
-gain optional fields. Publication gates and the release date remain pending.
+**0.3.0** is a minor release under the [versioning policy](docs/versioning.md):
+fixes below can turn previous passes into findings or check errors, and the
+CLI/report interfaces gain optional fields.
 Consumer examples stay pinned to the real v0.2.0 release until publication and
 a separate pin-update PR.
 
@@ -57,7 +51,7 @@ a separate pin-update PR.
   analysis needs the release's `.go-version` (currently 1.27.1, also used by
   v0.2.0). Dagger checks need a Docker-compatible runtime. This is not a Go
   version bump; see [setup](docs/setup.md).
-- **Use the license shipped with your pin.** The prepared source/archive
+- **Use the license shipped with your pin.** The v0.3.0 source/archive
   distribution uses Apache 2.0 with NOTICE and adds contributor/security metadata.
   Published v0.2.0 and earlier releases retain MIT and their original contents.
   The SDK security fixes below retain Dagger 0.21.9 compatibility; upgrading the
@@ -65,6 +59,8 @@ a separate pin-update PR.
 
 ### Added
 
+- A minimal GitHub Actions starter workflow, prominent README setup instructions,
+  and a maintainer checklist for publishing the existing action to Marketplace.
 - Add a reproducible native Go lint measurement harness with synthetic cache-correctness cases and a worksheet for real adoption pilots.
 - The CLI supports `--version` before verification setup and adds optional build,
   implementation snapshot, and effective native Go identity to version 1 JSON
@@ -831,6 +827,7 @@ gave a consumer.
 - Pinned the Dagger wrapper's logging dependencies through a patched SDK
   generator so GO-2026-4985 stays fixed across regeneration (#8).
 
-[Unreleased]: https://github.com/wangjohn/levenshtein/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/wangjohn/levenshtein/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/wangjohn/levenshtein/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/wangjohn/levenshtein/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/wangjohn/levenshtein/releases/tag/v0.1.0
