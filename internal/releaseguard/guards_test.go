@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/wangjohn/levenshtein/internal/testgit"
 )
 
 func rulesetTools(t *testing.T) {
@@ -32,6 +34,7 @@ func run(t *testing.T, root string, success bool, args ...string) string {
 	t.Helper()
 	command := exec.CommandContext(t.Context(), args[0], args[1:]...)
 	command.Dir = root
+	command.Env = testgit.Env()
 	output, err := command.CombinedOutput()
 	if (err == nil) != success {
 		t.Fatalf("%v: %v\n%s", args, err, output)
@@ -43,7 +46,7 @@ func fixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	for _, path := range []string{
-		"scripts/test-rulesets", "scripts/release-on-main", ".github/rulesets/main.json",
+		"scripts/test-rulesets", "scripts/release-on-main", "scripts/test-doc-pins", ".github/rulesets/main.json",
 		".github/rulesets/proposed/tags.json", ".github/rulesets/proposed/tags-creation.json",
 		".github/workflows/verify.yml", ".github/workflows/security.yml",
 	} {
@@ -78,19 +81,6 @@ func TestReleaseAncestryGuard(t *testing.T) {
 	run(t, root, false, "bash", "scripts/release-on-main", "v1.2.3", "missing", "main")
 	run(t, root, false, "bash", "scripts/release-on-main", "v1.2.3", "HEAD", "missing")
 
-	for _, heading := range []string{
-		"## [1.2.3] - Unreleased (release preparation; not published)",
-		"## [1.2.3]",
-		"## [1.2.3] - YYYY-MM-DD",
-	} {
-		writeFile(t, filepath.Join(root, "CHANGELOG.md"), heading+"\n")
-		output := run(t, root, false, "bash", "scripts/release-on-main", "v1.2.3", "HEAD", "main")
-		if !strings.Contains(output, "no dated [1.2.3] release") {
-			t.Fatalf("missing undated release rejection: %s", output)
-		}
-	}
-	writeFile(t, filepath.Join(root, "CHANGELOG.md"), "## [1.2.3] - 2026-10-01\n")
-
 	run(t, root, true, "git", "checkout", "-b", "unmerged")
 	writeFile(t, filepath.Join(root, "unmerged"), "outside main\n")
 	run(t, root, true, "git", "add", "unmerged")
@@ -98,6 +88,68 @@ func TestReleaseAncestryGuard(t *testing.T) {
 	output := run(t, root, false, "bash", "scripts/release-on-main", "v1.2.3", "HEAD", "main")
 	if !strings.Contains(output, "does not contain") {
 		t.Fatalf("missing ancestry rejection: %s", output)
+	}
+}
+
+func TestReleaseHeadingBelongsToCandidate(t *testing.T) {
+	t.Parallel()
+	root := fixture(t)
+	run(t, root, true, "git", "init", "-b", "main")
+	for _, heading := range []string{
+		"## [1.2.3] - Unreleased (release preparation; not published)",
+		"## [1.2.3]",
+		"## [1.2.3] - YYYY-MM-DD",
+		"## [1.2.30] - 2026-10-01",
+		"## [1.2.3] - 2026-10-01 (preparation)",
+	} {
+		writeFile(t, filepath.Join(root, "CHANGELOG.md"), heading+"\n")
+		run(t, root, true, "git", "add", ".")
+		run(t, root, true, "git", "commit", "-m", "Undated or inexact candidate")
+
+		// An uncommitted release date cannot authorize the candidate commit.
+		writeFile(t, filepath.Join(root, "CHANGELOG.md"), "## [1.2.3] - 2026-10-01\n")
+		output := run(t, root, false, "bash", "scripts/release-on-main", "v1.2.3", "HEAD", "main")
+		if !strings.Contains(output, "no dated [1.2.3] release") {
+			t.Fatalf("missing candidate heading rejection: %s", output)
+		}
+	}
+
+	writeFile(t, filepath.Join(root, "CHANGELOG.md"), "## [1.2.3] - 2026-10-01\n")
+	run(t, root, true, "git", "add", "CHANGELOG.md")
+	run(t, root, true, "git", "commit", "-m", "Dated release")
+	candidate := strings.TrimSpace(run(t, root, true, "git", "rev-parse", "HEAD"))
+	writeFile(t, filepath.Join(root, "CHANGELOG.md"), "## [Unreleased]\n")
+	run(t, root, true, "git", "add", "CHANGELOG.md")
+	run(t, root, true, "git", "commit", "-m", "Later checkout without release heading")
+
+	// The candidate's dated heading still governs a different main checkout.
+	run(t, root, true, "bash", "scripts/release-on-main", "v1.2.3", candidate, "main")
+}
+
+func TestLatestDocPinsIgnoreReleasePreparation(t *testing.T) {
+	t.Parallel()
+	root := fixture(t)
+	writeFile(t, filepath.Join(root, "CHANGELOG.md"), "## [1.2.4] - Unreleased (release preparation; not published)\n\n## [1.2.3] - 2026-10-01\n")
+	run(t, root, true, "git", "init", "-b", "main")
+	run(t, root, true, "git", "add", ".")
+	run(t, root, true, "git", "commit", "-m", "Published release and preparation")
+	run(t, root, true, "git", "tag", "-a", "v1.2.3", "-m", "Published fixture")
+	sha := strings.TrimSpace(run(t, root, true, "git", "rev-parse", "HEAD"))
+	writeFile(t, filepath.Join(root, "README.md"), "uses: wangjohn/levenshtein@"+sha+" # v1.2.3\n")
+	run(t, root, true, "git", "add", "README.md")
+
+	output := run(t, root, true, "bash", "scripts/test-doc-pins", "--latest")
+	if !strings.Contains(output, "v1.2.3, the newest") {
+		t.Fatalf("preparation displaced the published release: %s", output)
+	}
+
+	writeFile(t, filepath.Join(root, "CHANGELOG.md"), "## [1.2.4] - 2026-10-02\n\n## [1.2.3] - 2026-10-01\n")
+	run(t, root, true, "git", "add", "CHANGELOG.md")
+	run(t, root, true, "git", "commit", "-m", "Finalized next release")
+	run(t, root, true, "git", "tag", "-a", "v1.2.4", "-m", "Next fixture")
+	output = run(t, root, false, "bash", "scripts/test-doc-pins", "--latest")
+	if !strings.Contains(output, "must name v1.2.4") {
+		t.Fatalf("dated release did not require a pin update: %s", output)
 	}
 }
 

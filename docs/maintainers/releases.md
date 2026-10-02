@@ -87,8 +87,8 @@ require the newest release, so pushing a tag never fails open pull requests;
 only `--latest`, in step 3, does.
 
 The workflow first runs `scripts/release-on-main`, which refuses a tag that is
-not `vX.Y.Z`, whose version lacks a dated release heading in `CHANGELOG.md`, or whose commit
-`main` does not contain. This proves ancestry and a changelog entry; it does
+not `vX.Y.Z`, whose candidate commit lacks a dated release heading in
+`CHANGELOG.md`, or whose commit `main` does not contain. This proves ancestry and a changelog entry; it does
 not prove that the commit passed checks or received PR review. It then builds with the pinned Go from `.go-version`, installs the
 pinned syft, and runs `goreleaser release --clean`.
 The draft GitHub release then holds:
