@@ -64,57 +64,15 @@ checks, and CI policies, with explanations of why each rule is enabled or
 left out. To understand a Go lint warning, start with
 [Go lint rules](docs/rules.md).
 
-## Use it in your repo
-
-After cloning Levenshtein as shown in the [Quickstart](#quickstart), choose
-which checks to run by passing a run name. These commands check the code in
-`./myapp`; the names do not switch Git branches:
-
-```sh
-./levenshtein/verify pre-merge --source ./myapp --format text
-./levenshtein/verify main --source ./myapp --format text
-./levenshtein/verify go-lint --source ./myapp --format text
-```
-
-Tell your coding agent to run the verification command and fix any failures
-before handing back a change. The [coding-agent setup guide](docs/agents.md)
-has instructions you can copy into `AGENTS.md` or `CLAUDE.md`, plus hooks
-that run checks automatically.
-
-Add a [`levenshtein.json`](docs/configuration.md) if your repo has multiple
-Go modules, or you want extra checks or your own commands. If there's already
-a lot to fix, a [baseline](docs/configuration.md#baseline) records existing
-lint warnings so you can start by blocking new ones. You can also add rules
-published as Go modules through [community rules](docs/community-rules.md).
-
-In GitHub Actions, use the shared action:
-
-```yaml
-- uses: wangjohn/levenshtein@3d47ab4c589fdf3a30107b6dd3f0816c1f346c85 # v0.2.0
-```
-
-The action chooses a run based on what triggered the workflow, such as a
-push, pull request, or schedule, and shows warnings on the affected lines.
-The [CI setup guide](docs/consumer-ci.md) has a complete workflow and examples
-for other providers. Use a specific release or commit so you control when
-your repo picks up rule changes.
-
-We use these checks here too, alongside tests of example repos and release packages.
-The [rules index](docs/checks.md#this-repositorys-ci-and-release-policies)
-links to our CI and release policies and the files that enforce them.
-
 ## Quickstart
 
-To try the Go lint rules in a module, run this from its root. You need Go 1.21
-or later; it downloads the Go version the linter needs:
+To try the Go lint rules, run this from your module's root with Go 1.21 or later:
 
 ```sh
 go run github.com/wangjohn/levenshtein/runner/lint/cmd/levenshtein-lint@latest ./...
 ```
 
-That runs the linter alone. For the default checks described above, you need
-Go and Docker Desktop, Colima, or another Docker-compatible runtime. On macOS
-or Linux:
+For the default checks, use Go and a Docker-compatible runtime on macOS or Linux:
 
 ```sh
 git clone --depth 1 --branch v0.2.0 https://github.com/wangjohn/levenshtein
@@ -122,10 +80,13 @@ git clone --depth 1 --branch v0.2.0 https://github.com/wangjohn/levenshtein
 ```
 
 A single Go module needs no config. The first run downloads and builds the
-tools; later runs reuse saved results where possible if the code and tools
-haven't changed. `verify` reports problems without changing your files. It
-exits `0` when checks pass, `1` when a check fails, and `2` for a command or
-configuration error.
+tools; `verify` reports problems without changing your files. See
+[setup](docs/setup.md) for prerequisites and named runs.
+
+- [CI setup](docs/consumer-ci.md): GitHub Actions and other providers.
+- [Coding agents](docs/agents.md): instructions and hooks for running checks while an agent works.
+- [Configuration](docs/configuration.md): multiple modules, extra checks, and custom commands.
+- [Baselines](docs/configuration.md#baseline) and [community rules](docs/community-rules.md): adopt checks gradually or add your own analyzers.
 
 ## Documentation
 
