@@ -51,7 +51,7 @@ func (n *Native) secrets(ctx context.Context, req Request, work goRun) ([]findin
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, run, err
 	}
-	findings, err := toolFindings(checktool.SecretsFindings(checktool.Run(run), data))
+	findings, err := toolFindings(checktool.SecretsFindings(run.diagnostics(), data))
 	return findings, run, err
 }
 
