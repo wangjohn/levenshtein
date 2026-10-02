@@ -3,9 +3,11 @@ package verify
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -268,7 +270,7 @@ func TestANativeGoLintCheckSaysItSkippedCommunityRules(t *testing.T) {
 		t.Errorf("the Dagger executor runs community rules: %+v", warnings)
 	}
 	warnings := skippedRuleModules(Request{PlannedCheck: native})
-	if len(warnings) != 1 || warnings[0].Kind != WarningRuleModulesSkipped {
+	if len(warnings) != 1 || warnings[0].Kind != WarningRuleModulesSkipped || !strings.Contains(warnings[0].Message, "configuration version 2") || !strings.Contains(warnings[0].Message, "lint.rule_modules=false") {
 		t.Errorf("native warnings = %+v", warnings)
 	}
 }
@@ -311,5 +313,91 @@ func TestACheckErrorKeepsTheFindingsItHas(t *testing.T) {
 	}
 	if daggerResult(errors.New("engine unavailable")).Warnings != nil {
 		t.Error("a plain error carries no warnings")
+	}
+}
+
+func TestCommunityCompletenessIsVersionedAndSelected(t *testing.T) {
+	t.Parallel()
+	for _, version := range []int{1, 2} {
+		t.Run(strconv.Itoa(version), func(t *testing.T) {
+			t.Parallel()
+			cfg := ruleModulesConfig(t, "", "")
+			cfg.Version = version
+			cfg.Checks["native"] = Check{Kind: CheckGoLint, Target: "app", Environment: "host"}
+			cfg.Runs["native"] = Run{Checks: []string{"native"}}
+			cfg.Runs["mixed"] = Run{Checks: []string{"lint", "native"}}
+			source := t.TempDir()
+
+			for _, run := range []string{"branch", "native", "mixed"} {
+				plan, err := cfg.Plan(source, run)
+				if version == 2 && run != "branch" {
+					if err == nil || !strings.Contains(err.Error(), `check "native"`) || !strings.Contains(err.Error(), `"rule_modules": false`) {
+						t.Fatalf("run %s must reject skipped community rules with an actionable error: %v", run, err)
+					}
+					continue
+				}
+				if err != nil || plan.Version != 1 {
+					t.Fatalf("run %s: %+v %v", run, plan, err)
+				}
+			}
+
+			cfg.Checks["native"] = Check{Kind: CheckGoLint, Target: "app", Environment: "host", Lint: &LintCheck{RuleModules: new(false)}}
+			plan, err := cfg.Plan(source, "mixed")
+			if err != nil || len(plan.Checks) != 2 || len(plan.Checks[0].RuleModules) != 1 || len(plan.Checks[1].RuleModules) != 0 {
+				t.Fatalf("explicit mixed executor plan: %+v %v", plan, err)
+			}
+		})
+	}
+}
+
+func TestVersionTwoPreservesAcceptedPlanKeys(t *testing.T) {
+	t.Parallel()
+	cfg := ruleModulesConfig(t, "", "")
+	source := t.TempDir()
+	old, err := cfg.Plan(source, "branch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = Parse([]byte(strings.Replace(string(data), `"version":1`, `"version":2`, 1)))
+	if err != nil || cfg.Version != 2 {
+		t.Fatalf("parse version 2: %+v %v", cfg, err)
+	}
+
+	current, err := cfg.Plan(source, "branch")
+	if err != nil || digest(current) != digest(old) {
+		t.Fatalf("accepted plans must keep report schema and keys: %+v %v", current, err)
+	}
+	cfg.RuleModules = nil
+	cfg.Checks = map[string]Check{"core": {Kind: CheckGoLint, Target: "app", Environment: "host"}}
+	cfg.Runs = map[string]Run{"core": {Checks: []string{"core"}}}
+	plan, err := cfg.Plan(source, "core")
+	if err != nil || len(plan.Checks[0].RuleModules) != 0 {
+		t.Fatalf("native without community modules: %+v %v", plan, err)
+	}
+}
+
+func TestVersionTwoDoesNotGuessEmptyCommunitySelection(t *testing.T) {
+	t.Parallel()
+	cfg := ruleModulesConfig(t, `{"github.com/acme/lvrules-errors": {"version": "v1.4.0", "namespace": "errs", "select": ["-errs_*"]}}`, `{"checks": ["-errs_*"]}`)
+	cfg.Version = 2
+	check := cfg.Checks["lint"]
+	check.Environment = "host"
+	cfg.Checks["lint"] = check
+
+	if _, err := cfg.Plan(t.TempDir(), "branch"); err == nil || !strings.Contains(err.Error(), "configuration version 2") {
+		t.Fatalf("participating modules require Dagger even when patterns might select nothing: %v", err)
+	}
+}
+
+func TestSupportedConfigVersionsRejectUnknownFields(t *testing.T) {
+	t.Parallel()
+	for _, version := range []int{1, 2} {
+		if _, err := Parse(fmt.Appendf(nil, `{"version":%d,"typo":true}`, version)); err == nil || !strings.Contains(err.Error(), "unknown field") {
+			t.Fatalf("version %d must keep strict fields: %v", version, err)
+		}
 	}
 }

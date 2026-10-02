@@ -350,8 +350,9 @@ func Load(source string) (Config, error) {
 	return Parse(data)
 }
 
-// Parse reads the versioned configuration interface. Version 1 is the only
-// accepted shape; a file without it is rejected rather than guessed at.
+// Parse reads the versioned configuration interface. Versions 1 and 2 share
+// a shape; version 2 requires explicit community-rule completeness in planning.
+// A file without a supported version is rejected rather than guessed at.
 func Parse(data []byte) (Config, error) {
 	var header struct {
 		Version int `json:"version"`
@@ -359,8 +360,8 @@ func Parse(data []byte) (Config, error) {
 	if err := json.Unmarshal(data, &header); err != nil {
 		return Config{}, err
 	}
-	if header.Version != 1 {
-		return Config{}, fmt.Errorf(`configuration needs "version": 1; see docs/configuration.md`)
+	if header.Version != 1 && header.Version != 2 {
+		return Config{}, fmt.Errorf(`configuration needs "version": 1 or 2; see docs/configuration.md`)
 	}
 
 	var cfg Config
