@@ -34,13 +34,13 @@ only in `main`, which also reruns checks without using cached results.
 
 | Check | Example finding |
 | --- | --- |
-| [Staticcheck](docs/rules.md#the-staticcheck-selection) | **Close before error check:** deferring `f.Close()` before checking whether `os.Open` succeeded |
-| [Bug-finding analyzers](docs/rules.md#rules-on-by-default) | **Unchecked error:** calling `file.Write(data)` without checking whether the write failed |
-| [Modernize](docs/rules.md#the-modernize-selection) | **Manual map copy:** copying entries in a loop when `maps.Copy` does the same job |
-| [Levenshtein's own rules](docs/rules.md#typed-choices-lv1001) | **Untyped status:** comparing a plain string to `"done"` and `"failed"` instead of typed constants |
-| [`go vet`](docs/check-kinds.md) | **Format mismatch:** passing `"hello"` to `fmt.Printf("%d", ...)`, which expects an integer |
-| [Module checks](docs/check-kinds-guide.md#module-manifests) | **Missing dependency:** importing a package whose module is missing from `go.mod` |
-| [Go vulnerabilities](docs/check-kinds.md) (`main` only) | **Vulnerable function:** your code can reach a dependency function with a known security flaw |
+| [Staticcheck](docs/rules.md#the-staticcheck-selection) | Close before error check: deferring `f.Close()` before checking whether `os.Open` succeeded |
+| [Bug-finding analyzers](docs/rules.md#rules-on-by-default) | Unchecked error: calling `file.Write(data)` without checking whether the write failed |
+| [Modernize](docs/rules.md#the-modernize-selection) | Manual map copy: copying entries in a loop when `maps.Copy` does the same job |
+| [Levenshtein's rules](docs/rules.md#typed-choices-lv1001) | Untyped status: comparing a plain string to `"done"` and `"failed"` instead of typed constants |
+| [`go vet`](docs/check-kinds.md) | Format mismatch: passing `"hello"` to `fmt.Printf("%d", ...)`, which expects an integer |
+| [Module checks](docs/check-kinds-guide.md#module-manifests) | Missing dependency: importing a package whose module is missing from `go.mod` |
+| [Go vulnerabilities](docs/check-kinds.md) (`main` only) | Vulnerable function: your code can reach a dependency function with a known security flaw |
 
 ### Optional checks
 
@@ -48,16 +48,16 @@ Add these checks to your repo's [configuration](docs/configuration.md).
 
 | Check | Example finding |
 | --- | --- |
-| [Race detector](docs/check-kinds-guide.md#tests) (`go-test`) | **Concurrent writes:** two goroutines updating a shared map without synchronization |
-| [GitHub Actions lint](docs/check-kinds.md) (`workflow-lint`) | **Unknown property:** a workflow expression referencing a property that doesn't exist |
-| [Workflow security](docs/check-kinds-guide.md#workflow-security) (`workflow-security`) | **Shell injection:** inserting a PR title directly into a workflow's shell command |
-| [ShellCheck](docs/check-kinds-guide.md#shell-scripts) (`shell-lint`) | **Unchecked directory change:** running `cd "$dir"` without stopping or handling failure |
-| [Secret scanning](docs/check-kinds-guide.md#secrets) (`secrets`) | **Committed API key:** a credential left in a tracked configuration file |
-| [Other dependency vulnerabilities](docs/check-kinds-guide.md#dependency-vulnerabilities) (`deps-vuln`) | **Vulnerable package:** a version with a known security flaw pinned in `package-lock.json` |
-| [Import boundaries](docs/check-kinds-guide.md#import-boundaries) (`go-imports`) | **Forbidden import:** a domain package importing a database package against your layering rules |
-| [Generated files](docs/check-kinds-guide.md#generated-code) (`go-generate`) | **Stale generated code:** a committed file that changes when `go generate` runs |
-| [API compatibility](docs/check-kinds-guide.md#api-compatibility) (`go-apidiff`) | **Removed exported function:** a public API change that breaks existing callers |
-| [Mutation testing](docs/mutation.md) (`go-mutation`) | **Missed boundary bug:** changing `>` to `>=` without any test failing |
+| [Race detector](docs/check-kinds-guide.md#tests) (`go-test`) | Concurrent writes: two goroutines updating a shared map without synchronization |
+| [GitHub Actions lint](docs/check-kinds.md) (`workflow-lint`) | Unknown property: a workflow expression referencing a property that doesn't exist |
+| [Workflow security](docs/check-kinds-guide.md#workflow-security) (`workflow-security`) | Shell injection: inserting a PR title directly into a workflow's shell command |
+| [ShellCheck](docs/check-kinds-guide.md#shell-scripts) (`shell-lint`) | Unchecked directory change: running `cd "$dir"` without stopping or handling failure |
+| [Secret scanning](docs/check-kinds-guide.md#secrets) (`secrets`) | Committed API key: a credential left in a tracked configuration file |
+| [Other dependency vulnerabilities](docs/check-kinds-guide.md#dependency-vulnerabilities) (`deps-vuln`) | Vulnerable package: a version with a known security flaw pinned in `package-lock.json` |
+| [Import boundaries](docs/check-kinds-guide.md#import-boundaries) (`go-imports`) | Forbidden import: a domain package importing a database package against your layering rules |
+| [Generated files](docs/check-kinds-guide.md#generated-code) (`go-generate`) | Stale generated code: a committed file that changes when `go generate` runs |
+| [API compatibility](docs/check-kinds-guide.md#api-compatibility) (`go-apidiff`) | Removed exported function: a public API change that breaks existing callers |
+| [Mutation testing](docs/mutation.md) (`go-mutation`) | Missed boundary bug: changing `>` to `>=` without any test failing |
 
 The **[lint and CI/CD rules index](docs/checks.md)** links to all the rules,
 checks, and CI policies, with explanations of why each rule is enabled or
