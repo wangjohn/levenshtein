@@ -31,7 +31,6 @@ and comment-style preferences are left out.
 
 `./verify` and `pre-merge` run these checks. Go vulnerability scanning runs
 only in `main`, which also reruns checks without using cached results.
-The first four rows make up `go-lint`.
 
 | Check | Example finding |
 | --- | --- |
