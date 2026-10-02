@@ -53,13 +53,14 @@ an evidence limit, not grounds for invented testimonials.
 An annotated tag prepares a draft GitHub release, which the maintainer reviews
 and publishes after checking its assets and notes:
 
-1. After the pre-tag evidence is complete, finalize the prepared version in a
-   pull request: replace its undated heading with `## [X.Y.Z] - YYYY-MM-DD`
+1. Finalize the prepared source version in a pull request: replace its undated
+   heading with `## [X.Y.Z] - YYYY-MM-DD`
    below the fresh empty `[Unreleased]`. For an ordinary release without a
    prepared section, move the Unreleased entries into that dated heading. Leave the
    consumer examples on the previous release: they pin its commit SHA, and the
    new release has none yet.
-2. Merge it, then push an annotated tag on the merge commit.
+2. Merge it, complete the pre-tag evidence against the finalized main commit,
+   then push both annotated tags on that commit.
    `.github/workflows/release.yml` builds and uploads the draft:
 
 ```sh
