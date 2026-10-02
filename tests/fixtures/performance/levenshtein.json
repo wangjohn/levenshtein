@@ -1,10 +1,67 @@
 {
   "version": 1,
-  "targets": {"sample": {"dir": ".", "inputs": ["sample.go", "go.mod"]}},
-  "environments": {"go": {"executor": "native"}},
-  "checks": {"lint": {"kind": "go-lint", "target": "sample", "environment": "go"}},
+  "targets": {
+    "sample": {
+      "dir": ".",
+      "inputs": [
+        "sample.go",
+        "go.mod"
+      ]
+    }
+  },
+  "environments": {
+    "go": {
+      "executor": "native",
+      "pass_env": [
+        "GOCACHE",
+        "GOMODCACHE",
+        "GOENV",
+        "GOFLAGS",
+        "GOEXPERIMENT",
+        "GOFIPS140",
+        "GODEBUG",
+        "CGO_ENABLED",
+        "CC",
+        "CXX",
+        "CGO_CFLAGS",
+        "CGO_CPPFLAGS",
+        "CGO_CXXFLAGS",
+        "CGO_LDFLAGS",
+        "GOAMD64",
+        "GOARM64",
+        "GOARM",
+        "GO386",
+        "GOPPC64",
+        "GORISCV64",
+        "GOMIPS",
+        "GOMIPS64",
+        "GOWASM",
+        "GOPROXY",
+        "GOPRIVATE",
+        "GONOPROXY",
+        "GONOSUMDB",
+        "GOSUMDB"
+      ]
+    }
+  },
+  "checks": {
+    "lint": {
+      "kind": "go-lint",
+      "target": "sample",
+      "environment": "go"
+    }
+  },
   "runs": {
-    "branch": {"checks": ["lint"]},
-    "audit": {"checks": ["lint"], "rerun_checks": true}
+    "branch": {
+      "checks": [
+        "lint"
+      ]
+    },
+    "audit": {
+      "checks": [
+        "lint"
+      ],
+      "rerun_checks": true
+    }
   }
 }
