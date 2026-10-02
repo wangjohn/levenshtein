@@ -1,7 +1,6 @@
 package verify
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -96,9 +95,9 @@ func command(ctx context.Context, dir string, args, env []string, timeout string
 	cmd.Env = env
 	cmd.WaitDelay = time.Second
 	configureProcess(cmd)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout, stderr := newOutputBuffer(), newOutputBuffer()
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	err = cmd.Run()
 	cleanupProcess(cmd)
@@ -125,12 +124,20 @@ func command(ctx context.Context, dir string, args, env []string, timeout string
 		message = err.Error()
 	}
 
-	return Result{Status: status, Error: message, Stdout: stdout.String(), Stderr: stderr.String(), Warnings: warnings}
+	return Result{Status: status, Error: message, Stdout: stdout.String(), Stderr: stderr.String(), Warnings: append(warnings, outputWarnings(stdout, stderr)...)}
 }
 
 func validateTools(ctx context.Context, dir string, tools []Tool, env []string) *Result {
 	for _, tool := range tools {
 		result := command(ctx, dir, tool.Command, env, "30s")
+		if result.Status == StatusPassed {
+			for _, warning := range result.Warnings {
+				if warning.Kind == WarningOutputTruncated {
+					failure := result.withOutcome(StatusError, "tool validation: output truncated; refusing incomplete version output")
+					return &failure
+				}
+			}
+		}
 		if result.Status != StatusPassed {
 			failure := result.withOutcome(StatusError, "tool validation: "+result.Error)
 			return &failure

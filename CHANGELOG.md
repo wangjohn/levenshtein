@@ -50,6 +50,12 @@ says which interfaces are versioned and what to expect when you bump your pin.
 
 ### Changed
 
+- Native checks retain the first 1 MiB of each subprocess output stream while
+  draining the remainder, report truncation warnings, and reject incomplete
+  helper diagnostics as check errors. Result warnings, including skipped
+  community rules and deprecation guidance, now appear in text, GitHub, and
+  SARIF output as well as JSON.
+
 - **A baseline entry no configured check could report fails every run.**
   An entry whose rule module was removed, whose rule was dropped from a
   module's `select` or turned off in every `go-lint` check, or whose check
