@@ -27,7 +27,7 @@ func (n *Native) goTest(ctx context.Context, req Request, work goRun) ([]finding
 	if err != nil {
 		return nil, run, err
 	}
-	findings, err := toolFindings(checktool.TestFindings(req.Target.Dir, checktool.Run(run)))
+	findings, err := toolFindings(checktool.TestFindings(req.Target.Dir, run.diagnostics()))
 	if text, parseErr := checktool.TestTranscript(run.Stdout); parseErr == nil {
 		run.Stdout = text
 	}

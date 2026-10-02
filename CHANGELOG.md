@@ -12,6 +12,10 @@ says which interfaces are versioned and what to expect when you bump your pin.
 
 ### Added
 
+- Bounded parser fuzz smoke covers configuration, baselines, tool diagnostics,
+  and release archive entries; maintainers can run longer sessions with
+  `scripts/test-fuzz`.
+
 - The repository and its example rule module now use Apache License 2.0, with
   John Wang named in `NOTICE`. Release archives include both the license and
   notice. Earlier published releases retain their original MIT license.
@@ -36,7 +40,21 @@ says which interfaces are versioned and what to expect when you bump your pin.
   [docs/maintainers/releases.md](docs/maintainers/releases.md#protecting-release-tags)
   has the tag rulesets and immutable-release setting an admin can apply.
 
+### Fixed
+
+- Gocheck reports reject trailing JSON or malformed output instead of accepting
+  a clean prefix, and lint reports reject diagnostics missing a rule code.
+  Gocheck and ShellCheck reject reports without their diagnostic arrays.
+  Release archive traversal also bounds decompressed skipped
+  entries to the existing 128 MiB release limit.
+
 ### Changed
+
+- Native checks retain the first 1 MiB of each subprocess output stream while
+  draining the remainder, report truncation warnings, and reject incomplete
+  helper diagnostics as check errors. Result warnings, including skipped
+  community rules and deprecation guidance, now appear in text, GitHub, and
+  SARIF output as well as JSON.
 
 - **A baseline entry no configured check could report fails every run.**
   An entry whose rule module was removed, whose rule was dropped from a

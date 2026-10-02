@@ -49,7 +49,7 @@ func (n *Native) depsVuln(ctx context.Context, req Request, work goRun) ([]findi
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, run, err
 	}
-	findings, err := toolFindings(checktool.DepsFindings(staged, checktool.Run(run), data))
+	findings, err := toolFindings(checktool.DepsFindings(staged, run.diagnostics(), data))
 	return findings, run, err
 }
 

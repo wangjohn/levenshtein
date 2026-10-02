@@ -128,7 +128,7 @@ func LintFindings(run Run, checks []string, root string) ([]Finding, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid linter JSON: %w", err)
 		}
-		if !Allowed(checks, diagnostic.Code) || diagnostic.Message == "" || diagnostic.Location.File == "" || diagnostic.Location.Line < 1 {
+		if diagnostic.Code == "" || !Allowed(checks, diagnostic.Code) || diagnostic.Message == "" || diagnostic.Location.File == "" || diagnostic.Location.Line < 1 {
 			return nil, fmt.Errorf("unexpected diagnostic (possibly a compile error): %s", run.Stdout)
 		}
 		diagnostic.Location.File = relative(root, diagnostic.Location.File)

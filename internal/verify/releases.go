@@ -114,13 +114,15 @@ func installRelease(ctx context.Context, shared, root string, tool releaseTool, 
 }
 
 // untarEntry returns one regular file from a gzipped tar archive, refusing one
-// larger than limit rather than truncating it.
+// larger than limit rather than truncating it. Traversal, including skipped
+// entries, reads at most releaseLimit decompressed bytes.
 func untarEntry(data []byte, name string, limit int64) ([]byte, error) {
 	compressed, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
-	archive := tar.NewReader(compressed)
+	defer func() { _ = compressed.Close() }() // The gzip reader owns no file handle.
+	archive := tar.NewReader(io.LimitReader(compressed, releaseLimit))
 	for {
 		header, err := archive.Next()
 		if errors.Is(err, io.EOF) {
