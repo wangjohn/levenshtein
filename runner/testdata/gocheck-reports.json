@@ -12,6 +12,10 @@
     {"name": "no location", "exit": 1, "stdout": "{\"findings\":[{\"code\":\"go-imports\",\"message\":\"m\",\"location\":{\"file\":\"a.go\",\"line\":0,\"column\":0}}]}\n", "want": "error", "contains": "unexpected finding"},
     {"name": "stderr beside a pass", "exit": 0, "stdout": "{\"findings\":[]}\n", "stderr": "panic: boom\n", "want": "error", "contains": "clean result"},
     {"name": "not a report", "exit": 0, "stdout": "ok\n", "want": "error", "contains": "unreadable report"},
-    {"name": "unknown field", "exit": 0, "stdout": "{\"findings\":[],\"verdict\":\"pass\"}\n", "want": "error", "contains": "unreadable report"}
+    {"name": "unknown field", "exit": 0, "stdout": "{\"findings\":[],\"verdict\":\"pass\"}\n", "want": "error", "contains": "unreadable report"},
+    {"name": "null report", "exit": 0, "stdout": "null", "want": "error", "contains": "findings array"},
+    {"name": "empty object", "exit": 0, "stdout": "{}", "want": "error", "contains": "findings array"},
+    {"name": "only notes", "exit": 0, "stdout": "{\"notes\":[\"ok\"]}", "want": "error", "contains": "findings array"},
+    {"name": "null findings", "exit": 0, "stdout": "{\"findings\":null}", "want": "error", "contains": "findings array"}
   ]
 }

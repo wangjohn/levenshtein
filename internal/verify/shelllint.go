@@ -80,7 +80,7 @@ func (n *Native) shellLint(ctx context.Context, req Request, work goRun) ([]find
 	if err != nil {
 		return nil, run, err
 	}
-	findings, err := toolFindings(checktool.ShellFindings(checktool.Run(run)))
+	findings, err := toolFindings(checktool.ShellFindings(run.diagnostics()))
 	return findings, run, err
 }
 
