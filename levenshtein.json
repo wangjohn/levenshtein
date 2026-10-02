@@ -9,7 +9,7 @@
     "runner": {
       "dir": "runner",
       "workspace": ".",
-      "inputs": ["runner"]
+      "inputs": ["runner", "sdk/patched-go/otel-go"]
     },
     "lint": {
       "dir": "runner/lint",

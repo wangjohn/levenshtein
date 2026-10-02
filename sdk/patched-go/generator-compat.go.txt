@@ -1,0 +1,65 @@
+package gogenerator
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/dagger/dagger/cmd/codegen/generator"
+	"golang.org/x/mod/modfile"
+)
+
+func TestPatchedLocalReplacementSurvivesTwoPasses(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "go.mod")
+	if err := os.WriteFile(path, []byte("module example.com/compat\n\ngo 1.27.1\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	g := GoGenerator{Config: generator.Config{
+		OutputDir:    directory,
+		ModuleConfig: &generator.ModuleGeneratorConfig{ModuleName: "compat", ModuleSourcePath: ".", LibVersion: "v0.0.0"},
+	}}
+
+	for pass := 0; pass < 2; pass++ {
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mod, err := modfile.Parse("go.mod", contents, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		state := &generator.GeneratedState{}
+		if err := g.syncModReplaceAndTidy(mod, state, "."); err != nil {
+			t.Fatal(err)
+		}
+		// Execute the actual generator replacement commands. Other postcommands
+		// need a full generated client and run in the Dagger security gate.
+		for _, command := range state.PostCommands {
+			if len(command.Args) < 4 || command.Args[1] != "mod" || command.Args[2] != "edit" || command.Args[3] != "-replace" {
+				continue
+			}
+			command.Dir = directory
+			if output, err := command.CombinedOutput(); err != nil {
+				t.Fatalf("replacement: %s: %v", output, err)
+			}
+		}
+		contents, err = os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mod, err = modfile.Parse("go.mod", contents, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, replacement := range mod.Replace {
+			if replacement.Old.Path == "github.com/dagger/otel-go" {
+				found = replacement.New.Path == "../sdk/patched-go/otel-go" && replacement.New.Version == ""
+			}
+		}
+		if !found {
+			t.Fatalf("pass %d lost local telemetry replacement: %s", pass+1, contents)
+		}
+	}
+}

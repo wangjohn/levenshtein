@@ -99,6 +99,13 @@ says which interfaces are versioned and what to expect when you bump your pin.
 
 ### Fixed
 
+- The patched Dagger Go SDK now retains OpenTelemetry logging v0.21.0 during
+  generation and runtime compilation, fixing the gRPC log exporter vulnerability
+  [GO-2026-6508](https://pkg.go.dev/vuln/GO-2026-6508). The security gate checks
+  all four effective logging versions and the shipped telemetry compatibility
+  patch after two generations. Trace exporters use v1.45.0 to fix
+  [GO-2026-6505](https://pkg.go.dev/vuln/GO-2026-6505); Dagger remains 0.21.9.
+
 - [docs/rules.md](docs/rules.md) listed `gocognit` and `deferInLoop`, which
   are off by default, in its table of rules on by default. They are now in
   an [opt-in rules](docs/rules.md#opt-in-rules) table, and a test fails when
