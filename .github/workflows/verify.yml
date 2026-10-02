@@ -209,6 +209,8 @@ jobs:
           src: |
             scripts
             sdk/patched-go
+      - name: Performance harness regressions
+        run: python3 scripts/test_measure_performance.py
       # Every Dagger run installs the SDK adapter's Python dependencies from
       # sdk/patched-go/uv.lock; a stale lock is silently re-resolved from PyPI.
       - name: Patched Go SDK lock

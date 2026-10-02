@@ -43,8 +43,14 @@ def snapshot(destination):
         digest.update(raw + b"\0" + hashlib.sha256(data).digest())
         target = destination / relative
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, target)
+        target.write_bytes(data)
+        shutil.copystat(source, target)
     return digest.hexdigest()
+
+
+def require_local_build_cache(shared, env):
+    cache_program, _ = command(["go", "env", "GOCACHEPROG"], shared, env)
+    require(not cache_program.strip(), "GOCACHEPROG must be unset in the environment and Go settings for isolated compilation caches")
 
 
 def verify(binary, shared, source, cache, env, phase, expected_status, expected_cache, run="branch"):
@@ -81,6 +87,7 @@ def repeat(index, module_cache, shared_snapshot, tree_digest):
         env = dict(os.environ, GOCACHE=str(work / "go-build-cache"),
                    GOMODCACHE=str(module_cache or work / "go-module-cache"),
                    GOWORK="off")
+        require_local_build_cache(shared, env)
         binary = work / "levenshtein"
         _, elapsed = command(["go", "build", "-o", str(binary), "./cmd/levenshtein"], shared, env)
         version, _ = command([str(binary), "--version"], shared, env)

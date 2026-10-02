@@ -8,7 +8,7 @@ From a source checkout with Git, Python 3.9 or later, and the [pinned Go toolcha
 scripts/measure-performance --repeats 3 --output /tmp/levenshtein-performance.json
 ```
 
-Each repetition starts with an empty Go module-download cache, compilation cache, Staticcheck cache, and verification cache. The fresh install stage builds the CLI from the current source snapshot, including dependency downloads. This is a source build, not installation of a release archive. The cold tool stage includes building the actual shared linter and loading the consumer. Source copying and fixture setup are preparation outside the measured commands; their cost is not part of a consumer's CLI invocation. The CLI and helper build costs are separate recorded phases, so first-launch overhead stays visible.
+Each repetition starts with an empty Go module-download cache, compilation cache, Staticcheck cache, and verification cache. The harness refuses a nonempty effective `GOCACHEPROG` setting, including one configured in the Go environment file, because an external compilation cache could bypass the empty local cache. The fresh install stage builds the CLI from the current source snapshot, including dependency downloads. This is a source build, not installation of a release archive. The cold tool stage includes building the actual shared linter and loading the consumer. Source copying and fixture setup are preparation outside the measured commands; their cost is not part of a consumer's CLI invocation. The CLI and helper build costs are separate recorded phases, so first-launch overhead stays visible.
 
 For offline or faster repeated measurements, explicitly reuse a populated Go module-download cache:
 
