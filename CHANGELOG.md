@@ -12,6 +12,7 @@ says which interfaces are versioned and what to expect when you bump your pin.
 
 ### Added
 
+- Add a reproducible native Go lint measurement harness with synthetic cache-correctness cases and a worksheet for real adoption pilots.
 - The CLI supports `--version` before verification setup and adds optional build,
   implementation snapshot, and effective native Go identity to version 1 JSON
   reports. Cached results retain the identity of their original verification;
