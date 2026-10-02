@@ -30,8 +30,8 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       # A v* tag can be pushed on any commit. Publish only a vX.Y.Z tag that
-      # main contains and CHANGELOG.md releases, so every release is a
-      # reviewed, merged commit.
+      # main contains and CHANGELOG.md releases. Ancestry alone does not
+      # prove PR review or successful required checks.
       - name: The tag is a release on main
         env:
           TAG: ${{ github.ref_name }}

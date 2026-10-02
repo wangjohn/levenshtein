@@ -5,10 +5,11 @@
 #
 # A v* tag can be pushed on any commit, including one no pull request ever
 # reviewed, and .github/workflows/release.yml publishes whatever it names. This
-# check, the release workflow's first step, lets it publish only a vX.Y.Z tag
+# check, the release workflow's first step, lets it prepare only a vX.Y.Z tag
 # whose commit (default: the tag's) is an ancestor of BASE (default:
 # origin/main) and whose version is a release in CHANGELOG.md. It needs the
-# history back to the merge base, which a full checkout has.
+# history back to the merge base, which a full checkout has. Ancestry does not
+# prove that a PR, review, or required check ran for the commit.
 set -euo pipefail
 root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 

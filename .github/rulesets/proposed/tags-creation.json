@@ -6,7 +6,8 @@
     "ref_name": {
       "exclude": [],
       "include": [
-        "refs/tags/v*"
+        "refs/tags/v*",
+        "refs/tags/runner/lint/v*"
       ]
     }
   },
