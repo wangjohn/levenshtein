@@ -277,18 +277,20 @@ func (c CachedExecutor) execute(ctx context.Context, req Request, key, reason st
 	executed := time.Now()
 	outcome := c.executeOnce(ctx, req)
 	result := Result{
-		ID:          outcome.ID,
-		Status:      outcome.Status,
-		DurationMS:  outcome.DurationMS,
-		VerifiedAt:  executed.UTC(),
-		Stdout:      outcome.Stdout,
-		Stderr:      outcome.Stderr,
-		Error:       outcome.Error,
-		Cache:       CacheInfo{Status: status, Key: key, Reason: reason, LookupMS: lookupMS},
-		ExecutionMS: time.Since(executed).Milliseconds(),
-		Stages:      outcome.Stages,
-		Details:     outcome.Details,
-		Warnings:    outcome.Warnings,
+		ID:             outcome.ID,
+		Implementation: outcome.Implementation,
+		Toolchain:      outcome.Toolchain,
+		Status:         outcome.Status,
+		DurationMS:     outcome.DurationMS,
+		VerifiedAt:     executed.UTC(),
+		Stdout:         outcome.Stdout,
+		Stderr:         outcome.Stderr,
+		Error:          outcome.Error,
+		Cache:          CacheInfo{Status: status, Key: key, Reason: reason, LookupMS: lookupMS},
+		ExecutionMS:    time.Since(executed).Milliseconds(),
+		Stages:         outcome.Stages,
+		Details:        outcome.Details,
+		Warnings:       outcome.Warnings,
 	}
 
 	if result.Status == StatusPassed {
@@ -325,7 +327,10 @@ func (c CachedExecutor) run(ctx context.Context, req Request) Result {
 // fingerprint in this run, of this check or any other, must see them. A failed
 // command can leave files behind as easily as a passing one.
 func (c CachedExecutor) executeOnce(ctx context.Context, req Request) Result {
+	impl, toolchain := resultIdentity(ctx, req)
 	result := c.Executor.Execute(ctx, req)
+	result.Implementation = impl
+	result.Toolchain = toolchain
 	sessionOf(req).relist(req.Source)
 	return result
 }

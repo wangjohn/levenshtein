@@ -14,6 +14,7 @@ import (
 	"syscall"
 
 	"github.com/spf13/pflag"
+	"github.com/wangjohn/levenshtein/internal/buildinfo"
 	"github.com/wangjohn/levenshtein/internal/verify"
 )
 
@@ -49,14 +50,10 @@ type console struct {
 }
 
 func runCommand(ctx context.Context, args []string, streams console) (int, error) {
-	source, err := os.Getwd()
-	if err != nil {
-		return 2, err
-	}
 	cacheRoot, _ := os.UserCacheDir()
 
 	opts, err := parseArgs(args, options{
-		source:   source,
+		source:   ".",
 		shared:   os.Getenv("LEVENSHTEIN_SHARED_ROOT"),
 		cacheDir: filepath.Join(cacheRoot, "levenshtein", "verification-v1"),
 	}, streams.out)
@@ -66,11 +63,19 @@ func runCommand(ctx context.Context, args []string, streams console) (int, error
 	if err != nil {
 		return 2, err
 	}
+	if opts.version {
+		identity := buildinfo.Current()
+		_, err := fmt.Fprintf(streams.out, "levenshtein %s commit=%s state=%s go=%s os=%s arch=%s\n", identity.Version, identity.Commit, identity.State, identity.GoVersion, identity.OS, identity.Arch)
+		if err != nil {
+			return 2, err
+		}
+		return 0, nil
+	}
 	if opts.render != "" {
 		return renderSaved(opts, streams)
 	}
 
-	source, err = filepath.Abs(opts.source)
+	source, err := filepath.Abs(opts.source)
 	if err != nil {
 		return 2, err
 	}
@@ -148,6 +153,8 @@ func runCommand(ctx context.Context, args []string, streams console) (int, error
 		verify.ExecutorDagger: verify.CachedExecutor{Cache: cache, Executor: dagger},
 		verify.ExecutorNative: verify.CachedExecutor{Cache: cache, Executor: &verify.Native{Cache: cache}},
 	}, opts.jobs)
+
+	report.Build = new(buildinfo.Current())
 
 	// The baseline and hints apply to the finished report, after the cache has
 	// stored whatever it stores, so neither ever reaches a cached result.

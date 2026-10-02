@@ -12,6 +12,7 @@ import (
 )
 
 type options struct {
+	version       bool
 	cacheDir      string
 	source        string
 	shared        string
@@ -36,6 +37,7 @@ func formatNames() string {
 func parseArgs(args []string, opts options, output io.Writer) (options, error) {
 	flags := pflag.NewFlagSet("verify", pflag.ContinueOnError)
 	flags.SetOutput(output)
+	flags.BoolVar(&opts.version, "version", false, "Print build identity and exit")
 	flags.StringVar(&opts.source, "source", opts.source, "Repository directory to verify")
 	flags.StringVar(&opts.shared, "shared", opts.shared, "Pinned Levenshtein checkout")
 	flags.StringVar(&opts.cacheDir, "cache-dir", opts.cacheDir, "Verification cache directory outside source and shared checkouts")
@@ -58,6 +60,9 @@ func parseArgs(args []string, opts options, output io.Writer) (options, error) {
 	if *help {
 		flags.Usage()
 		return opts, pflag.ErrHelp
+	}
+	if opts.version {
+		return opts, nil
 	}
 	if flags.NArg() > 1 {
 		return opts, fmt.Errorf("expected at most one run, got %q", flags.Args())

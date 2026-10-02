@@ -8,6 +8,8 @@ builds:
     goos: [linux, darwin]
     goarch: [amd64, arm64]
     flags: [-trimpath]
+    ldflags:
+      - -s -w -X github.com/wangjohn/levenshtein/internal/buildinfo.Version={{.Version}} -X github.com/wangjohn/levenshtein/internal/buildinfo.Commit={{.FullCommit}}
 archives:
   - formats: [tar.gz]
     files:
