@@ -36,27 +36,31 @@ func Current() Identity {
 func identify(version, commit string, info *debug.BuildInfo) Identity {
 	state := StateUnavailable
 	goVersion := runtime.Version()
-	if version == "" || commit == "" {
+	development := version == "" || commit == ""
+	if development {
 		version, commit = "development", "unavailable"
-		if info != nil {
-			for _, setting := range info.Settings {
-				//lint:ignore LV1001 build setting keys are an open Go schema
-				switch setting.Key {
-				case "vcs.revision":
+	} else {
+		state = StateClean
+	}
+
+	if info != nil {
+		for _, setting := range info.Settings {
+			//lint:ignore LV1001 build setting keys are an open Go schema
+			switch setting.Key {
+			case "vcs.revision":
+				if development {
 					commit = setting.Value
-				case "vcs.modified":
-					//lint:ignore LV1001 Go build setting values are an open schema
-					switch setting.Value {
-					case "true":
-						state = StateDirty
-					case "false":
-						state = StateClean
-					}
+				}
+			case "vcs.modified":
+				//lint:ignore LV1001 Go build setting values are an open schema
+				switch setting.Value {
+				case "true":
+					state = StateDirty
+				case "false":
+					state = StateClean
 				}
 			}
 		}
-	} else {
-		state = StateClean
 	}
 	if info != nil && info.GoVersion != "" {
 		goVersion = info.GoVersion

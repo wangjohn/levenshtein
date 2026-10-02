@@ -89,7 +89,7 @@ These additions apply to the upcoming source revision; released `v0.2.0` pins do
 levenshtein VERSION commit=COMMIT state=STATE go=GO_VERSION os=OS arch=ARCH
 ```
 
-Release linker flags supply the version and full commit together. Ordinary builds report `development`, the Go build's VCS commit when available, and `clean`, `dirty`, or `unavailable` state. Builds without VCS metadata, including the source launcher (`-buildvcs=false`), report `commit=unavailable state=unavailable`. A partial release identity is treated as development. No flags or environment values are printed. `--version` needs no configuration, shared checkout, or Docker; the source launcher still needs Go to build the CLI.
+Release linker flags supply the version and full commit together. Linked builds retain Go's recorded VCS modification state, so a local snapshot built from edited sources reports `dirty`; paired linker identity defaults to `clean` when that state is absent. Ordinary builds report `development`, the Go build's VCS commit when available, and `clean`, `dirty`, or `unavailable` state. Builds without VCS metadata, including the source launcher (`-buildvcs=false`), report `commit=unavailable state=unavailable`. A partial release identity is treated as development. No flags or environment values are printed. `--version` needs no configuration, shared checkout, or Docker; the source launcher still needs Go to build the CLI.
 
 | JSON location | Fields (all strings) | Meaning |
 | --- | --- | --- |
