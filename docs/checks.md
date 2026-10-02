@@ -1,4 +1,4 @@
-# Shared checks
+# Lint and CI/CD rules index
 
 Levenshtein verifies a repository with checks, and one of those checks, `go-lint`, is made of rules.
 
@@ -7,141 +7,177 @@ Levenshtein verifies a repository with checks, and one of those checks, `go-lint
 
 Every check kind runs the same pinned tools locally and in any CI provider, and consumer repositories pick up a change by updating their pinned Levenshtein revision. How a check gets its tools depends on its environment's executor. On `dagger`, the check runs in a container that carries the pinned Go toolchain and tools, so the host needs only a Docker-compatible runtime. On `native`, the check runs on the host: it needs the Go version in `.go-version` on `PATH`, and Levenshtein builds or downloads the other pinned tools itself, checking each download against its pinned SHA-256. [Setup](setup.md#prerequisites) and [native Go checks](configuration.md#native-go-checks) have the details.
 
-Where to read next:
+## Shared lint and verification checks
 
-- [Check kinds](check-kinds.md): the generated table of every kind, its executors, caching, baseline support, and default runs.
-- [Check kinds guide](check-kinds-guide.md): which run each kind belongs in, and how the kinds that wrap a whole tool behave.
-- [Go lint rules](rules.md): every rule `go-lint` enforces, why, and how to suppress a finding.
-- [Rule selection](rule-selection.md): how rules are chosen, what was measured, and every analyzer considered and left off.
+Use this table to find the policy behind a finding or choose checks for a
+consumer repository. [Check kinds](check-kinds.md) is the complete, generated
+inventory, including executors, caching, baseline support, and default runs.
+Only `go-lint`, `go-vet`, and `go-mod` run in the default `branch` and
+`pre-merge` runs; `main` adds `go-vuln`. Configure the other checks explicitly
+when you want them in those runs.
+
+| Area | Where the rules are documented |
+| --- | --- |
+| Go lint | [Every enabled analyzer and its settings](rules.md#rules-on-by-default), including Staticcheck, go-critic, modernize, and the LV rules |
+| Rule selection | [Evidence and analyzers left off](rule-selection.md); [optional complexity](rules.md#opt-in-complexity-gocognit) and [defer-in-loop](rules.md#opt-in-resources-deferinloop) rules |
+| Exceptions and additional rules | [Suppressions](rules.md#suppressing-a-finding), [baselines](configuration.md#baseline), and [community rule modules](community-rules.md) |
+| Vet, modules, and tests | [All check kinds](check-kinds.md) for `go-vet`, `go-http`, and `go-sql`; [module manifests](check-kinds-guide.md#module-manifests) and [race tests](check-kinds-guide.md#tests) |
+| Import boundaries and generated code | [Import rules](check-kinds-guide.md#import-boundaries) and [generated-file freshness](check-kinds-guide.md#generated-code) |
+| API and test quality | [API compatibility](check-kinds-guide.md#api-compatibility), [mutation testing](mutation.md), and [experimental semantic lint](semantic-lint.md) (advisory, through an external paid service) |
+| GitHub Actions | [Check kinds](check-kinds.md) for actionlint syntax checks; [workflow security](check-kinds-guide.md#workflow-security) for zizmor's offline audits |
+| Shell scripts and secrets | [ShellCheck](check-kinds-guide.md#shell-scripts) and [gitleaks](check-kinds-guide.md#secrets) |
+| Vulnerabilities | [Check kinds](check-kinds.md) for reachable Go vulnerabilities with govulncheck; [non-Go lockfiles](check-kinds-guide.md#dependency-vulnerabilities) with osv-scanner |
+| Custom checks and CI runs | [Configuration](configuration.md), [check kinds guide](check-kinds-guide.md), and [consumer CI setup](consumer-ci.md) |
+| Tool versions and updates | [Pinned versions](../runner/toolchain.json), [Go version](../.go-version), [dependencies](dependencies.md), and [versioning policy](versioning.md) |
+
+## This repository's CI and release policies
+
+These gates protect Levenshtein itself. Adopting the shared checks does not
+install this repository's workflows or branch protections in a consumer repo.
+[Levenshtein's own CI](maintainers/ci.md) explains the jobs, event mapping,
+required checks, and cache trust in detail.
+
+| Policy | Documentation and enforcement |
+| --- | --- |
+| Verification runs | [Repository config](https://github.com/wangjohn/levenshtein/blob/main/levenshtein.json) and [self-check workflow](https://github.com/wangjohn/levenshtein/blob/main/.github/workflows/verify.yml): static checks, race tests, consumer and language fixtures, action tests, and release smoke tests |
+| Formatting and documentation | [CI hygiene gates](maintainers/ci.md#jobs): gofmt, Ruff, documentation links and indexes, [SDK lock validation](https://github.com/wangjohn/levenshtein/blob/main/scripts/test-sdk-lock), and [release pins in examples](https://github.com/wangjohn/levenshtein/blob/main/scripts/test-doc-pins) |
+| Workflow conventions | [Workflow checks](https://github.com/wangjohn/levenshtein/blob/main/scripts/test-workflows): consistent action pins, concurrency groups, merge-queue triggers, and secrets in step environments; [Dependabot](https://github.com/wangjohn/levenshtein/blob/main/.github/dependabot.yml) supplies grouped updates |
+| Security audits | [Security workflow](https://github.com/wangjohn/levenshtein/blob/main/.github/workflows/security.yml): online zizmor audits, OpenSSF Scorecard, and dependency review; [vulnerability workflow](https://github.com/wangjohn/levenshtein/blob/main/.github/workflows/vulnerabilities.yml): Go modules and the SDK adapter's dependencies |
+| Merge requirements | [Required-check policy](maintainers/ci.md#required-checks-branch-protection), the [committed main ruleset](https://github.com/wangjohn/levenshtein/blob/main/.github/rulesets/main.json), and [live drift check](https://github.com/wangjohn/levenshtein/blob/main/scripts/test-rulesets) |
+| Advisory review and mutation testing | [CI jobs](maintainers/ci.md#jobs) and [mutation policy](mutation.md): separate PR jobs, currently outside the required checks; semantic review skips when its service key is absent |
+| Cache isolation and fresh audits | [Result-cache trust](maintainers/ci.md#result-cache-trust) and [cache configuration](maintainers/ci.md#caches-and-self-config-notes) |
+| Release builds and publication | [Release procedure](maintainers/releases.md) and [workflow](https://github.com/wangjohn/levenshtein/blob/main/.github/workflows/release.yml): release tags must point to `main` and a changelog entry; archives, checksums, SBOMs, and attestations are prepared as a draft for manual publication |
+| Release tag protection | [Tag protection instructions](maintainers/releases.md#protecting-release-tags); the [proposed tag rulesets](https://github.com/wangjohn/levenshtein/blob/main/.github/rulesets/proposed/tags.json) and [creation ruleset](https://github.com/wangjohn/levenshtein/blob/main/.github/rulesets/proposed/tags-creation.json) require an admin to apply them |
+| Contributions and local hooks | [Contributing](../CONTRIBUTING.md), [agent conventions](../AGENTS.md), and [optional Lefthook config](https://github.com/wangjohn/levenshtein/blob/main/lefthook.yml) |
 
 ## Go lint rules
 
 The rules `./verify go-lint` enforces, with the reason for each, are listed in [Go lint rules](rules.md#rules-on-by-default).
 
-## Moved sections
+## Rules and check behavior
 
-This page used to hold the rules, the evidence for them, and the per-kind details. Each heading below keeps an old link working and says where its content lives now.
+These summaries explain the rule choices and check behavior. Follow each link for configuration, examples, and limitations.
 
 ### The Staticcheck selection
 
-Moved to [Go lint rules](rules.md#the-staticcheck-selection).
+Staticcheck runs its shipped checks except six naming and documentation rules; complexity and loop-resource rules are opt-in. See the [selection and exclusions](rules.md#the-staticcheck-selection).
 
 ### Changing the selection for one repository
 
-Moved to [Go lint rules](rules.md#changing-the-selection-for-one-repository).
+Use `lint.checks` in `levenshtein.json` to enable or disable rules after the shipped selection. See [repository rule selection](rules.md#changing-the-selection-for-one-repository).
 
 ### The modernize selection
 
-The rules that are on moved to [Go lint rules](rules.md#the-modernize-selection), and the ones left off to [rule selection](rule-selection.md#modernize-analyzers-left-off).
+Five modernize analyzers replace hand-written constructs with simpler language or standard-library features. See the [enabled rules and fixes](rules.md#the-modernize-selection) and [analyzers left off](rule-selection.md#modernize-analyzers-left-off).
 
 ### The go-critic selection
 
-The checkers that are on moved to [Go lint rules](rules.md#the-go-critic-selection), and the ones left off to [rule selection](rule-selection.md#go-critic-checkers-left-off).
+go-critic adds likely-bug checks that complement the other analyzers. See the [enabled checkers](rules.md#the-go-critic-selection) and [checkers left off](rule-selection.md#go-critic-checkers-left-off).
 
 ### Known bug patterns
 
-Moved to [Go lint rules](rules.md#known-bug-patterns).
+Some analyzers catch established bugs with rare false alarms and local fixes, even without findings in the measured codebases. See [known bug patterns](rules.md#known-bug-patterns).
 
 ### Upstream analyzer settings
 
-Moved to [Go lint rules](rules.md#upstream-analyzer-settings).
+Upstream analyzers have specific settings and scope limits for contexts, resources, serialization, logging, and tests. See [analyzer settings](rules.md#upstream-analyzer-settings).
 
 ### Measured on other codebases
 
-Moved to [rule selection](rule-selection.md#measured-on-other-codebases).
+Candidate rules were run on Levenshtein and eight other Go codebases, with findings judged as bugs, taste, or false alarms. See the [measurements and results](rule-selection.md#measured-on-other-codebases).
 
 ### Considered and off
 
-Moved to [rule selection](rule-selection.md#considered-and-off).
+Rules stay off when they mostly enforce taste, raise false alarms, duplicate another rule, or lack evidence. See the [excluded analyzers and reasons](rule-selection.md#considered-and-off).
 
 ### Opt-in complexity: gocognit
 
-Moved to [Go lint rules](rules.md#opt-in-complexity-gocognit).
+`gocognit` optionally reports functions with cognitive complexity over 30. See [how to enable it](rules.md#opt-in-complexity-gocognit).
 
 ### Opt-in resources: deferInLoop
 
-Moved to [Go lint rules](rules.md#opt-in-resources-deferinloop).
+`deferInLoop` optionally reports deferred calls in loops, where resources remain held until the function returns. See [when and how to enable it](rules.md#opt-in-resources-deferinloop).
 
 ### Typed choices: LV1001
 
-Moved to [Go lint rules](rules.md#typed-choices-lv1001).
+LV1001 requires defined string types and typed constants for enum-like choices, while keeping free-form text as strings. See [typed choices](rules.md#typed-choices-lv1001).
 
 ### Construct value records together: LV1002
 
-Moved to [Go lint rules](rules.md#construct-value-records-together-lv1002).
+LV1002 requires new structs to be initialized together in a literal after computing their fields. See the [construction rules and exceptions](rules.md#construct-value-records-together-lv1002).
 
 ### One field per line: LV1003
 
-Moved to [Go lint rules](rules.md#one-field-per-line-lv1003).
+LV1003 requires each struct field to have its own line. See [field layout](rules.md#one-field-per-line-lv1003).
 
 ### A blank line between declarations: LV1004
 
-Moved to [Go lint rules](rules.md#a-blank-line-between-declarations-lv1004).
+LV1004 requires a blank line between top-level declarations, above any attached doc comment. See [declaration spacing](rules.md#a-blank-line-between-declarations-lv1004).
 
 ### Formatted files: LV1005
 
-Moved to [Go lint rules](rules.md#formatted-files-lv1005).
+LV1005 reports Go files whose formatting differs from `gofmt`. See [formatting scope and fixes](rules.md#formatted-files-lv1005).
 
 ### Tests that can fail: LV1006
 
-Moved to [Go lint rules](rules.md#tests-that-can-fail-lv1006).
+LV1006 reports tests with no way to fail or an unconditional skip before any checks. See [test requirements and limitations](rules.md#tests-that-can-fail-lv1006).
 
 ### Development and exceptions
 
-Moved to [Go lint rules](rules.md): see [suppressing a finding](rules.md#suppressing-a-finding) and [running the linter directly](rules.md#running-the-linter-directly).
+Explain a local exception with a lint directive; use a baseline for existing findings you intend to fix. See [suppressing a finding](rules.md#suppressing-a-finding) and [running the linter directly](rules.md#running-the-linter-directly).
 
 ### Running the linter directly
 
-Moved to [Go lint rules](rules.md#running-the-linter-directly).
+The Go lint rules can run as a standalone Go command, with Staticcheck flags for rule selection and output. See [commands and version pinning](rules.md#running-the-linter-directly).
 
 ### Named checks and suggested runs
 
-Moved to the [check kinds guide](check-kinds-guide.md#named-checks-and-suggested-runs).
+Runs select checks by name, with fast checks suited to branch runs and slower or advisory checks to dedicated runs. See [suggested runs and configuration examples](check-kinds-guide.md#named-checks-and-suggested-runs).
 
 ### Module manifests
 
-Moved to the [check kinds guide](check-kinds-guide.md#module-manifests).
+`go-mod` checks that module manifests are tidy and downloaded dependencies match their recorded hashes. See [workspace, vendor, and caching behavior](check-kinds-guide.md#module-manifests).
 
 ### Tests
 
-Moved to the [check kinds guide](check-kinds-guide.md#tests).
+`go-test` runs self-contained unit tests with the race detector and a timeout. See [test behavior and when to use a command check](check-kinds-guide.md#tests).
 
 ### Import boundaries
 
-Moved to the [check kinds guide](check-kinds-guide.md#import-boundaries).
+`go-imports` enforces repository-defined rules about which packages may import one another. See [import rules and scope](check-kinds-guide.md#import-boundaries).
 
 ### Generated code
 
-Moved to the [check kinds guide](check-kinds-guide.md#generated-code).
+`go-generate` runs generators in a scratch copy and fails if their output differs from committed files. See [generation behavior and requirements](check-kinds-guide.md#generated-code).
 
 ### API compatibility
 
-Moved to the [check kinds guide](check-kinds-guide.md#api-compatibility).
+`go-apidiff` reports exported API changes that break a library module’s importers, comparing against a base branch’s merge base. See [API comparison and configuration](check-kinds-guide.md#api-compatibility).
 
 ### Workflow security
 
-Moved to the [check kinds guide](check-kinds-guide.md#workflow-security).
+`workflow-security` uses zizmor’s offline audits to report medium- and high-severity GitHub Actions findings. See [audit scope and configuration](check-kinds-guide.md#workflow-security).
 
 ### Shell scripts
 
-Moved to the [check kinds guide](check-kinds-guide.md#shell-scripts).
+`shell-lint` uses ShellCheck to report warnings and errors in standalone shell scripts. See [script discovery, exclusions, and configuration](check-kinds-guide.md#shell-scripts).
 
 ### Secrets
 
-Moved to the [check kinds guide](check-kinds-guide.md#secrets).
+`secrets` uses gitleaks to scan working-tree files for credentials, with secret values redacted from reports. See [scan scope and allowlisting](check-kinds-guide.md#secrets).
 
 ### Dependency vulnerabilities
 
-Moved to the [check kinds guide](check-kinds-guide.md#dependency-vulnerabilities).
+`go-vuln` checks reachable Go vulnerabilities; `deps-vuln` scans other dependency lockfiles with osv-scanner. See [dependency scan behavior and configuration](check-kinds-guide.md#dependency-vulnerabilities).
 
 ### Errors and enum switches
 
-Moved to [Go lint rules](rules.md#errors-and-enum-switches).
+`errcheck` requires explicit handling or discarding of errors, and `exhaustive` requires switches to cover declared enum values. See [error and enum policies](rules.md#errors-and-enum-switches).
 
 ### Cache and freshness
 
-Moved to the [check kinds guide](check-kinds-guide.md#cache-and-freshness).
+Checks reuse cached results where their inputs determine the verdict; vulnerability scans and module verification always run again. See [cache and freshness behavior](check-kinds-guide.md#cache-and-freshness).
 
 ### Goroutine leak checks in application tests
 
-Moved to the [check kinds guide](check-kinds-guide.md#goroutine-leak-checks-in-application-tests).
+Use package-level goleak verification alongside application tests to detect goroutines left running after tests finish. See [integration and parallel-test guidance](check-kinds-guide.md#goroutine-leak-checks-in-application-tests).

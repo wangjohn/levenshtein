@@ -1,7 +1,0 @@
-This directory contains a modified copy of github.com/dagger/otel-go v1.43.0
-(upstream commit and module checksums are recorded in PROVENANCE.md).
-The upstream source is licensed under Apache License 2.0; see LICENSE.
-
-Modifications by John Wang, 2026: migrate logging value and attribute APIs to
-OpenTelemetry logging v0.21.0, including protobuf conversions for byte and
-homogeneous slice values. Add compatibility regression tests.
