@@ -1,6 +1,6 @@
 # Measuring verification cost
 
-Use `scripts/measure-performance` to measure a fixed **synthetic** one-package Go consumer through the native executor. These measurements describe this fixture on your machine; they do not establish performance on real repositories or adoption by external teams. The harness checks verdicts, finding codes, cache states, verification times, and implementation identities before writing a result. It has no latency threshold.
+Use [`scripts/measure-performance`](https://github.com/wangjohn/levenshtein/blob/main/scripts/measure-performance) to measure a fixed **synthetic** one-package Go consumer through the native executor. These measurements describe this fixture on your machine; they do not establish performance on real repositories or adoption by external teams. The harness checks verdicts, finding codes, cache states, verification times, and implementation identities before writing a result. It has no latency threshold.
 
 From a source checkout with Git, Python 3.9 or later, and the [pinned Go toolchain](../setup.md), run:
 
@@ -32,7 +32,7 @@ The harness copies tracked working-tree files into a temporary shared checkout, 
 | `explicitly_fresh` | Passing `audit` run, `fresh` cache status, new verification timestamp despite unchanged inputs |
 | `rule_restored_negative` | Restoring the original shared policy rediscovers `LV1003`; a previous failure requires fresh execution |
 
-The rule-revision phase is a controlled local policy change, not a claim about released versions. The consumer fixture has one Go file and no third-party dependencies. Its only deliberate finding is the struct-field rule. A failure in any correctness expectation aborts the run without producing a successful measurement report. Speed alone never proves cache correctness.
+The rule-revision phase is a controlled local policy change, not a claim about released versions. The [consumer fixture](https://github.com/wangjohn/levenshtein/tree/main/tests/fixtures/performance) has one Go file and no third-party dependencies. Its only deliberate finding is the struct-field rule. A failure in any correctness expectation aborts the run without producing a successful measurement report. Speed alone never proves cache correctness.
 
 Choose a new output filename for every invocation; the harness refuses to overwrite an existing measurement.
 
