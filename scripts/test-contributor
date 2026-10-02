@@ -121,6 +121,8 @@ case "$tier" in
     run ./scripts/test-tool-checks
     run ./scripts/test-language-contracts
     run ./scripts/test-sdk-security
+    run ./verify go-vuln
+    run ./verify deps-vuln
     if grep -qF './scripts/test-fuzz' .github/workflows/verify.yml; then
       run ./scripts/test-fuzz 2s
     else

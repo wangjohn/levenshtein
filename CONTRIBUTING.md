@@ -26,7 +26,7 @@ cases; read their output and the CI matrix before claiming platform coverage.
 | Fast/unit | `./scripts/test-contributor fast` | Root build/tests (including documentation links and generated-copy freshness), lint and community module tests, example rule module (including its race tests). Go, Git and jq; community builder tests compile real linters and may download modules. |
 | Native integration | `./scripts/test-contributor native` | Root, lint, community race tests, example module, and every integration test classified native by `scripts/test-integration`. No container; pinned helper downloads may need network access. |
 | Container integration | `./scripts/test-contributor integration` | Native tier, SDK generation, Dagger integration and runner unit tests, `./verify pre-merge`, consumer and shared-check regressions. Pinned Dagger CLI and a working Docker/Colima or remote Dagger engine. |
-| Full local CI | `./scripts/test-contributor full-ci` | Container tier plus formatting, Python/shell lint, SDK lock/security, release pins, workflow/ruleset consistency, tool/check fixtures, language contracts, and workflow-required fuzz smoke. Also needs ShellCheck, Ruff, uv, jq, Python, Rust/cargo and fetched release tags. |
+| Full local CI | `./scripts/test-contributor full-ci` | Container tier plus formatting, Python/shell lint, SDK lock/security, Go and locked Python dependency vulnerability scans, release pins, workflow/ruleset consistency, tool/check fixtures, language contracts, and workflow-required fuzz smoke. Also needs ShellCheck, Ruff, uv, jq, Python, Rust/cargo and fetched release tags. |
 
 Install the reviewed fixture tools (uv, Python and Rust) with
 `./scripts/install-fixture-tools`; follow [language fixtures](docs/language-fixtures.md)
@@ -55,6 +55,11 @@ replace required statuses. Draft PRs omit some ready-PR checks.
 Fuzz smoke is included when `.github/workflows/verify.yml` invokes
 `scripts/test-fuzz`; it is not a CI step at revisions predating that script.
 A workflow-required but missing script fails, rather than silently skipping.
+
+The full tier also runs all three local checks from
+`.github/workflows/vulnerabilities.yml`: SDK regeneration and executable scans,
+`./verify go-vuln` for configured Go modules, and `./verify deps-vuln` for the
+adapter's locked Python dependencies. These scans need advisory database access.
 
 ## Work on the relevant module
 
