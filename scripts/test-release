@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
+metadata_only=false
+if [[ ${1:-} == --metadata-only ]]; then
+  metadata_only=true
+  shift
+fi
 if [[ $# != 1 ]]; then
-  echo 'Usage: scripts/test-release ARCHIVE.tar.gz' >&2
+  echo 'Usage: scripts/test-release [--metadata-only] ARCHIVE.tar.gz' >&2
   exit 2
 fi
 archive=$(cd -- "$(dirname -- "$1")" && pwd)/$(basename -- "$1")
@@ -10,7 +15,7 @@ trap 'rm -rf "$temporary"' EXIT
 mkdir "$temporary/shared" "$temporary/app"
 tar -xzf "$archive" -C "$temporary/shared"
 shared="$temporary/shared"
-for file in LICENSE NOTICE runner/checks.go runner/rule-modules.json runner/community/go.mod sdk/patched-go/dagger.json sdk/patched-go/pyproject.toml sdk/patched-go/uv.lock sdk/patched-go/src/patched_go/__init__.py; do
+for file in levenshtein README.md LICENSE NOTICE CHANGELOG.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md AGENTS.md runner/checks.go runner/rule-modules.json runner/community/go.mod sdk/patched-go/dagger.json sdk/patched-go/pyproject.toml sdk/patched-go/uv.lock sdk/patched-go/src/patched_go/__init__.py; do
   test -f "$shared/$file" || { echo "Archive missing $file" >&2; exit 1; }
 done
 # The Dagger module compiles every non-test Go file in runner/, and the archive
@@ -38,6 +43,18 @@ while IFS= read -r file; do
   [[ $(basename -- "$file") == .gitignore ]] && continue
   test -f "$shared/$file" || { echo "Archive missing $file; add it to .goreleaser.yaml" >&2; exit 1; }
 done < <(git -C "$root" ls-files sdk/patched-go)
+# Consumer templates and every published documentation page are part of the
+# archive contract. Compare with tracked files, not generated local output.
+while IFS= read -r file; do
+  test -f "$shared/$file" || { echo "Archive missing $file; add it to .goreleaser.yaml" >&2; exit 1; }
+done < <(git -C "$root" ls-files docs templates)
+# Reuse the Markdown checker, but resolve paths and anchors only in the extracted
+# archive. -count=1 prevents a cached checkout result from masking missing files.
+(cd "$root" && LEVENSHTEIN_DOC_ROOT="$shared" GOTOOLCHAIN=local go test -count=1 ./internal/doccheck -run '^TestRelativeLinksResolve$')
+echo 'Extracted release archive passed metadata checks'
+if [[ $metadata_only == true ]]; then
+  exit 0
+fi
 # Run only the extracted binary and sources, outside the repository checkout.
 cd "$temporary"
 cp "$shared/runner/testdata/resources-good/"* app/
