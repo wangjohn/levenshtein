@@ -68,11 +68,11 @@ def verify(binary, shared, source, cache, env, phase, expected_status, expected_
             "build": report["build"], "verified_at": result["verified_at"]}
 
 
-def repeat(index, module_cache):
+def repeat(index, module_cache, shared_snapshot, tree_digest):
     with tempfile.TemporaryDirectory(prefix="levenshtein-measure-") as directory:
         work = Path(directory)
         shared = work / "shared"
-        tree_digest = snapshot(shared)
+        shutil.copytree(shared_snapshot, shared)
         source = work / "consumer"
         shutil.copytree(ROOT / "tests/fixtures/performance", source)
         env = dict(os.environ, GOCACHE=str(work / "go-build-cache"),
@@ -128,7 +128,12 @@ def main():
     module_cache = args.module_cache.resolve() if args.module_cache else None
     if module_cache:
         require(module_cache.is_dir(), "module cache must be an existing directory")
-    runs = [repeat(index + 1, module_cache) for index in range(args.repeats)]
+    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT))
+    with tempfile.TemporaryDirectory(prefix="levenshtein-measure-snapshot-") as directory:
+        shared_snapshot = Path(directory) / "shared"
+        tree_digest = snapshot(shared_snapshot)
+        runs = [repeat(index + 1, module_cache, shared_snapshot, tree_digest) for index in range(args.repeats)]
     phases = [sample["phase"] for sample in runs[0]["samples"]]
     summary = {}
     for phase in phases:
@@ -136,8 +141,6 @@ def main():
         summary[phase] = {"count": len(values), "min_seconds": min(values), "median_seconds": statistics.median(values),
                           "max_seconds": max(values), "mean_seconds": statistics.mean(values),
                           "stdev_seconds": statistics.stdev(values)}
-    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT))
     fixture = ROOT / "tests/fixtures/performance/sample.go"
     report = {"schema_version": 1, "synthetic": True, "executor": "native", "revision": revision,
               "checkout_dirty": dirty, "measured_at": datetime.now(timezone.utc).isoformat(), "environment": {"os": platform.system(), "arch": platform.machine(),

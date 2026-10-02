@@ -19,7 +19,7 @@ scripts/measure-performance --repeats 3 --module-cache "$(go env GOMODCACHE)" \
 
 This variant reports reused downloads and must not be described as a completely cold install. Go compilation, linter analysis, and verification caches still start empty in each repetition. Other environment settings, network, toolchain download caches, CPU contention, and filesystem caches can affect results. The harness inherits your Go settings; the verification report hashes result-changing settings rather than printing their values. Record unusual conditions separately without copying credentials. A Go toolchain downloaded outside the measured build is not counted as installation work.
 
-The harness copies tracked working-tree files into a temporary shared checkout, so committed and edited source are measured as they exist on disk. It records the original Git revision, whether the original checkout was dirty, and a content digest of the copied tracked tree. Untracked shared-source edits are excluded. Run from a clean checkout for publishable revision comparisons. Temporary copies and caches are removed when each repetition finishes.
+The harness copies tracked working-tree files once into a temporary snapshot and uses that fixed snapshot for every repetition, so committed and edited source are measured as they exist on disk. It records the original Git revision, whether the original checkout was dirty, and a content digest of the copied tracked tree. Untracked shared-source edits are excluded. Run from a clean checkout for publishable revision comparisons. Temporary copies and caches are removed when each repetition finishes.
 
 | Phase | Expected evidence |
 | --- | --- |
