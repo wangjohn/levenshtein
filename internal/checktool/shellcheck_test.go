@@ -57,6 +57,9 @@ func TestShellFindingsSeparateFindingsFromToolErrors(t *testing.T) {
 		t.Fatalf("a clean run is not a finding: %v %v", findings, err)
 	}
 	for _, tc := range []Run{
+		{Stdout: `null`},
+		{Stdout: `{}`},
+		{Stdout: `{"comments":null}`},
 		{ExitCode: 2, Stdout: `{"comments":[]}`, Stderr: "nope.sh: openBinaryFile: does not exist"},
 		{ExitCode: 3, Stderr: "Invalid severity"},
 		{ExitCode: 4, Stderr: "unrecognized option"},

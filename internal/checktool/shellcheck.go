@@ -92,6 +92,9 @@ func ShellFindings(run Run) ([]Finding, error) {
 	if err := json.Unmarshal([]byte(run.Stdout), &report); err != nil {
 		return nil, fmt.Errorf("shellcheck exited %d without its json1 report: %w: %s", run.ExitCode, err, strings.TrimSpace(run.Stderr))
 	}
+	if report.Comments == nil {
+		return nil, fmt.Errorf("shellcheck printed a report without a comments array: %s", output(run))
+	}
 	if (run.ExitCode == 0) != (len(report.Comments) == 0) {
 		return nil, fmt.Errorf("shellcheck exit %d does not match its %d diagnostics: %s", run.ExitCode, len(report.Comments), strings.TrimSpace(run.Stderr))
 	}

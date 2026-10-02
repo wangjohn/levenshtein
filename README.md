@@ -1,173 +1,122 @@
 # Levenshtein
 
-Shared, pinned Go lint and verification for many repos.
+[![CI](https://github.com/wangjohn/levenshtein/actions/workflows/verify.yml/badge.svg?branch=main)](https://github.com/wangjohn/levenshtein/actions/workflows/verify.yml)
+[![Latest release](https://img.shields.io/github/v/release/wangjohn/levenshtein)](https://github.com/wangjohn/levenshtein/releases/latest)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](LICENSE)
 
-A comprehensive, carefully chosen set of Go lint rules, run by one `./verify` command that gives the same result locally, in CI, and for coding agents. The name comes from Levenshtein distance, the number of single-character edits between two strings: the project gives coding agents a way to write code that stays a short edit distance from high-quality, maintainable code, and a way to measure that distance explicitly.
+**A curated set of Go lint rules and verification checks, easy to hook up to any
+Go repo.**
 
-Coding agents write a lot of code quickly, and they fix whatever their tools point out. That makes lint rules more important than ever. Good rules will catch unchecked errors, leaked resources, and sloppy code before anyone reviews the change, and the agent fixes those problems on its own. When much of your code isn't written by hand, lint rules are the most reliable way to keep a repo clean and well written.
+Coding agents are writing more and more of our code, and I want as much of
+that code as possible to be verifiable. Good lint rules and automated checks
+give agents feedback they can act on while they work, and give us more than
+the agent's word that a change is ready.
 
-Levenshtein turns on nearly all of Staticcheck, nearly forty other analyzers, about twenty of go-critic's bug checks, and a handful of its own rules. Each rule is there because it catches bugs or makes code clearer, and [docs/rules.md](docs/rules.md) gives the reason for every one. Rules that only enforce someone's taste in naming or comments are off, so a finding is usually worth fixing.
+I built Levenshtein while setting up a bunch of new Go repos. I wanted one
+place to keep a high-quality set of rules I could rely on for all of my repos,
+without researching analyzers and copying lint configs every time. Each repo
+pins a Levenshtein revision and runs `./verify`, so that all my repos use the 
+same rules and tool versions (and updates are easy to roll out everywhere).
 
-Every repo uses the same rules. Each one pins a revision of Levenshtein and runs `./verify`, which runs the checks in a container with pinned versions of Go and every tool. A result doesn't depend on whose laptop or which CI provider ran it. When you improve a rule, you do it once, and each repo picks it up when it bumps its pin.
-
-## Example
-
-Given this `config.go`:
-
-```go
-package config
-
-import (
-	"io"
-	"os"
-)
-
-func ReadConfig(path string) ([]byte, error) {
-	f, err := os.Open(path)
-	defer f.Close()
-	if err != nil {
-		return nil, err
-	}
-	return io.ReadAll(f)
-}
-
-func IsFinished(status string) bool {
-	return status == "done" || status == "failed"
-}
-```
-
-Levenshtein reports:
-
-```text
-config.go:10:2: SA5001 should check error returned from os.Open() before deferring f.Close()
-config.go:10:15: errcheck unchecked error
-config.go:18:9: LV1001 string choice with multiple alternatives needs a defined string type and typed constants
-```
+You can easily add your own lint rules or commands alongside the built-in
+checks in your repo’s configuration.
 
 ## What it checks
 
-- **Staticcheck**: everything except six style rules about naming and doc comments.
-- **Bug-finding analyzers**: `errcheck`, `exhaustive`, `bodyclose`, `nilness`, `errorlint`, `contextcheck`, go-critic's likely-bug checks, structured-logging mistakes, and others.
-- **Modernize rules**: five rules for newer Go features, each fixable with `go fix`.
-- **Levenshtein's own rules**: typed constants for enum-like strings, building structs in one literal, three formatting rules, and tests that cannot fail (LV1006).
-- **Other tools, on by default**: `go vet`, `go mod tidy -diff` and `go mod verify`, and, in the `main` run, `govulncheck`.
-- **Other tools, opt-in**: `actionlint` for GitHub Actions (`workflow-lint`), `zizmor`'s offline security audits of workflows and composite actions (`workflow-security`), and `go test -race ./...` (`go-test`). Beyond Go, ShellCheck lints shell scripts (`shell-lint`), gitleaks scans files for committed secrets (`secrets`), and osv-scanner checks npm, Python, Rust, Ruby, and other lockfiles for known vulnerabilities (`deps-vuln`), each pinned by version and checksum.
-- **Module-wide checks** (opt-in): `go-imports` enforces the layering rules a repository declares, reporting each forbidden import where it is written; `go-generate` runs `go generate ./...` in a scratch copy and reports every generated file that is out of date, with the diff; `go-apidiff` fails a branch that breaks a library module's exported API; and `go-mutation` fails when a test does not catch a deliberate bug in changed code.
+Levenshtein combines Staticcheck, established Go analyzers, and a few rules
+of its own. The rules catch bugs and encourage readable code; most naming
+and comment-style preferences are left out.
 
-[Check kinds](docs/check-kinds.md) lists every check and which runs include it by default.
+### Default checks
 
-To silence a finding, use Staticcheck's usual comment: `//lint:ignore CODE reason`.
+`./verify` and `pre-merge` run these checks. Go vulnerability scanning runs
+only in `main`, which also reruns checks without using cached results.
 
-Rules Levenshtein doesn't ship can come from [community rule modules](docs/community-rules.md): ordinary Go modules of `go/analysis` analyzers that a repo pins in `levenshtein.json`. They run in their own process beside the shipped rules and report into the same results.
-To turn the rules on in a repository that already has findings, name a [baseline](docs/configuration.md#baseline) file in `levenshtein.json` and record them with `verify main --write-baseline`. Recorded findings are reported but don't fail, new ones do, and fixing a recorded one means deleting its entry, so the file only shrinks.
+| Check | Example finding |
+| --- | --- |
+| [Staticcheck](docs/rules.md#the-staticcheck-selection) | Close before error check: deferring `f.Close()` before checking whether `os.Open` succeeded |
+| [Bug-finding analyzers](docs/rules.md#rules-on-by-default) | Unchecked error: calling `file.Write(data)` without checking whether the write failed |
+| [Modernize](docs/rules.md#the-modernize-selection) | Manual map copy: copying entries in a loop when `maps.Copy` does the same job |
+| [Levenshtein's rules](docs/rules.md#typed-choices-lv1001) | Untyped status: comparing a plain string to `"done"` and `"failed"` instead of typed constants |
+| [`go vet`](docs/check-kinds.md) (`go-vet`) | Format mismatch: passing `"hello"` to `fmt.Printf("%d", ...)`, which expects an integer |
+| [Module checks](docs/check-kinds-guide.md#module-manifests) (`go-mod`) | Missing dependency: importing a package whose module is missing from `go.mod` |
+| [Go vulnerabilities](docs/check-kinds.md) (`go-vuln`, `main` only) | Vulnerable function: your code can reach a dependency function with a known security flaw |
 
-## Try it in one command
+### Optional checks
 
-To see what the rules find in a Go module, run this from its root. It needs only `go` 1.21 or later, which downloads the pinned toolchain itself, with no clone, container, or config:
+Add these checks to your repo's [configuration](docs/configuration.md).
+
+| Check | Example finding |
+| --- | --- |
+| [Race detector](docs/check-kinds-guide.md#tests) (`go-test`) | Concurrent writes: two goroutines updating a shared map without synchronization |
+| [HTTP resources](docs/check-kinds.md) (`go-http`) | Unclosed response body: returning from an HTTP request without closing `resp.Body` |
+| [SQL resources](docs/check-kinds.md) (`go-sql`) | Unclosed query results: reading database rows without closing them afterward |
+| [GitHub Actions lint](docs/check-kinds.md) (`workflow-lint`) | Unknown property: a workflow expression referencing a property that doesn't exist |
+| [Workflow security](docs/check-kinds-guide.md#workflow-security) (`workflow-security`) | Shell injection: inserting a PR title directly into a workflow's shell command |
+| [ShellCheck](docs/check-kinds-guide.md#shell-scripts) (`shell-lint`) | Unchecked directory change: running `cd "$dir"` without stopping or handling failure |
+| [Secret scanning](docs/check-kinds-guide.md#secrets) (`secrets`) | Committed API key: a credential left in a tracked configuration file |
+| [Other dependency vulnerabilities](docs/check-kinds-guide.md#dependency-vulnerabilities) (`deps-vuln`) | Vulnerable package: a version with a known security flaw pinned in `package-lock.json` |
+| [Import boundaries](docs/check-kinds-guide.md#import-boundaries) (`go-imports`) | Forbidden import: a domain package importing a database package against your layering rules |
+| [Generated files](docs/check-kinds-guide.md#generated-code) (`go-generate`) | Stale generated code: a committed file that changes when `go generate` runs |
+| [API compatibility](docs/check-kinds-guide.md#api-compatibility) (`go-apidiff`) | Removed exported function: a public API change that breaks existing callers |
+| [Mutation testing](docs/mutation.md) (`go-mutation`) | Missed boundary bug: changing `>` to `>=` without any test failing |
+| [Semantic lint](docs/semantic-lint.md) (`semantic-lint`) | Vague error message: an added error gives the caller no clue how to fix the problem; advisory review through Jev |
+| [Custom commands](docs/configuration.md#native-commands) (`command`) | Failed integration test: your repo's test script exits with an error |
+
+[`self-test`](docs/check-kinds.md) tests Levenshtein's own fixtures when
+developing the shared checks.
+
+The **[lint and CI/CD rules index](docs/checks.md)** links to all the rules,
+checks, and CI policies, with explanations of why each rule is enabled or
+left out. To understand a Go lint warning, start with
+[Go lint rules](docs/rules.md).
+
+## Quickstart
+
+To try the Go lint rules, run this from your module's root with Go 1.21 or later:
 
 ```sh
 go run github.com/wangjohn/levenshtein/runner/lint/cmd/levenshtein-lint@latest ./...
 ```
 
-It prints one `file:line:col: message (CODE)` line per finding and exits with `1` when there are any. This runs the `go-lint` rules alone: `go vet`, `go-mod`, `govulncheck`, the [baseline](docs/configuration.md#baseline), [community rules](docs/community-rules.md), and caching come with `verify` below. `@latest` is the newest `runner/lint/vX.Y.Z` release tag, or the newest commit on `main` while there is none; to pin, name a tag or a commit instead. See [running the linter directly](docs/rules.md#running-the-linter-directly).
-
-## Quick start
-
-You need `go` (any version) and Docker or another Docker-compatible runtime, such as Colima. Levenshtein runs on Linux and macOS.
+For the default checks, use Go and a Docker-compatible runtime on macOS or Linux:
 
 ```sh
-git clone https://github.com/wangjohn/levenshtein
-./levenshtein/verify --source ./myapp
-```
-
-The first run takes a few minutes while it downloads and builds the tools. After that, runs are fast, and checks that passed are skipped until their files change.
-
-`verify` prints a JSON report. It exits with `0` if everything passes, `1` if a check fails, and `2` if the command or config is wrong. To see just the findings, one per line:
-
-```sh
+git clone --depth 1 --branch v0.2.0 https://github.com/wangjohn/levenshtein
 ./levenshtein/verify --source ./myapp --format text
 ```
 
-`--format` also writes GitHub Actions annotations or a SARIF file for code scanning. Findings with a mechanical fix, such as `gofmt -w`, carry a hint; Levenshtein never changes your files. The [CLI reference](docs/reference/cli.md) lists every flag and exit code.
+A single Go module needs no config. The first run downloads and builds the
+tools; `verify` reports problems without changing your files. See
+[setup](docs/setup.md) for prerequisites and named runs.
 
-Advisory findings, from [community rules](docs/community-rules.md) a repo marks advisory, are reported without failing the check.
-
-## Runs
-
-A run is a named group of checks. If your repo has one Go module at its root, you don't need any config:
-
-```sh
-./levenshtein/verify --source ./myapp            # branch (default): lint, vet, and module manifests
-./levenshtein/verify pre-merge --source ./myapp  # lint, vet, and module manifests
-./levenshtein/verify main --source ./myapp       # lint, vet, module manifests, and govulncheck
-./levenshtein/verify go-lint --source ./myapp    # one check
-```
-
-For several modules or your own runs, add a `levenshtein.json` to your repo:
-
-```json
-{
-  "version": 1,
-  "targets": {
-    "api": {"dir": "services/api", "inputs": ["services/api", "go.work", "go.work.sum"]}
-  },
-  "environments": {"go": {"executor": "dagger"}},
-  "checks": {
-    "lint": {"kind": "go-lint", "target": "api", "environment": "go"},
-    "vuln": {"kind": "go-vuln", "target": "api", "environment": "go"}
-  },
-  "runs": {
-    "branch": {"checks": ["lint"]},
-    "main": {"checks": ["lint", "vuln"], "rerun_checks": true}
-  }
-}
-```
-
-- `inputs` lists the files a check can see. A change to any of them makes the check run again.
-- `rerun_checks` makes a run skip the cache. Use it for nightly runs.
-- A `command` check runs your own script, like your test suite, next to the lint checks.
-
-See [docs/configuration.md](docs/configuration.md) for everything else.
-
-## In CI
-
-Levenshtein runs inside your existing CI. On GitHub Actions it is one step, `uses: wangjohn/levenshtein@3d47ab4c589fdf3a30107b6dd3f0816c1f346c85 # v0.2.0`, which runs `main` on a schedule, `branch` on pushes and draft pull requests, and `pre-merge` on every other event, such as a ready pull request or a merge queue, and annotates failing findings on the pull request. On other providers, your CI job checks out your repo and Levenshtein side by side, then runs `verify`. [docs/consumer-ci.md](docs/consumer-ci.md) has both.
-
-Pin Levenshtein to a commit SHA or a release tag, not a branch. That way rule changes reach your repo only when you choose to update.
-
-## Why a separate repo?
-
-Lint config usually gets copied from repo to repo, and then the copies drift apart. One repo is on an old Staticcheck. Another turned off a rule years ago. A third never got the rule that would have caught last week's bug.
-
-With Levenshtein, the rules and tool versions live in one place. Improve a rule once and every repo can pick it up. Developers, CI, and coding agents all get the same results.
-
-If you have a single Go repo and you're happy with your `golangci-lint` setup, you probably don't need this. [Levenshtein or golangci-lint?](docs/faq.md#levenshtein-or-golangci-lint) compares the two.
-
-## Status
-
-Levenshtein is new and is being tried out on a few Go repos. The config format is versioned, and changes to it will be listed in the [changelog](CHANGELOG.md); [versioning](docs/versioning.md) says what a release may change and what to expect when you bump your pin. The built-in lint rules are for Go. The other built-in checks cover GitHub Actions workflows, shell scripts, committed secrets, and non-Go dependency lockfiles. Anything else, such as another language's linter or test suite, runs as a `command` check.
+- [CI setup](docs/consumer-ci.md): GitHub Actions and other providers.
+- [Coding agents](docs/agents.md): instructions and hooks for running checks while an agent works.
+- [Configuration](docs/configuration.md): multiple modules, extra checks, and custom commands.
+- [Baselines](docs/configuration.md#baseline) and [community rules](docs/community-rules.md): adopt checks gradually or add your own analyzers.
 
 ## Documentation
 
-[docs/README.md](docs/README.md) indexes every page. The ones most people need:
+[Setup](docs/setup.md) ·
+[Rules index](docs/checks.md) ·
+[Configuration](docs/configuration.md) ·
+[CLI reference](docs/reference/cli.md) ·
+[Coding agents](docs/agents.md) ·
+[Troubleshooting](docs/troubleshooting.md) ·
+[All docs](docs/README.md)
 
-- [Setup](docs/setup.md): install and run locally
-- [Go lint rules](docs/rules.md): every rule and why it's on, and [rule selection](docs/rule-selection.md) for the ones left off
-- [Check kinds](docs/check-kinds.md): every check, its executors, and its default runs
-- [Configuration](docs/configuration.md): targets, runs, commands, and caching, with every field in the [configuration reference](docs/reference/config.md)
-- [CLI reference](docs/reference/cli.md): flags, output formats, and exit codes
-- [Using it in CI](docs/consumer-ci.md): GitHub Actions and other providers
-- [Troubleshooting](docs/troubleshooting.md): common errors and what to do about them
-- [Community lint rules](docs/community-rules.md): publish rules as a Go module, or run someone else's
-- [Coding agents](docs/agents.md): templates for Claude Code hooks, `AGENTS.md`, a workflow, and a starter config
-- [Mutation testing](docs/mutation.md): an optional check that your tests catch deliberate bugs in changed code
-- [Semantic lint](docs/semantic-lint.md) (experimental): an optional review by a language model, through an external paid service
-- [Architecture](docs/architecture.md): how `verify` works
+See the [changelog](CHANGELOG.md) and [versioning policy](docs/versioning.md) before
+updating the version your repo uses.
 
-## Contributing
+If you're happy with a single repo's `golangci-lint` setup,
+you may not need this; the [FAQ](docs/faq.md#levenshtein-or-golangci-lint)
+compares the two.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). To report a security issue, see [SECURITY.md](SECURITY.md).
+## Contributing and security
 
-## License
+Maintained by [John Wang (@wangjohn)](https://github.com/wangjohn).
+For questions or bugs, [open an issue](https://github.com/wangjohn/levenshtein/issues).
 
-[Apache License 2.0](LICENSE). Copyright 2026 John Wang; see [NOTICE](NOTICE).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Report vulnerabilities privately as
+[SECURITY.md](SECURITY.md) describes. Released under the
+[Apache License 2.0](LICENSE); see [NOTICE](NOTICE).
