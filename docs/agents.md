@@ -80,7 +80,7 @@ merge queue support, a daily dependency audit, or code scanning.
 
 `github/workflows/levenshtein.yml` is the workflow from [consumer CI](consumer-ci.md#github-actions) with a code scanning upload added. It runs `branch` on pushes, `pre-merge` on pull requests, and `main` on the daily schedule; annotates failing findings on the pull request; and writes `levenshtein.sarif`, which a same-repository event uploads with `github/codeql-action/upload-sarif`. The job asks for `security-events: write` for the upload only; delete that permission, the `sarif` input, and the upload step if you do not use code scanning. Annotations need no permission and also appear on pull requests from forks.
 
-The `annotations` and `sarif` inputs are new in release 0.2.0, which the template pins; a pin to 0.1.0 does not have them.
+The `annotations` and `sarif` inputs were added in release 0.2.0 and are available in the template's 0.3.0 pin; a pin to 0.1.0 does not have them.
 
 ## Validation
 

@@ -18,7 +18,7 @@ Flags may come before or after `RUN`. The [configuration reference](config.md) l
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--version` | off | Print CLI build identity and exit `0` before loading configuration or starting executors (upcoming source behavior; absent in released v0.2.0) |
+| `--version` | off | Print CLI build identity and exit `0` before loading configuration or starting executors (available starting with v0.3.0; absent in v0.2.0) |
 | `--source DIR` | the current directory; the `./verify` launcher passes its own checkout | Repository to verify. Its `levenshtein.json` is read from here, and every path in the report is relative to it |
 | `--shared DIR` | `$LEVENSHTEIN_SHARED_ROOT`; the launcher passes its own checkout | The pinned Levenshtein checkout or extracted archive whose checks run. Needed unless `--version`, `--dry-run`, or `--render` is given |
 | `--cache-dir DIR` | `levenshtein/verification-v1` under the user cache directory (`~/Library/Caches` on macOS, `$XDG_CACHE_HOME` or `~/.cache` on Linux) | Where results, preparation records, the file stat memo, helper tools, and the Staticcheck cache live. It must be outside both the source and the shared checkout. See [local caching](../configuration.md#local-caching) |
@@ -79,9 +79,11 @@ It fills in [fix hints](../configuration.md#fix-hints) the saved report lacks. T
 
 Native `command` checks receive `LEVENSHTEIN_SOURCE`, `LEVENSHTEIN_WORKSPACE`, and `LEVENSHTEIN_RERUN_CHECKS`; see [native commands](../configuration.md#native-commands).
 
-## Build and verification identity (upcoming)
+<a id="build-and-verification-identity-upcoming"></a>
 
-These additions apply to the upcoming source revision; released `v0.2.0` pins do not provide `--version` or this metadata. The JSON report remains version `1`. All new objects are optional, so older saved reports still render.
+## Build and verification identity
+
+These additions are available starting with `v0.3.0`; `v0.2.0` pins do not provide `--version` or this metadata. The JSON report remains version `1`. All new objects are optional, so older saved reports still render.
 
 `levenshtein --version` prints one line:
 

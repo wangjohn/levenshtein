@@ -1,8 +1,8 @@
 # GitHub Action adoption plan
 
-Status: implementation validated; both consumer smoke cases passed their
-expected outcomes. Marketplace publication and listing links are pending
-browser authentication and implementation merge.
+Status: implementation PR #112 is merged and v0.3.0 is published; both consumer
+smoke cases passed their expected outcomes. Marketplace listing validation and
+listing links remain pending owner completion in the authenticated browser.
 Created October 2, 2026.
 
 ## Goal
@@ -37,8 +37,9 @@ syntax and point readers to that same setup.
   a repository split or metadata change.
 
 Use the latest published release's full commit SHA with its version as a
-comment for consumer examples. At the time of this plan, the checkout's
-examples use v0.2.0. Do not substitute a branch or an unpublished commit.
+comment for consumer examples. The initial implementation used v0.2.0; the
+post-publication consumer examples now use v0.3.0. Do not substitute a branch or
+an unpublished commit.
 
 ## 2. Add a minimal starter workflow
 
@@ -168,10 +169,11 @@ blocker should be recorded with GitHub's exact error and the remaining owner act
 
 ## Implementation evidence
 
-- Public repository: `main`; latest published release: v0.2.0, commit
+- Initial October 2 observation: public repository `main`; then-latest published
+  release v0.2.0, commit
   `3d47ab4c589fdf3a30107b6dd3f0816c1f346c85`. The annotated tag was checked
   through GitHub's API and contains the root action. The prepared v0.3.0
-  changelog section on main remains unpublished and is not used by consumers.
+  changelog section on main was then unpublished and was not used by consumers.
 - Local validation: `scripts/test-doc-pins --latest`, `scripts/test-workflows`,
   `scripts/test-tool-checks`, actionlint over both templates and the changed
   security workflow, offline zizmor 1.30.1 audits, and starter snippet/link
@@ -189,9 +191,13 @@ blocker should be recorded with GitHub's exact error and the remaining owner act
   failed with `SA5001` in `broken.go:8`; GitHub recorded the finding as an
   annotation, and the annotation and job summary steps both completed successfully.
   The private test repository was archived after validation to preserve evidence.
-- Publication blocker: the CLI is authenticated as the repository owner, but
-  the available browser redirects the release edit form to GitHub sign-in.
-  Marketplace validation/publication must finish through that authenticated form.
-  No agreement was accepted, release published, or Marketplace badge added.
+- Initial publication blocker: the available browser redirected the release
+  edit form to GitHub sign-in. At that point, no agreement was accepted, release
+  published, or Marketplace badge added.
+- Current release state: [v0.3.0](https://github.com/wangjohn/levenshtein/releases/tag/v0.3.0)
+  is published at `a49d41322e457abb0ac453a575aa2763f3abd576`, with both `v0.3.0`
+  and `runner/lint/v0.3.0` tags pointing to that commit. Marketplace listing
+  validation and its verified link still require owner completion through the
+  authenticated form. No Marketplace listing or agreement acceptance is claimed.
 
-Implementation PR: [#112](https://github.com/wangjohn/levenshtein/pull/112).
+Merged implementation PR: [#112](https://github.com/wangjohn/levenshtein/pull/112).
