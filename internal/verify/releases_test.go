@@ -233,3 +233,36 @@ func TestDownloadRefusesABodyOverItsLimit(t *testing.T) {
 		t.Fatalf("a body over the limit must be refused: %v", err)
 	}
 }
+
+// A small compressed download must not bypass the traversal budget by putting
+// an oversized unselected entry ahead of the requested binary.
+func TestUntarEntryBoundsSkippedEntries(t *testing.T) {
+	var out bytes.Buffer
+	compressed := gzip.NewWriter(&out)
+	archive := tar.NewWriter(compressed)
+	if err := archive.WriteHeader(&tar.Header{Name: "padding", Mode: 0600, Size: releaseLimit, Typeflag: tar.TypeReg}); err != nil {
+		t.Fatal(err)
+	}
+	chunk := make([]byte, 32<<10)
+	for remaining := releaseLimit; remaining > 0; remaining -= len(chunk) {
+		if _, err := archive.Write(chunk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := archive.WriteHeader(&tar.Header{Name: "tool", Mode: 0700, Size: 1, Typeflag: tar.TypeReg}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := archive.Write([]byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := compressed.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := untarEntry(out.Bytes(), "tool", 1); err == nil {
+		t.Fatal("accepted binary beyond decompressed archive budget")
+	}
+}

@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Run each root-module parser fuzzer with one mutation worker.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+duration=${1:-2s}
+if (( $# > 1 )) || [[ ! $duration =~ ^[1-9][0-9]*(s|m)$ ]]; then
+  echo 'usage: scripts/test-fuzz [positive duration, e.g. 2s or 1m]' >&2
+  exit 2
+fi
+amount=${duration%?}
+unit=${duration: -1}
+# Bound the test process as well as its mutation phase. A stuck target should
+# fail the smoke rather than consume the whole CI job.
+if (( ${#amount} > 4 )); then
+  echo 'fuzz duration must be at most 60 minutes' >&2
+  exit 2
+fi
+seconds=$((10#$amount))
+if [[ $unit == m ]]; then
+  seconds=$((seconds * 60))
+fi
+if (( seconds > 3600 )); then
+  echo 'fuzz duration must be at most 60 minutes' >&2
+  exit 2
+fi
+timeout="$((seconds + 60))s"
+for target in FuzzConfig FuzzBaseline FuzzArchiveEntry FuzzArchiveBytes; do
+  go test ./internal/verify -run '^$' -fuzz "^${target}$" -fuzztime "$duration" -parallel=1 -timeout "$timeout"
+done
+go test ./internal/checktool -run '^$' -fuzz '^FuzzDiagnosticOutput$' -fuzztime "$duration" -parallel=1 -timeout "$timeout"
