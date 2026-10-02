@@ -63,9 +63,8 @@ Add these checks to your repo's [configuration](docs/configuration.md).
 | [Semantic lint](docs/semantic-lint.md) (`semantic-lint`) | Vague error message: an added error gives the caller no clue how to fix the problem; advisory review through Jev |
 | [Custom commands](docs/configuration.md#native-commands) (`command`) | Failed integration test: your repo's test script exits with an error |
 
-`go-http` and `go-sql` run resource rules already included in `go-lint`,
-for repos that want those checks alone. [`self-test`](docs/check-kinds.md)
-tests Levenshtein's own fixtures when developing the shared checks.
+[`self-test`](docs/check-kinds.md) tests Levenshtein's own fixtures when
+developing the shared checks.
 
 The **[lint and CI/CD rules index](docs/checks.md)** links to all the rules,
 checks, and CI policies, with explanations of why each rule is enabled or
