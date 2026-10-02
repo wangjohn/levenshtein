@@ -25,7 +25,9 @@ checks in your repo’s configuration.
 
 Levenshtein combines Staticcheck, established Go analyzers, and a few rules
 of its own. The rules catch bugs and encourage readable code; most naming
-and comment-style preferences are left out.
+and comment-style preferences are left out. Readability rules express shared
+preferences; a style warning does not mean the code has a runtime bug. You can
+[adjust rule selection](docs/configuration.md#lint-selection).
 
 ### Default checks
 
@@ -76,10 +78,12 @@ left out. To understand a Go lint warning, start with
 To try the Go lint rules, run this from your module's root with Go 1.21 or later:
 
 ```sh
-go run github.com/wangjohn/levenshtein/runner/lint/cmd/levenshtein-lint@latest ./...
+go run github.com/wangjohn/levenshtein/runner/lint/cmd/levenshtein-lint@v0.2.0 ./...
 ```
 
-For the default checks, use Go and a Docker-compatible runtime on macOS or Linux:
+For the default checks, use Go 1.21 or later and a Docker-compatible runtime on
+macOS or Linux; see [setup](docs/setup.md#prerequisites) for toolchain and
+dependency downloads:
 
 ```sh
 git clone --depth 1 --branch v0.2.0 https://github.com/wangjohn/levenshtein
@@ -87,13 +91,20 @@ git clone --depth 1 --branch v0.2.0 https://github.com/wangjohn/levenshtein
 ```
 
 A single Go module needs no config. The first run downloads and builds the
-tools; `verify` reports problems without changing your files. See
+tools. The default checks report problems without rewriting source code.
+`--write-baseline` rewrites the configured baseline; configured native commands,
+preparation/build stages, and produced or restored artifacts can write files in
+your workspace. See [configuration](docs/configuration.md#native-commands) and
 [setup](docs/setup.md) for prerequisites and named runs.
 
 - [CI setup](docs/consumer-ci.md): GitHub Actions and other providers.
 - [Coding agents](docs/agents.md): instructions and hooks for running checks while an agent works.
 - [Configuration](docs/configuration.md): multiple modules, extra checks, and custom commands.
 - [Baselines](docs/configuration.md#baseline) and [community rules](docs/community-rules.md): adopt checks gradually or add your own analyzers.
+
+[Native checks](docs/configuration.md#native-go-checks) use your host's Go; see
+[native setup](docs/setup.md#prerequisites) for provisioning.
+[Community rules currently require Dagger](docs/community-rules.md#executors).
 
 ## Documentation
 
