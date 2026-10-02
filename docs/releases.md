@@ -1,8 +1,12 @@
 # Release archives
 
-Each release publishes an archive of the CLI for macOS and Linux on amd64 and arm64, with SHA-256 checksums. Each archive includes the Apache 2.0 license, John Wang's notice, the [changelog](../CHANGELOG.md), [contribution guide](../CONTRIBUTING.md), [security policy](../SECURITY.md), [code of conduct](../CODE_OF_CONDUCT.md), [agent conventions](../AGENTS.md), documentation, and [consumer templates](../templates), as well as the shared Dagger module, lint/tool modules, patched SDK adapter with its `uv.lock`, fixtures, and the source files used to identify its implementation. Keep the archive together so the binary and checks have the same revision.
+Releases provide CLI archives for macOS and Linux on amd64 and arm64, with SHA-256 checksums. The prepared 0.3.0 distribution is not yet published. Its archives include the Apache 2.0 license, John Wang's notice, the [changelog](../CHANGELOG.md), [contribution guide](../CONTRIBUTING.md), [security policy](../SECURITY.md), [code of conduct](../CODE_OF_CONDUCT.md), [agent conventions](../AGENTS.md), documentation, and [consumer templates](../templates), as well as the shared Dagger module, lint/tool modules, patched SDK adapter with its `uv.lock`, fixtures, and the source files used to identify its implementation. Keep the archive together so the binary and checks have the same revision.
 
-The GitHub release also holds an SPDX SBOM per archive, `checksums.txt` covering every published file, and a build provenance attestation for the archives and the checksum file, which `gh attestation verify <file> --repo wangjohn/levenshtein` checks.
+Published v0.2.0 and earlier releases retain their MIT license and original
+archive contents; the new metadata is not retroactively added. Use the license
+and files shipped with your pinned release.
+
+The release workflow prepares a draft that also holds an SPDX SBOM per archive, `checksums.txt` covering every published file, and a build provenance attestation for the archives and the checksum file, which `gh attestation verify <file> --repo wangjohn/levenshtein` checks.
 
 ## Running an archive
 

@@ -11,13 +11,54 @@ goreleaser release --snapshot --clean
 
 Snapshot builds create files in `dist/` and publish nothing.
 
+## Release evidence record
+
+Prepare 0.3.0 as a minor release: newly detected failures and optional interfaces
+make it unsuitable for a 0.2.x patch. The changelog's undated 0.3.0 section is
+preparation, not permission to tag or publish. Complete the pre-tag evidence
+against the final integrated candidate before finalizing its release date.
+After that pull request merges, verify the finalized main commit's date,
+checks and reviews before tagging. Record tag and draft evidence after draft
+preparation, then publication and immutability evidence after publication;
+those later observations cannot be prerequisites for creating the tags.
+Record evidence links, full commit SHAs and inspection times; use **pending** or
+**unknown** when evidence is unavailable. Source implementation, tagging, live
+settings changes and publication are separate actions.
+
+| Gate | Evidence to record | Preparation status |
+| --- | --- | --- |
+| Candidate and review | Final main/candidate full SHA, ancestry, changelog version/date, independent reviews and repaired findings; both root and nested lint tags must resolve to it | Pending final integration and review; an intermediate stack is not a launch candidate |
+| Required CI and runtime | Ready-PR required contexts at that candidate, run/job links, planned four host-matched archive results after PR #102, Linux Dagger smoke, source tests and full snapshot/metadata results | Pending final candidate runs; draft jobs and local checks do not establish hosted coverage |
+| SDK security | Regeneration/runtime build and vulnerability-scan evidence for the effective SDK dependencies and packaged tools at the candidate | Pending final candidate security results; preserve failed-run dispositions |
+| Live protections and security settings | Main strictness, effective/inherited rules and bypasses, both tag namespaces, dependency graph, immutable releases and private reporting; sanitized responses/UI evidence | Repeat inspection and resolve pending authorized settings changes; proposals are not enforcement |
+| Secret provenance | Maintainer resolution of historical scan provenance and any required remediation, with only redacted disposition evidence | Pending maintainer resolution; do not retrieve, reproduce or authenticate suspected credentials |
+| Performance/adoption statements | Repaired measurement methodology, complete samples and validated cache assumptions if numbers are published; real pilot observations if adoption claims are made | Pending integration and validation of measurement methodology; public claims need final-candidate evidence |
+| Draft and publication | Archives/checksums/SBOMs/attestations, smoke results, notes and both exact tag SHAs; separate publication authorization and observed `draft: false`/immutability afterwards | Pending authorized tags, draft review and publication; update consumer pins only afterwards |
+
+Complete integration of the planned follow-up PRs before claiming their
+coverage: PR #99 prepares contributor tiers, PR #102 prepares four-platform
+archive execution, PR #103 prepares performance measurement methodology,
+PR #110 repairs native executable publication, and PR #111 documents README
+product boundaries. Until each change is merged and checked at the final
+candidate, treat its coverage and claims as pending. This evidence
+record itself does not introduce those features or certify their results.
+
+Inspect live protections and security settings again at launch, including
+inherited rules and bypasses. Proposals are not enforcement, and unavailable
+settings are unknown. See [CI guarantees](ci.md#required-checks-branch-protection)
+and [protecting release tags](#protecting-release-tags) for required read-back.
+Keep secret disposition evidence redacted. A lack of real adoption pilots is
+an evidence limit, not grounds for invented testimonials.
+
 ## Publishing a release
 
 An annotated tag prepares a draft GitHub release, which the maintainer reviews
 and publishes after checking its assets and notes:
 
-1. In one pull request, rename `## [Unreleased]` in `CHANGELOG.md` to
-   `## [X.Y.Z] - YYYY-MM-DD` above a fresh empty `[Unreleased]`. Leave the
+1. After the pre-tag evidence is complete, finalize the prepared version in a
+   pull request: replace its undated heading with `## [X.Y.Z] - YYYY-MM-DD`
+   below the fresh empty `[Unreleased]`. For an ordinary release without a
+   prepared section, move the Unreleased entries into that dated heading. Leave the
    consumer examples on the previous release: they pin its commit SHA, and the
    new release has none yet.
 2. Merge it, then push an annotated tag on the merge commit.
@@ -51,8 +92,8 @@ require the newest release, so pushing a tag never fails open pull requests;
 only `--latest`, in step 3, does.
 
 The workflow first runs `scripts/release-on-main`, which refuses a tag that is
-not `vX.Y.Z`, whose version is not a release in `CHANGELOG.md`, or whose commit
-`main` does not contain. This proves ancestry and a changelog entry; it does
+not `vX.Y.Z`, whose candidate commit lacks a dated release heading in
+`CHANGELOG.md`, or whose commit `main` does not contain. This proves ancestry and a changelog entry; it does
 not prove that the commit passed checks or received PR review. It then builds with the pinned Go from `.go-version`, installs the
 pinned syft, and runs `goreleaser release --clean`.
 The draft GitHub release then holds:
@@ -144,12 +185,30 @@ inspection before launch. Required admin work remains pending:
 
 ## Archive smoke test
 
-CI builds all four platform archives and runs the extracted Linux amd64 binary against synthetic consumer fixtures outside the checkout. It verifies planning, successful shared lint/HTTP checks, and a real failing HTTP cleanup diagnostic. This exercises the packaged SDK adapter and check sources, without a source-launcher fallback. Other platform binaries are cross-compiled; they are not all runtime-tested in this job.
+CI builds all four snapshot archives and SBOMs. The extracted Linux amd64
+Dagger consumer smoke runs outside the checkout and verifies planning,
+successful shared lint/HTTP checks, and a deliberate failing HTTP cleanup
+diagnostic. It exercises the packaged SDK adapter and shared sources without a
+source-launcher fallback.
 
-Run the same test locally with an archive matching your host architecture:
+PR #102 plans a separate matrix to execute each extracted archive on a matching
+Linux or macOS amd64/arm64 host, checking build identity, native planning,
+shared lint, and a deliberate SA5001 failure. Until that PR is merged, the
+current job cross-compiles the other platforms without executing them. After
+integration, record actual final-candidate matrix results; a workflow definition
+alone does not establish coverage, Dagger execution on every platform, or every
+check kind.
+
+Run the packaged Dagger consumer smoke with a matching archive and a working
+Docker-compatible runtime:
 
 ```sh
 ./scripts/test-release dist/levenshtein_VERSION_darwin_arm64.tar.gz
 ```
 
-The smoke test requires a Docker-compatible runtime. Snapshot builds and CI smoke tests do not publish a release; only a `v*` tag does.
+For metadata and extracted documentation links only, use
+`./scripts/test-release --metadata-only /path/to/archive.tar.gz`; it needs the
+pinned Go toolchain but no container. It proves no consumer execution coverage.
+Snapshot builds and CI smoke tests publish nothing. A valid `vX.Y.Z` tag triggers
+**draft preparation**; publication is a separate authorized maintainer action
+after the assets, notes and evidence gates have been checked.

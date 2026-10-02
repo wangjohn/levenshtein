@@ -10,6 +10,54 @@ says which interfaces are versioned and what to expect when you bump your pin.
 
 ## [Unreleased]
 
+## [0.3.0] - Unreleased (release preparation; not published)
+
+### Upgrading from 0.2.0
+
+This is preparation for **0.3.0**, not a published release. The minor version is
+required by the [versioning policy](docs/versioning.md): fixes below can turn
+previous passes into findings or check errors, and the CLI/report interfaces
+gain optional fields. Publication gates and the release date remain pending.
+Consumer examples stay pinned to the real v0.2.0 release until publication and
+a separate pin-update PR.
+
+- **Review new failures before updating a baseline.** Entries that no configured
+  check can report now fail even partial runs as `baseline-stale`. Audit the
+  [baseline and check configuration together](docs/configuration.md#orphaned-entries).
+  Remove obsolete entries deliberately, or run `--write-baseline` after reviewing
+  the findings and then inspect its diff; do not accept findings blindly.
+- **Review mutation acceptances.** Killed or timed-out accepted survivors are
+  stale; ambiguous matches accept none. Use `function` and `occurrence` to name
+  a surviving line, improve weak tests, and investigate incomplete timeout
+  evidence. Follow the [mutation migration guidance](docs/mutation.md#accepted-survivors).
+- **Choose community-rule completeness explicitly.** Configuration version 1
+  remains supported with its native skip-with-warning semantics. Opt-in version
+  2 has the same shape, but selected native Go lint with participating community
+  modules must use Dagger or set `lint.rule_modules=false`. The opt-out skips
+  those rules; it does not execute them. See [native Go checks](docs/configuration.md#native-go-checks).
+- **Expect tool errors to become visible.** Malformed diagnostic JSON, missing
+  diagnostic arrays or rule codes, and truncated helper diagnostics now fail
+  explicitly instead of accepting a clean prefix. Native output retains the
+  first 1 MiB per stream and reports truncation; investigate the producer rather
+  than treating its partial output as complete. Existing rules also detect more
+  cases described under Fixed below.
+- **Allow additive report fields.** JSON report and baseline versions remain 1;
+  optional build, implementation, native toolchain and orphan-summary fields
+  are new. Old stored reports still render. Strict consumers should tolerate
+  optional fields. `--version` is new and is absent from v0.2.0. Cached results
+  retain the identity of the execution that produced them.
+- **Allow the first execution to rebuild and recompute.** Shared implementation,
+  helper artifact and effective Go-setting changes invalidate affected caches.
+  Source-launcher bootstrap needs Go 1.21+ for toolchain switching; native Go
+  analysis needs the release's `.go-version` (currently 1.27.1, also used by
+  v0.2.0). Dagger checks need a Docker-compatible runtime. This is not a Go
+  version bump; see [setup](docs/setup.md).
+- **Use the license shipped with your pin.** The prepared source/archive
+  distribution uses Apache 2.0 with NOTICE and adds contributor/security metadata.
+  Published v0.2.0 and earlier releases retain MIT and their original contents.
+  The SDK security fixes below retain Dagger 0.21.9 compatibility; upgrading the
+  source pin does not repair already downloaded historical archives.
+
 ### Added
 
 - Add a reproducible native Go lint measurement harness with synthetic cache-correctness cases and a worksheet for real adoption pilots.
@@ -59,18 +107,10 @@ says which interfaces are versioned and what to expect when you bump your pin.
   Tests in the root module fail when a relative link or `#anchor` in any
   Markdown file, or a documentation link in code, configuration, or scripts,
   does not resolve, and when the docs index misses a page.
-- The release workflow publishes only a `vX.Y.Z` tag whose commit `main`
+- The release workflow prepares a draft only for a `vX.Y.Z` tag whose commit `main`
   contains and whose version `CHANGELOG.md` releases (`scripts/release-on-main`).
   [docs/maintainers/releases.md](docs/maintainers/releases.md#protecting-release-tags)
   has the tag rulesets and immutable-release setting an admin can apply.
-
-### Fixed
-
-- Gocheck reports reject trailing JSON or malformed output instead of accepting
-  a clean prefix, and lint reports reject diagnostics missing a rule code.
-  Gocheck and ShellCheck reject reports without their diagnostic arrays.
-  Release archive traversal also bounds decompressed skipped
-  entries to the existing 128 MiB release limit.
 
 ### Changed
 
@@ -144,6 +184,12 @@ says which interfaces are versioned and what to expect when you bump your pin.
   in the same shape as ShellCheck and osv-scanner.
 
 ### Fixed
+
+- Gocheck reports reject trailing JSON or malformed output instead of accepting
+  a clean prefix, and lint reports reject diagnostics missing a rule code.
+  Gocheck and ShellCheck reject reports without their diagnostic arrays.
+  Release archive traversal also bounds decompressed skipped
+  entries to the existing 128 MiB release limit.
 
 - Native checks publish helper executables at immutable paths identified by
   their compiled bytes. Concurrent checks using different shared revisions or
