@@ -42,7 +42,9 @@ func executableFixture(t *testing.T) (string, []byte, []string) {
 }
 
 func runExecutableFixture(ctx context.Context, path string, env []string) error {
-	run, err := runTool(ctx, filepath.Dir(path), []string{path, "-test.run=^TestExecutableFixture$"}, env, 5*time.Second)
+	// Native race binaries can start slowly under concurrent build and disk
+	// load. This bounds a hung fixture without asserting startup latency.
+	run, err := runTool(ctx, filepath.Dir(path), []string{path, "-test.run=^TestExecutableFixture$"}, env, 30*time.Second)
 	if err != nil {
 		return err
 	}
