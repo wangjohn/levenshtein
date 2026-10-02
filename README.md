@@ -1,14 +1,10 @@
 # Levenshtein
 
-Shared, pinned Go lint and verification for many repos.
+Consistent Go verification for repositories, developers, CI, and coding agents.
 
-A comprehensive, carefully chosen set of Go lint rules, run by one `./verify` command that gives the same result locally, in CI, and for coding agents. The name comes from Levenshtein distance, the number of single-character edits between two strings: the project gives coding agents a way to write code that stays a short edit distance from high-quality, maintainable code, and a way to measure that distance explicitly.
+Levenshtein gives several Go repositories one reviewed set of lint rules and tool versions, run through `./verify`. Pin a release, choose the checks your repository needs, and update the pin when you are ready to adopt shared changes. Coding agents can use the same command and actionable findings as the people reviewing their code.
 
-Coding agents write a lot of code quickly, and they fix whatever their tools point out. That makes lint rules more important than ever. Good rules will catch unchecked errors, leaked resources, and sloppy code before anyone reviews the change, and the agent fixes those problems on its own. When much of your code isn't written by hand, lint rules are the most reliable way to keep a repo clean and well written.
-
-Levenshtein turns on nearly all of Staticcheck, nearly forty other analyzers, about twenty of go-critic's bug checks, and a handful of its own rules. Each rule is there because it catches bugs or makes code clearer, and [docs/rules.md](docs/rules.md) gives the reason for every one. Rules that only enforce someone's taste in naming or comments are off, so a finding is usually worth fixing.
-
-Every repo uses the same rules. Each one pins a revision of Levenshtein and runs `./verify`, which runs the checks in a container with pinned versions of Go and every tool. A result doesn't depend on whose laptop or which CI provider ran it. When you improve a rule, you do it once, and each repo picks it up when it bumps its pin.
+The defaults combine bug checks with deliberate readability preferences, including typed choices and constructing structs in one literal. They are a shared house policy; a style finding does not mean the code has a runtime bug. Repositories can [adjust rule selection](docs/configuration.md#lint-selection), suppress a finding with a reason, or [baseline existing findings](docs/configuration.md#baseline) while fixing them.
 
 ## Example
 
@@ -39,10 +35,20 @@ func IsFinished(status string) bool {
 Levenshtein reports:
 
 ```text
-config.go:10:2: SA5001 should check error returned from os.Open() before deferring f.Close()
-config.go:10:15: errcheck unchecked error
-config.go:18:9: LV1001 string choice with multiple alternatives needs a defined string type and typed constants
+config.go:10:2: should check error returned from os.Open() before deferring f.Close() (SA5001)
+config.go:10:15: unchecked error (errcheck)
+config.go:18:9: string choice with multiple alternatives needs a defined string type and typed constants (LV1001)
 ```
+
+## Try it in one command
+
+To see what the rules find in a Go module, run this from its root. It needs `go` 1.21 or later and access to a module proxy, so Go can download the pinned toolchain and dependencies, with no clone, container, or config:
+
+```sh
+go run github.com/wangjohn/levenshtein/runner/lint/cmd/levenshtein-lint@v0.2.0 ./...
+```
+
+It prints one `file:line:col: message (CODE)` line per finding and exits with `1` when there are any. This runs the `go-lint` rules alone: `go vet`, `go-mod`, `govulncheck`, the [baseline](docs/configuration.md#baseline), [community rules](docs/community-rules.md), and caching come with `verify` below. `@v0.2.0` selects the existing `runner/lint/v0.2.0` release tag; update the version deliberately when adopting a newer release. See [running the linter directly](docs/rules.md#running-the-linter-directly).
 
 ## What it checks
 
@@ -61,16 +67,6 @@ To silence a finding, use Staticcheck's usual comment: `//lint:ignore CODE reaso
 Rules Levenshtein doesn't ship can come from [community rule modules](docs/community-rules.md): ordinary Go modules of `go/analysis` analyzers that a repo pins in `levenshtein.json`. They run in their own process beside the shipped rules and report into the same results.
 To turn the rules on in a repository that already has findings, name a [baseline](docs/configuration.md#baseline) file in `levenshtein.json` and record them with `verify main --write-baseline`. Recorded findings are reported but don't fail, new ones do, and fixing a recorded one means deleting its entry, so the file only shrinks.
 
-## Try it in one command
-
-To see what the rules find in a Go module, run this from its root. It needs `go` 1.21 or later and access to a module proxy, so Go can download the pinned toolchain and dependencies, with no clone, container, or config:
-
-```sh
-go run github.com/wangjohn/levenshtein/runner/lint/cmd/levenshtein-lint@v0.2.0 ./...
-```
-
-It prints one `file:line:col: message (CODE)` line per finding and exits with `1` when there are any. This runs the `go-lint` rules alone: `go vet`, `go-mod`, `govulncheck`, the [baseline](docs/configuration.md#baseline), [community rules](docs/community-rules.md), and caching come with `verify` below. `@v0.2.0` selects the existing `runner/lint/v0.2.0` release tag; update the version deliberately when adopting a newer release. See [running the linter directly](docs/rules.md#running-the-linter-directly).
-
 ## Quick start
 
 The source launcher needs Go 1.21+ on `PATH` and access to a module proxy for the pinned toolchain and dependencies. The default checks also need a running Docker-compatible runtime, such as Docker or Colima. Levenshtein runs on Linux and macOS. [Setup](docs/setup.md#prerequisites) covers native checks and download restrictions; a [prebuilt release archive](docs/releases.md#running-an-archive) avoids building the CLI on the host.
@@ -80,7 +76,7 @@ git clone --branch v0.2.0 --depth 1 https://github.com/wangjohn/levenshtein.git
 ./levenshtein/verify --source /absolute/path/to/myapp
 ```
 
-The first run takes a few minutes while it downloads and builds the tools. After that, runs are fast, and checks that passed are skipped until their files change.
+The first run downloads and builds the tools. Cacheable checks that passed can reuse their verdict while their declared inputs, configuration, and implementation stay unchanged. Use a run with `rerun_checks` when you need fresh execution, such as a nightly verification.
 
 `verify` prints a JSON report. It exits with `0` if everything passes, `1` if a check fails, and `2` if the command or config is wrong. To see just the findings, one per line:
 
@@ -139,13 +135,17 @@ Pin Levenshtein to a commit SHA or a release tag, not a branch. That way rule ch
 
 Lint config usually gets copied from repo to repo, and then the copies drift apart. One repo is on an old Staticcheck. Another turned off a rule years ago. A third never got the rule that would have caught last week's bug.
 
-With Levenshtein, the rules and tool versions live in one place. Improve a rule once and every repo can pick it up. Developers, CI, and coding agents all get the same results.
+With Levenshtein, the rules and tool versions live in one place. Improve a rule once and each repository can adopt it by updating its pin. Repositories start from shared defaults and can configure their own selections and runs.
 
-If you have a single Go repo and you're happy with your `golangci-lint` setup, you probably don't need this. [Levenshtein or golangci-lint?](docs/faq.md#levenshtein-or-golangci-lint) compares the two.
+The default Dagger executor uses pinned Go and tool versions in a container, with checks reading the declared source inputs. This reduces differences between developer machines and CI; findings still depend on the selected checks, inputs, and configuration. [Native execution](docs/configuration.md#native-go-checks) uses the host's Go and environment, so provision the required Go version and prerequisites explicitly. Community rule modules execute in Dagger: released version 1 configurations skip them with a warning on native `go-lint`. **Upcoming:** configuration version 2 rejects that combination unless the check explicitly opts out with `lint.rule_modules=false`; version 1 keeps its existing behavior.
+
+The name refers to Levenshtein edit distance as a metaphor for bringing code closer to a shared standard. The tool reports check results and findings; it does not calculate a numerical edit distance or an overall code-quality score.
+
+Levenshtein fits teams maintaining several Go repositories that want shared defaults and deliberate updates. If you have a single Go repo and you're happy with your `golangci-lint` setup, keeping it may be simpler. [Levenshtein or golangci-lint?](docs/faq.md#levenshtein-or-golangci-lint) compares the two.
 
 ## Status
 
-Levenshtein is new and is being tried out on a few Go repos. The config format is versioned, and changes to it will be listed in the [changelog](CHANGELOG.md); [versioning](docs/versioning.md) says what a release may change and what to expect when you bump your pin. The built-in lint rules are for Go. The other built-in checks cover GitHub Actions workflows, shell scripts, committed secrets, and non-Go dependency lockfiles. Anything else, such as another language's linter or test suite, runs as a `command` check.
+The examples pin v0.2.0; this checkout also contains unreleased changes listed in the [changelog](CHANGELOG.md). The config format is versioned; [versioning](docs/versioning.md) says what a release may change and what to expect when you bump your pin. The built-in lint rules are for Go. The other built-in checks cover GitHub Actions workflows, shell scripts, committed secrets, and non-Go dependency lockfiles. Anything else, such as another language's linter or test suite, runs as a `command` check. [Semantic lint](docs/semantic-lint.md) is a separate experimental, opt-in review through an external paid service; it is not part of the default Go checks.
 
 ## Documentation
 
