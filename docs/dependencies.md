@@ -23,8 +23,8 @@ Artifact publication uses `renameio` pending files so restored permissions match
 
 ## Dagger wrapper dependency security
 
-The wrapper pins gRPC 1.83.2, OpenTelemetry 1.44.0, and x/text 0.41.0 to address reported advisories. Dagger 0.21.9 normally forces logging modules back to 0.16.0 during development and module loading, reintroducing [GO-2026-4985](https://pkg.go.dev/vuln/GO-2026-4985) even when `go.mod` requests a fixed version.
+The wrapper pins gRPC 1.83.2, OpenTelemetry 1.45.0, and x/text 0.41.0 to address reported advisories. Dagger 0.21.9 normally forces logging modules back to 0.16.0 during development and module loading, reintroducing [GO-2026-4985](https://pkg.go.dev/vuln/GO-2026-4985) even when `go.mod` requests a fixed version.
 
-The temporary [patched Go SDK](../sdk/patched-go/README.md) builds Dagger's pinned upstream generator with logging replacements at 0.20.0. Both generated source and the runtime use those dependencies. This changes the module SDK, not the Dagger engine itself. Remove the adapter once a compatible upstream SDK preserves fixed versions.
+The temporary [patched Go SDK](../sdk/patched-go/README.md) builds Dagger's pinned upstream generator with logging replacements at 0.21.0. This fixes the gRPC log exporter's [GO-2026-6508](https://pkg.go.dev/vuln/GO-2026-6508); the trace exporters also move to 1.45.0 for [GO-2026-6505](https://pkg.go.dev/vuln/GO-2026-6505). The logging release removes its value types in favor of `attribute.Value`, so the adapter patches the pinned `github.com/dagger/otel-go` source and generates it as a local `runner/internal/telemetry` module. Both the generator and runtime use that source and the same dependency policy. The patch preserves the older HTTP trace and metric exporters' default paths for URLs without a path. This changes the module SDK, not the Dagger engine itself. Remove the adapter once a compatible upstream SDK preserves fixed versions.
 
 `./scripts/test-sdk-security` regenerates twice, checks effective dependency versions, and scans the generated executable. The live `./verify go-vuln` source scans remain enabled without suppressions.
