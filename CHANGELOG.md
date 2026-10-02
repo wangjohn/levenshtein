@@ -31,6 +31,9 @@ says which interfaces are versioned and what to expect when you bump your pin.
   continue using configuration version 1.
 - A contributor check entry point (`scripts/test-contributor`) with explicit test
   tiers, and a public roadmap with priorities and starter contribution tasks.
+- Release tag protection proposals now cover both `v*` and `runner/lint/v*`,
+  with policy and release-guard regressions. Maintainer documentation separates
+  proposed settings, verified live enforcement, main ancestry, and PR review.
 
 - The repository and its example rule module now use Apache License 2.0, with
   John Wang named in `NOTICE`. Release archives include both the license and
