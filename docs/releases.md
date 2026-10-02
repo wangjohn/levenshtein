@@ -1,6 +1,6 @@
 # Release archives
 
-Each release publishes an archive of the CLI for macOS and Linux on amd64 and arm64, with SHA-256 checksums. Each archive includes the Apache 2.0 license, John Wang's notice, the shared Dagger module, lint/tool modules, patched SDK adapter with its `uv.lock`, fixtures, and the source files used to identify its implementation. Keep the archive together so the binary and checks have the same revision.
+Each release publishes an archive of the CLI for macOS and Linux on amd64 and arm64, with SHA-256 checksums. Each archive includes the Apache 2.0 license, John Wang's notice, the [changelog](../CHANGELOG.md), [contribution guide](../CONTRIBUTING.md), [security policy](../SECURITY.md), [code of conduct](../CODE_OF_CONDUCT.md), [agent conventions](../AGENTS.md), documentation, and [consumer templates](../templates), as well as the shared Dagger module, lint/tool modules, patched SDK adapter with its `uv.lock`, fixtures, and the source files used to identify its implementation. Keep the archive together so the binary and checks have the same revision.
 
 The GitHub release also holds an SPDX SBOM per archive, `checksums.txt` covering every published file, and a build provenance attestation for the archives and the checksum file, which `gh attestation verify <file> --repo wangjohn/levenshtein` checks.
 
@@ -36,3 +36,19 @@ Moved to [cutting a release](maintainers/releases.md#protecting-release-tags).
 ## Archive smoke test
 
 Moved to [cutting a release](maintainers/releases.md#archive-smoke-test).
+
+The archive is a CLI and shared-check distribution. For contributor scripts,
+repository workflows, hooks, and example rule modules, use the
+[repository checkout](https://github.com/wangjohn/levenshtein). Generated local
+SDK output, build output, private files, and review artifacts are not release
+metadata.
+
+Maintainers can check extracted metadata and documentation links without a
+container runtime from a checkout with the pinned Go toolchain:
+
+```sh
+./scripts/test-release --metadata-only /path/to/archive.tar.gz
+```
+
+The full smoke command also runs the packaged binary and Dagger checks. A
+metadata-only pass does not establish platform or consumer execution coverage.
