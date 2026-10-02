@@ -1,14 +1,30 @@
 # Temporary patched Go SDK
 
 Dagger 0.21.9 forces OpenTelemetry logging dependencies back to v0.16.0,
-including the HTTP log exporter affected by GO-2026-4985. Editing the runner's
+including the HTTP log exporter affected by GO-2026-4985. Logging 0.20.0
+also has GO-2026-6508 in its gRPC exporter; the fixed release is 0.21.0. Editing the runner's
 `go.mod` alone cannot fix this: module loading regenerates the overrides.
 
 This adapter builds Dagger's own Go generator from the pinned 0.21.9 commit,
 with updated dependency pins in its embedded SDK manifest. It uses the upstream
 `generate-module` and `generate-typedefs` commands and compiles the runner with
 the project's pinned Go image. Generation and runtime compilation therefore
-use the same patched dependencies. Download and compiler caches are retained.
+use the same patched dependencies: logging 0.21.0 and core/exporters 1.45.0.
+The trace exporters also fix GO-2026-6505. Download and compiler caches are retained.
+
+Logging 0.21.0 removes `log.Value`, `log.KeyValue`, and their constructors in
+favor of `attribute.Value` and `attribute.KeyValue`. The pinned Dagger
+`otel-go` v1.43.0 still uses them, so `otel-go.patch` adapts its writers and OTLP
+conversions. The adapter generates the patched library in `internal/telemetry`
+as a local Go module and adds a relative replacement; the generator compiles
+against the same patch. Generated telemetry remains ignored by Git and is
+regenerated with the SDK. The generator's logging bridge is adapted too.
+
+The HTTP trace and metric exporters in 1.45.0 use `/` for endpoint URLs without
+a path. The compatibility patch explicitly supplies `/v1/traces` or
+`/v1/metrics` in that case, preserving Dagger's previous routing. Explicit
+paths, including `/`, keep their meaning. Tests cover value conversions,
+writer output, and endpoint paths.
 
 The adapter uses Python to avoid bootstrapping another Go module with the same
 vulnerable dependency override. Consumers still use the normal Levenshtein
@@ -29,7 +45,8 @@ lock is current. Release archives ship the lock.
 ## Validation and removal
 
 Run `./scripts/test-sdk-security` from the repository root. It regenerates twice,
-asserts the effective logging module versions, and scans a generated executable
+asserts the effective logging module versions, tests the patched telemetry,
+and scans a generated executable
 with the live vulnerability database. `./verify go-vuln` also scans the configured
 source modules through the normal Dagger execution path.
 
