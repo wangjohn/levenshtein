@@ -38,6 +38,7 @@ Every page, grouped by what you are trying to do. New to Levenshtein? Read the [
 ## Contribute
 
 - [Contributing](../CONTRIBUTING.md): building, testing, proposing a rule, and pull requests
+- [Public roadmap](roadmap.md): priorities, deferred work, and starter contribution tasks
 - [Security policy](../SECURITY.md): reporting a vulnerability privately
 - [Code of conduct](../CODE_OF_CONDUCT.md)
 

@@ -37,6 +37,12 @@ The pinned Go version builds the CLI (the launcher provisions it when the host G
 
 ## Develop the shared checks
 
+Use `./scripts/test-contributor fast` for the initial unit-test loop, `native`
+for race and host integration checks, `integration` for container regressions,
+and `full-ci` for the local ready-PR checks. [Contributor test tiers](../../CONTRIBUTING.md#start-here)
+list prerequisites and the hosted checks that remain. The commands below are
+focused development tools; the entry point reuses them.
+
 Use Go 1.27.1 and the pinned Dagger CLI:
 
 ```sh

@@ -12,6 +12,9 @@ says which interfaces are versioned and what to expect when you bump your pin.
 
 ### Added
 
+- A contributor check entry point (`scripts/test-contributor`) with explicit test
+  tiers, and a public roadmap with priorities and starter contribution tasks.
+
 - The repository and its example rule module now use Apache License 2.0, with
   John Wang named in `NOTICE`. Release archives include both the license and
   notice. Earlier published releases retain their original MIT license.

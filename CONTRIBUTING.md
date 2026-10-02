@@ -1,66 +1,79 @@
 # Contributing
 
-## Build and test locally
+## Start here
 
-Root module:
+A small documentation correction or a regression fixture for an existing rule
+is a useful first contribution. Read the [public roadmap](docs/roadmap.md) for
+priorities and starter tasks. For a behavior change, open an issue describing
+an input, the current result, and the expected result before committing to a
+large implementation. Rule proposals use the process below.
 
-```sh
-GOTOOLCHAIN=local go build ./... && GOTOOLCHAIN=local go test ./...
-```
-
-The runner compiles a generated copy of `internal/checktool`, which both
-executors use to start pinned tools and read their results. After changing
-it, regenerate the copy; a root test fails until you do:
-
-```sh
-GOTOOLCHAIN=local go generate ./internal/checktool
-```
-
-Go lint policy analyzers:
+Use Go from [.go-version](.go-version), Git, jq, and a module proxy/cache that can
+resolve the pinned dependencies. From the repository root:
 
 ```sh
-(cd runner/lint && GOTOOLCHAIN=local go test ./...)
+./scripts/test-contributor fast
 ```
 
-The community linter compiles generated copies of the core linter's failure
-guard (`runner/lint/cmd/levenshtein-lint/guard.go` and its test) and
-generated-file adapter (`runner/lint/policy/generated.go`). After changing
-one, regenerate the copies; a `runner/lint` test fails until you do:
+The entry point works from any directory and never installs tools. All tiers
+stop on the first failure. Missing tools fail with a diagnostic; selecting a
+smaller tier is an explicit choice, not a passing full run. Network failures
+and an unavailable engine also fail. Ordinary Go tests may skip platform-only
+cases; read their output and the CI matrix before claiming platform coverage.
+
+| Tier | Command | Coverage and prerequisites |
+| --- | --- | --- |
+| Fast/unit | `./scripts/test-contributor fast` | Root build/tests (including documentation links and generated-copy freshness), lint and community module tests, example rule module (including its race tests). Go, Git and jq; community builder tests compile real linters and may download modules. |
+| Native integration | `./scripts/test-contributor native` | Root, lint, community race tests, example module, and every integration test classified native by `scripts/test-integration`. No container; pinned helper downloads may need network access. |
+| Container integration | `./scripts/test-contributor integration` | Native tier, SDK generation, Dagger integration and runner unit tests, `./verify pre-merge`, consumer and shared-check regressions. Pinned Dagger CLI and a working Docker/Colima or remote Dagger engine. |
+| Full local CI | `./scripts/test-contributor full-ci` | Container tier plus formatting, Python/shell lint, SDK lock/security, release pins, workflow/ruleset consistency, tool/check fixtures, language contracts, and workflow-required fuzz smoke. Also needs ShellCheck, Ruff, uv, jq, Python, Rust/cargo and fetched release tags. |
+
+Install the reviewed fixture tools (uv, Python and Rust) with
+`./scripts/install-fixture-tools`; follow [language fixtures](docs/language-fixtures.md)
+for their environment. Install ShellCheck through your system package manager and Ruff at the version
+named in `.github/workflows/verify.yml`.
+Install Dagger with `./scripts/install-dagger` and add its destination to PATH.
+[Development](docs/maintainers/development.md#tools) covers the engine and SDK.
+`full-ci` checks tool availability; CI's workflow pins remain authoritative for
+versions. Fetch release tags before the full tier if using a shallow clone:
 
 ```sh
-(cd runner/lint && GOTOOLCHAIN=local go generate ./internal/copygen)
+git fetch --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'
 ```
 
-Community linter runtime and builder. The builder tests compile real linters, so they need the module proxy:
+The full local tier approximates a **ready PR**, not every GitHub job. CI still
+must exercise the composite GitHub Action's passing/failing cases, Linux archive
+packaging and extracted consumer smoke, macOS root tests, and live ruleset
+comparison (`scripts/test-rulesets --live`, requiring GitHub access). Live GitHub security audits, artifact
+uploads, attestations and dependency review also run on GitHub. Advisory
+semantic review needs an external paid service; mutation and the scheduled
+fresh `./verify main` audit have separate event policies. See the
+[CI event mapping](docs/maintainers/ci.md#jobs) and
+[release checks](docs/maintainers/releases.md). A local full pass does not
+replace required statuses. Draft PRs omit some ready-PR checks.
 
-```sh
-(cd runner/community && GOTOOLCHAIN=local go test ./...)
-./scripts/test-example-rules
-```
+Fuzz smoke is included when `.github/workflows/verify.yml` invokes
+`scripts/test-fuzz`; it is not a CI step at revisions predating that script.
+A workflow-required but missing script fails, rather than silently skipping.
 
-The runner's Dagger module needs its generated SDK before its own tests run. Run `dagger develop` from the repository root, where `dagger.json` lives:
+## Work on the relevant module
 
-```sh
-dagger develop --compat=skip
-(cd runner && GOTOOLCHAIN=local dagger run go test ./...)
-```
+Keep changes near their tests, then run the appropriate tier above. For a
+focused iteration, the commands below are useful; they do not replace CI.
 
-`GOTOOLCHAIN=local` keeps these commands from downloading another toolchain when the host version differs from `.go-version`, so they run on the Go you have. `./verify` does the opposite: it names the pinned toolchain, so any host `go` builds the CLI with the version in `.go-version` and fetches it once if needed.
+| Area | Focused command / maintenance |
+| --- | --- |
+| Root CLI/verifier and docs | `GOTOOLCHAIN=local go test ./...` (relative links and anchors are checked here). |
+| Shared tool parsers | After changing `internal/checktool`, run `GOTOOLCHAIN=local go generate ./internal/checktool`; commit the generated `runner/internal/checktool` copy. |
+| Core lint | `(cd runner/lint && GOTOOLCHAIN=local go test ./...)`. After changing the failure guard or generated-file adapter, run `(cd runner/lint && GOTOOLCHAIN=local go generate ./internal/copygen)` and commit the community copies. |
+| Community runtime/builder | `(cd runner/community && GOTOOLCHAIN=local go test ./...)`; builder tests need module downloads. |
+| Example rule module | `./scripts/test-example-rules` tests it and builds it with the community builder. Preserve its documented release pins. |
+| Dagger runner / SDK | Run `dagger develop --compat=skip` from the root, then `(cd runner && GOTOOLCHAIN=local dagger run go test -count=1 ./...)`. Generated SDK files are ignored; do not commit them. Changes to the adapter/dependencies also need `./scripts/test-sdk-security`, which regenerates twice and scans the resulting runtime. |
 
-Repo self-checks, matching what CI runs:
-
-```sh
-./verify pre-merge
-```
-
-`./verify branch` runs the static Go checks natively: it needs Go 1.27.1 and the generated SDK from `dagger develop`, but no container runtime. `./verify pre-merge` adds `self-test`, and `./verify main` and `./verify branch-dagger` run the checks in Dagger; those need a Docker-compatible container runtime (Docker Desktop or Colima) and the pinned Dagger CLI. Install the CLI with:
-
-```sh
-./scripts/install-dagger
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-See ["Develop the shared checks"](docs/maintainers/development.md#develop-the-shared-checks) for the full local development recipe, including the broader `dagger develop` / `go test -race` / `./scripts/test-consumers` sequence CI runs.
+`GOTOOLCHAIN=local` uses the installed toolchain; the entry point checks it
+against `.go-version`. The source launcher `./verify` provisions the pinned
+toolchain instead. Run `./verify go-lint` for Go changes after SDK generation;
+the container/full tiers include it through `pre-merge`.
 
 ## Optional local hooks
 

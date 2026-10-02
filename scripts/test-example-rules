@@ -28,12 +28,12 @@ fi
 # it is replaced by its directory; everything else resolves as for any module.
 mkdir "$temporary/consumer" "$temporary/out"
 jq -n --arg go "$go_version" --arg staticcheck "$staticcheck" --arg community "$root/runner/community" \
-  --arg module "$module" --arg dir "$example" \
+  --arg module_path "$module" --arg dir "$example" \
   '{go: $go, staticcheck: $staticcheck, community: $community,
-    modules: [{path: $module, version: "v0.0.0", namespace: "example", dir: $dir}]}' > "$temporary/request.json"
+    modules: [{path: $module_path, version: "v0.0.0", namespace: "example", dir: $dir}]}' > "$temporary/request.json"
 (cd "$root/runner/community" && go run ./cmd/levenshtein-community-build -request "$temporary/request.json" -out "$temporary/out")
-jq -n --arg module "$module" \
-  '{modules: [{path: $module, version: "v0.0.0", namespace: "example", select: ["example_*"]}]}' > "$temporary/config.json"
+jq -n --arg module_path "$module" \
+  '{modules: [{path: $module_path, version: "v0.0.0", namespace: "example", select: ["example_*"]}]}' > "$temporary/config.json"
 
 # The built linter reports the rule under its namespaced code, and honors
 # //lint:ignore for it.
