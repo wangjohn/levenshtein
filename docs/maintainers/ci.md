@@ -68,8 +68,8 @@ scanning on `main` and the weekly schedule, since Scorecard reads the default
 branch rather than a pull request's merge ref; and `dependency-review` on pull
 requests, failing on high severity. `dependency-review` needs the repository's
 **Dependency graph**, which is a repository setting (Settings → Code security)
-and not something a workflow can enable. It is enabled for this repository, and
-the job fails if it is ever turned off, rather than passing without a review.
+and not something a workflow can enable. Inspect **Settings → Code security** and record its enabled state before
+launch; the job fails if it is off, rather than passing without a review.
 
 `release.yml` publishes the archives, their SBOMs, `checksums.txt`, and a build
 provenance attestation when a `vX.Y.Z` tag is pushed; see
@@ -93,7 +93,53 @@ Event → `./verify` mapping. `branch` and `pre-merge` run the static Go checks 
 | Pull requests | `semantic-lint` (advisory; not required to pass; the job passes with no findings when `TYPESAFE_API_KEY` is absent) |
 | Pull requests | `mutation` (not required to pass, like `semantic-lint`; `scripts/test-rulesets` keeps the two required together or not at all; it fails on a surviving mutant on a changed line, and exceptions go in `.levenshtein/mutation-accepted.json` or `runner/lint/.levenshtein/mutation-accepted.json`) |
 
-Do **not** make draft progress wait on `release-smoke` or full `tests`. When adopting this workflow, replace any required check named `verify` with `lint` and `tests` the same day.
+The table describes workflow execution and merge expectations, not conditional
+GitHub requirements. The committed main ruleset requires all six listed status
+contexts, including on drafts; draft jobs can skip expensive steps and still
+report success. A draft check result is therefore not full release-smoke or
+container validation. Rerun and inspect the ready PR jobs before merging.
+
+Read-only inspection on 2026-10-02 found the active main ruleset `23844934`
+matching `.github/rulesets/main.json`: deletion and non-fast-forward protection,
+six GitHub Actions status contexts (integration ID `15368`),
+`strict_required_status_checks_policy: false`, and admin-role bypass mode
+`always`. It contains no `pull_request` rule. Consequently:
+
+- Main ancestry proves that the branch contains a commit; it proves neither
+  successful checks nor review of that commit.
+- Required checks constrain actors subject to the ruleset. The current setting
+  does not require a branch to be up to date with main before merging.
+- The ruleset does not require a PR or a human approval. Maintainer review is a
+  release procedure, not an enforced guarantee. A required-PR rule and any
+  approval count need a separate maintainer decision; do not require a second
+  human reviewer by accident.
+- Admins can bypass this main ruleset. A successful merge alone does not prove
+  the checks or review ran. Record the exact candidate SHA and successful ready
+  checks, and the independent review evidence used for the release decision.
+
+Requiring up-to-date checks is a pending separately authorized admin action;
+keep `main.json` as the observed state until a verified live change is exported.
+To inspect effective protections, record the repository, time, default branch,
+and candidate SHA, then run:
+
+```sh
+gh api 'repos/wangjohn/levenshtein/rulesets?includes_parents=true'
+gh api repos/wangjohn/levenshtein/rulesets/23844934
+gh api repos/wangjohn/levenshtein/rules/branches/main
+gh api repos/wangjohn/levenshtein/branches/main/protection
+```
+
+Inspect inherited rules, active/evaluate/disabled enforcement, ref include and
+exclude patterns, required contexts and integration IDs, strictness, PR rules
+and approval counts, and all bypass actors. Repository snapshot comparison
+alone does not inspect inherited rules or classic branch protection. The
+connector's classic branch-protection request returned 403 during the above
+inspection; that state remains unknown until an authorized API or settings UI
+inspection succeeds. Save sanitized responses or UI evidence; missing access
+cannot establish a protection guarantee.
+
+Keep draft progress fast by skipping expensive steps, while retaining the
+stable `release-smoke` and `tests` status contexts. When adopting this workflow, replace any required check named `verify` with `lint` and `tests` the same day.
 
 GitHub enforces these from a repository ruleset, which lives in repository settings rather than in a file: rules a pull request could edit would let that pull request weaken them. `.github/rulesets/main.json` is the reviewed copy, and `scripts/test-rulesets --live` in the `tests` job keeps it honest:
 
@@ -107,7 +153,7 @@ gh api repos/wangjohn/levenshtein/rulesets/<id> \
   | jq '{name, target, enforcement, conditions, bypass_actors, rules}' > .github/rulesets/main.json
 ```
 
-To rename a required job, rename it and update `.github/rulesets/main.json` in one pull request. Its drift check fails until an admin changes the live ruleset to match; do that just before merging, then rerun `tests`.
+To rename a required job, coordinate the proposed workflow and required context changes in one pull request. Its drift check fails until an admin changes the live ruleset to match; do that just before merging, then rerun `tests`.
 
 Treat warm lint wall time creeping toward warm tests as a CI performance regression. Read step and job durations from the Actions run view and compare medians across warm `ubuntu-24.04` runs.
 

@@ -10,6 +10,10 @@ root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 #      reports;
 #   2. with --live, the rulesets GitHub enforces match the committed copies.
 live=false
+if [[ $# -gt 1 || ( $# -eq 1 && $1 != --live ) ]]; then
+  echo 'usage: scripts/test-rulesets [--live]' >&2
+  exit 2
+fi
 if [[ ${1:-} == --live ]]; then
   live=true
 fi
@@ -67,7 +71,7 @@ done
 # (docs/maintainers/releases.md#protecting-release-tags). They are not enforced yet, so the
 # live comparison leaves them out; they must still be rulesets GitHub accepts
 # the shape of, with a name no committed ruleset uses. Once one is created,
-# move it up to .github/rulesets so the comparison covers it.
+# export its verified live state to .github/rulesets and remove the proposal.
 for file in "$root"/.github/rulesets/proposed/*.json; do
   if ! jq -e '(.name | type == "string") and (.target | IN("branch", "tag", "push")) and (.enforcement | type == "string") and (.conditions.ref_name.include | type == "array") and (.rules | type == "array" and length > 0)' "$file" > /dev/null; then
     echo "${file#"$root"/}: not a ruleset (needs name, target, enforcement, conditions.ref_name.include, rules)" >&2
@@ -79,7 +83,43 @@ for file in "$root"/.github/rulesets/proposed/*.json; do
     echo "${file#"$root"/}: \"$name\" is already committed in .github/rulesets; delete the proposal" >&2
     status=1
   else
-    echo "Proposed ruleset \"$name\" is well formed"
+    echo "Proposed ruleset \"$name\" is well formed (not evidence of enforcement)"
+  fi
+done
+# Validate the release policy whether it is still proposed or has been
+# exported after an admin enabled it. A file's active field is desired state;
+# only --live can compare snapshots with GitHub, and proposals stay excluded.
+policy_files=("${rulesets[@]}" "$root"/.github/rulesets/proposed/*.json)
+for policy in 'tags: release creators' 'tags: immutable releases'; do
+  count=0
+  for file in "${policy_files[@]}"; do
+    if [[ $(jq -r .name "$file") != "$policy" ]]; then
+      continue
+    fi
+    count=$((count + 1))
+    if ! jq -e '
+      .target == "tag" and .enforcement == "active" and
+      .conditions.ref_name.exclude == [] and
+      (.conditions.ref_name.include | sort) ==
+        (["refs/tags/v*", "refs/tags/runner/lint/v*"] | sort) and
+      (if .name == "tags: release creators" then
+        ([.rules[].type] | sort) == ["creation"] and
+        (.bypass_actors | sort_by(.actor_id)) == [
+          {"actor_id": 2, "actor_type": "RepositoryRole", "bypass_mode": "always"},
+          {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}
+        ]
+      else
+        ([.rules[].type] | sort) == ["deletion", "non_fast_forward", "update"] and
+        .bypass_actors == []
+      end)
+    ' "$file" > /dev/null; then
+      echo "${file#"$root"/}: release policy must protect creation/update/deletion in both tag namespaces with the reviewed bypass policy" >&2
+      status=1
+    fi
+  done
+  if [[ $count -ne 1 ]]; then
+    echo "Release policy \"$policy\" needs exactly one proposal or live snapshot" >&2
+    status=1
   fi
 done
 if [[ $live == false || $status -ne 0 ]]; then
