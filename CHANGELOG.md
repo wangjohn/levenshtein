@@ -17,6 +17,7 @@ says which interfaces are versioned and what to expect when you bump your pin.
   deliberate failing lint. The existing required `release-smoke` context now
   requires every platform result and the Linux Dagger archive smoke.
 
+- Add a reproducible native Go lint measurement harness with synthetic cache-correctness cases and a worksheet for real adoption pilots.
 - Release archives include the changelog, contribution and security policies,
   code of conduct, agent conventions, and consumer templates. Archive smoke
   checks now reject missing metadata and broken extracted documentation links;
