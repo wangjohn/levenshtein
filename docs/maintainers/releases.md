@@ -15,8 +15,12 @@ Snapshot builds create files in `dist/` and publish nothing.
 
 Prepare 0.3.0 as a minor release: newly detected failures and optional interfaces
 make it unsuitable for a 0.2.x patch. The changelog's undated 0.3.0 section is
-preparation, not permission to tag or publish. Complete this record against the
-final integrated candidate before assigning its release date and tagging.
+preparation, not permission to tag or publish. Complete the pre-tag evidence
+against the final integrated candidate before finalizing its release date.
+After that pull request merges, verify the finalized main commit's date,
+checks and reviews before tagging. Record tag and draft evidence after draft
+preparation, then publication and immutability evidence after publication;
+those later observations cannot be prerequisites for creating the tags.
 Record evidence links, full commit SHAs and inspection times; use **pending** or
 **unknown** when evidence is unavailable. Source implementation, tagging, live
 settings changes and publication are separate actions.
@@ -50,7 +54,7 @@ an evidence limit, not grounds for invented testimonials.
 An annotated tag prepares a draft GitHub release, which the maintainer reviews
 and publishes after checking its assets and notes:
 
-1. After the evidence record is complete, finalize the prepared version in a
+1. After the pre-tag evidence is complete, finalize the prepared version in a
    pull request: replace its undated heading with `## [X.Y.Z] - YYYY-MM-DD`
    below the fresh empty `[Unreleased]`. For an ordinary release without a
    prepared section, move the Unreleased entries into that dated heading. Leave the
