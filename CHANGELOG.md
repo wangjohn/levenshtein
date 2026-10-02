@@ -15,6 +15,12 @@ says which interfaces are versioned and what to expect when you bump your pin.
 - A minimal GitHub Actions starter workflow, prominent README setup instructions,
   and a maintainer checklist for publishing the existing action to Marketplace.
 
+### Fixed
+
+- Shortened the GitHub Action description to meet Marketplace
+  metadata requirements. The correction requires a new release; the existing
+  v0.2.0 tag retains its original metadata.
+
 ## [0.3.0] - Unreleased (release preparation; not published)
 
 ### Upgrading from 0.2.0

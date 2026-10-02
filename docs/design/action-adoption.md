@@ -1,8 +1,8 @@
 # GitHub Action adoption plan
 
-Status: implementation validated; both consumer smoke cases passed their
-expected outcomes. Marketplace publication and listing links are pending
-browser authentication and implementation merge.
+Status: implementation merged and validated. Marketplace publication is
+blocked by v0.2.0 metadata; a new reviewed release containing the shortened
+action description is required before publication and listing links.
 Created October 2, 2026.
 
 ## Goal
@@ -189,9 +189,13 @@ blocker should be recorded with GitHub's exact error and the remaining owner act
   failed with `SA5001` in `broken.go:8`; GitHub recorded the finding as an
   annotation, and the annotation and job summary steps both completed successfully.
   The private test repository was archived after validation to preserve evidence.
-- Publication blocker: the CLI is authenticated as the repository owner, but
-  the available browser redirects the release edit form to GitHub sign-in.
-  Marketplace validation/publication must finish through that authenticated form.
-  No agreement was accepted, release published, or Marketplace badge added.
+- The owner signed in and accepted Developer Agreement v2.4. The release form
+  permits Marketplace publication but rejects v0.2.0: “Description must be
+  less than 125 characters.” Main now has a follow-up metadata correction;
+  v0.2.0 is unchanged. A new reviewed release must contain the correction.
+  No Marketplace release was published and no guessed badge URL was added.
 
 Implementation PR: [#112](https://github.com/wangjohn/levenshtein/pull/112).
+
+PR #112 merged as `7e9506eb807d37d62c98052bebaa90e3504fea81`; its ready-PR
+checks, including all four release platforms and release smoke, passed.
