@@ -9,6 +9,15 @@ import (
 	"testing"
 )
 
+func rulesetTools(t *testing.T) {
+	t.Helper()
+	for _, tool := range []string{"bash", "jq"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s is not installed: %v", tool, err)
+		}
+	}
+}
+
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -81,6 +90,8 @@ func TestReleaseAncestryGuard(t *testing.T) {
 
 func TestReleaseTagPolicies(t *testing.T) {
 	t.Parallel()
+	rulesetTools(t)
+
 	for _, file := range []string{"tags.json", "tags-creation.json"} {
 		t.Run(file, func(t *testing.T) {
 			t.Parallel()
@@ -112,6 +123,8 @@ func TestReleaseTagPolicies(t *testing.T) {
 }
 
 func TestProposalsAreExcludedFromLiveComparison(t *testing.T) {
+	rulesetTools(t)
+
 	root := fixture(t)
 	bin := filepath.Join(root, "bin")
 	writeFile(t, filepath.Join(bin, "gh"), `#!/usr/bin/env bash
@@ -141,6 +154,8 @@ esac
 
 func TestReleasePolicyRejectsWeakenedRules(t *testing.T) {
 	t.Parallel()
+	rulesetTools(t)
+
 	tests := []struct {
 		name string
 		file string
