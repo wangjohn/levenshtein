@@ -88,6 +88,15 @@ class PatchedGo:
             base()
             .with_file("/usr/local/bin/codegen", codegen_binary())
             .with_directory("/src", source)
+            # Dagger filters the module context before invoking a custom SDK.
+            # The sibling local replacement is not guaranteed to survive that
+            # filter, so supply it from this adapter's own source explicitly.
+            .with_directory(
+                posixpath.normpath(posixpath.join(
+                    "/src", subpath, "../sdk/patched-go/otel-go"
+                )),
+                dag.current_module().source().directory("otel-go"),
+            )
             .with_file("/schema.json", introspection_json)
             .with_workdir(posixpath.join("/src", subpath))
         )

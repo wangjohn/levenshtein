@@ -23,6 +23,11 @@ its embedded manifest preserve local directory replacements. A generator test
 executes the replacement commands twice; the security gate also requires the
 shipped replacement after two complete Dagger generations.
 
+The adapter explicitly adds that dependency to the generated container's source
+tree, because Dagger can filter sibling directories out of the module context.
+`uv run --locked python -m unittest test_prepared.py` checks this preparation
+with a filtered context, including a module below a nested directory.
+
 Trace exporters are pinned to v1.45.0 to fix
 [GO-2026-6505](https://pkg.go.dev/vuln/GO-2026-6505). The engine remains 0.21.9.
 

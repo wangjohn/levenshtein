@@ -7,6 +7,7 @@ cd "$root"
 
 # The adapter's Python dependencies install from its lock on every Dagger run.
 "$root/scripts/test-sdk-lock"
+(cd sdk/patched-go && UV_PROJECT_ENVIRONMENT="$temporary/python" uv run --locked python -m unittest test_prepared.py)
 
 # A second generation must preserve the fix, not restore Dagger's old overrides.
 dagger develop --compat=skip
@@ -27,12 +28,13 @@ for module in "${modules[@]}"; do
 done
 
 modules=(
+  go.opentelemetry.io/otel/sdk
   go.opentelemetry.io/otel/exporters/otlp/otlptrace
   go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc
   go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp
 )
 for module in "${modules[@]}"; do
-  version=$(cd runner && go list -m -f '{{.Version}}' "$module")
+  version=$(cd runner && go list -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' "$module")
   if [[ "$version" != v1.45.0 ]]; then
     echo "Unexpected effective version of $module: $version (want v1.45.0)" >&2
     exit 1
