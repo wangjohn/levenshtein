@@ -63,8 +63,9 @@ check scans in `main` and in `vulnerabilities.yml`.
 every pull request, push to `main`, and weekly, so the audits that query GitHub
 (`impostor-commit`, `known-vulnerable-actions`, `ref-confusion`), which the
 offline shared check cannot run, still gate changes and notice new advisories.
-It names the same inputs as the shared check, so the deliberately insecure
-fixture under `runner/testdata` stays out of it, and runs the zizmor version
+It names the same inputs as the shared check plus both consumer workflow
+templates, so the deliberately insecure fixture under `runner/testdata` stays
+out of it, and runs the zizmor version
 `runner/toolchain.json` pins (a test keeps the two equal); OpenSSF Scorecard with a SARIF upload to code
 scanning on `main` and the weekly schedule, since Scorecard reads the default
 branch rather than a pull request's merge ref; and `dependency-review` on pull

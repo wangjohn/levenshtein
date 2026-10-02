@@ -10,6 +10,11 @@ says which interfaces are versioned and what to expect when you bump your pin.
 
 ## [Unreleased]
 
+### Added
+
+- A minimal GitHub Actions starter workflow, prominent README setup instructions,
+  and a maintainer checklist for publishing the existing action to Marketplace.
+
 ## [0.3.0] - Unreleased (release preparation; not published)
 
 ### Upgrading from 0.2.0

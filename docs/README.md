@@ -17,7 +17,7 @@ Every page, grouped by what you are trying to do. New to Levenshtein? Read the [
 ## Adopt
 
 - [Setup](setup.md): prerequisites, and running `./verify` locally
-- [Using it in CI](consumer-ci.md): the GitHub Action and other CI providers
+- [Using it in CI](consumer-ci.md): minimal GitHub Actions setup, advanced options, and other CI providers
 - [Coding agents](agents.md): templates for Claude Code hooks, `AGENTS.md`, a workflow, and a starter config
 - [Releases](releases.md): prebuilt archives, and pinning a release
 - [Troubleshooting](troubleshooting.md): common errors and what to do about them

@@ -19,10 +19,12 @@ if (cd "$temporary/source" && "$temporary/actionlint" -shellcheck= -pyflakes= .g
 fi
 grep -q nonexistent "$temporary/workflow.log"
 
-# The consumer workflow template must lint as it would once copied into place.
+# Every consumer workflow template must lint as it would once copied into place.
 mkdir -p "$temporary/consumer/.github/workflows"
-cp "$root/templates/github/workflows/levenshtein.yml" "$temporary/consumer/.github/workflows/levenshtein.yml"
-(cd "$temporary/consumer" && "$temporary/actionlint" -shellcheck= -pyflakes= .github/workflows/levenshtein.yml)
+for template in "$root"/templates/github/workflows/*.yml; do
+  cp "$template" "$temporary/consumer/.github/workflows/levenshtein.yml"
+  (cd "$temporary/consumer" && "$temporary/actionlint" -shellcheck= -pyflakes= .github/workflows/levenshtein.yml)
+done
 
 # A synthetic local database proves reachable findings return 3. No live
 # advisories or network availability can change this test's expected result.

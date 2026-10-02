@@ -11,6 +11,7 @@ The templates live in [`templates/`](../templates) in this repository. They are 
 | [`claude/settings.json`](../templates/claude/settings.json) | `.claude/settings.json` | Registers the two Claude Code hooks below |
 | [`claude/hooks/levenshtein-stop.sh`](../templates/claude/hooks/levenshtein-stop.sh) | `.claude/hooks/levenshtein-stop.sh` | Blocks finishing while the fast run fails |
 | [`claude/hooks/levenshtein-gofmt.sh`](../templates/claude/hooks/levenshtein-gofmt.sh) | `.claude/hooks/levenshtein-gofmt.sh` | Reports an unformatted Go file right after the edit |
+| [`github/workflows/levenshtein-minimal.yml`](../templates/github/workflows/levenshtein-minimal.yml) | `.github/workflows/levenshtein.yml` | A minimal pull request check with annotations and a job summary |
 | [`github/workflows/levenshtein.yml`](../templates/github/workflows/levenshtein.yml) | `.github/workflows/levenshtein.yml` | The GitHub Action with annotations and an optional code scanning upload |
 
 The layout the templates assume is the one [consumer CI](consumer-ci.md) describes: your repository and a pinned Levenshtein checkout side by side.
@@ -71,10 +72,16 @@ It stops at formatting because that is the one rule a single file answers quickl
 
 ## The GitHub Actions workflow
 
+`github/workflows/levenshtein-minimal.yml` is the smallest setup: checkout and
+verify on pull requests or manual dispatch, with `contents: read` permissions.
+A single Go module needs no configuration. Copy either workflow to
+`.github/workflows/levenshtein.yml`; choose the advanced template when you need
+merge queue support, a daily dependency audit, or code scanning.
+
 `github/workflows/levenshtein.yml` is the workflow from [consumer CI](consumer-ci.md#github-actions) with a code scanning upload added. It runs `branch` on pushes, `pre-merge` on pull requests, and `main` on the daily schedule; annotates failing findings on the pull request; and writes `levenshtein.sarif`, which a same-repository event uploads with `github/codeql-action/upload-sarif`. The job asks for `security-events: write` for the upload only; delete that permission, the `sarif` input, and the upload step if you do not use code scanning. Annotations need no permission and also appear on pull requests from forks.
 
 The `annotations` and `sarif` inputs are new in release 0.2.0, which the template pins; a pin to 0.1.0 does not have them.
 
 ## Validation
 
-This repository tests the templates: the starter configuration must parse and plan every run with native checks only (`internal/verify/templates_test.go`), the settings must parse and name both scripts, each hook runs against a stand-in launcher and a scratch git repository, the workflow must pass actionlint (`scripts/test-tool-checks`), its Levenshtein pin must name a tagged release by its commit SHA (`scripts/test-doc-pins`), and CI runs shellcheck over the scripts.
+This repository tests the templates: the starter configuration must parse and plan every run with native checks only (`internal/verify/templates_test.go`), the settings must parse and name both scripts, each hook runs against a stand-in launcher and a scratch git repository, both workflow templates must pass actionlint (`scripts/test-tool-checks`) and zizmor audits (the security workflow), its Levenshtein pin must name a tagged release by its commit SHA (`scripts/test-doc-pins`), and CI runs shellcheck over the scripts.

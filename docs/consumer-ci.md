@@ -54,7 +54,59 @@ For an advisory model review of each pull request, add a native environment, a `
 
 ## GitHub Actions
 
-Call the action at the repository root. The ref you pin is the revision of the shared checks: GitHub downloads Levenshtein at that ref outside your workspace, so the shared runner's files never enter the verified source. This is a complete workflow:
+Save this as `.github/workflows/levenshtein.yml` in your application repository,
+or copy the [minimal workflow template](../templates/github/workflows/levenshtein-minimal.yml):
+
+```yaml
+name: Levenshtein
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify
+        uses: wangjohn/levenshtein@3d47ab4c589fdf3a30107b6dd3f0816c1f346c85 # v0.2.0
+```
+
+A single Go module at the repository root needs no `levenshtein.json`, secrets,
+or separate Go setup. The action sets up Go and caches, annotates findings on
+pull requests (including forks), and writes a job summary. Default checks use
+Dagger and the Docker runtime provided by the GitHub-hosted Ubuntu runner.
+For multiple modules or custom checks, add [configuration](configuration.md).
+For existing lint findings, see [adopting with a baseline](#adopting-the-rules-with-existing-findings).
+
+Call the action at the repository root. The ref you pin is the revision of the
+shared checks: GitHub downloads Levenshtein at that ref outside your workspace,
+so the shared runner's files never enter the verified source.
+
+### Extend the starter workflow
+
+The starter runs on pull requests and manual dispatch. It does not perform a
+daily dependency vulnerability audit. Add the events below when you need them:
+
+- `merge_group:` before making `verify` required in a repository with a merge
+  queue, so queued changes can report their required result.
+- `push: branches: [main]` for the `branch` run on default-branch commits; change
+  `main` if your default branch has another name.
+- `schedule:` with a daily cron expression for the `main` run, which also checks
+  dependency vulnerabilities and reruns checks instead of reusing saved results.
+
+Make the `verify` job a required status check through your repository's branch
+protection or ruleset once the workflow is passing. The expanded workflow below
+includes these events. The [advanced template](../templates/github/workflows/levenshtein.yml)
+also adds the optional code scanning upload described under [Code scanning](#code-scanning).
 
 ```yaml
 name: Application verification
@@ -98,7 +150,9 @@ The action's outputs are `run`, the run it executed, `report`, the path to the J
 
 The annotations and the SARIF file are rendered from the saved JSON report with `verify --render` after the Verify step, so they never run the checks again or change the step's result, and a repository whose `source` is a subdirectory gets paths relative to the workspace. Neither needs a permission beyond `contents: read`: annotations are workflow commands in the step's log. [Output formats](configuration.md#output-formats) describes both.
 
-**Code scanning.** To see findings in the repository's Security tab and on pull request diffs, pass `sarif:` and upload the file in a later step of the same job. The upload, not this action, needs `security-events: write`; a private repository's upload also needs `actions: read`. A pull request from a fork never gets `security-events: write`, so upload only from same-repository events and keep annotations for forks:
+### Code scanning
+
+To see findings in the repository's Security tab and on pull request diffs, pass `sarif:` and upload the file in a later step of the same job. The upload, not this action, needs `security-events: write`; a private repository's upload also needs `actions: read`. A pull request from a fork never gets `security-events: write`, so upload only from same-repository events and keep annotations for forks:
 
 ```yaml
 jobs:
@@ -126,11 +180,17 @@ jobs:
 
 `!cancelled()` uploads after a failing Verify step too, which is when there is something to see. The `annotations` and `sarif` inputs are new in 0.2.0 (see the [changelog](../CHANGELOG.md)); a pin to 0.1.0 does not have them. [`templates/github/workflows/levenshtein.yml`](../templates/github/workflows/levenshtein.yml) is this workflow ready to copy, and [coding agents](agents.md) describes the other templates.
 
-**Adopting the rules with existing findings.** Name a `baseline` file in `levenshtein.json`, run `verify main --source . --write-baseline` once over the whole repository, and commit the file. From then on a new finding fails the job, a baselined one is reported without failing it, and fixing a baselined finding fails until its entry is deleted in the same change, so the file only shrinks. `verify` never adds entries on its own; only `--write-baseline` does, so an entry that grows the file shows up in review. Consider a `CODEOWNERS` entry for the file. See [baseline](configuration.md#baseline).
+### Adopting the rules with existing findings
 
-**Pin a release.** The examples pin the commit SHA of the published [release](releases.md) v0.2.0, with the version as a comment, as this repository does for every action it calls: a SHA cannot be moved. `@v0.2.0` also works but trusts the tag. Dependabot's `github-actions` ecosystem proposes new Levenshtein releases like any other action, including the SHA and comment. Do not pin a branch.
+Name a `baseline` file in `levenshtein.json`, run `verify main --source . --write-baseline` once over the whole repository, and commit the file. From then on a new finding fails the job, a baselined one is reported without failing it, and fixing a baselined finding fails until its entry is deleted in the same change, so the file only shrinks. `verify` never adds entries on its own; only `--write-baseline` does, so an entry that grows the file shows up in review. Consider a `CODEOWNERS` entry for the file. See [baseline](configuration.md#baseline).
 
-**Caching and trust.** The action keeps two caches. Completed results are small records, saved per commit from every event and keyed by runner OS, architecture, and job; a pull request's entries live in that pull request's own cache scope, which the default branch never reads, so an untrusted pull request cannot seed `main`'s results. Every result is re-keyed by a content fingerprint before reuse, so a restored directory can only skip work, never change a verdict. The Staticcheck analysis cache, used by native `go-lint`, is saved only from pushes to the default branch and scheduled runs, keyed by a hash of the pinned linter; pull requests restore it and never write it. Helper binaries are not cached, because they rebuild from Go's build cache in seconds.
+### Pin a release
+
+The examples pin the commit SHA of the published [release](releases.md) v0.2.0, with the version as a comment, as this repository does for every action it calls: a SHA cannot be moved. `@v0.2.0` also works but trusts the tag. Dependabot's `github-actions` ecosystem proposes new Levenshtein releases like any other action, including the SHA and comment. Do not pin a branch.
+
+### Caching and trust
+
+The action keeps two caches. Completed results are small records, saved per commit from every event and keyed by runner OS, architecture, and job; a pull request's entries live in that pull request's own cache scope, which the default branch never reads, so an untrusted pull request cannot seed `main`'s results. Every result is re-keyed by a content fingerprint before reuse, so a restored directory can only skip work, never change a verdict. The Staticcheck analysis cache, used by native `go-lint`, is saved only from pushes to the default branch and scheduled runs, keyed by a hash of the pinned linter; pull requests restore it and never write it. Helper binaries are not cached, because they rebuild from Go's build cache in seconds.
 
 ## A native lint job without Docker
 

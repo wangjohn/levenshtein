@@ -7,6 +7,47 @@
 **A curated set of Go lint rules and verification checks, easy to hook up to any
 Go repo.**
 
+## Add to GitHub Actions
+
+Save this as `.github/workflows/levenshtein.yml` in your Go repository:
+
+```yaml
+name: Levenshtein
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify
+        uses: wangjohn/levenshtein@3d47ab4c589fdf3a30107b6dd3f0816c1f346c85 # v0.2.0
+```
+
+A single Go module at the repository root needs no configuration. The action
+sets up Go, runs the checks, annotates failures on pull requests, and writes a
+job summary. The first run downloads and builds the tools; later runs reuse
+cached results where possible. Default checks use Docker, which is available
+on this GitHub-hosted Ubuntu runner.
+
+[Copy the starter workflow](templates/github/workflows/levenshtein-minimal.yml)
+or see the [CI setup guide](docs/consumer-ci.md#github-actions) for merge queues,
+daily dependency audits, and code scanning. If your repo already has lint
+findings, a [baseline](docs/configuration.md#baseline) lets you start by blocking
+new ones. To try Levenshtein locally, see [Quickstart](#quickstart).
+
+## Why Levenshtein
+
 Coding agents are writing more and more of our code, and I want as much of
 that code as possible to be verifiable. Good lint rules and automated checks
 give agents feedback they can act on while they work, and give us more than
