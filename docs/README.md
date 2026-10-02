@@ -4,9 +4,9 @@ Every page, grouped by what you are trying to do. New to Levenshtein? Read the [
 
 ## Evaluate
 
-- [Project README](../README.md): what Levenshtein checks, an example, and a quick start
+- [Project README](../README.md): what Levenshtein checks and a quick start
 - [FAQ](faq.md): Levenshtein or golangci-lint, Docker, and other languages
-- [Shared checks](checks.md): checks versus rules, and where each is documented
+- [Lint and CI/CD rules index](checks.md): all shared checks, lint rules, and this repository's CI and release policies
 - [Go lint rules](rules.md): every rule `go-lint` enforces, why, and how to suppress a finding
 - [Rule selection](rule-selection.md): how rules are chosen, the measurements, and every analyzer left off
 - [Versioning](versioning.md): what a release may change and what to expect when you bump your pin
