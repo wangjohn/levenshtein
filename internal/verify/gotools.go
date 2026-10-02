@@ -1,7 +1,6 @@
 package verify
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -116,6 +115,11 @@ type toolRun struct {
 	ExitCode int
 	Stdout   string
 	Stderr   string
+	Warnings []Warning
+}
+
+func (r toolRun) diagnostics() checktool.Run {
+	return checktool.Run{ExitCode: r.ExitCode, Stdout: r.Stdout, Stderr: r.Stderr}
 }
 
 func runTool(ctx context.Context, dir string, args, env []string, timeout time.Duration) (toolRun, error) {
@@ -131,23 +135,26 @@ func runTool(ctx context.Context, dir string, args, env []string, timeout time.D
 	cmd.Env = env
 	cmd.WaitDelay = time.Second
 	configureProcess(cmd)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	stdout, stderr := newOutputBuffer(), newOutputBuffer()
+	cmd.Stdout, cmd.Stderr = stdout, stderr
 
 	err = cmd.Run()
 	cleanupProcess(cmd)
-	run := toolRun{Stdout: stdout.String(), Stderr: stderr.String()}
-
+	exitCode := 0
 	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		exitCode = exit.ExitCode()
+	}
+	run := toolRun{ExitCode: exitCode, Stdout: stdout.String(), Stderr: stderr.String(), Warnings: outputWarnings(stdout, stderr)}
+
 	switch {
-	case err == nil:
-		return run, nil
 	case ctx.Err() != nil:
 		return run, ctx.Err()
 	case child.Err() != nil:
 		return run, fmt.Errorf("%s timed out after %s", filepath.Base(path), timeout)
-	case errors.As(err, &exit):
-		run.ExitCode = exit.ExitCode()
+	case len(run.Warnings) != 0:
+		return run, fmt.Errorf("%s output truncated; refusing incomplete tool diagnostics (exit code %d)", filepath.Base(path), run.ExitCode)
+	case err == nil, errors.As(err, &exit):
 		return run, nil
 	default:
 		return run, err

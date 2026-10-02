@@ -68,6 +68,17 @@ func items(report Report) []item {
 // entries belong to no check, so the item has no check or row of its own.
 func findingItems(report Report) []item {
 	all := items(report)
+	// Result warnings are presentation-only advisories, never
+	// diagnostic details that a baseline could suppress.
+	for i, it := range all {
+		for _, warning := range it.result.Warnings {
+			if !slices.ContainsFunc(all[i].findings, func(f finding) bool {
+				return f.Advisory && f.Code == string(warning.Kind) && f.Message == warning.Message
+			}) {
+				all[i].findings = append(all[i].findings, finding{Code: string(warning.Kind), Message: warning.Message, Location: location{File: it.check.Target.Dir}, Advisory: true})
+			}
+		}
+	}
 	if report.Baseline == nil || len(report.Baseline.Orphaned) == 0 {
 		return all
 	}
