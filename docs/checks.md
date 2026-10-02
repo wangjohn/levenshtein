@@ -39,16 +39,16 @@ required checks, and cache trust in detail.
 
 | Policy | Documentation and enforcement |
 | --- | --- |
-| Verification runs | [Repository config](../levenshtein.json) and [self-check workflow](../.github/workflows/verify.yml): static checks, race tests, consumer and language fixtures, action tests, and release smoke tests |
-| Formatting and documentation | [CI hygiene gates](maintainers/ci.md#jobs): gofmt, Ruff, documentation links and indexes, [SDK lock validation](../scripts/test-sdk-lock), and [release pins in examples](../scripts/test-doc-pins) |
-| Workflow conventions | [Workflow checks](../scripts/test-workflows): consistent action pins, concurrency groups, merge-queue triggers, and secrets in step environments; [Dependabot](../.github/dependabot.yml) supplies grouped updates |
-| Security audits | [Security workflow](../.github/workflows/security.yml): online zizmor audits, OpenSSF Scorecard, and dependency review; [vulnerability workflow](../.github/workflows/vulnerabilities.yml): Go modules and the SDK adapter's dependencies |
-| Merge requirements | [Required-check policy](maintainers/ci.md#required-checks-branch-protection), the [committed main ruleset](../.github/rulesets/main.json), and [live drift check](../scripts/test-rulesets) |
+| Verification runs | [Repository config](https://github.com/wangjohn/levenshtein/blob/main/levenshtein.json) and [self-check workflow](https://github.com/wangjohn/levenshtein/blob/main/.github/workflows/verify.yml): static checks, race tests, consumer and language fixtures, action tests, and release smoke tests |
+| Formatting and documentation | [CI hygiene gates](maintainers/ci.md#jobs): gofmt, Ruff, documentation links and indexes, [SDK lock validation](https://github.com/wangjohn/levenshtein/blob/main/scripts/test-sdk-lock), and [release pins in examples](https://github.com/wangjohn/levenshtein/blob/main/scripts/test-doc-pins) |
+| Workflow conventions | [Workflow checks](https://github.com/wangjohn/levenshtein/blob/main/scripts/test-workflows): consistent action pins, concurrency groups, merge-queue triggers, and secrets in step environments; [Dependabot](https://github.com/wangjohn/levenshtein/blob/main/.github/dependabot.yml) supplies grouped updates |
+| Security audits | [Security workflow](https://github.com/wangjohn/levenshtein/blob/main/.github/workflows/security.yml): online zizmor audits, OpenSSF Scorecard, and dependency review; [vulnerability workflow](https://github.com/wangjohn/levenshtein/blob/main/.github/workflows/vulnerabilities.yml): Go modules and the SDK adapter's dependencies |
+| Merge requirements | [Required-check policy](maintainers/ci.md#required-checks-branch-protection), the [committed main ruleset](https://github.com/wangjohn/levenshtein/blob/main/.github/rulesets/main.json), and [live drift check](https://github.com/wangjohn/levenshtein/blob/main/scripts/test-rulesets) |
 | Advisory review and mutation testing | [CI jobs](maintainers/ci.md#jobs) and [mutation policy](mutation.md): separate PR jobs, currently outside the required checks; semantic review skips when its service key is absent |
 | Cache isolation and fresh audits | [Result-cache trust](maintainers/ci.md#result-cache-trust) and [cache configuration](maintainers/ci.md#caches-and-self-config-notes) |
-| Release builds and publication | [Release procedure](maintainers/releases.md) and [workflow](../.github/workflows/release.yml): release tags must point to `main` and a changelog entry; archives, checksums, SBOMs, and attestations are prepared as a draft for manual publication |
-| Release tag protection | [Tag protection instructions](maintainers/releases.md#protecting-release-tags); the [proposed tag rulesets](../.github/rulesets/proposed/tags.json) and [creation ruleset](../.github/rulesets/proposed/tags-creation.json) require an admin to apply them |
-| Contributions and local hooks | [Contributing](../CONTRIBUTING.md), [agent conventions](../AGENTS.md), and [optional Lefthook config](../lefthook.yml) |
+| Release builds and publication | [Release procedure](maintainers/releases.md) and [workflow](https://github.com/wangjohn/levenshtein/blob/main/.github/workflows/release.yml): release tags must point to `main` and a changelog entry; archives, checksums, SBOMs, and attestations are prepared as a draft for manual publication |
+| Release tag protection | [Tag protection instructions](maintainers/releases.md#protecting-release-tags); the [proposed tag rulesets](https://github.com/wangjohn/levenshtein/blob/main/.github/rulesets/proposed/tags.json) and [creation ruleset](https://github.com/wangjohn/levenshtein/blob/main/.github/rulesets/proposed/tags-creation.json) require an admin to apply them |
+| Contributions and local hooks | [Contributing](../CONTRIBUTING.md), [agent conventions](../AGENTS.md), and [optional Lefthook config](https://github.com/wangjohn/levenshtein/blob/main/lefthook.yml) |
 
 ## Go lint rules
 
