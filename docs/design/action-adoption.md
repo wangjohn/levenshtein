@@ -1,6 +1,8 @@
 # GitHub Action adoption plan
 
-Status: ready for implementation. Created October 2, 2026.
+Status: implementation prepared; consumer smoke validation in progress;
+Marketplace publication and listing links pending browser authentication.
+Created October 2, 2026.
 
 ## Goal
 
@@ -20,10 +22,11 @@ syntax and point readers to that same setup.
 
 ## 1. Check the current public state
 
-- [ ] Confirm the default branch and latest published release, and that the
+- [x] Confirm the default branch and latest published release, and that the
   chosen release contains the root `action.yml` and all its runtime files.
-- [ ] Check whether a Marketplace listing already exists. Public GitHub access
-  was unavailable during the initial investigation; absence is unverified.
+- [x] Check whether a Marketplace listing already exists. The public Marketplace
+  search for `levenshtein` returned only an unrelated action on October 2, 2026.
+  The expected listing URL returned 404; name eligibility still needs the release form.
 - [ ] Read GitHub's current [Marketplace publishing requirements](https://docs.github.com/en/actions/how-tos/create-and-publish-actions/publish-in-github-marketplace).
   Confirm repository eligibility, including its contents, root metadata file,
   and uniqueness of the action name `Levenshtein verify`. Use GitHub's release
@@ -42,16 +45,16 @@ Create `templates/github/workflows/levenshtein-minimal.yml`. Keep the existing
 `templates/github/workflows/levenshtein.yml` as the advanced example so existing
 links and its code scanning setup continue to work.
 
-- [ ] Name the workflow `Levenshtein` and the job `verify`.
-- [ ] Trigger it on `pull_request` and `workflow_dispatch`.
-- [ ] Use `ubuntu-24.04`, a 20-minute timeout, and `contents: read` permissions.
-- [ ] Include just checkout and the Levenshtein action. Copy the checkout pin
+- [x] Name the workflow `Levenshtein` and the job `verify`.
+- [x] Trigger it on `pull_request` and `workflow_dispatch`.
+- [x] Use `ubuntu-24.04`, a 20-minute timeout, and `contents: read` permissions.
+- [x] Include just checkout and the Levenshtein action. Copy the checkout pin
   from existing workflows, set `persist-credentials: false`, and pin
   Levenshtein to a published release SHA with the version comment.
-- [ ] Let the action choose its run and use its default caching and annotations.
+- [x] Let the action choose its run and use its default caching and annotations.
   Do not require a `levenshtein.json`, extra secrets, SARIF upload, or a separate
   Go setup step for the single-module starter.
-- [ ] Explain in a short comment that consumers save the file as
+- [x] Explain in a short comment that consumers save the file as
   `.github/workflows/levenshtein.yml`; link to the consumer CI guide.
 
 The initial template is a pull request check. Document optional additions
@@ -66,16 +69,16 @@ Docker runtime during the consumer smoke test.
 Update `README.md` after the short product description and before the longer
 background and check catalog.
 
-- [ ] Add a section titled `Add to GitHub Actions` with the instruction:
+- [x] Add a section titled `Add to GitHub Actions` with the instruction:
   “Save this as `.github/workflows/levenshtein.yml` in your Go repository.”
-- [ ] Include the complete minimal workflow, matching the new template.
-- [ ] State that a single Go module at the repository root needs no configuration,
+- [x] Include the complete minimal workflow, matching the new template.
+- [x] State that a single Go module at the repository root needs no configuration,
   and that the action sets up Go and reports failures on pull requests.
-- [ ] Link to the minimal template and `docs/consumer-ci.md` for customization.
-- [ ] Keep local CLI setup easy to find with a nearby link to Quickstart.
-- [ ] Remove or shorten the later duplicate action introduction so readers get
+- [x] Link to the minimal template and `docs/consumer-ci.md` for customization.
+- [x] Keep local CLI setup easy to find with a nearby link to Quickstart.
+- [x] Remove or shorten the later duplicate action introduction so readers get
   one clear setup path rather than competing instructions.
-- [ ] Link to the baseline instructions for repositories with existing findings.
+- [x] Link to the baseline instructions for repositories with existing findings.
   Keep this as an optional next step, not part of the basic installation.
 
 Do not add a Marketplace badge with a guessed URL. Add it after the listing
@@ -85,27 +88,27 @@ has been published and its actual URL has been verified.
 
 Update `docs/consumer-ci.md` and `docs/maintainers/releases.md` in the same change.
 
-- [ ] Start the GitHub Actions section with the minimal setup and a link to its
+- [x] Start the GitHub Actions section with the minimal setup and a link to its
   template. Keep the existing full workflow under an advanced setup subsection.
-- [ ] Explain when to add merge queue support, daily audits, SARIF uploads, and
+- [x] Explain when to add merge queue support, daily audits, SARIF uploads, and
   required status checks. Keep the simple and advanced examples clearly labeled.
-- [ ] Check existing links to `#github-actions` and the current template still work.
-- [ ] Add Marketplace publication to the maintainer release checklist, preserving
+- [x] Check existing links to `#github-actions` and the current template still work.
+- [x] Add Marketplace publication to the maintainer release checklist, preserving
   the existing draft release, archive validation, and consumer pin update process.
-- [ ] Document the owner steps: accept the Marketplace Developer Agreement if
+- [x] Document the owner steps: accept the Marketplace Developer Agreement if
   needed, enable the publication checkbox, resolve metadata validation errors,
   choose the closest available code quality/security categories, and publish.
-- [ ] Include checking Marketplace publication on subsequent releases so its
+- [x] Include checking Marketplace publication on subsequent releases so its
   displayed version does not silently lag behind GitHub releases.
 
 ## 5. Validate the implementation
 
-- [ ] Run `./scripts/test-doc-pins`; use `--latest` when updating examples to the
+- [x] Run `./scripts/test-doc-pins`; use `--latest` when updating examples to the
   newest published release. New files must also be covered by validation:
   the current script uses `git grep`, so untracked files are omitted until
   staged or otherwise included in the check.
-- [ ] Run `./scripts/test-workflows` to check shared action pins and workflow policy.
-- [ ] Run the repository's existing actionlint/workflow-security checks over the
+- [x] Run `./scripts/test-workflows` to check shared action pins and workflow policy.
+- [x] Run the repository's existing actionlint/workflow-security checks over the
   new template as well as the existing examples. Inspect their file coverage;
   do not assume adding a template makes it automatically included.
 - [ ] Compare the README workflow with the minimal template and inspect Markdown
@@ -161,3 +164,24 @@ The work is complete when the minimal setup passes the consumer smoke test,
 the Marketplace listing is public with a usable release, and readers can reach
 both setup and listing directly from the README. Any eligibility or publication
 blocker should be recorded with GitHub's exact error and the remaining owner action.
+
+## Implementation evidence
+
+- Public repository: `main`; latest published release: v0.2.0, commit
+  `3d47ab4c589fdf3a30107b6dd3f0816c1f346c85`. The annotated tag was checked
+  through GitHub's API and contains the root action. The prepared v0.3.0
+  changelog section on main remains unpublished and is not used by consumers.
+- Local validation: `scripts/test-doc-pins --latest`, `scripts/test-workflows`,
+  `scripts/test-tool-checks`, actionlint over both templates and the changed
+  security workflow, offline zizmor 1.30.1 audits, and starter snippet/link
+  checks passed. New templates are tracked and included in the pin checks.
+- Security coverage: explicitly name both template files in `security.yml`.
+  Zizmor's directory discovery skips workflow templates outside `.github/workflows`;
+  passing `templates/github/workflows` alone collected no inputs locally.
+- Consumer validation uses a disposable private repository with the copied
+  starter workflow, one dependency-free Go module, and no custom configuration.
+  [Smoke test pull request](https://github.com/wangjohn/levenshtein-action-adoption-smoke-20261002/pull/1).
+- Publication blocker: the CLI is authenticated as the repository owner, but
+  the available browser redirects the release edit form to GitHub sign-in.
+  Marketplace validation/publication must finish through that authenticated form.
+  No agreement was accepted, release published, or Marketplace badge added.
