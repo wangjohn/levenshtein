@@ -102,20 +102,20 @@ func TestAccountForEverySelectedCheck(t *testing.T) {
 }
 
 type orderedExecutor struct {
-	mu    sync.Mutex
-	delay map[string]time.Duration
-	seen  []string
+	started   chan string
+	release   map[string]chan struct{}
+	completed chan string
 }
 
-func (o *orderedExecutor) Execute(_ context.Context, req Request) Result {
-	if delay := o.delay[req.ID]; delay > 0 {
-		time.Sleep(delay)
+func (o *orderedExecutor) Execute(ctx context.Context, req Request) Result {
+	o.started <- req.ID
+	select {
+	case <-o.release[req.ID]:
+		o.completed <- req.ID
+		return Result{Status: StatusPassed, Stdout: req.ID}
+	case <-ctx.Done():
+		return Result{Status: StatusCancelled, Error: ctx.Err().Error()}
 	}
-
-	o.mu.Lock()
-	o.seen = append(o.seen, req.ID)
-	o.mu.Unlock()
-	return Result{Status: StatusPassed, Stdout: req.ID}
 }
 
 func TestParallelExecutePreservesPlanOrder(t *testing.T) {
@@ -128,20 +128,66 @@ func TestParallelExecutePreservesPlanOrder(t *testing.T) {
 			{ID: "mid", Environment: Environment{Executor: executorFake}},
 		},
 	}
-	executor := &orderedExecutor{delay: map[string]time.Duration{
-		"slow": 80 * time.Millisecond,
-		"fast": 5 * time.Millisecond,
-		"mid":  20 * time.Millisecond,
-	}}
-
-	start := time.Now()
-	report := NewSession(nil).Execute(context.Background(), plan, "", map[ExecutorKind]Executor{executorFake: executor}, 0)
-	elapsed := time.Since(start)
-	if report.Status != StatusPassed {
-		t.Fatalf("status: %+v", report)
+	executor := &orderedExecutor{
+		started: make(chan string, len(plan.Checks)),
+		release: map[string]chan struct{}{
+			"slow": make(chan struct{}),
+			"fast": make(chan struct{}),
+			"mid":  make(chan struct{}),
+		},
+		completed: make(chan string, len(plan.Checks)),
 	}
-	if elapsed >= 80*time.Millisecond+20*time.Millisecond {
-		t.Fatalf("checks appear sequential: elapsed %s", elapsed)
+	// The timeout bounds a broken executor's cleanup, rather than judging speed.
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	reports := make(chan Report, 1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		reports <- NewSession(nil).Execute(ctx, plan, "", map[ExecutorKind]Executor{executorFake: executor}, len(plan.Checks))
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Error("execution did not stop after cancellation")
+		}
+	})
+
+	// No check can finish until all three have started. A sequential executor
+	// cannot reach this barrier, even on a machine with only one available CPU.
+	started := make(map[string]bool, len(plan.Checks))
+	for range plan.Checks {
+		select {
+		case id := <-executor.started:
+			if _, exists := executor.release[id]; !exists || started[id] {
+				t.Fatalf("unexpected or duplicate start: %q", id)
+			}
+			started[id] = true
+		case <-ctx.Done():
+			t.Fatalf("checks did not start concurrently: %v", started)
+		}
+	}
+	for _, id := range []string{"fast", "mid", "slow"} {
+		close(executor.release[id])
+		select {
+		case completed := <-executor.completed:
+			if completed != id {
+				t.Fatalf("completed %q before released check %q", completed, id)
+			}
+		case <-ctx.Done():
+			t.Fatalf("released check %q did not complete", id)
+		}
+	}
+
+	var report Report
+	select {
+	case report = <-reports:
+	case <-ctx.Done():
+		t.Fatal("execution did not return its report")
+	}
+	if report.Status != StatusPassed || len(report.Results) != len(plan.Checks) {
+		t.Fatalf("incomplete report: %+v", report)
 	}
 	for i, id := range []string{"slow", "fast", "mid"} {
 		if report.Results[i].ID != id || report.Results[i].Stdout != id {

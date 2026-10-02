@@ -99,6 +99,9 @@ says which interfaces are versioned and what to expect when you bump your pin.
 
 ### Fixed
 
+- Native checks publish helper executables at immutable paths identified by
+  their compiled bytes. Concurrent checks using different shared revisions or
+  build settings can no longer replace a helper another check is about to run.
 - The generated Dagger SDK now uses OpenTelemetry logging 0.21.0 and
   core/trace exporters 1.45.0, fixing GO-2026-6508 and GO-2026-6505 without
   suppressions. The generator and runtime share a compatibility patch for
