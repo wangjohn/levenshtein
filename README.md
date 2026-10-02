@@ -23,36 +23,41 @@ checks in your repo’s configuration.
 
 ## What it checks
 
-The Go rules build on Staticcheck and other established linters, with a few
-rules of our own. They catch bugs and encourage code that's easier to read
-and maintain. For example, checking an error before using a file, closing
-HTTP response bodies, and defining constants for the values a status can take.
-We leave most naming and comment-style preferences out.
+Levenshtein combines Staticcheck, established Go analyzers, and a few rules
+of its own. The rules catch bugs and encourage readable code; most naming
+and comment-style preferences are left out.
 
-For example, `--format text` can report warnings like these:
+### Default checks
 
-```text
-config.go:10:2: SA5001 should check error returned from os.Open() before deferring f.Close()
-config.go:18:9: LV1001 string choice with multiple alternatives needs a defined string type and typed constants
-```
+`./verify` and `pre-merge` run these checks. Go vulnerability scanning runs
+only in `main`, which also reruns checks without using cached results.
 
-These are the available checks. The default run covers Go lint, `go vet`,
-and module checks; the others can be added to your repo's configuration.
-
-| Area | What it looks for |
+| Check | Example finding |
 | --- | --- |
-| Go bugs | Ignored errors, missing cases in enum switches, resources left open, lost request contexts, and incorrect logging calls |
-| Readable Go | Simpler expressions, useful newer Go features, consistent formatting, and structs built in one literal |
-| Dependencies | `go.mod` and `go.sum` that match the code, downloaded modules that match their checksums, and known vulnerabilities in dependencies |
-| Workflows and scripts | Errors in GitHub Actions workflows, unsafe workflow settings, and bugs in shell scripts |
-| Repository health | Committed secrets, imports that break package boundaries, outdated generated files, and changes that break a library's public API |
-| Tests | Data races, tests that cannot fail, and whether tests catch deliberate bugs introduced by mutation testing |
+| Staticcheck | **Close before error check:** deferring `f.Close()` before checking whether `os.Open` succeeded |
+| Bug-finding analyzers | **Unchecked error:** `file.Write(data)` |
+| Modernize | **Manual map copy:** a loop replaceable with `maps.Copy` |
+| Levenshtein's own rules | **Untyped status:** comparing a string to `"done"` and `"failed"` |
+| `go vet` | **Format mismatch:** `fmt.Printf("%d", "hello")` |
+| Module checks | **Missing dependency** in `go.mod` |
+| Go vulnerabilities (`main` only) | **Vulnerable function** called by your code |
 
-By default, `./verify` runs Go lint, `go vet`, and module checks. The
-`pre-merge` run does the same; `main` also checks Go dependencies for known
-vulnerabilities and reruns checks instead of reusing saved results. You can
-add the other checks to your own runs, including an experimental
-[set of rules run using Jev](docs/semantic-lint.md).
+### Optional checks
+
+Add these checks to your repo's [configuration](docs/configuration.md).
+
+| Check | Example finding |
+| --- | --- |
+| Race detector (`go-test`) | **Concurrent writes** to a shared map |
+| GitHub Actions lint (`workflow-lint`) | **Unknown property** in a workflow expression |
+| Workflow security (`workflow-security`) | **Shell injection** through a PR title |
+| ShellCheck (`shell-lint`) | **Unchecked directory change:** `cd "$dir"` without handling failure |
+| Secret scanning (`secrets`) | **Committed API key** |
+| Other dependency vulnerabilities (`deps-vuln`) | **Vulnerable package** in `package-lock.json` |
+| Import boundaries (`go-imports`) | **Forbidden import:** domain → database |
+| Generated files (`go-generate`) | **Stale generated code** |
+| API compatibility (`go-apidiff`) | **Removed exported function** |
+| Mutation testing (`go-mutation`) | **Missed boundary bug:** `>` changed to `>=` |
 
 The **[lint and CI/CD rules index](docs/checks.md)** links to all the rules,
 checks, and CI policies, with explanations of why each rule is enabled or
