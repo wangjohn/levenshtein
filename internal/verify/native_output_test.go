@@ -60,11 +60,38 @@ func TestResultWarningsRenderWithoutChangingDiagnosticDetails(t *testing.T) {
 			if report.Results[0].Details != nil || report.Results[0].Status != StatusPassed {
 				t.Fatal("rendering changed diagnostic details or outcome")
 			}
-			existing := finding{Code: string(kind), Message: warning.Message, Location: location{File: "."}, Advisory: true}
+			existing := finding{Code: string(kind), Message: warning.Message, Location: location{File: "a.go", Line: 3}, Advisory: true}
 			report.Results[0].Details = findingsDetails([]finding{existing})
-			if found := findingItems(report)[0].findings; len(found) != 1 {
-				t.Fatalf("equivalent advisory repeated: %v", found)
+			it := findingItems(report)[0]
+			if len(it.findings) != 1 || it.findings[0] != existing || !it.located(existing) {
+				t.Fatalf("equivalent advisory repeated or lost its source location: %v", it.findings)
 			}
 		})
+	}
+}
+
+func TestNativeSkippedRulesWarningHasNoSourceLocation(t *testing.T) {
+	t.Parallel()
+	check := lintCheck("lint", "services/api")
+	check.Environment.Executor = ExecutorNative
+	check.RuleModules = []PlannedRuleModule{{Path: "example.com/rules", Version: "v1.0.0", Namespace: "example"}}
+	warnings := skippedRuleModules(Request{PlannedCheck: check})
+	report := reportOf([]PlannedCheck{check}, Result{ID: check.ID, Status: StatusPassed, Warnings: warnings})
+
+	github := render(t, report, FormatGitHub, RenderOptions{PathPrefix: "repo"})
+	if !strings.Contains(github, "::warning title=rule-modules-skipped (lint)::") || strings.Contains(github, "file=") || strings.Contains(github, "line=") {
+		t.Fatalf("warning acquired a source location: %s", github)
+	}
+	text := render(t, report, FormatText, RenderOptions{PathPrefix: "repo"})
+	if !strings.Contains(text, "repo/services/api: rule-modules-skipped [advisory]") || strings.Contains(text, "repo/services/api:0:") {
+		t.Fatalf("warning acquired a source line: %s", text)
+	}
+	var sarif sarifLog
+	if err := json.Unmarshal([]byte(render(t, report, FormatSARIF, RenderOptions{PathPrefix: "repo"})), &sarif); err != nil {
+		t.Fatal(err)
+	}
+	run := sarif.Runs[0]
+	if len(run.Results) != 0 || len(run.Invocations[0].Notifications) != 1 || run.Invocations[0].Notifications[0].Level != sarifWarning || !strings.Contains(run.Invocations[0].Notifications[0].Message.Text, warnings[0].Message) {
+		t.Fatalf("module warning became a source result: %+v", run)
 	}
 }
