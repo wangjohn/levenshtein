@@ -74,7 +74,7 @@ def repeat(index, module_cache, shared_snapshot, tree_digest):
         shared = work / "shared"
         shutil.copytree(shared_snapshot, shared)
         source = work / "consumer"
-        shutil.copytree(ROOT / "tests/fixtures/performance", source)
+        shutil.copytree(shared_snapshot / "tests/fixtures/performance", source)
         env = dict(os.environ, GOCACHE=str(work / "go-build-cache"),
                    GOMODCACHE=str(module_cache or work / "go-module-cache"),
                    GOWORK="off", STATICCHECK_CACHE=str(work / "staticcheck-cache"))
