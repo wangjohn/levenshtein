@@ -107,7 +107,7 @@ func installRelease(ctx context.Context, shared, root string, tool releaseTool, 
 		}
 	}
 	installed := filepath.Join(dir, string(tool))
-	if err := atomicWrite(installed, binary, 0700); err != nil {
+	if err := atomicWriteExecutable(installed, binary); err != nil {
 		return "", err
 	}
 	return installed, nil
