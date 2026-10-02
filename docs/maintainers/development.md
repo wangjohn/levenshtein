@@ -63,6 +63,28 @@ The generated Go SDK needs a Dagger session, including during unit tests. The de
 
 On an Intel Mac with a two-CPU, 4 GiB Colima VM, the first `pre-merge` run after SDK setup took **136 seconds**, including the Go image download and Staticcheck compilation. A repeat took **2.5 seconds**; a fresh `main` audit took **14 seconds**. A single fixture check took **1.8 seconds**. These are small-pilot measurements, not guarantees for application repos; initial CLI/VM installation and SDK setup are excluded.
 
+## Parser fuzzing
+
+The root module keeps fuzz seeds for strict configuration and baseline JSON,
+shared tool diagnostics, and gzipped archive entries. Normal `go test ./...`
+executes these seeds. The existing CI tests job also runs a short mutation
+smoke once; lint, macOS, and container jobs do not repeat it.
+
+```sh
+./scripts/test-fuzz 2s   # CI smoke: five targets, two seconds each
+./scripts/test-fuzz 1m   # maintainer session: one minute per target
+```
+
+The script runs targets sequentially with `-parallel=1` and a Go test timeout
+per target. JSON and diagnostic mutations are capped at 16 KiB; raw compressed
+archive mutations at 4 KiB, and generated archive names/payloads at 256 bytes /
+2 KiB. These are harness limits, not configuration size restrictions. Archive
+traversal itself is bounded to 128 MiB of decompressed input, including skipped
+entries, in addition to the existing download and selected binary limits.
+Passing a bounded session is evidence for those inputs, not proof for all input.
+Retain minimized failures in `testdata/fuzz` or as an explicit regression seed,
+and run the repaired target again before review.
+
 ## Dagger integration
 
 The wrapper uses the official Go SDK and one engine session per run. It loads the pinned shared module once and passes each consumer directory, module path, and freshness token as function arguments. Dagger owns container execution, dependency downloads, compilation caches, and execution caching. A fresh audit reruns analysis while retaining download and compiler caches.
