@@ -78,7 +78,8 @@ does not match the workflow's `v*` filter, so it publishes no archives.
 
 3. Review the draft notes and download an archive to verify its checksum and
    run the documented smoke test. Confirm that SBOMs and attestations are
-   present, then publish the GitHub release. In a second pull request, move
+   present, then follow the [Marketplace publication checklist](#github-marketplace)
+   before publishing the GitHub release. In a second pull request, move
    every consumer example to the new release:
    `wangjohn/levenshtein@<sha> # vX.Y.Z`, where `<sha>` is
    `git rev-list -n1 vX.Y.Z`, and `--branch vX.Y.Z`. Run
@@ -112,6 +113,47 @@ maintainer must separately verify the checks and review evidence described in
 workflow validates `.goreleaser.yaml` and builds the same archives as a snapshot
 on every ready pull request, so a tag is not the first time the configuration
 runs.
+
+## GitHub Marketplace
+
+Publish the root action alongside the reviewed CLI release so consumers can
+find it in Marketplace and copy its installation syntax. GitHub's
+[publishing instructions](https://docs.github.com/en/actions/how-tos/create-and-publish-actions/publish-in-github-marketplace)
+are the source of truth for eligibility and the release form.
+
+For the first listing:
+
+1. Confirm the repository is public and its contents meet GitHub's action
+   publishing requirements. It has one root `action.yml`; the nested helper
+   actions are not separate Marketplace listings. The shared runner and check
+   sources are used by the root action. Let GitHub validate the action name
+   `Levenshtein verify` for uniqueness and resolve any reported metadata errors.
+2. Open `action.yml` on GitHub and follow its publication banner, or open the
+   reviewed draft release's edit form. If an eligible published release can
+   be listed through its edit form, use that release without moving its tag.
+   Otherwise prepare a new release through the process above.
+3. The repository owner accepts the GitHub Marketplace Developer Agreement if
+   the form requires it. This is an owner action; a CLI release upload does not
+   accept the agreement or publish the action to Marketplace automatically.
+4. Select **Publish this Action to the GitHub Marketplace**. Resolve validation
+   errors until GitHub confirms the metadata is valid. Choose the closest
+   available code quality category and, optionally, security as a secondary
+   category. Review the version, release notes, and validated assets, then
+   publish or update the release. GitHub requires two-factor authentication.
+5. Open the resulting public listing. Check the name, description, README,
+   displayed version, repository link, and copied installation syntax.
+6. In the consumer documentation follow-up PR, add a Marketplace badge beside
+   the README's existing badges and a **Use this Action** link in its setup
+   section and `docs/consumer-ci.md`. Use the actual listing URL verified in
+   step 5, not a guessed slug. Update release pins through the normal process
+   and run `scripts/test-doc-pins --latest` and `scripts/test-workflows`.
+
+For every subsequent release, check the Marketplace publication option before
+publishing, then verify that the public listing offers the new version. Keep
+its links and the consumer workflow pins current in the documentation PR.
+
+An Action listing supplies workflow syntax to copy into a repository. It does
+not provide a GitHub App's repository-selection installation flow.
 
 ## Protecting release tags
 

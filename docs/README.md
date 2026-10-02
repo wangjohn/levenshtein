@@ -17,7 +17,7 @@ Every page, grouped by what you are trying to do. New to Levenshtein? Read the [
 ## Adopt
 
 - [Setup](setup.md): prerequisites, and running `./verify` locally
-- [Using it in CI](consumer-ci.md): the GitHub Action and other CI providers
+- [Using it in CI](consumer-ci.md): minimal GitHub Actions setup, advanced options, and other CI providers
 - [Coding agents](agents.md): templates for Claude Code hooks, `AGENTS.md`, a workflow, and a starter config
 - [Releases](releases.md): prebuilt archives, and pinning a release
 - [Troubleshooting](troubleshooting.md): common errors and what to do about them
@@ -46,6 +46,7 @@ Every page, grouped by what you are trying to do. New to Levenshtein? Read the [
 
 ## Internals
 
+- [Action adoption plan](design/action-adoption.md): implementation status, consumer validation, and Marketplace publication handoff
 - [Architecture](architecture.md): how `verify` plans, executes, caches, and reports
 - [Community rules design](design/community-rules.md): how the community linter is built and run, the proposed catalog, and the phasing
 - [Dependencies](dependencies.md): the libraries Levenshtein builds on, and the Dagger SDK patch

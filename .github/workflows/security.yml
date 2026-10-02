@@ -41,9 +41,9 @@ jobs:
       # verify workflow. This job adds the online ones, which use the workflow
       # token (impostor-commit, known-vulnerable-actions, ref-confusion), and
       # the weekly schedule catches new advisories. It audits the same inputs
-      # as the shared check, which keeps the deliberately insecure fixture
-      # under runner/testdata out, and runs the version runner/toolchain.json
-      # pins; a test keeps the two equal.
+      # as the shared check plus consumer workflow templates, keeping the
+      # deliberately insecure fixture under runner/testdata out. It runs the
+      # version runner/toolchain.json pins; a test keeps the two equal.
       # Annotations instead of a SARIF upload: findings stay readable on pull
       # requests from forks, which cannot write security events. This gate
       # fails the job on medium severity and above.
@@ -51,7 +51,10 @@ jobs:
         uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
         with:
           version: 1.30.1
-          inputs: .github/workflows .github/actions action.yml .github/dependabot.yml
+          inputs: >-
+            .github/workflows .github/actions action.yml .github/dependabot.yml
+            templates/github/workflows/levenshtein.yml
+            templates/github/workflows/levenshtein-minimal.yml
           min-severity: medium
           advanced-security: false
           annotations: true
