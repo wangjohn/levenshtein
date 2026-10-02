@@ -63,21 +63,21 @@ To turn the rules on in a repository that already has findings, name a [baseline
 
 ## Try it in one command
 
-To see what the rules find in a Go module, run this from its root. It needs only `go` 1.21 or later, which downloads the pinned toolchain itself, with no clone, container, or config:
+To see what the rules find in a Go module, run this from its root. It needs `go` 1.21 or later and access to a module proxy, so Go can download the pinned toolchain and dependencies, with no clone, container, or config:
 
 ```sh
-go run github.com/wangjohn/levenshtein/runner/lint/cmd/levenshtein-lint@latest ./...
+go run github.com/wangjohn/levenshtein/runner/lint/cmd/levenshtein-lint@v0.2.0 ./...
 ```
 
-It prints one `file:line:col: message (CODE)` line per finding and exits with `1` when there are any. This runs the `go-lint` rules alone: `go vet`, `go-mod`, `govulncheck`, the [baseline](docs/configuration.md#baseline), [community rules](docs/community-rules.md), and caching come with `verify` below. `@latest` is the newest `runner/lint/vX.Y.Z` release tag, or the newest commit on `main` while there is none; to pin, name a tag or a commit instead. See [running the linter directly](docs/rules.md#running-the-linter-directly).
+It prints one `file:line:col: message (CODE)` line per finding and exits with `1` when there are any. This runs the `go-lint` rules alone: `go vet`, `go-mod`, `govulncheck`, the [baseline](docs/configuration.md#baseline), [community rules](docs/community-rules.md), and caching come with `verify` below. `@v0.2.0` selects the existing `runner/lint/v0.2.0` release tag; update the version deliberately when adopting a newer release. See [running the linter directly](docs/rules.md#running-the-linter-directly).
 
 ## Quick start
 
-You need `go` (any version) and Docker or another Docker-compatible runtime, such as Colima. Levenshtein runs on Linux and macOS.
+The source launcher needs Go 1.21+ on `PATH` and access to a module proxy for the pinned toolchain and dependencies. The default checks also need a running Docker-compatible runtime, such as Docker or Colima. Levenshtein runs on Linux and macOS. [Setup](docs/setup.md#prerequisites) covers native checks and download restrictions; a [prebuilt release archive](docs/releases.md#running-an-archive) avoids building the CLI on the host.
 
 ```sh
-git clone https://github.com/wangjohn/levenshtein
-./levenshtein/verify --source ./myapp
+git clone --branch v0.2.0 --depth 1 https://github.com/wangjohn/levenshtein.git
+./levenshtein/verify --source /absolute/path/to/myapp
 ```
 
 The first run takes a few minutes while it downloads and builds the tools. After that, runs are fast, and checks that passed are skipped until their files change.
@@ -85,7 +85,7 @@ The first run takes a few minutes while it downloads and builds the tools. After
 `verify` prints a JSON report. It exits with `0` if everything passes, `1` if a check fails, and `2` if the command or config is wrong. To see just the findings, one per line:
 
 ```sh
-./levenshtein/verify --source ./myapp --format text
+./levenshtein/verify --source /absolute/path/to/myapp --format text
 ```
 
 `--format` also writes GitHub Actions annotations or a SARIF file for code scanning. Findings with a mechanical fix, such as `gofmt -w`, carry a hint; Levenshtein never changes your files. The [CLI reference](docs/reference/cli.md) lists every flag and exit code.

@@ -8,7 +8,7 @@ instructions.
 
 `./verify` builds and runs the standalone Go CLI in `cmd/levenshtein`
 (`main.go`, `args.go`). The shell launcher exports `GOWORK=off` and
-`GOTOOLCHAIN=go<version>` from `.go-version`, so any host `go` builds the CLI
+`GOTOOLCHAIN=go<version>` from `.go-version`, so a host Go 1.21+ builds the CLI
 with the pinned toolchain, downloading it once if it is not installed. It
 parses flags and an optional run name (default `branch`), loads
 `levenshtein.json` from the source repository, and builds a plan for that run.

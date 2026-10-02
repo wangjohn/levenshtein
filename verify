@@ -32,9 +32,9 @@ mkdir -p -- "$bin_dir" 2> /dev/null || fail "Cannot create the launcher's cache 
 required=$(< "$root/.go-version") 2> /dev/null || fail "Cannot read $root/.go-version, which pins the Go version. See docs/setup.md."
 [[ -n $required ]] || fail "$root/.go-version is empty; it pins the Go version. See docs/setup.md."
 if ! command -v go > /dev/null 2>&1; then
-  fail "Go is required to build the Levenshtein CLI; it obtains Go $required itself. See docs/setup.md."
+  fail "Go 1.21+ is required to build the Levenshtein CLI; it obtains Go $required itself. See docs/setup.md."
 fi
-# Name the pinned toolchain instead of demanding it on PATH: any host Go
+# Name the pinned toolchain instead of demanding it on PATH: host Go 1.21+
 # downloads and caches it. The caller's Go settings describe their own build,
 # not this one: a workspace, a cross-compiling GOOS or GOARCH, experiments, or
 # GOFLAGS such as -mod=vendor would break the build or produce a binary this
