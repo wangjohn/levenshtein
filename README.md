@@ -51,8 +51,8 @@ and module checks; the others can be added to your repo's configuration.
 By default, `./verify` runs Go lint, `go vet`, and module checks. The
 `pre-merge` run does the same; `main` also checks Go dependencies for known
 vulnerabilities and reruns checks instead of reusing saved results. You can
-add the other checks to your own runs, including an experimental, advisory
-[review by a language model](docs/semantic-lint.md) through an external service.
+add the other checks to your own runs, including an experimental
+[set of rules run using Jev](docs/semantic-lint.md).
 
 The **[lint and CI/CD rules index](docs/checks.md)** links to all the rules,
 checks, and CI policies, with explanations of why each rule is enabled or
