@@ -37,9 +37,10 @@ settings changes and publication are separate actions.
 
 Complete integration of the planned follow-up PRs before claiming their
 coverage: PR #99 prepares contributor tiers, PR #102 prepares four-platform
-archive execution, PR #103 documents product boundaries, and PR #110 prepares
-performance measurement methodology. Until each change is merged and checked
-at the final candidate, treat its coverage and claims as pending. This evidence
+archive execution, PR #103 prepares performance measurement methodology,
+PR #110 repairs native executable publication, and PR #111 documents README
+product boundaries. Until each change is merged and checked at the final
+candidate, treat its coverage and claims as pending. This evidence
 record itself does not introduce those features or certify their results.
 
 Inspect live protections and security settings again at launch, including
