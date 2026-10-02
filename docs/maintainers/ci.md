@@ -11,7 +11,9 @@ This page is for Levenshtein's maintainers. The checked-in `Levenshtein self-che
 | `language-contracts` | Rust and Python contract fixtures |
 | `action` | The root `action.yml` as a consumer calls it, on a native fixture: one passing run and one that must fail with the planted finding |
 | `macos` | The root module's unit tests on `macos-latest`, without Dagger; not a required check |
-| `release-smoke` | `goreleaser check`, then a GoReleaser snapshot + archive test (skipped on draft PRs) |
+| `release-build` | Validate GoReleaser, build all four snapshot archives and SBOMs, and run the extracted Linux amd64 Dagger consumer smoke (skipped on draft PRs) |
+| `release-platform` | Execute those same archives on Linux amd64/arm64 and macOS amd64/arm64 matching hosted runners |
+| `release-smoke` | Stable required aggregate: succeeds only when the build and all four runtime checks succeed (skipped on draft PRs) |
 | `semantic-lint` | Advisory Jev review of the pull request; runs only on `pull_request` events; without the `TYPESAFE_API_KEY` secret the review step is skipped and the job passes with no findings |
 | `mutation` | [Mutation testing](../mutation.md) of the Go files the pull request changed in the root module and `runner/lint`, as `./verify mutation`; runs only on `pull_request` events, with the full history so the merge base exists. `runner` is left out: its tests need a live Dagger session, which gremlins cannot give each mutant |
 
@@ -74,6 +76,26 @@ launch; the job fails if it is off, rather than passing without a review.
 `release.yml` publishes the archives, their SBOMs, `checksums.txt`, and a build
 provenance attestation when a `vX.Y.Z` tag is pushed; see
 [releases](releases.md).
+
+The platform jobs use `ubuntu-24.04`, `ubuntu-24.04-arm`, `macos-15-intel`,
+and `macos-15`, respectively, from GitHub's
+[standard public runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+Each downloads the current run's snapshot artifact, verifies its commit and
+`--version` platform identity, checks extracted metadata and documentation,
+plans a native run, passes a clean fixture, and requires exit 1 plus `SA5001`
+from a deliberately broken fixture. They use the pinned Go toolchain without
+Docker or restored module caches. Cross-compilation alone is not a runtime
+check. The Linux amd64 Dagger smoke remains in `release-build`.
+
+To reproduce one native platform check locally, build a snapshot, then run:
+
+```sh
+./scripts/test-release --native PATH_TO_ARCHIVE VERSION FULL_COMMIT darwin amd64
+```
+
+Use the version and commit in `dist/metadata.json` and your host's OS and
+architecture. Archive discovery supports nested module-tag snapshot names;
+this affects only smoke tests, and does not change real release tag validation.
 
 Event → `./verify` mapping. `branch` and `pre-merge` run the static Go checks on the native executor; `main` and `self-test` run in Dagger. A push to `main` therefore runs no Dagger lint, and the scheduled `main` audit is the daily hermetic pass over every Go check.
 

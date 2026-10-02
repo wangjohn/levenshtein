@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 metadata_only=false
+native=false
 if [[ ${1:-} == --metadata-only ]]; then
   metadata_only=true
   shift
 fi
-if [[ $# != 1 ]]; then
-  echo 'Usage: scripts/test-release [--metadata-only] ARCHIVE.tar.gz' >&2
+if [[ ${1:-} == --native ]]; then
+  native=true
+  shift
+fi
+if [[ ($native == false && $# != 1) || ($native == true && $# != 5) ]]; then
+  echo 'Usage: scripts/test-release [--metadata-only] ARCHIVE.tar.gz | --native ARCHIVE.tar.gz VERSION COMMIT OS ARCH' >&2
   exit 2
 fi
 archive=$(cd -- "$(dirname -- "$1")" && pwd)/$(basename -- "$1")
@@ -55,6 +60,56 @@ echo 'Extracted release archive passed metadata checks'
 if [[ $metadata_only == true ]]; then
   exit 0
 fi
+# Match the actual executable to this workflow's snapshot before running any
+# fixture. GOHOST values prove the archive is executed on its own architecture.
+if [[ $native == true ]]; then
+  expected_version=$2
+  expected_commit=$3
+  expected_os=$4
+  expected_arch=$5
+  test "$(go env GOHOSTOS)" = "$expected_os" || { echo "Archive OS does not match host" >&2; exit 1; }
+  test "$(go env GOHOSTARCH)" = "$expected_arch" || { echo "Archive architecture does not match host" >&2; exit 1; }
+  identity=$("$shared/levenshtein" --version) || exit 1
+  expected_prefix="levenshtein $expected_version commit=$expected_commit state="
+  [[ $identity == "$expected_prefix"* ]] || { echo "Archive version or commit does not match snapshot" >&2; exit 1; }
+  [[ $identity == *" go=go"*" os=$expected_os arch=$expected_arch" ]] || { echo "Archive executable platform identity does not match" >&2; exit 1; }
+  state=${identity#"$expected_prefix"}
+  state=${state%% *}
+  [[ $state == clean || $state == dirty ]] || { echo "Archive build state is unavailable" >&2; exit 1; }
+  echo "$identity"
+
+  cd "$temporary" || exit 1
+  cp "$root/tests/fixtures/action/"* app/ || exit 1
+  "$shared/levenshtein" pre-merge --source "$temporary/app" --shared "$shared" --dry-run > plan.json || exit 1
+  jq -e '.run == "pre-merge" and (.checks | length == 2) and all(.checks[]; .environment.executor == "native")' plan.json || exit 1
+  "$shared/levenshtein" pre-merge --source "$temporary/app" --shared "$shared" --cache-dir "$temporary/cache" > good.json || exit 1
+  jq -e '(.results | length == 2) and all(.results[]; .status == "passed")' good.json || exit 1
+  cat > app/broken.go <<'GO'
+package greeting
+
+import "os"
+
+// Size deliberately defers Close before checking the Open error.
+func Size(path string) int64 {
+	f, err := os.Open(path)
+	defer f.Close()
+	if err != nil {
+		return 0
+	}
+	return 1
+}
+GO
+  status=0
+  "$shared/levenshtein" pre-merge --source "$temporary/app" --shared "$shared" --cache-dir "$temporary/cache" > bad.json || status=$?
+  if [[ $status != 1 ]] || ! jq -e '.results[] | select(.id == "lint" and .status == "failed") | .details.findings[] | select(.code == "SA5001")' bad.json; then
+    cat bad.json
+    echo "Expected packaged native SA5001 finding, got exit $status" >&2
+    exit 1
+  fi
+  echo "Extracted $expected_os/$expected_arch release archive passed native runtime checks"
+  exit 0
+fi
+
 # Run only the extracted binary and sources, outside the repository checkout.
 cd "$temporary"
 cp "$shared/runner/testdata/resources-good/"* app/
