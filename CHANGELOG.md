@@ -16,6 +16,10 @@ says which interfaces are versioned and what to expect when you bump your pin.
   code of conduct, agent conventions, and consumer templates. Archive smoke
   checks now reject missing metadata and broken extracted documentation links;
   `scripts/test-release --metadata-only` runs these checks without Docker.
+- The CLI supports `--version` before verification setup and adds optional build,
+  implementation snapshot, and effective native Go identity to version 1 JSON
+  reports. Cached results retain the identity of their original verification;
+  toolchain settings are hashed rather than exposed.
 
 - The repository and its example rule module now use Apache License 2.0, with
   John Wang named in `NOTICE`. Release archives include both the license and

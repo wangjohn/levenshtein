@@ -3,6 +3,7 @@
 ```text
 verify [RUN] [flags]
 verify --render REPORT --format FORMAT
+verify --version
 ```
 
 `./verify` is a shell launcher in the Levenshtein checkout. It builds the CLI in `cmd/levenshtein` with the Go version in `.go-version`, then runs it with `--shared` and `--source` set to the checkout it lives in, so pass `--source` to verify another repository. A [release archive](../releases.md) ships the same CLI prebuilt as `levenshtein`, which takes the same arguments; give it `--shared` yourself.
@@ -17,8 +18,9 @@ Flags may come before or after `RUN`. The [configuration reference](config.md) l
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
+| `--version` | off | Print CLI build identity and exit `0` before loading configuration or starting executors (upcoming source behavior; absent in released v0.2.0) |
 | `--source DIR` | the current directory; the `./verify` launcher passes its own checkout | Repository to verify. Its `levenshtein.json` is read from here, and every path in the report is relative to it |
-| `--shared DIR` | `$LEVENSHTEIN_SHARED_ROOT`; the launcher passes its own checkout | The pinned Levenshtein checkout or extracted archive whose checks run. Needed unless `--dry-run` or `--render` is given |
+| `--shared DIR` | `$LEVENSHTEIN_SHARED_ROOT`; the launcher passes its own checkout | The pinned Levenshtein checkout or extracted archive whose checks run. Needed unless `--version`, `--dry-run`, or `--render` is given |
 | `--cache-dir DIR` | `levenshtein/verification-v1` under the user cache directory (`~/Library/Caches` on macOS, `$XDG_CACHE_HOME` or `~/.cache` on Linux) | Where results, preparation records, the file stat memo, helper tools, and the Staticcheck cache live. It must be outside both the source and the shared checkout. See [local caching](../configuration.md#local-caching) |
 | `--jobs N` | `0` | How many checks run at once. `0` keeps the built-in cap, the smaller of four and `GOMAXPROCS`; any other value replaces it |
 | `--dry-run` | off | Print the plan as JSON and run nothing. Starts no executor, so it needs no container runtime. Takes no `--format` other than `json`, and no `--write-baseline` |
@@ -76,3 +78,25 @@ It fills in [fix hints](../configuration.md#fix-hints) the saved report lacks. T
 | `XDG_CACHE_HOME` | Where the `./verify` launcher keeps the CLI binary it builds (default `~/.cache`) |
 
 Native `command` checks receive `LEVENSHTEIN_SOURCE`, `LEVENSHTEIN_WORKSPACE`, and `LEVENSHTEIN_RERUN_CHECKS`; see [native commands](../configuration.md#native-commands).
+
+## Build and verification identity (upcoming)
+
+These additions apply to the upcoming source revision; released `v0.2.0` pins do not provide `--version` or this metadata. The JSON report remains version `1`. All new objects are optional, so older saved reports still render.
+
+`levenshtein --version` prints one line:
+
+```text
+levenshtein VERSION commit=COMMIT state=STATE go=GO_VERSION os=OS arch=ARCH
+```
+
+Release linker flags supply the version and full commit together. Linked builds retain Go's recorded VCS modification state, so a local snapshot built from edited sources reports `dirty`; paired linker identity defaults to `clean` when that state is absent. Ordinary builds report `development`, the Go build's VCS commit when available, and `clean`, `dirty`, or `unavailable` state. Builds without VCS metadata, including the source launcher (`-buildvcs=false`), report `commit=unavailable state=unavailable`. A partial release identity is treated as development. No flags or environment values are printed. `--version` needs no configuration, shared checkout, or Docker; the source launcher still needs Go to build the CLI.
+
+| JSON location | Fields (all strings) | Meaning |
+| --- | --- | --- |
+| `build` | `version`, `commit`, `state`, `go_version`, `os`, `arch` | Identity of the reporting CLI; the same values as `--version` |
+| `results[].implementation` | `digest` | SHA-256 of the exact shared source snapshot used by the verification fingerprint; covers each check's implementation inputs, not an executable digest |
+| `results[].toolchain` | `digest`, `version`, `os`, `arch`, `settings_digest` | Effective native Go identity for shared Go checks; `digest` is the existing host toolchain fingerprint, and `settings_digest` hashes its result-changing Go settings |
+
+Settings are hashed because Go flags can contain secrets. These hashes are identifiers, not secret sanitizers for low-entropy values. Dagger's pinned toolchain is covered by the implementation snapshot; there is no host toolchain object for Dagger or unrelated native kinds. An identity unavailable before execution is omitted. A cache hit retains the identities stored with the original verdict, including an absent identity in an older cache record. Rendering a saved report preserves its metadata. No helper executable digest is claimed unless the executable has actually been built.
+
+For bug reports, include `--version` output (or the exact release/commit for `v0.2.0`) and the JSON report's identity objects. Review the rest of the report and configuration for private content before posting.

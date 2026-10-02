@@ -7,20 +7,24 @@ import (
 	"runtime"
 	"sync"
 	"time"
+
+	"github.com/wangjohn/levenshtein/internal/buildinfo"
 )
 
 type Result struct {
-	ID          string          `json:"id"`
-	Status      Status          `json:"status"`
-	DurationMS  int64           `json:"duration_ms"`
-	VerifiedAt  time.Time       `json:"verified_at"`
-	Stdout      string          `json:"stdout,omitempty"`
-	Stderr      string          `json:"stderr,omitempty"`
-	Error       string          `json:"error,omitempty"`
-	Cache       CacheInfo       `json:"cache"`
-	ExecutionMS int64           `json:"execution_ms"`
-	Stages      []StageResult   `json:"stages,omitempty"`
-	Details     json.RawMessage `json:"details,omitempty"`
+	Implementation *ImplementationIdentity `json:"implementation,omitempty"`
+	Toolchain      *ToolchainIdentity      `json:"toolchain,omitempty"`
+	ID             string                  `json:"id"`
+	Status         Status                  `json:"status"`
+	DurationMS     int64                   `json:"duration_ms"`
+	VerifiedAt     time.Time               `json:"verified_at"`
+	Stdout         string                  `json:"stdout,omitempty"`
+	Stderr         string                  `json:"stderr,omitempty"`
+	Error          string                  `json:"error,omitempty"`
+	Cache          CacheInfo               `json:"cache"`
+	ExecutionMS    int64                   `json:"execution_ms"`
+	Stages         []StageResult           `json:"stages,omitempty"`
+	Details        json.RawMessage         `json:"details,omitempty"`
 	// Warnings are problems that did not change the verdict. They are kept
 	// with a cached result, so a cache hit repeats them.
 	Warnings []Warning `json:"warnings,omitempty"`
@@ -33,12 +37,13 @@ type Warning struct {
 }
 
 type Report struct {
-	Version  int              `json:"version"`
-	Run      string           `json:"run"`
-	Status   Status           `json:"status"`
-	Plan     Plan             `json:"plan"`
-	Results  []Result         `json:"results"`
-	Baseline *BaselineSummary `json:"baseline,omitempty"`
+	Build    *buildinfo.Identity `json:"build,omitempty"`
+	Version  int                 `json:"version"`
+	Run      string              `json:"run"`
+	Status   Status              `json:"status"`
+	Plan     Plan                `json:"plan"`
+	Results  []Result            `json:"results"`
+	Baseline *BaselineSummary    `json:"baseline,omitempty"`
 }
 
 type Request struct {
@@ -132,18 +137,20 @@ func (s *Session) Execute(ctx context.Context, plan Plan, shared string, executo
 			}
 
 			results[i] = Result{
-				ID:          check.ID,
-				Status:      outcome.Status,
-				DurationMS:  duration,
-				VerifiedAt:  verifiedAt,
-				Stdout:      outcome.Stdout,
-				Stderr:      outcome.Stderr,
-				Error:       outcome.Error,
-				Cache:       outcome.Cache,
-				ExecutionMS: executionMS,
-				Stages:      outcome.Stages,
-				Details:     outcome.Details,
-				Warnings:    outcome.Warnings,
+				ID:             check.ID,
+				Implementation: outcome.Implementation,
+				Toolchain:      outcome.Toolchain,
+				Status:         outcome.Status,
+				DurationMS:     duration,
+				VerifiedAt:     verifiedAt,
+				Stdout:         outcome.Stdout,
+				Stderr:         outcome.Stderr,
+				Error:          outcome.Error,
+				Cache:          outcome.Cache,
+				ExecutionMS:    executionMS,
+				Stages:         outcome.Stages,
+				Details:        outcome.Details,
+				Warnings:       outcome.Warnings,
 			}
 		}(i, check)
 	}
