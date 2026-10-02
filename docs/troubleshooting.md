@@ -29,7 +29,7 @@ Checks bound to a Dagger environment, which is every check of a repository with 
 
 ## The pinned Go cannot be downloaded
 
-The `./verify` launcher builds the CLI with the Go version in `.go-version`, setting `GOTOOLCHAIN` so any host `go` downloads that version through the module proxy. With `GOPROXY=off`, or with no route to the proxy, the download fails and the launcher exits `2`. Install that Go version so it is the `go` on `PATH`, or let the toolchain download reach a proxy.
+The `./verify` launcher builds the CLI with the Go version in `.go-version`, setting `GOTOOLCHAIN` so a host Go 1.21+ can download that version through the module proxy. Older Go versions do not support this automatic switching; upgrade the bootstrap Go or install the pinned version on `PATH`. With `GOPROXY=off`, or with no route to the proxy, the download fails and the launcher exits `2`. Install that Go version so it is the `go` on `PATH`, or let the toolchain download reach an approved `GOPROXY`. An offline CLI build also needs its module dependencies cached. A [prebuilt archive](releases.md#running-an-archive) avoids that build, but check tools and Dagger images still need to be provisioned.
 
 Native Go checks do not download a toolchain: they run with `GOTOOLCHAIN=local` on the host's `go`, which should be the version in `.go-version`.
 

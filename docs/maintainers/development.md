@@ -4,7 +4,7 @@ This page is for working on Levenshtein itself: the pinned dependencies, the loc
 
 ## Tools
 
-Use Go 1.27.1, the version in `.go-version`. To develop the shared Dagger module or use `dagger check` directly, install the pinned Dagger CLI with the checked-in archive checksums:
+Use Go 1.27.1, the version in `.go-version`, for development and native analysis. The source launcher can bootstrap its CLI build from Go 1.21+ with a reachable module proxy; that does not switch the host Go used by native checks. To develop the shared Dagger module or use `dagger check` directly, install the pinned Dagger CLI with the checked-in archive checksums:
 
 ```sh
 ./scripts/install-dagger

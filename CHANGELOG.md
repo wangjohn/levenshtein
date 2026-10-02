@@ -74,6 +74,10 @@ says which interfaces are versioned and what to expect when you bump your pin.
   helper diagnostics as check errors. Result warnings, including skipped
   community rules and deprecation guidance, now appear in text, GitHub, and
   SARIF output as well as JSON.
+- Installation examples pin the existing v0.2.0 release and state Go 1.21+
+  for source-launcher toolchain switching, separately from native analysis
+  pins. Setup distinguishes direct lint, source, and prebuilt execution,
+  with guidance for denied downloads and missing Docker.
 
 - **A baseline entry no configured check could report fails every run.**
   An entry whose rule module was removed, whose rule was dropped from a
