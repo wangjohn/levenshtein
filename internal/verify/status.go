@@ -78,6 +78,8 @@ const (
 	// WarningDetachedOutput: a native command exited 0, but a background process
 	// it started still held its output when the grace period ran out.
 	WarningDetachedOutput WarningKind = "detached-output"
+	// WarningOutputTruncated: a native stream exceeded its retention limit.
+	WarningOutputTruncated WarningKind = "output-truncated"
 )
 
 // CacheStatus describes reuse without conflating it with verification outcomes.
