@@ -14,3 +14,7 @@ func atomicWrite(path string, data []byte, mode os.FileMode) error {
 func atomicWriteRoot(root *os.Root, path string, data []byte, mode os.FileMode) error {
 	return fmt.Errorf("cache writes require macOS or Linux")
 }
+
+func atomicWriteExecutable(path string, data []byte) error {
+	return atomicWrite(path, data, 0700)
+}
