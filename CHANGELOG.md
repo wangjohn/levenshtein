@@ -25,14 +25,14 @@ says which interfaces are versioned and what to expect when you bump your pin.
   skip-with-warning behavior, with migration guidance on fresh results.
   Report and baseline file versions remain 1; released consumer templates
   continue using configuration version 1.
-- Release smoke checks execute extracted Linux and macOS archives on both amd64
-  and arm64 hosts, validating build identity, native planning, passing lint, and
-  deliberate failing lint. The existing required `release-smoke` context now
-  requires every platform result and the Linux Dagger archive smoke.
 - Release archives include the changelog, contribution and security policies,
   code of conduct, agent conventions, and consumer templates. Archive smoke
   checks now reject missing metadata and broken extracted documentation links;
   `scripts/test-release --metadata-only` runs these checks without Docker.
+- Release smoke checks execute extracted Linux and macOS archives on both amd64
+  and arm64 hosts, validating build identity, native planning, passing lint, and
+  deliberate failing lint. The existing required `release-smoke` context now
+  requires every platform result and the Linux Dagger archive smoke.
 - Bounded parser fuzz smoke covers configuration, baselines, tool diagnostics,
   and release archive entries; maintainers can run longer sessions with
   `scripts/test-fuzz`.
