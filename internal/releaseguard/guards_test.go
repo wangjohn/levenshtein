@@ -78,6 +78,19 @@ func TestReleaseAncestryGuard(t *testing.T) {
 	run(t, root, false, "bash", "scripts/release-on-main", "v1.2.3", "missing", "main")
 	run(t, root, false, "bash", "scripts/release-on-main", "v1.2.3", "HEAD", "missing")
 
+	for _, heading := range []string{
+		"## [1.2.3] - Unreleased (release preparation; not published)",
+		"## [1.2.3]",
+		"## [1.2.3] - YYYY-MM-DD",
+	} {
+		writeFile(t, filepath.Join(root, "CHANGELOG.md"), heading+"\n")
+		output := run(t, root, false, "bash", "scripts/release-on-main", "v1.2.3", "HEAD", "main")
+		if !strings.Contains(output, "no dated [1.2.3] release") {
+			t.Fatalf("missing undated release rejection: %s", output)
+		}
+	}
+	writeFile(t, filepath.Join(root, "CHANGELOG.md"), "## [1.2.3] - 2026-10-01\n")
+
 	run(t, root, true, "git", "checkout", "-b", "unmerged")
 	writeFile(t, filepath.Join(root, "unmerged"), "outside main\n")
 	run(t, root, true, "git", "add", "unmerged")
