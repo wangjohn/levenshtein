@@ -66,14 +66,14 @@ func goCheckExecutor(run goRunner, message string) func(*Native, context.Context
 // skippedRuleModules says what a native go-lint check left out. Community
 // rules run only on the Dagger executor, where the lint step is isolated from
 // the host; a native go-lint check runs its core rules and says it skipped
-// the rest, so one configuration can still mix executors.
+// the rest for version 1 configurations. Version 2 planning rejects this case.
 func skippedRuleModules(req Request) []Warning {
 	if len(req.RuleModules) == 0 || req.Environment.Executor != ExecutorNative {
 		return nil
 	}
 	return []Warning{{
 		Kind:    WarningRuleModulesSkipped,
-		Message: fmt.Sprintf("community rules from %d rule module(s) run only on the Dagger executor; this native check ran the core rules", len(req.RuleModules)),
+		Message: fmt.Sprintf("community rules from %d rule module(s) run only on the Dagger executor; this native check ran the core rules; migrate to configuration version 2 and use a Dagger environment, or explicitly set lint.rule_modules=false for core rules only", len(req.RuleModules)),
 	}}
 }
 

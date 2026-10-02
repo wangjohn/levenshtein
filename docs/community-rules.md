@@ -156,7 +156,7 @@ keeps it working:
 
 To stop using a module, remove its entry. A single check opts out with
 `"lint": {"rule_modules": false}`. `rule_modules` is optional and additive to
-version 1 of the configuration.
+version 1 of the configuration and is supported in version 2.
 
 ### Selection
 
@@ -223,7 +223,7 @@ cache hit repeats it, and printed in the job summary:
 
 | Warning | When |
 | --- | --- |
-| `rule-modules-skipped` | A native `go-lint` check skipped community rules |
+| `rule-modules-skipped` | A version 1 native `go-lint` check skipped community rules; the message explains migration to version 2 |
 | `rule-module-deprecated` | This Levenshtein release lists the pinned version as deprecated |
 | `rule-module-retracted` | The author retracted the pinned version, detected when the linter is built |
 | `rule-renamed` | A pattern, advisory entry, or setting uses a rule's old name |
@@ -232,9 +232,11 @@ cache hit repeats it, and printed in the job summary:
 ### Executors
 
 Community rules run only on the Dagger executor until native execution
-([phase 3](design/community-rules.md#phasing)). A native `go-lint` check runs
-its core rules and warns that it skipped community rules, so a configuration
-can mix executors. `go-http` and `go-sql` never run community rules.
+([phase 3](design/community-rules.md#phasing)). In configuration version 1, a native `go-lint` check runs its core rules and warns that it skipped community rules, preserving existing mixed executor configurations.
+
+Configuration version 2 is **unreleased**. It rejects a selected native `go-lint` check that participates in configured modules during planning, before any executor or cached verdict is used. Use a Dagger environment for community policy or explicitly set `"lint": {"rule_modules": false}` for an intentional core-only native check. This opt-out already exists in version 1; no extra acknowledgement field is needed. Unselected checks do not trigger this completeness error, and native checks without configured modules remain valid. A participating module is checked even if its selection patterns ultimately select no analyzer: planning does not load modules to resolve patterns. `go-http` and `go-sql` never run community rules.
+
+The [configuration guide](configuration.md#community-rule-modules) describes migration, cached warning wording, and unchanged report and baseline versions.
 
 ### Upgrades and withdrawals
 
@@ -282,12 +284,13 @@ from that run is cached; see [errors](#errors) below. The
 | Detected | Examples | Outcome |
 | --- | --- | --- |
 | Loading `levenshtein.json` | Bad version or namespace syntax; a namespace declared twice; settings keys that differ only in case; a pattern naming an undeclared namespace; a literal advisory rule no go-lint check selects; community patterns on a check that sets `rule_modules` to `false`; a version this release lists as withdrawn | Configuration error, exit 2 |
+| Planning the selected run | Version 2 native `go-lint` participates in configured rule modules without `lint.rule_modules=false` | Configuration error with migration guidance, exit 2 |
 | Building the community linter | `namespace` differs from the module; an incomplete `go.mod`; Go or Staticcheck above the pins; another module moved a pin; no compile against the pinned dependencies | Check error naming the module, exit 1 |
 | Starting the community linter | An unknown rule or setting; two settings keys that reach the same rule; a pattern or advisory entry that matches no rule; a missing `URL`; duplicate names | Check error naming the module, exit 1 |
 | Running a rule | The rule returns an error or panics, including in a dependency | Check error such as "errs_nopanic (…@v1.4.0) failed on example.com/app/store: panic: …", exit 1 |
 | After the run | No report, for example because a rule called `os.Exit(0)` | Check error, exit 1 |
 
-Core findings are reported in every case. Messages state what is known and
+Core findings are reported when execution reaches the core linter. Messages state what is known and
 never guess a fix, for example: "…@v1.5.0 requires honnef.co/go/tools v0.9.0
 (through example.com/helper@v0.3.0), but this release pins v0.8.1."
 
