@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+"""Measure a fixed synthetic consumer; fail when correctness expectations fail."""
+import argparse
+from datetime import datetime, timezone
+import hashlib
+import json
+import os
+import platform
+import shutil
+import statistics
+import subprocess
+import tempfile
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def command(args, cwd, env, expected=0):
+    started = time.perf_counter()
+    process = subprocess.run(args, cwd=cwd, env=env, capture_output=True,
+                             text=True, timeout=1800, check=False)
+    elapsed = time.perf_counter() - started
+    if process.returncode != expected:
+        # Do not publish arbitrary tool output, paths, or environment values.
+        raise RuntimeError(f"{Path(args[0]).name} exited {process.returncode}; expected {expected}")
+    return process.stdout, elapsed
+
+
+def require(condition, message):
+    if not condition:
+        raise RuntimeError(message)
+
+
+def snapshot(destination):
+    paths = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT).split(b"\0")
+    digest = hashlib.sha256()
+    for raw in sorted(filter(None, paths)):
+        relative = Path(os.fsdecode(raw))
+        source = ROOT / relative
+        require(source.is_file() and not source.is_symlink(), "snapshot requires regular tracked files")
+        data = source.read_bytes()
+        digest.update(raw + b"\0" + hashlib.sha256(data).digest())
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+    return digest.hexdigest()
+
+
+def verify(binary, shared, source, cache, env, phase, expected_status, expected_cache, run="branch"):
+    args = [str(binary), run, "--source", str(source), "--shared", str(shared),
+            "--cache-dir", str(cache), "--jobs", "1"]
+    output, elapsed = command(args, source, env, 0 if expected_status == "passed" else 1)
+    report = json.loads(output)
+    require(report["status"] == expected_status and len(report["results"]) == 1,
+            f"{phase}: incorrect report verdict")
+    result = report["results"][0]
+    require(result["status"] == expected_status, f"{phase}: incorrect check verdict")
+    require(result["cache"]["status"] == expected_cache, f"{phase}: incorrect cache state")
+    codes = sorted({finding["code"] for finding in result.get("details", {}).get("findings", [])})
+    if expected_status == "failed":
+        require("LV1003" in codes, f"{phase}: negative fixture did not detect LV1003")
+    else:
+        require(not codes, f"{phase}: positive fixture has unexpected findings")
+    return {"phase": phase, "wall_seconds": elapsed, "status": result["status"],
+            "cache": {key: result["cache"][key] for key in ("status", "key")}, "finding_codes": codes,
+            "implementation": result["implementation"], "toolchain": result["toolchain"],
+            "build": report["build"], "verified_at": result["verified_at"]}
+
+
+def repeat(index, module_cache, shared_snapshot, tree_digest):
+    with tempfile.TemporaryDirectory(prefix="levenshtein-measure-") as directory:
+        work = Path(directory)
+        shared = work / "shared"
+        shutil.copytree(shared_snapshot, shared)
+        source = work / "consumer"
+        shutil.copytree(shared_snapshot / "tests/fixtures/performance", source)
+        env = dict(os.environ, GOCACHE=str(work / "go-build-cache"),
+                   GOMODCACHE=str(module_cache or work / "go-module-cache"),
+                   GOWORK="off", STATICCHECK_CACHE=str(work / "staticcheck-cache"))
+        binary = work / "levenshtein"
+        _, elapsed = command(["go", "build", "-o", str(binary), "./cmd/levenshtein"], shared, env)
+        version, _ = command([str(binary), "--version"], shared, env)
+        samples = [{"phase": "fresh_install", "wall_seconds": elapsed,
+                    "cache_state": "empty compilation cache; " + ("reused module downloads" if module_cache else "empty module downloads"),
+                    "build_version": version.strip()}]
+        cache = work / "verification-cache"
+        cold = verify(binary, shared, source, cache, env, "cold_tool_build", "passed", "miss")
+        samples.append(cold)
+        warm = verify(binary, shared, source, cache, env, "warm_unchanged", "passed", "hit")
+        require(warm["verified_at"] == cold["verified_at"], "warm run changed original verification time")
+        require(warm["implementation"] == cold["implementation"], "warm run changed implementation")
+        samples.append(warm)
+        (source / "sample.go").write_bytes((source / "negative.txt").read_bytes())
+        negative = verify(binary, shared, source, cache, env, "source_edit", "failed", "miss")
+        require(negative["cache"]["key"] != cold["cache"]["key"], "source change reused old cache key")
+        samples.append(negative)
+        # A concrete shared-policy revision changes the verdict, not just a label.
+        pin = shared / "runner/toolchain.json"
+        original_policy = pin.read_bytes()
+        policy = json.loads(original_policy)
+        policy["checks"].append("-LV1003")
+        pin.write_text(json.dumps(policy, indent=2) + "\n")
+        changed = verify(binary, shared, source, cache, env, "shared_rule_revision", "passed", "miss")
+        require(changed["implementation"] != negative["implementation"], "shared revision retained implementation digest")
+        require(changed["cache"]["key"] != negative["cache"]["key"], "shared revision reused old key")
+        samples.append(changed)
+        samples.append(verify(binary, shared, source, cache, env, "revised_warm", "passed", "hit"))
+        fresh = verify(binary, shared, source, cache, env, "explicitly_fresh", "passed", "fresh", "audit")
+        require(fresh["verified_at"] != changed["verified_at"], "fresh verification reused original verdict")
+        samples.append(fresh)
+        # Restoring a rule must rediscover the negative finding, even after a cached pass.
+        pin.write_bytes(original_policy)
+        samples.append(verify(binary, shared, source, cache, env, "rule_restored_negative", "failed", "fresh"))
+        return {"repeat": index, "shared_tree_sha256": tree_digest, "samples": samples}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path, required=True, help="sanitized JSON output outside the checkout")
+    parser.add_argument("--repeats", type=int, default=3)
+    parser.add_argument("--module-cache", type=Path, help="reuse downloads; reported explicitly, build caches still start empty")
+    args = parser.parse_args()
+    require(args.repeats >= 2, "at least two repeats are required for statistics")
+    output = args.output.resolve()
+    require(not output.is_relative_to(ROOT), "output must be outside the checkout")
+    require(not output.exists(), "choose a new output path; existing measurement files are preserved")
+    module_cache = args.module_cache.resolve() if args.module_cache else None
+    if module_cache:
+        require(module_cache.is_dir(), "module cache must be an existing directory")
+    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT))
+    with tempfile.TemporaryDirectory(prefix="levenshtein-measure-snapshot-") as directory:
+        shared_snapshot = Path(directory) / "shared"
+        tree_digest = snapshot(shared_snapshot)
+        runs = [repeat(index + 1, module_cache, shared_snapshot, tree_digest) for index in range(args.repeats)]
+    phases = [sample["phase"] for sample in runs[0]["samples"]]
+    summary = {}
+    for phase in phases:
+        values = [sample["wall_seconds"] for run in runs for sample in run["samples"] if sample["phase"] == phase]
+        summary[phase] = {"count": len(values), "min_seconds": min(values), "median_seconds": statistics.median(values),
+                          "max_seconds": max(values), "mean_seconds": statistics.mean(values),
+                          "stdev_seconds": statistics.stdev(values)}
+    fixture = ROOT / "tests/fixtures/performance/sample.go"
+    report = {"schema_version": 1, "synthetic": True, "executor": "native", "revision": revision,
+              "checkout_dirty": dirty, "measured_at": datetime.now(timezone.utc).isoformat(), "environment": {"os": platform.system(), "arch": platform.machine(),
+              "python": platform.python_version()}, "case": {"name": "single-package-pair", "go_files": 1,
+              "go_bytes": fixture.stat().st_size, "go_lines": len(fixture.read_text().splitlines())},
+              "module_download_cache": "reused" if module_cache else "empty_per_repeat",
+              "commands": ["go build -o BINARY ./cmd/levenshtein", "BINARY branch --source CONSUMER --shared SHARED --cache-dir CACHE --jobs 1",
+                           "BINARY audit --source CONSUMER --shared SHARED --cache-dir CACHE --jobs 1"],
+              "runs": runs, "statistics": summary}
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(report, indent=2) + "\n")
+    print(f"Correctness expectations passed; wrote {args.repeats} synthetic repetitions to {output}")
+
+
+if __name__ == "__main__":
+    main()
