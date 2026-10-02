@@ -52,8 +52,8 @@ only `--latest`, in step 3, does.
 
 The workflow first runs `scripts/release-on-main`, which refuses a tag that is
 not `vX.Y.Z`, whose version is not a release in `CHANGELOG.md`, or whose commit
-`main` does not contain, so a tag pushed on an unreviewed commit publishes
-nothing. It then builds with the pinned Go from `.go-version`, installs the
+`main` does not contain. This proves ancestry and a changelog entry; it does
+not prove that the commit passed checks or received PR review. It then builds with the pinned Go from `.go-version`, installs the
 pinned syft, and runs `goreleaser release --clean`.
 The draft GitHub release then holds:
 
@@ -65,41 +65,82 @@ The draft GitHub release then holds:
   `gh attestation verify <file> --repo wangjohn/levenshtein` checks.
 
 Publication is manual after the draft assets and notes are reviewed. The tag
-is created by a person, and a release is only as reviewed as the commit it
-points at, which the workflow requires to be on `main`. `release-smoke` in the self-checks
+is created by a person. The workflow requires its commit to be on `main`; the
+maintainer must separately verify the checks and review evidence described in
+[CI guarantees](ci.md#required-checks-branch-protection). `release-smoke` in the self-checks
 workflow validates `.goreleaser.yaml` and builds the same archives as a snapshot
 on every ready pull request, so a tag is not the first time the configuration
 runs.
 
 ## Protecting release tags
 
-A release is only as trustworthy as its tag. The release workflow already
-refuses a tag that `main` does not contain; two repository settings, which a
-workflow cannot change, stop a tag from being moved or deleted once pushed.
-An admin applies them:
+The two files in `.github/rulesets/proposed/` are pending admin actions, not
+live enforcement. Both cover `refs/tags/v*` and `refs/tags/runner/lint/v*`:
 
-1. Create the tag rulesets in `.github/rulesets/proposed`: `tags.json` blocks
-   updating, force-pushing and deleting any `v*` tag, for everyone, and
-   `tags-creation.json` lets only the admin and maintain roles create one.
+- `tags-creation.json` restricts creation to the maintain and admin repository
+  roles through explicit bypass actors. This grants tag creation, not PR review.
+- `tags.json` blocks updates, force pushes, and deletion with no bypass actors,
+  including for admins. Check the target commit before pushing either tag.
+
+The nested lint tag does not trigger the archive workflow, so it has no
+workflow ancestry guard. Before tagging, run `scripts/release-on-main vX.Y.Z
+<commit> origin/main`, check the release commit's checks and review evidence,
+and confirm both annotated tags resolve to that exact commit. Tag protection
+does not require the namespaces to point to the same commit.
+
+Read-only inspection on 2026-10-02 found only the active main ruleset
+(ID `23844934`), and no repository tag rulesets. The existing `v0.2.0` and
+`v0.1.0` releases were published with `immutable: false`. These observations
+are historical evidence, not a current enforcement guarantee; repeat the
+inspection before launch. Required admin work remains pending:
+
+1. Review and authorize the two tag proposals, then create the rulesets in
+   **Settings → Rules → Rulesets** or with the REST API:
 
    ```sh
    gh api --method POST repos/wangjohn/levenshtein/rulesets --input .github/rulesets/proposed/tags.json
    gh api --method POST repos/wangjohn/levenshtein/rulesets --input .github/rulesets/proposed/tags-creation.json
    ```
 
-   Then, in a pull request, move both files up to `.github/rulesets/` so
-   `scripts/test-rulesets --live` compares them with what GitHub enforces.
-   Until then that script only checks that the proposals are well formed.
-2. Turn on immutable releases, so a published release's tag and assets cannot
-   change either:
+   Read back each created ruleset. Record repository, inspection time, ruleset
+   IDs, active enforcement, both include patterns, empty excludes, rule types,
+   and bypass actors. Only after verifying the live state, export each response
+   as `{name, target, enforcement, conditions, bypass_actors, rules}` into
+   `.github/rulesets/` and remove the matching proposal in a pull request.
+   Run `scripts/test-rulesets --live` with admin visibility. Local proposal
+   validation cannot satisfy this gate, and a read-only CI token may omit
+   bypass actors. Do not move a proposal merely to make CI pass.
+2. Inspect **Settings → General → Releases** and enable release immutability
+   after separate authorization. Read its state with:
 
    ```sh
-   gh api --method PUT repos/wangjohn/levenshtein/immutable-releases
+   gh api repos/wangjohn/levenshtein/immutable-releases
+   gh api repos/wangjohn/levenshtein/releases/tags/vX.Y.Z --jq '{tag_name, target_commitish, draft, immutable}'
    ```
 
-   `gh api repos/wangjohn/levenshtein/immutable-releases` reports
-   `"enabled": true` once it is on. It applies to releases published after it
-   is enabled.
+   Record the repository setting response (`enabled: true`) or the settings
+   UI with time and repository identity. It applies to releases published after
+   it is enabled; it does not retroactively make old releases immutable.
+   Before publishing, verify the draft's assets, checksums, SBOMs, provenance,
+   notes, and both tag commit SHAs. After separately authorized publication,
+   record `draft: false` and `immutable: true` for the release. A pushed tag or
+   successful draft workflow is not proof of publication or immutability.
+3. Inspect **Settings → Code security → Private vulnerability reporting**:
+
+   ```sh
+   gh api repos/wangjohn/levenshtein/private-vulnerability-reporting
+   ```
+
+   Record `enabled: true` with time and repository identity, plus the public
+   **Security → Advisories → Report a vulnerability** entry point. Enable the
+   setting only after authorization if absent. A permission error is unknown,
+   not evidence that reporting is enabled or disabled. No vulnerability report
+   needs to be submitted to inspect the setting.
+4. Recheck effective main protections and the dependency graph as described in
+   [CI guarantees](ci.md#required-checks-branch-protection), including inherited
+   rules and bypass policy. Save sanitized API responses or UI evidence and
+   the final candidate SHA in the launch validation record. Unknown or pending
+   settings block the launch settings gate, even when this code PR is ready.
 
 ## Archive smoke test
 
