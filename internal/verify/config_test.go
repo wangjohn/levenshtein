@@ -34,7 +34,7 @@ func TestRejectInvalidConfiguration(t *testing.T) {
 	t.Parallel()
 	const versioned = `{"version":1,"targets":{"app":{"dir":%q,"inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"lint":{"kind":"go-lint","target":"app","environment":"go"}},"runs":{"branch":{"checks":%s}}}`
 	for _, input := range []string{
-		`null`, `{}`, `{"version":2}`, `{"version":1,"typo":true}`,
+		`null`, `{}`, `{"version":3}`, `{"version":1,"typo":true}`,
 		`{"modules":["."],"runs":{"branch":["go-lint"]}}`,
 		fmt.Sprintf(versioned, ".", `["typo"]`),
 		fmt.Sprintf(versioned, "..", `["lint"]`),

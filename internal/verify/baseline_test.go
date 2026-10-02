@@ -850,3 +850,40 @@ func TestEntryLinesStopsAtTheCountItWasGiven(t *testing.T) {
 		t.Fatalf("lines of the first entry only: %v", got)
 	}
 }
+
+func TestVersionTwoCoreOnlyBaselineLeavesCommunityEntriesToDagger(t *testing.T) {
+	t.Parallel()
+	cfg := ruleModulesConfig(t, "", "")
+	cfg.Version = 2
+	cfg.Runs["core"] = Run{Checks: []string{"plain"}}
+	cfg.Runs["policy"] = Run{Checks: []string{"lint"}}
+	baseline := Baseline{Path: testBaselinePath, Entries: []BaselineEntry{
+		lintEntry("a.go", "SA5001", "fixed core finding", 1),
+		lintEntry("a.go", "errs_nopanic", "fixed community finding", 1),
+	}}
+	source := t.TempDir()
+	core, err := cfg.Plan(source, "core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := cfg.Plan(source, "policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	coreReport := reportOf(core.Checks, Result{ID: "plain", Status: StatusPassed})
+	applied := baseline.Apply(coreReport, cfg)
+	if applied.Version != 1 || applied.Baseline.Stale != 1 || len(applied.Baseline.Orphaned) != 0 {
+		t.Fatalf("only core entry is stale: %+v", applied)
+	}
+	recorded, change, err := baseline.Record(coreReport, cfg)
+	if err != nil || change.Removed != 1 || !slices.Equal(recorded.Entries, baseline.Entries[1:]) {
+		t.Fatalf("omitted community entry remains for Dagger: %+v %+v %v", recorded, change, err)
+	}
+
+	policyReport := reportOf(policy.Checks, Result{ID: "lint", Status: StatusPassed})
+	applied = recorded.Apply(policyReport, cfg)
+	if applied.Baseline.Stale != 1 || len(applied.Baseline.Orphaned) != 0 {
+		t.Fatalf("Dagger judges the stale community entry: %+v", applied.Baseline)
+	}
+}

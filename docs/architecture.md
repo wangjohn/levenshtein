@@ -22,7 +22,7 @@ exit codes](#report-and-exit-codes) below says where each is decided.
 
 ## Configuration concepts
 
-`internal/verify/config.go` defines the version 1 schema:
+`internal/verify/config.go` defines the shared shape of configuration versions 1 and 2. Version 2 is unreleased and adds the selected native community-rule completeness requirement ([configuration](configuration.md#community-rule-modules)):
 
 - **Target**: a working directory (`dir`), a `workspace` context, declared
   `inputs` (literal paths, not globs) used for both Dagger source import and
