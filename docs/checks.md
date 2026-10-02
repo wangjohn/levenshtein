@@ -1,4 +1,4 @@
-# Shared checks
+# Lint and CI/CD rules index
 
 Levenshtein verifies a repository with checks, and one of those checks, `go-lint`, is made of rules.
 
@@ -7,12 +7,48 @@ Levenshtein verifies a repository with checks, and one of those checks, `go-lint
 
 Every check kind runs the same pinned tools locally and in any CI provider, and consumer repositories pick up a change by updating their pinned Levenshtein revision. How a check gets its tools depends on its environment's executor. On `dagger`, the check runs in a container that carries the pinned Go toolchain and tools, so the host needs only a Docker-compatible runtime. On `native`, the check runs on the host: it needs the Go version in `.go-version` on `PATH`, and Levenshtein builds or downloads the other pinned tools itself, checking each download against its pinned SHA-256. [Setup](setup.md#prerequisites) and [native Go checks](configuration.md#native-go-checks) have the details.
 
-Where to read next:
+## Shared lint and verification checks
 
-- [Check kinds](check-kinds.md): the generated table of every kind, its executors, caching, baseline support, and default runs.
-- [Check kinds guide](check-kinds-guide.md): which run each kind belongs in, and how the kinds that wrap a whole tool behave.
-- [Go lint rules](rules.md): every rule `go-lint` enforces, why, and how to suppress a finding.
-- [Rule selection](rule-selection.md): how rules are chosen, what was measured, and every analyzer considered and left off.
+Use this table to find the policy behind a finding or choose checks for a
+consumer repository. [Check kinds](check-kinds.md) is the complete, generated
+inventory, including executors, caching, baseline support, and default runs.
+Only `go-lint`, `go-vet`, and `go-mod` run in the default `branch` and
+`pre-merge` runs; `main` adds `go-vuln`. Configure the other checks explicitly
+when you want them in those runs.
+
+| Area | Where the rules are documented |
+| --- | --- |
+| Go lint | [Every enabled analyzer and its settings](rules.md#rules-on-by-default), including Staticcheck, go-critic, modernize, and the LV rules |
+| Rule selection | [Evidence and analyzers left off](rule-selection.md); [optional complexity](rules.md#opt-in-complexity-gocognit) and [defer-in-loop](rules.md#opt-in-resources-deferinloop) rules |
+| Exceptions and additional rules | [Suppressions](rules.md#suppressing-a-finding), [baselines](configuration.md#baseline), and [community rule modules](community-rules.md) |
+| Vet, modules, and tests | [All check kinds](check-kinds.md) for `go-vet`, `go-http`, and `go-sql`; [module manifests](check-kinds-guide.md#module-manifests) and [race tests](check-kinds-guide.md#tests) |
+| Import boundaries and generated code | [Import rules](check-kinds-guide.md#import-boundaries) and [generated-file freshness](check-kinds-guide.md#generated-code) |
+| API and test quality | [API compatibility](check-kinds-guide.md#api-compatibility), [mutation testing](mutation.md), and [experimental semantic lint](semantic-lint.md) (advisory, through an external paid service) |
+| GitHub Actions | [Check kinds](check-kinds.md) for actionlint syntax checks; [workflow security](check-kinds-guide.md#workflow-security) for zizmor's offline audits |
+| Shell scripts and secrets | [ShellCheck](check-kinds-guide.md#shell-scripts) and [gitleaks](check-kinds-guide.md#secrets) |
+| Vulnerabilities | [Check kinds](check-kinds.md) for reachable Go vulnerabilities with govulncheck; [non-Go lockfiles](check-kinds-guide.md#dependency-vulnerabilities) with osv-scanner |
+| Custom checks and CI runs | [Configuration](configuration.md), [check kinds guide](check-kinds-guide.md), and [consumer CI setup](consumer-ci.md) |
+| Tool versions and updates | [Pinned versions](../runner/toolchain.json), [Go version](../.go-version), [dependencies](dependencies.md), and [versioning policy](versioning.md) |
+
+## This repository's CI and release policies
+
+These gates protect Levenshtein itself. Adopting the shared checks does not
+install this repository's workflows or branch protections in a consumer repo.
+[Levenshtein's own CI](maintainers/ci.md) explains the jobs, event mapping,
+required checks, and cache trust in detail.
+
+| Policy | Documentation and enforcement |
+| --- | --- |
+| Verification runs | [Repository config](../levenshtein.json) and [self-check workflow](../.github/workflows/verify.yml): static checks, race tests, consumer and language fixtures, action tests, and release smoke tests |
+| Formatting and documentation | [CI hygiene gates](maintainers/ci.md#jobs): gofmt, Ruff, documentation links and indexes, [SDK lock validation](../scripts/test-sdk-lock), and [release pins in examples](../scripts/test-doc-pins) |
+| Workflow conventions | [Workflow checks](../scripts/test-workflows): consistent action pins, concurrency groups, merge-queue triggers, and secrets in step environments; [Dependabot](../.github/dependabot.yml) supplies grouped updates |
+| Security audits | [Security workflow](../.github/workflows/security.yml): online zizmor audits, OpenSSF Scorecard, and dependency review; [vulnerability workflow](../.github/workflows/vulnerabilities.yml): Go modules and the SDK adapter's dependencies |
+| Merge requirements | [Required-check policy](maintainers/ci.md#required-checks-branch-protection), the [committed main ruleset](../.github/rulesets/main.json), and [live drift check](../scripts/test-rulesets) |
+| Advisory review and mutation testing | [CI jobs](maintainers/ci.md#jobs) and [mutation policy](mutation.md): separate PR jobs, currently outside the required checks; semantic review skips when its service key is absent |
+| Cache isolation and fresh audits | [Result-cache trust](maintainers/ci.md#result-cache-trust) and [cache configuration](maintainers/ci.md#caches-and-self-config-notes) |
+| Release builds and publication | [Release procedure](maintainers/releases.md) and [workflow](../.github/workflows/release.yml): release tags must point to `main` and a changelog entry; archives, checksums, SBOMs, and attestations are prepared as a draft for manual publication |
+| Release tag protection | [Tag protection instructions](maintainers/releases.md#protecting-release-tags); the [proposed tag rulesets](../.github/rulesets/proposed/tags.json) and [creation ruleset](../.github/rulesets/proposed/tags-creation.json) require an admin to apply them |
+| Contributions and local hooks | [Contributing](../CONTRIBUTING.md), [agent conventions](../AGENTS.md), and [optional Lefthook config](../lefthook.yml) |
 
 ## Go lint rules
 
