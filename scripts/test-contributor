@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# Contributor checks reuse the same modules and fixture scripts as CI.
+set -euo pipefail
+root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$root"
+
+usage() {
+  echo 'usage: scripts/test-contributor fast|native|integration|full-ci' >&2
+}
+
+if [[ $# != 1 ]]; then
+  usage
+  exit 2
+fi
+tier=$1
+case "$tier" in
+  fast|native|integration|full-ci) ;;
+  *) usage; exit 2 ;;
+esac
+
+require() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "Missing required tool: $1 (see CONTRIBUTING.md)" >&2
+    exit 1
+  }
+}
+
+require go
+require git
+require jq
+export GOTOOLCHAIN=local
+expected=$(<.go-version)
+actual=$(go env GOVERSION)
+if [[ $actual != "go$expected" ]]; then
+  echo "Go $expected is required; found $actual. Install the version in .go-version." >&2
+  exit 1
+fi
+
+# Check prerequisites before running expensive checks. No tier installs tools.
+if [[ $tier == integration || $tier == full-ci ]]; then
+  require dagger
+  dagger_version=$(dagger version)
+  read -r _ actual_dagger _ <<<"$dagger_version"
+  if [[ $actual_dagger != "v$(<.dagger-version)" ]]; then
+    echo 'Install the pinned CLI with scripts/install-dagger.' >&2
+    exit 1
+  fi
+  # Dagger may use a remote engine; its first operation below tests connectivity.
+  echo 'Container tier requires a working Dagger engine (local Docker/Colima or configured remote engine).'
+fi
+if [[ $tier == full-ci ]]; then
+  for tool in shellcheck ruff uv jq python3 cargo rustc; do
+    require "$tool"
+  done
+  if grep -qF './scripts/test-fuzz' .github/workflows/verify.yml && [[ ! -x scripts/test-fuzz ]]; then
+    echo 'CI requires scripts/test-fuzz, but the executable is missing.' >&2
+    exit 1
+  fi
+fi
+
+run() {
+  printf '\n==> %s\n' "$*"
+  "$@"
+}
+
+fast() {
+  run go build ./...
+  run go test ./...
+  (cd runner/lint && run go test ./...)
+  (cd runner/community && run go test ./...)
+  run ./scripts/test-example-rules
+  echo 'Fast tier excludes root/lint/community race, integration, generated SDK, static lint and hosted CI checks.'
+}
+
+native() {
+  run go test -race ./...
+  (cd runner/lint && run go test -race ./...)
+  (cd runner/community && run go test -race ./...)
+  run ./scripts/test-example-rules
+  run ./scripts/test-integration native
+}
+
+integration() {
+  native
+  run dagger develop --compat=skip
+  run ./scripts/test-integration dagger
+  (cd runner && run dagger run go test -count=1 ./...)
+  run ./verify pre-merge
+  run ./scripts/test-consumers
+  run ./scripts/test-shared-checks
+}
+
+case "$tier" in
+  fast) fast ;;
+  native) native ;;
+  integration) integration ;;
+  full-ci)
+    # These checks reproduce the local parts of a ready PR, not the schedule's
+    # fresh main audit or hosted-only checks listed in CONTRIBUTING.md.
+    integration
+    run ./verify branch --dry-run
+    sources=()
+    source_list=$(git ls-files '*.go' ':!*/testdata/*')
+    [[ -n $source_list ]] || { echo 'No tracked Go files found.' >&2; exit 1; }
+    while IFS= read -r source; do sources+=("$source"); done <<<"$source_list"
+    unformatted=$(gofmt -l "${sources[@]}")
+    if [[ -n $unformatted ]]; then
+      printf 'gofmt would rewrite:\n%s\n' "$unformatted" >&2
+      exit 1
+    fi
+    run ruff check scripts sdk/patched-go
+    bash_scripts=()
+    script_list=$(grep -rl '^#!/usr/bin/env bash' scripts templates)
+    while IFS= read -r script; do bash_scripts+=("$script"); done <<<"$script_list"
+    run shellcheck verify "${bash_scripts[@]}"
+    run ./scripts/test-sdk-lock
+    run ./scripts/test-doc-pins
+    run ./scripts/test-workflows
+    run ./scripts/test-rulesets
+    run ./scripts/test-checks
+    run ./scripts/test-tool-checks
+    run ./scripts/test-language-contracts
+    run ./scripts/test-sdk-security
+    run ./verify go-vuln
+    run ./verify deps-vuln
+    if grep -qF './scripts/test-fuzz' .github/workflows/verify.yml; then
+      run ./scripts/test-fuzz 2s
+    else
+      echo 'Fuzz smoke is not a CI step at this revision; full-ci will require it when the workflow adds it.'
+    fi
+    echo 'Local full-ci passed. Hosted CI gates in CONTRIBUTING.md still require CI evidence.'
+    ;;
+esac
