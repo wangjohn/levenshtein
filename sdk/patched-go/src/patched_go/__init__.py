@@ -32,16 +32,33 @@ def base() -> dagger.Container:
 
 def codegen_binary() -> dagger.File:
     source = dag.git("https://github.com/dagger/dagger.git").commit(DAGGER_COMMIT).tree()
-    container = base().with_directory("/upstream", source).with_workdir("/upstream")
+    adapter = dag.current_module().source()
+    container = (
+        base().with_directory("/upstream", source).with_workdir("/upstream")
+        .with_directory("/patched-otel-go", adapter.directory("otel-go"))
+        .with_file("/patch-generator.sh", adapter.file("patch-generator.sh"))
+        .with_file(
+            "/upstream/cmd/codegen/generator/go/patched_compat_test.go",
+            adapter.file("generator-compat.go.txt"),
+        )
+        .with_exec(["sh", "/patch-generator.sh"])
+    )
 
     # The generator embeds sdk/go/go.mod. Patch both that policy and the
     # generator's own dependencies; otherwise it reintroduces v0.16.0 on load.
     for modfile in ("go.mod", "sdk/go/go.mod"):
         container = container.with_exec([
             "go", "mod", "edit", f"-modfile={modfile}",
-            *[f"-replace={module}={module}@v0.20.0" for module in LOG_MODULES],
-            "-require=go.opentelemetry.io/otel@v1.44.0",
-            "-require=go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.44.0",
+            *[f"-replace={module}={module}@v0.21.0" for module in LOG_MODULES],
+            "-require=go.opentelemetry.io/otel@v1.45.0",
+            "-require=github.com/dagger/otel-go@v1.43.0",
+            "-replace=github.com/dagger/otel-go=" + (
+                "/patched-otel-go" if modfile == "go.mod"
+                else "../sdk/patched-go/otel-go"
+            ),
+            "-require=go.opentelemetry.io/otel/exporters/otlp/otlptrace@v1.45.0",
+            "-require=go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc@v1.45.0",
+            "-require=go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.45.0",
             "-require=go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.44.0",
             "-require=google.golang.org/grpc@v1.83.2",
             "-require=golang.org/x/text@v0.41.0",
@@ -49,6 +66,9 @@ def codegen_binary() -> dagger.File:
 
     return (
         container.with_exec([
+            "go", "test", "-mod=mod", "./cmd/codegen/generator/go",
+            "-run", "^TestPatchedLocalReplacementSurvivesTwoPasses$",
+        ]).with_exec([
             "go", "build", "-mod=mod", "-o", "/codegen", "./cmd/codegen",
         ])
         .file("/codegen")
@@ -68,6 +88,15 @@ class PatchedGo:
             base()
             .with_file("/usr/local/bin/codegen", codegen_binary())
             .with_directory("/src", source)
+            # Dagger filters the module context before invoking a custom SDK.
+            # The sibling local replacement is not guaranteed to survive that
+            # filter, so supply it from this adapter's own source explicitly.
+            .with_directory(
+                posixpath.normpath(posixpath.join(
+                    "/src", subpath, "../sdk/patched-go/otel-go"
+                )),
+                dag.current_module().source().directory("otel-go"),
+            )
             .with_file("/schema.json", introspection_json)
             .with_workdir(posixpath.join("/src", subpath))
         )
