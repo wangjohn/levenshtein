@@ -17,8 +17,7 @@ says which interfaces are versioned and what to expect when you bump your pin.
 **0.3.0** is a minor release under the [versioning policy](docs/versioning.md):
 fixes below can turn previous passes into findings or check errors, and the
 CLI/report interfaces gain optional fields.
-Consumer examples stay pinned to the real v0.2.0 release until publication and
-a separate pin-update PR.
+Consumer examples move to v0.3.0 in a separate post-publication pin-update PR.
 
 - **Review new failures before updating a baseline.** Entries that no configured
   check can report now fail even partial runs as `baseline-stale`. Audit the

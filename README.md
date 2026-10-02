@@ -31,7 +31,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Verify
-        uses: wangjohn/levenshtein@3d47ab4c589fdf3a30107b6dd3f0816c1f346c85 # v0.2.0
+        uses: wangjohn/levenshtein@a49d41322e457abb0ac453a575aa2763f3abd576 # v0.3.0
 ```
 
 A single Go module at the repository root needs no configuration. The action
@@ -119,7 +119,7 @@ left out. To understand a Go lint warning, start with
 To try the Go lint rules, run this from your module's root with Go 1.21 or later:
 
 ```sh
-go run github.com/wangjohn/levenshtein/runner/lint/cmd/levenshtein-lint@v0.2.0 ./...
+go run github.com/wangjohn/levenshtein/runner/lint/cmd/levenshtein-lint@v0.3.0 ./...
 ```
 
 For the default checks, use Go 1.21 or later and a Docker-compatible runtime on
@@ -127,7 +127,7 @@ macOS or Linux; see [setup](docs/setup.md#prerequisites) for toolchain and
 dependency downloads:
 
 ```sh
-git clone --depth 1 --branch v0.2.0 https://github.com/wangjohn/levenshtein
+git clone --depth 1 --branch v0.3.0 https://github.com/wangjohn/levenshtein
 ./levenshtein/verify --source ./myapp --format text
 ```
 
