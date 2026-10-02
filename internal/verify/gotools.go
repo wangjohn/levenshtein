@@ -3,9 +3,12 @@ package verify
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -184,34 +187,95 @@ func (n *Native) cacheRoot() (string, func(), error) {
 	return dir, func() { _ = os.RemoveAll(dir) }, nil
 }
 
-// build compiles one helper from the shared checkout into work.Root. Go's own
-// build cache makes a repeat build cheap, so there is no staleness logic here;
-// the file lock only keeps two concurrent checks from writing the same output
-// path.
+// build compiles privately, then addresses the executable by its actual bytes.
+// This covers source edits, dependencies, build flags and the resolved toolchain
+// without guessing the inputs Go consumes. Go's compiler cache still reuses
+// equivalent compilation; only publication of the same artifact is serialized.
+// Published paths are never replaced, so callers can execute after unlocking.
 func build(ctx context.Context, req Request, work goRun, tool helper) (string, error) {
 	module, err := contained(req.Shared, filepath.FromSlash(tool.Module))
 	if err != nil {
 		return "", fmt.Errorf("shared checkout has no %s: %w", tool.Module, err)
 	}
 
-	output := filepath.Join(work.Root, "tools", tool.Name)
-	unlock, err := lockFile(ctx, filepath.Join(work.Root, "locks", "tool-"+tool.Name), sessionOf(req).waiting)
+	tools := filepath.Join(work.Root, "tools")
+	if err := os.MkdirAll(tools, 0700); err != nil {
+		return "", err
+	}
+	stage, err := os.MkdirTemp(tools, ".build-")
 	if err != nil {
 		return "", err
 	}
-	defer unlock()
-	if err := os.MkdirAll(filepath.Dir(output), 0700); err != nil {
-		return "", err
-	}
-
-	run, err := runTool(ctx, module, []string{"go", "build", "-trimpath", "-o", output, tool.Pkg}, buildEnv(work.Env), 10*time.Minute)
+	defer func() { _ = os.RemoveAll(stage) }()
+	candidate := filepath.Join(stage, tool.Name)
+	run, err := runTool(ctx, module, []string{"go", "build", "-trimpath", "-o", candidate, tool.Pkg}, buildEnv(work.Env), 10*time.Minute)
 	if err != nil {
 		return "", err
 	}
 	if run.ExitCode != 0 {
 		return "", fmt.Errorf("building %s: %s", tool.Name, strings.TrimSpace(run.Stderr+run.Stdout))
 	}
+	identity, err := helperDigest(candidate)
+	if err != nil {
+		return "", err
+	}
+
+	output := filepath.Join(tools, identity, tool.Name)
+	unlock, err := lockFile(ctx, filepath.Join(work.Root, "locks", "tool-"+identity), sessionOf(req).waiting)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if _, err := os.Lstat(output); err == nil {
+		found, err := helperDigest(output)
+		if err != nil {
+			return "", err
+		}
+		if found != identity {
+			return "", fmt.Errorf("cached helper %s does not match its executable identity", output)
+		}
+		return output, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(output), 0700); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(candidate, 0500); err != nil {
+		return "", err
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	// Linking a complete private file publishes atomically and cannot replace
+	// a path even if a writer outside this process ignores the advisory lock.
+	if err := os.Link(candidate, output); err != nil {
+		return "", err
+	}
 	return output, nil
+}
+
+func helperDigest(path string) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
+		return "", fmt.Errorf("helper %s is not a regular executable", path)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = file.Close() }()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 // sharedChecks reads the pinned Staticcheck rule list from the shared checkout

@@ -99,6 +99,9 @@ says which interfaces are versioned and what to expect when you bump your pin.
 
 ### Fixed
 
+- Native checks publish helper executables at immutable paths identified by
+  their compiled bytes. Concurrent checks using different shared revisions or
+  build settings can no longer replace a helper another check is about to run.
 - [docs/rules.md](docs/rules.md) listed `gocognit` and `deferInLoop`, which
   are off by default, in its table of rules on by default. They are now in
   an [opt-in rules](docs/rules.md#opt-in-rules) table, and a test fails when
