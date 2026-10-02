@@ -61,6 +61,10 @@ says which interfaces are versioned and what to expect when you bump your pin.
 
 ### Changed
 
+- Installation examples pin the existing v0.2.0 release and state Go 1.21+
+  for source-launcher toolchain switching, separately from native analysis
+  pins. Setup distinguishes direct lint, source, and prebuilt execution,
+  with guidance for denied downloads and missing Docker.
 - Native checks retain the first 1 MiB of each subprocess output stream while
   draining the remainder, report truncation warnings, and reject incomplete
   helper diagnostics as check errors. Result warnings, including skipped

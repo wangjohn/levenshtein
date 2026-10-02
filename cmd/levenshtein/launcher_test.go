@@ -290,9 +290,9 @@ func TestLauncherSetupFailuresExitTwo(t *testing.T) {
 }
 
 // The launcher asks Go for the pinned toolchain, so the only Go requirement it
-// states is that some go exists. The message names the pinned version and the
-// document that explains how to obtain it.
-func TestLauncherNeedsOnlyAGoOnPath(t *testing.T) {
+// states is a Go 1.21+ bootstrap executable. The message names the pinned
+// version and the document that explains how to obtain it.
+func TestLauncherNamesBootstrapGoRequirement(t *testing.T) {
 	root := launcherRoot(t)
 	pinned, err := os.ReadFile(filepath.Join(root, ".go-version"))
 	if err != nil {
@@ -317,7 +317,7 @@ func TestLauncherNeedsOnlyAGoOnPath(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("launcher without a Go on PATH: exit %d, want 2:\n%s", code, out)
 	}
-	if !strings.Contains(out, strings.TrimSpace(string(pinned))) || !strings.Contains(out, "docs/setup.md") {
+	if !strings.Contains(out, "Go 1.21+") || !strings.Contains(out, strings.TrimSpace(string(pinned))) || !strings.Contains(out, "docs/setup.md") {
 		t.Fatalf("message names neither the pinned version nor setup:\n%s", out)
 	}
 }

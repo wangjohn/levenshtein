@@ -4,7 +4,7 @@ Levenshtein's shared checks run pinned lint, vet, workflow, and vulnerability to
 
 ## Prerequisites
 
-The source launcher needs a `go` on `PATH`, of any version: it sets `GOTOOLCHAIN` to the version in `.go-version` (**1.27.1**), so Go downloads and caches that toolchain itself when the host differs. That download needs a reachable module proxy; with `GOPROXY=off`, install Go 1.27.1 and the launcher uses it directly.
+The source launcher needs Go **1.21 or later** on `PATH`, which supports automatic toolchain switching: it sets `GOTOOLCHAIN` to the version in `.go-version` (**1.27.1**), so Go downloads and caches that toolchain itself when the host differs. That download needs a reachable module proxy. With `GOPROXY=off`, install Go 1.27.1 on `PATH` or provision its toolchain cache first; the CLI's module dependencies must also already be cached. The launcher sets `GOTOOLCHAIN` for its own build even if the caller sets it to `local`. This does not select the Go executable used by native checks.
 
 What else you need depends on the executor of the environments your checks use:
 
@@ -19,6 +19,18 @@ colima start levenshtein --runtime docker --vm-type vz --cpu 2 --memory 4 --disk
 ```
 
 Docker Desktop or an existing Docker engine also works. Dagger downloads its pinned engine and builds the module on the first invocation; allow extra time for the initial run.
+
+## Choose an installation
+
+- **Direct linter trial:** from a Go module, run `go run github.com/wangjohn/levenshtein/runner/lint/cmd/levenshtein-lint@v0.2.0 ./...`. Go 1.21+ obtains the released linter's toolchain and dependencies. This runs only lint rules; see [the direct linter](rules.md#running-the-linter-directly).
+- **Source launcher:** clone an existing release with `git clone --branch v0.2.0 --depth 1 https://github.com/wangjohn/levenshtein.git`, then run `./levenshtein/verify --source /absolute/path/to/app`. Run that command from the directory containing the clone; `--source` names your application, not the Levenshtein checkout.
+- **Prebuilt CLI:** extract a [release archive](releases.md#running-an-archive), keep its files together, and pass both `--shared /absolute/path/to/archive` and `--source /absolute/path/to/app` to its `levenshtein` binary. The prebuilt CLI needs no host Go; native Go checks still need the archive's pinned Go version on `PATH`.
+
+These examples pin the existing **v0.2.0** release. The tool versions on this page describe this documentation's checkout; when using a release, read its `.go-version` and documentation for its pins. Select the executor through the application's configuration: choosing a source checkout or prebuilt CLI does not change the default Dagger execution.
+
+If downloads are denied, configure an approved `GOPROXY` or provision the pinned toolchain, modules, and check tools in advance. A prebuilt archive removes the CLI build step; it does not remove check-tool downloads or container image requirements. See [download troubleshooting](troubleshooting.md#the-pinned-go-cannot-be-downloaded).
+
+If Docker is absent or stopped, start a runtime and confirm `docker info` succeeds before running the default checks. To inspect the configuration without Docker, use `--dry-run`; to execute without Docker, explicitly configure [native environments](configuration.md#native-go-checks) and install their required tools.
 
 ## Run checks
 
