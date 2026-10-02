@@ -14,6 +14,12 @@ archives:
       - README.md
       - LICENSE
       - NOTICE
+      - CHANGELOG.md
+      - CONTRIBUTING.md
+      - SECURITY.md
+      - CODE_OF_CONDUCT.md
+      - AGENTS.md
+      - templates/**
       - docs/**
       - dagger.json
       - .dagger-version
@@ -43,6 +49,8 @@ archives:
       - sdk/patched-go/uv.lock
       - sdk/patched-go/src/**/*.py
       - sdk/patched-go/README.md
+      - sdk/patched-go/otel-go.patch
+      - sdk/patched-go/compat_test.go.fixture
       - runner/lint/**
       - runner/community/**
       - runner/testdata/**

@@ -20,11 +20,34 @@ modules=(
 )
 for module in "${modules[@]}"; do
   version=$(cd runner && go list -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' "$module")
-  if [[ "$version" != v0.20.0 ]]; then
-    echo "Unexpected effective version of $module: $version (want v0.20.0)" >&2
+  if [[ "$version" != v0.21.0 ]]; then
+    echo "Unexpected effective version of $module: $version (want v0.21.0)" >&2
     exit 1
   fi
 done
+
+modules=(
+  go.opentelemetry.io/otel
+  go.opentelemetry.io/otel/trace
+  go.opentelemetry.io/otel/metric
+  go.opentelemetry.io/otel/sdk
+  go.opentelemetry.io/otel/sdk/metric
+  go.opentelemetry.io/otel/exporters/otlp/otlptrace
+  go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc
+  go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp
+  go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc
+  go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp
+)
+for module in "${modules[@]}"; do
+  version=$(cd runner && go list -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' "$module")
+  if [[ "$version" != v1.45.0 ]]; then
+    echo "Unexpected effective version of $module: $version (want v1.45.0)" >&2
+    exit 1
+  fi
+done
+
+# Exercise the logging API migration, including OTLP values and writer output.
+(cd runner/internal/telemetry && go test -mod=mod ./...)
 
 # Scan the generated executable as well as the source checks in ./verify go-vuln.
 (cd runner && go build -o "$temporary/runtime" .)

@@ -137,6 +137,26 @@ the preparation it depends on. A stage is skipped when its declared outputs
 still match a recorded run, which requires the environment to declare an
 `identity`. `semantic-lint` checks accept no stages.
 
+Native commands and helper invocations retain the first 1 MiB (1,048,576
+bytes) of stdout and stderr independently. The pipes continue draining after
+that limit. A stream exceeding the limit adds an `output-truncated` warning
+to the existing result warnings, naming the stream and byte limit; no marker
+is inserted into the retained output. Result warnings appear in JSON and as
+render-only advisories in text, GitHub, and SARIF; they cannot be suppressed
+by a diagnostic baseline. An equivalent existing advisory is not repeated. The prefix may end within a UTF-8
+character; JSON encoding uses its usual replacement for invalid UTF-8.
+Command exit outcomes, cancellation, timeouts, and detached-process warnings
+remain unchanged. Helpers and tool version validation reject truncated
+output as an explicit check error before interpreting incomplete diagnostics.
+Cancellation and timeouts take precedence over the truncation error.
+
+Multi-step helper checks also retain at most 1 MiB per stream in their combined
+result; complete diagnostics are parsed for each step before combining output.
+Cached passing command results preserve truncation warnings. Even with
+maximum JSON escaping, the two retained streams occupy at most 12 MiB,
+below the existing 64 MiB cache record limit; other result fields still count
+toward that limit. The limit applies per result, not to the entire run report.
+
 #### Shared Go kinds on the native executor
 
 The `kindSpecs` table in `internal/verify/kinds.go` registers every shared

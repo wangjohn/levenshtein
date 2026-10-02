@@ -221,6 +221,10 @@ jobs:
         run: |
           go test -race -covermode=atomic -coverprofile=coverage.out ./...
           ./verify branch --dry-run
+      - name: Bounded parser fuzz smoke
+        env:
+          GOTOOLCHAIN: local
+        run: ./scripts/test-fuzz 2s
       # No threshold gate: the profile is for reading, not for failing a run.
       - name: Upload the root module coverage profile
         if: ${{ !cancelled() && hashFiles('coverage.out') != '' }}
