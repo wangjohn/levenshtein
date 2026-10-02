@@ -6,6 +6,8 @@ import dagger
 from dagger import dag, function, object_type
 
 DAGGER_COMMIT = "f2aefc20cf41b5ed7922df7244e0f10ddc6031f7"
+# github.com/dagger/otel-go v1.43.0, matching the pinned Dagger SDK.
+TELEMETRY_COMMIT = "a9e4d7ae7eb276fe94a2aebc27d08673d50f66b3"
 CLIENT_COMMIT = "fdf4c34a9a67d096aaeef79630017c9c7ff8fe8e"
 # Same tag and digest as goImage in runner/toolchain.json; TestPinsAgree in
 # runner/main_test.go fails until they match. This module's Dagger source is
@@ -30,22 +32,51 @@ def base() -> dagger.Container:
     )
 
 
+def patched_dependencies(container: dagger.Container, modfile: str = "go.mod") -> dagger.Container:
+    return container.with_exec([
+        "go", "mod", "edit", f"-modfile={modfile}",
+        *[f"-replace={module}={module}@v0.21.0" for module in LOG_MODULES],
+        *[f"-require={module}@v0.21.0" for module in LOG_MODULES],
+        "-require=go.opentelemetry.io/otel@v1.45.0",
+        "-require=go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc@v1.45.0",
+        "-require=go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.45.0",
+        "-require=go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc@v1.45.0",
+        "-require=go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.45.0",
+        "-require=google.golang.org/grpc@v1.83.2",
+        "-require=golang.org/x/text@v0.41.0",
+    ])
+
+
+def telemetry_source() -> dagger.Directory:
+    # otel-go v1.43.0 predates the log.Value -> attribute.Value migration.
+    # Generate a local module so both the generator and runtime use this patch.
+    source = dag.git("https://github.com/dagger/otel-go.git").commit(TELEMETRY_COMMIT).tree()
+    container = (
+        base().with_directory("/telemetry", source).with_workdir("/telemetry")
+        .with_file("/otel-go.patch", dag.current_module().source().file("otel-go.patch"))
+        .with_exec(["git", "apply", "/otel-go.patch"])
+        .with_file("/telemetry/compat_test.go", dag.current_module().source().file("compat_test.go.fixture"))
+    )
+    return patched_dependencies(container).directory("/telemetry")
+
+
 def codegen_binary() -> dagger.File:
     source = dag.git("https://github.com/dagger/dagger.git").commit(DAGGER_COMMIT).tree()
-    container = base().with_directory("/upstream", source).with_workdir("/upstream")
+    container = (
+        base().with_directory("/upstream", source).with_workdir("/upstream")
+        .with_directory("/telemetry", telemetry_source())
+        .with_exec(["go", "mod", "edit", "-replace=github.com/dagger/otel-go=/telemetry"])
+        .with_exec([
+            "sed", "-i",
+            "s@go.opentelemetry.io/otel/log@go.opentelemetry.io/otel/attribute@; s/log.KeyValue/attribute.KeyValue/g",
+            "engine/slog/telemetry.go",
+        ])
+    )
 
     # The generator embeds sdk/go/go.mod. Patch both that policy and the
     # generator's own dependencies; otherwise it reintroduces v0.16.0 on load.
     for modfile in ("go.mod", "sdk/go/go.mod"):
-        container = container.with_exec([
-            "go", "mod", "edit", f"-modfile={modfile}",
-            *[f"-replace={module}={module}@v0.20.0" for module in LOG_MODULES],
-            "-require=go.opentelemetry.io/otel@v1.44.0",
-            "-require=go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.44.0",
-            "-require=go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.44.0",
-            "-require=google.golang.org/grpc@v1.83.2",
-            "-require=golang.org/x/text@v0.41.0",
-        ])
+        container = patched_dependencies(container, modfile)
 
     return (
         container.with_exec([
@@ -70,6 +101,8 @@ class PatchedGo:
             .with_directory("/src", source)
             .with_file("/schema.json", introspection_json)
             .with_workdir(posixpath.join("/src", subpath))
+            .with_directory(posixpath.join("/src", subpath, "internal/telemetry"), telemetry_source())
+            .with_exec(["go", "mod", "edit", "-replace=github.com/dagger/otel-go=./internal/telemetry"])
         )
 
     async def arguments(self, mod_source: dagger.ModuleSource) -> list[str]:
@@ -96,7 +129,7 @@ class PatchedGo:
         container = await self.generated(mod_source, introspection_json)
         return (
             dag.generated_code(container.directory("/src"))
-            .with_vcs_generated_paths(["dagger.gen.go", "internal/dagger/**"])
+            .with_vcs_generated_paths(["dagger.gen.go", "internal/dagger/**", "internal/telemetry/**"])
             .with_vcs_ignored_paths(["dagger.gen.go", "internal/dagger", "internal/telemetry", ".env"])
         )
 

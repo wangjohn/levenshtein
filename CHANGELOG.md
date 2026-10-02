@@ -102,6 +102,11 @@ says which interfaces are versioned and what to expect when you bump your pin.
 
 ### Fixed
 
+- The generated Dagger SDK now uses OpenTelemetry logging 0.21.0 and
+  core/trace exporters 1.45.0, fixing GO-2026-6508 and GO-2026-6505 without
+  suppressions. The generator and runtime share a compatibility patch for
+  Dagger's pinned telemetry library; HTTP exporter default paths are preserved.
+
 - [docs/rules.md](docs/rules.md) listed `gocognit` and `deferInLoop`, which
   are off by default, in its table of rules on by default. They are now in
   an [opt-in rules](docs/rules.md#opt-in-rules) table, and a test fails when
