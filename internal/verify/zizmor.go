@@ -27,7 +27,7 @@ func (n *Native) workflowSecurity(ctx context.Context, req Request, work goRun) 
 	if err != nil {
 		return nil, run, err
 	}
-	findings, err := toolFindings(checktool.ZizmorFindings(req.Target.Dir, checktool.Run(run)))
+	findings, err := toolFindings(checktool.ZizmorFindings(req.Target.Dir, run.diagnostics()))
 	return findings, run, err
 }
 
