@@ -19,6 +19,12 @@ says which interfaces are versioned and what to expect when you bump your pin.
 - Release tag protection proposals now cover both `v*` and `runner/lint/v*`,
   with policy and release-guard regressions. Maintainer documentation separates
   proposed settings, verified live enforcement, main ancestry, and PR review.
+- Configuration version 2 requires selected native `go-lint` checks that
+  participate in community rule modules to use Dagger or explicitly opt out
+  with `lint.rule_modules=false`. Version 1 remains accepted and preserves
+  skip-with-warning behavior, with migration guidance on fresh results.
+  Report and baseline file versions remain 1; released consumer templates
+  continue using configuration version 1.
 - Release archives include the changelog, contribution and security policies,
   code of conduct, agent conventions, and consumer templates. Archive smoke
   checks now reject missing metadata and broken extracted documentation links;
