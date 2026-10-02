@@ -16,6 +16,10 @@ says which interfaces are versioned and what to expect when you bump your pin.
   implementation snapshot, and effective native Go identity to version 1 JSON
   reports. Cached results retain the identity of their original verification;
   toolchain settings are hashed rather than exposed.
+- Release archives include the changelog, contribution and security policies,
+  code of conduct, agent conventions, and consumer templates. Archive smoke
+  checks now reject missing metadata and broken extracted documentation links;
+  `scripts/test-release --metadata-only` runs these checks without Docker.
 - Bounded parser fuzz smoke covers configuration, baselines, tool diagnostics,
   and release archive entries; maintainers can run longer sessions with
   `scripts/test-fuzz`.
