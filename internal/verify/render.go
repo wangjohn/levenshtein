@@ -41,9 +41,14 @@ type item struct {
 	check    PlannedCheck
 	result   Result
 	findings []finding
+	warnings []finding
 }
 
 func (it item) located(f finding) bool {
+	// Render-only result warnings describe the check, not a source file.
+	if slices.Contains(it.warnings, f) {
+		return false
+	}
 	return locatedKind(it.check.Check.Kind) || f.Code == baselineStaleCode
 }
 
@@ -68,6 +73,19 @@ func items(report Report) []item {
 // entries belong to no check, so the item has no check or row of its own.
 func findingItems(report Report) []item {
 	all := items(report)
+	// Result warnings are presentation-only advisories, never
+	// diagnostic details that a baseline could suppress.
+	for i, it := range all {
+		for _, warning := range it.result.Warnings {
+			if !slices.ContainsFunc(all[i].findings, func(f finding) bool {
+				return f.Advisory && f.Code == string(warning.Kind) && f.Message == warning.Message
+			}) {
+				advisory := finding{Code: string(warning.Kind), Message: warning.Message, Location: location{File: it.check.Target.Dir}, Advisory: true}
+				all[i].findings = append(all[i].findings, advisory)
+				all[i].warnings = append(all[i].warnings, advisory)
+			}
+		}
+	}
 	if report.Baseline == nil || len(report.Baseline.Orphaned) == 0 {
 		return all
 	}
