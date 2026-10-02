@@ -1,7 +1,8 @@
 # GitHub Action adoption plan
 
-Status: implementation prepared; passing consumer validated; failing consumer validation in progress;
-Marketplace publication and listing links pending browser authentication.
+Status: implementation validated; both consumer smoke cases passed their
+expected outcomes. Marketplace publication and listing links are pending
+browser authentication and implementation merge.
 Created October 2, 2026.
 
 ## Goal
@@ -113,11 +114,11 @@ Update `docs/consumer-ci.md` and `docs/maintainers/releases.md` in the same chan
   do not assume adding a template makes it automatically included.
 - [x] Compare the README workflow with the minimal template and inspect Markdown
   rendering and local links. Do not add a test suite just to compare prose.
-- [ ] Exercise the copied starter in a disposable single-module consumer repo
+- [x] Exercise the copied starter in a disposable single-module consumer repo
   on GitHub-hosted Ubuntu, without custom Levenshtein configuration. Test a
   passing pull request and a deliberate lint violation: the latter must fail
   the job and produce an annotation and job summary.
-- [ ] Record the release SHA, workflow run links, and outcomes in the PR.
+- [x] Record the release SHA, workflow run links, and outcomes in the PR.
 
 Existing action behavior remains unchanged. Go code edits are unnecessary;
 if implementation expands to Go changes, run the shared Go lint rules too.
@@ -184,7 +185,13 @@ blocker should be recorded with GitHub's exact error and the remaining owner act
   The [passing run](https://github.com/wangjohn/levenshtein-action-adoption-smoke-20261002/actions/runs/37073516681)
   passed `go-lint`, `go-vet`, and `go-mod`, emitted no findings, and completed
   the annotation and summary steps. The first uncached run took about five minutes.
+  The [deliberately failing run](https://github.com/wangjohn/levenshtein-action-adoption-smoke-20261002/actions/runs/37073990715)
+  failed with `SA5001` in `broken.go:8`; GitHub recorded the finding as an
+  annotation, and the annotation and job summary steps both completed successfully.
+  The private test repository was archived after validation to preserve evidence.
 - Publication blocker: the CLI is authenticated as the repository owner, but
   the available browser redirects the release edit form to GitHub sign-in.
   Marketplace validation/publication must finish through that authenticated form.
   No agreement was accepted, release published, or Marketplace badge added.
+
+Implementation PR: [#112](https://github.com/wangjohn/levenshtein/pull/112).
