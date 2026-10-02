@@ -10,7 +10,7 @@ Most errors are reported when a run is planned, before any check starts, and onl
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `version` | number | required | Must be `1` or `2` (version 2 is unreleased). A file without it is rejected rather than guessed at; see [community completeness](../configuration.md#community-rule-modules) |
+| `version` | number | required | Must be `1` or `2` (version 2 is available starting with v0.3.0). A file without it is rejected rather than guessed at; see [community completeness](../configuration.md#community-rule-modules) |
 | `targets` | object of [target](#targets) | required | Named directories to check, keyed by target name |
 | `environments` | object of [environment](#environments) | required | Named ways to run a check, keyed by environment name |
 | `checks` | object of [check](#checks) | required | Named checks, keyed by check ID |
@@ -185,7 +185,7 @@ Keyed by Go module path. See [community lint rules](../community-rules.md#config
 | `advisory` | array of strings | none | Patterns for selected rules that report without failing the check. A literal rule name no `go-lint` check selects is an error |
 | `settings` | object of objects of strings | none | Flag values for each rule, keyed by rule code and then by the analyzer's flag name |
 
-Rule modules run only on Dagger. Version 1 native `go-lint` checks skip them with a migration warning. Version 2 (unreleased) rejects selected native `go-lint` checks that participate in configured modules unless `lint.rule_modules` is explicitly `false`. Native checks with no configured modules remain valid. `go-http` and `go-sql` never run them.
+Rule modules run only on Dagger. Version 1 native `go-lint` checks skip them with a migration warning. Version 2 (available starting with v0.3.0) rejects selected native `go-lint` checks that participate in configured modules unless `lint.rule_modules` is explicitly `false`. Native checks with no configured modules remain valid. `go-http` and `go-sql` never run them.
 
 ## `baseline`
 
