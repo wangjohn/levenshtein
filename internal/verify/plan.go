@@ -157,6 +157,12 @@ func (cfg Config) planCheck(source string, selected selection, rerunChecks bool)
 	if err := validateCheck(check, env); err != nil {
 		return PlannedCheck{}, fmt.Errorf("check %q: %w", id, err)
 	}
+
+	ruleModules := cfg.plannedRuleModules(check)
+	if cfg.Version == 2 && env.Executor == ExecutorNative && len(ruleModules) > 0 {
+		return PlannedCheck{}, fmt.Errorf(`check %q: configuration version 2 requires community rules to run on Dagger; use a Dagger environment or explicitly set "lint": {"rule_modules": false} for core rules only`, id)
+	}
+
 	if rerunChecks && env.Executor == ExecutorNative {
 		kind, _ := nativeKindOf(check.Kind)
 		if err := kind.rerunReady(check); err != nil {
@@ -234,6 +240,6 @@ func (cfg Config) planCheck(source string, selected selection, rerunChecks bool)
 	return PlannedCheck{
 		ID: id, Check: check, Target: target, Environment: env,
 		Preparation: preparation, Build: build,
-		RuleModules: cfg.plannedRuleModules(check),
+		RuleModules: ruleModules,
 	}, nil
 }

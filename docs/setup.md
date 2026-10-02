@@ -50,6 +50,8 @@ Moved to [Go lint rules](rules.md#rules-on-by-default).
 
 A single Go module at the source root works without configuration. For multiple modules or custom runs, add a version 1 `levenshtein.json` to that repo; [configuration](configuration.md) is the guide, and the [configuration reference](reference/config.md) lists every field.
 
+Version 2 is unreleased; released consumer templates remain at version 1. See [community-rule migration](configuration.md#community-rule-modules) for its explicit completeness check.
+
 Use the [version 1 consumer example](consumer-ci.md#the-same-command-locally-and-in-ci) for explicit product targets, checks, and run selections. `inputs` restricts Dagger's imported source as well as its cache scope; include required manifests, local dependencies, and fixtures. Native command inputs only describe cache scope and do not restrict host access. See [source boundaries](configuration.md#source-boundaries).
 
 A configuration file replaces defaults. Paths are relative to the source root. Every selected check runs or reuses an eligible result; change-based selection is not implemented. [Check kinds](check-kinds.md) lists every kind you can use. Every configuration file declares `"version": 1`.

@@ -12,6 +12,13 @@ says which interfaces are versioned and what to expect when you bump your pin.
 
 ### Added
 
+- Configuration version 2 requires selected native `go-lint` checks that
+  participate in community rule modules to use Dagger or explicitly opt out
+  with `lint.rule_modules=false`. Version 1 remains accepted and preserves
+  skip-with-warning behavior, with migration guidance on fresh results.
+  Report and baseline file versions remain 1; released consumer templates
+  continue using configuration version 1.
+
 - The repository and its example rule module now use Apache License 2.0, with
   John Wang named in `NOTICE`. Release archives include both the license and
   notice. Earlier published releases retain their original MIT license.
