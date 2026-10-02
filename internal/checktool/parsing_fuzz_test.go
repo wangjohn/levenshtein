@@ -1,12 +1,13 @@
 package checktool
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
 
 func FuzzDiagnosticOutput(f *testing.F) {
-	for _, seed := range []string{`{"findings":[],"notes":[]}`, `{"findings":[]} trailing`, `{"findings":[]} {"findings":[{}]}`, `{"findings":[{"code":"go-imports","message":"bad","location":{"file":"x.go","line":1}}]}`, `{"code":"SA1000","message":"bad","location":{"file":"x.go","line":1}}`, `{"comments":[]}`, `{"comments":[`, `null`, ""} {
+	for _, seed := range []string{`{"findings":[],"notes":[]}`, `{"findings":[]} trailing`, `{"findings":[]} {"findings":[{}]}`, `{"findings":[{"code":"go-imports","message":"bad","location":{"file":"x.go","line":1}}]}`, `{"code":"SA1000","message":"bad","location":{"file":"x.go","line":1}}`, `{"comments":[]}`, `{"comments":[{"file":"run.sh","line":1,"column":1,"code":2164,"message":"bad"}]}`, `{"comments":[`, `null`, `{}`, `{"notes":["ok"]}`, `{"findings":null}`, `{"comments":null}`, ""} {
 		for _, exit := range []int{0, 1, 2, -1} {
 			f.Add(seed, "", exit)
 		}
@@ -39,6 +40,29 @@ func FuzzDiagnosticOutput(f *testing.F) {
 		}
 		if strings.TrimSpace(stderr) != "" && (lintErr == nil || gocheckErr == nil) {
 			t.Fatal("tool stderr accepted as clean verdict")
+		}
+		var object map[string]json.RawMessage
+		if gocheckErr == nil || shellErr == nil {
+			if err := json.Unmarshal([]byte(stdout), &object); err != nil || object == nil {
+				t.Fatal("accepted a non-object report")
+			}
+		}
+		for _, result := range []struct {
+			field string
+			err   error
+		}{{"findings", gocheckErr}, {"comments", shellErr}} {
+			if result.err == nil {
+				array := false
+				for field, raw := range object {
+					var entries []json.RawMessage
+					if strings.EqualFold(field, result.field) && json.Unmarshal(raw, &entries) == nil && entries != nil {
+						array = true
+					}
+				}
+				if !array {
+					t.Fatalf("accepted report without a %s array", result.field)
+				}
+			}
 		}
 		if gocheckErr == nil {
 			run.Stdout += "\n{}"

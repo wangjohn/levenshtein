@@ -34,6 +34,9 @@ func GocheckReport(kind Kind, run Run) ([]Finding, []string, error) {
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
 		return nil, nil, fmt.Errorf("%s printed trailing data after its report: %s", kind, output(run))
 	}
+	if report.Findings == nil {
+		return nil, nil, fmt.Errorf("%s printed a report without a findings array: %s", kind, output(run))
+	}
 	if (run.ExitCode == 0) != (len(report.Findings) == 0) {
 		return nil, nil, fmt.Errorf("%s exit %d does not match its %d findings: %s", kind, run.ExitCode, len(report.Findings), run.Stdout)
 	}

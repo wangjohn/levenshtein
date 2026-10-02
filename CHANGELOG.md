@@ -44,6 +44,7 @@ says which interfaces are versioned and what to expect when you bump your pin.
 
 - Gocheck reports reject trailing JSON or malformed output instead of accepting
   a clean prefix, and lint reports reject diagnostics missing a rule code.
+  Gocheck and ShellCheck reject reports without their diagnostic arrays.
   Release archive traversal also bounds decompressed skipped
   entries to the existing 128 MiB release limit.
 
