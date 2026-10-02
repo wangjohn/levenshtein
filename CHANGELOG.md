@@ -12,6 +12,10 @@ says which interfaces are versioned and what to expect when you bump your pin.
 
 ### Added
 
+- Bounded parser fuzz smoke covers configuration, baselines, tool diagnostics,
+  and release archive entries; maintainers can run longer sessions with
+  `scripts/test-fuzz`.
+
 - The repository and its example rule module now use Apache License 2.0, with
   John Wang named in `NOTICE`. Release archives include both the license and
   notice. Earlier published releases retain their original MIT license.
@@ -36,12 +40,25 @@ says which interfaces are versioned and what to expect when you bump your pin.
   [docs/maintainers/releases.md](docs/maintainers/releases.md#protecting-release-tags)
   has the tag rulesets and immutable-release setting an admin can apply.
 
+### Fixed
+
+- Gocheck reports reject trailing JSON or malformed output instead of accepting
+  a clean prefix, and lint reports reject diagnostics missing a rule code.
+  Gocheck and ShellCheck reject reports without their diagnostic arrays.
+  Release archive traversal also bounds decompressed skipped
+  entries to the existing 128 MiB release limit.
+
 ### Changed
 
 - Installation examples pin the existing v0.2.0 release and state Go 1.21+
   for source-launcher toolchain switching, separately from native analysis
   pins. Setup distinguishes direct lint, source, and prebuilt execution,
   with guidance for denied downloads and missing Docker.
+- Native checks retain the first 1 MiB of each subprocess output stream while
+  draining the remainder, report truncation warnings, and reject incomplete
+  helper diagnostics as check errors. Result warnings, including skipped
+  community rules and deprecation guidance, now appear in text, GitHub, and
+  SARIF output as well as JSON.
 
 - **A baseline entry no configured check could report fails every run.**
   An entry whose rule module was removed, whose rule was dropped from a
@@ -104,6 +121,9 @@ says which interfaces are versioned and what to expect when you bump your pin.
 
 ### Fixed
 
+- Native checks publish helper executables at immutable paths identified by
+  their compiled bytes. Concurrent checks using different shared revisions or
+  build settings can no longer replace a helper another check is about to run.
 - The generated Dagger SDK now uses OpenTelemetry logging 0.21.0 and
   core/trace exporters 1.45.0, fixing GO-2026-6508 and GO-2026-6505 without
   suppressions. The generator and runtime share a compatibility patch for

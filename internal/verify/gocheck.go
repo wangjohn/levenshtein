@@ -24,7 +24,7 @@ func gocheckRun(ctx context.Context, kind CheckKind, dir string, args, env []str
 	if err != nil {
 		return nil, run, err
 	}
-	found, notes, err := checktool.GocheckReport(checktool.Kind(kind), checktool.Run(run))
+	found, notes, err := checktool.GocheckReport(checktool.Kind(kind), run.diagnostics())
 	if err != nil {
 		return nil, run, err
 	}
