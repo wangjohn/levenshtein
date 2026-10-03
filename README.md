@@ -1,6 +1,7 @@
 # Levenshtein
 
 [![CI](https://github.com/wangjohn/levenshtein/actions/workflows/verify.yml/badge.svg?branch=main)](https://github.com/wangjohn/levenshtein/actions/workflows/verify.yml)
+[![GitHub Marketplace](https://img.shields.io/badge/GitHub%20Marketplace-Levenshtein-blue?logo=github)](https://github.com/marketplace/actions/levenshtein-verify)
 [![Latest release](https://img.shields.io/github/v/release/wangjohn/levenshtein)](https://github.com/wangjohn/levenshtein/releases/latest)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](LICENSE)
 
@@ -8,6 +9,8 @@
 Go repo.**
 
 ## Add to GitHub Actions
+
+[Use this Action on GitHub Marketplace](https://github.com/marketplace/actions/levenshtein-verify).
 
 Save this as `.github/workflows/levenshtein.yml` in your Go repository:
 
@@ -31,7 +34,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Verify
-        uses: wangjohn/levenshtein@a49d41322e457abb0ac453a575aa2763f3abd576 # v0.3.0
+        uses: wangjohn/levenshtein@e954359340b4e9dcd68620f8085180ea398a0f37 # v0.3.1
 ```
 
 A single Go module at the repository root needs no configuration. The action
@@ -119,7 +122,7 @@ left out. To understand a Go lint warning, start with
 To try the Go lint rules, run this from your module's root with Go 1.21 or later:
 
 ```sh
-go run github.com/wangjohn/levenshtein/runner/lint/cmd/levenshtein-lint@v0.3.0 ./...
+go run github.com/wangjohn/levenshtein/runner/lint/cmd/levenshtein-lint@v0.3.1 ./...
 ```
 
 For the default checks, use Go 1.21 or later and a Docker-compatible runtime on
@@ -127,7 +130,7 @@ macOS or Linux; see [setup](docs/setup.md#prerequisites) for toolchain and
 dependency downloads:
 
 ```sh
-git clone --depth 1 --branch v0.3.0 https://github.com/wangjohn/levenshtein
+git clone --depth 1 --branch v0.3.1 https://github.com/wangjohn/levenshtein
 ./levenshtein/verify --source ./myapp --format text
 ```
 

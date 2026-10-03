@@ -1,9 +1,8 @@
 # GitHub Action adoption plan
 
-Status: implementation PR #112 is merged and v0.3.0 is published; both consumer
-smoke cases passed their expected outcomes. Marketplace publication requires
-a new reviewed release containing PR #114's shortened action description;
-listing validation and verified listing links remain pending.
+Status: the implementation and consumer smoke tests are complete. v0.3.1 is
+published on [GitHub Marketplace](https://github.com/marketplace/actions/levenshtein-verify).
+The follow-up adds verified listing links and updates consumer pins to v0.3.1.
 Created October 2, 2026.
 
 ## Goal
@@ -29,17 +28,17 @@ syntax and point readers to that same setup.
 - [x] Check whether a Marketplace listing already exists. The public Marketplace
   search for `levenshtein` returned only an unrelated action on October 2, 2026.
   The expected listing URL returned 404; name eligibility still needs the release form.
-- [ ] Read GitHub's current [Marketplace publishing requirements](https://docs.github.com/en/actions/how-tos/create-and-publish-actions/publish-in-github-marketplace).
+- [x] Read GitHub's current [Marketplace publishing requirements](https://docs.github.com/en/actions/how-tos/create-and-publish-actions/publish-in-github-marketplace).
   Confirm repository eligibility, including its contents, root metadata file,
   and uniqueness of the action name `Levenshtein verify`. Use GitHub's release
   form to check name availability rather than assuming it from a search.
-- [ ] Keep the current repository and consumer action path if eligible. If
+- [x] Keep the current repository and consumer action path if eligible. If
   GitHub reports an eligibility problem, record the exact issue before choosing
   a repository split or metadata change.
 
 Use the latest published release's full commit SHA with its version as a
 comment for consumer examples. The initial implementation used v0.2.0; the
-post-publication consumer examples now use v0.3.0. Do not substitute a branch or
+post-publication consumer examples now use v0.3.1. Do not substitute a branch or
 an unpublished commit.
 
 ## 2. Add a minimal starter workflow
@@ -129,15 +128,15 @@ if implementation expands to Go changes, run the shared Go lint rules too.
 
 After the documentation and template changes are merged:
 
-- [ ] Open the root `action.yml` on GitHub and follow the release publication flow.
-- [ ] Choose a reviewed release containing the action. If the documentation
+- [x] Open the root `action.yml` on GitHub and follow the release publication flow.
+- [x] Choose a reviewed release containing the action. If the documentation
   changes need a new release, use the existing release process; do not move an
   existing tag. If an existing eligible release can be listed through GitHub's
   UI, check its metadata and README before using it.
-- [ ] Have the repository owner accept the Developer Agreement if necessary.
-- [ ] Select `Publish this Action to the GitHub Marketplace`, resolve validation
+- [x] Have the repository owner accept the Developer Agreement if necessary.
+- [x] Select `Publish this Action to the GitHub Marketplace`, resolve validation
   errors, select the categories, and publish the release after its usual checks.
-- [ ] Open the resulting listing and verify its name, description, README,
+- [x] Open the resulting listing and verify its name, description, README,
   displayed version, repository link, and copied installation syntax.
 
 GitHub Actions listings provide workflow syntax to copy. A repository-selection
@@ -148,12 +147,12 @@ installation flow would require a GitHub App and is outside this plan. See
 
 In a small follow-up documentation change:
 
-- [ ] Add a `GitHub Marketplace` badge beside the README's current badges,
+- [x] Add a `GitHub Marketplace` badge beside the README's current badges,
   linking to the verified listing URL.
-- [ ] Add a `Use this Action` link beside the new README setup section and in
+- [x] Add a `Use this Action` link beside the new README setup section and in
   the consumer guide.
-- [ ] Update consumer release pins through the normal release process if needed.
-- [ ] Re-run documentation pin and workflow policy checks, then confirm the
+- [x] Update consumer release pins through the normal release process if needed.
+- [x] Re-run documentation pin and workflow policy checks, then confirm the
   README links open the live listing and its correct installation instructions.
 
 ## Delivery order and completion criteria
@@ -198,11 +197,23 @@ blocker should be recorded with GitHub's exact error and the remaining owner act
 - The authenticated release form rejected v0.2.0: “Description must be less
   than 125 characters.” PR #114 shortens the description to 114 characters.
   A new reviewed release must contain the correction; published tags stay intact.
-- Current release state: [v0.3.0](https://github.com/wangjohn/levenshtein/releases/tag/v0.3.0)
-  is published at `a49d41322e457abb0ac453a575aa2763f3abd576`, with both `v0.3.0`
-  and `runner/lint/v0.3.0` tags pointing to that commit. Marketplace listing
-  validation and its verified link remain pending. No Marketplace listing or
-  guessed badge URL was added.
+- Published release: [v0.3.1](https://github.com/wangjohn/levenshtein/releases/tag/v0.3.1)
+  at `e954359340b4e9dcd68620f8085180ea398a0f37`; both `v0.3.1` and
+  `runner/lint/v0.3.1` name that reviewed merge commit. Existing tags were preserved.
+  [Release preparation PR #116](https://github.com/wangjohn/levenshtein/pull/116)
+  passed [CI](https://github.com/wangjohn/levenshtein/actions/runs/37094418909)
+  and security checks, including all four native platforms and release smoke.
+- The [release build](https://github.com/wangjohn/levenshtein/actions/runs/37094978535)
+  succeeded. All nine uploaded asset digests and manifest checksums were verified;
+  the macOS ARM64 archive and checksum manifest passed provenance verification.
+  The extracted archive passed metadata and native runtime checks, including
+  the expected `SA5001` failure fixture.
+- GitHub's release form accepted the corrected metadata. The owner accepted
+  the Developer Agreement and re-authenticated to complete publication.
+  The live [Marketplace listing](https://github.com/marketplace/actions/levenshtein-verify)
+  displays v0.3.1 as latest under Code quality and Security. Its installation
+  dialog names `wangjohn/levenshtein` with the v0.3.1 tag. Its repository link,
+  description, and rendered README were checked before adding the badge.
 
 Merged implementation PR: [#112](https://github.com/wangjohn/levenshtein/pull/112).
 PR #112 merged as `7e9506eb807d37d62c98052bebaa90e3504fea81`; its ready-PR
