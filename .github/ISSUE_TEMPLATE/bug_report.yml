@@ -35,7 +35,7 @@ body:
     id: revision
     attributes:
       label: Levenshtein revision
-      description: Paste --version output for upcoming source builds, or the exact commit/release archive for v0.2.0 (which has no --version).
+      description: Paste --version output for v0.3.0 and later or source builds, or the exact commit/release archive for v0.2.0 (which has no --version).
     validations:
       required: true
   - type: input

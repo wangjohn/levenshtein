@@ -77,7 +77,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Verify
-        uses: wangjohn/levenshtein@3d47ab4c589fdf3a30107b6dd3f0816c1f346c85 # v0.2.0
+        uses: wangjohn/levenshtein@a49d41322e457abb0ac453a575aa2763f3abd576 # v0.3.0
 ```
 
 A single Go module at the repository root needs no `levenshtein.json`, secrets,
@@ -132,7 +132,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: wangjohn/levenshtein@3d47ab4c589fdf3a30107b6dd3f0816c1f346c85 # v0.2.0
+      - uses: wangjohn/levenshtein@a49d41322e457abb0ac453a575aa2763f3abd576 # v0.3.0
 ```
 
 With no `run` input, the action picks one from the event: a schedule runs `main`, a push or draft pull request runs `branch`, and every other event, including a ready pull request, a merge queue, and a manual dispatch, runs `pre-merge`. Pass `run:` to choose explicitly, for example one job per run. If a run includes [`go-mutation`](mutation.md) or `semantic-lint`, check out with `fetch-depth: 0`: both diff against the base branch.
@@ -166,7 +166,7 @@ jobs:
         with:
           persist-credentials: false
       - id: levenshtein
-        uses: wangjohn/levenshtein@3d47ab4c589fdf3a30107b6dd3f0816c1f346c85 # v0.2.0
+        uses: wangjohn/levenshtein@a49d41322e457abb0ac453a575aa2763f3abd576 # v0.3.0
         with:
           sarif: levenshtein.sarif
       - if: >-
@@ -186,7 +186,7 @@ Name a `baseline` file in `levenshtein.json`, run `verify main --source . --writ
 
 ### Pin a release
 
-The examples pin the commit SHA of the published [release](releases.md) v0.2.0, with the version as a comment, as this repository does for every action it calls: a SHA cannot be moved. `@v0.2.0` also works but trusts the tag. Dependabot's `github-actions` ecosystem proposes new Levenshtein releases like any other action, including the SHA and comment. Do not pin a branch.
+The examples pin the commit SHA of the published [release](releases.md) v0.3.0, with the version as a comment, as this repository does for every action it calls: a SHA cannot be moved. `@v0.3.0` also works but trusts the tag. Dependabot's `github-actions` ecosystem proposes new Levenshtein releases like any other action, including the SHA and comment. Do not pin a branch.
 
 ### Caching and trust
 
@@ -229,7 +229,7 @@ A library can fail pull requests that break its exported API with a [`go-apidiff
 Use the same arrangement in an existing job: check out the application, fetch the pinned Levenshtein release beside it, provide any Go for the source launcher and a Docker-compatible runtime for Dagger checks, and pick a run from the provider's trigger:
 
 ```sh
-git clone --depth 1 --branch v0.2.0 https://github.com/wangjohn/levenshtein ../levenshtein
+git clone --depth 1 --branch v0.3.0 https://github.com/wangjohn/levenshtein ../levenshtein
 ../levenshtein/verify pre-merge --source .
 ```
 

@@ -22,11 +22,11 @@ Docker Desktop or an existing Docker engine also works. Dagger downloads its pin
 
 ## Choose an installation
 
-- **Direct linter trial:** from a Go module, run `go run github.com/wangjohn/levenshtein/runner/lint/cmd/levenshtein-lint@v0.2.0 ./...`. Go 1.21+ obtains the released linter's toolchain and dependencies. This runs only lint rules; see [the direct linter](rules.md#running-the-linter-directly).
-- **Source launcher:** clone an existing release with `git clone --branch v0.2.0 --depth 1 https://github.com/wangjohn/levenshtein.git`, then run `./levenshtein/verify --source /absolute/path/to/app`. Run that command from the directory containing the clone; `--source` names your application, not the Levenshtein checkout.
+- **Direct linter trial:** from a Go module, run `go run github.com/wangjohn/levenshtein/runner/lint/cmd/levenshtein-lint@v0.3.0 ./...`. Go 1.21+ obtains the released linter's toolchain and dependencies. This runs only lint rules; see [the direct linter](rules.md#running-the-linter-directly).
+- **Source launcher:** clone an existing release with `git clone --branch v0.3.0 --depth 1 https://github.com/wangjohn/levenshtein.git`, then run `./levenshtein/verify --source /absolute/path/to/app`. Run that command from the directory containing the clone; `--source` names your application, not the Levenshtein checkout.
 - **Prebuilt CLI:** extract a [release archive](releases.md#running-an-archive), keep its files together, and pass both `--shared /absolute/path/to/archive` and `--source /absolute/path/to/app` to its `levenshtein` binary. The prebuilt CLI needs no host Go; native Go checks still need the archive's pinned Go version on `PATH`.
 
-These examples pin the existing **v0.2.0** release. The tool versions on this page describe this documentation's checkout; when using a release, read its `.go-version` and documentation for its pins. Select the executor through the application's configuration: choosing a source checkout or prebuilt CLI does not change the default Dagger execution.
+These examples pin the published **v0.3.0** release. The tool versions on this page describe this documentation's checkout; when using a release, read its `.go-version` and documentation for its pins. Select the executor through the application's configuration: choosing a source checkout or prebuilt CLI does not change the default Dagger execution.
 
 If downloads are denied, configure an approved `GOPROXY` or provision the pinned toolchain, modules, and check tools in advance. A prebuilt archive removes the CLI build step; it does not remove check-tool downloads or container image requirements. See [download troubleshooting](troubleshooting.md#the-pinned-go-cannot-be-downloaded).
 
@@ -62,11 +62,11 @@ Moved to [Go lint rules](rules.md#rules-on-by-default).
 
 A single Go module at the source root works without configuration. For multiple modules or custom runs, add a version 1 `levenshtein.json` to that repo; [configuration](configuration.md) is the guide, and the [configuration reference](reference/config.md) lists every field.
 
-Version 2 is unreleased; released consumer templates remain at version 1. See [community-rule migration](configuration.md#community-rule-modules) for its explicit completeness check.
+Version 2 is available starting with v0.3.0; released consumer templates remain at version 1. See [community-rule migration](configuration.md#community-rule-modules) for its explicit completeness check.
 
 Use the [version 1 consumer example](consumer-ci.md#the-same-command-locally-and-in-ci) for explicit product targets, checks, and run selections. `inputs` restricts Dagger's imported source as well as its cache scope; include required manifests, local dependencies, and fixtures. Native command inputs only describe cache scope and do not restrict host access. See [source boundaries](configuration.md#source-boundaries).
 
-A configuration file replaces defaults. Paths are relative to the source root. Every selected check runs or reuses an eligible result; change-based selection is not implemented. [Check kinds](check-kinds.md) lists every kind you can use. Every configuration file declares a supported `version`; use `1` with released pins, or `2` with a revision that supports the unreleased completeness check.
+A configuration file replaces defaults. Paths are relative to the source root. Every selected check runs or reuses an eligible result; change-based selection is not implemented. [Check kinds](check-kinds.md) lists every kind you can use. Every configuration file declares a supported `version`; use `1` with v0.2.0 and earlier pins, or `1` or `2` starting with v0.3.0.
 
 Version 1 runs use explicit `rerun_checks: true` for fresh audits, regardless of their name. Levenshtein's own `main` is configured that way. Audits bypass passing-verdict reuse while retaining compatible downloads and compiler caches. Vulnerability scans always execute against current advisory data. Add new checks explicitly to your configured full run during this pilot.
 
