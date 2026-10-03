@@ -10,6 +10,12 @@ says which interfaces are versioned and what to expect when you bump your pin.
 
 ## [Unreleased]
 
+### Fixed
+
+- Shortened the GitHub Action description to meet Marketplace metadata
+  requirements. The correction requires a new release; existing published
+  tags retain their original metadata.
+
 ## [0.3.0] - 2026-10-02
 
 ### Upgrading from 0.2.0

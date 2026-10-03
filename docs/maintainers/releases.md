@@ -127,6 +127,10 @@ For the first listing:
    actions are not separate Marketplace listings. The shared runner and check
    sources are used by the root action. Let GitHub validate the action name
    `Levenshtein verify` for uniqueness and resolve any reported metadata errors.
+   The description must be fewer than 125 characters. GitHub validates metadata
+   at the selected release tag, so changing `main` does not repair an older
+   release. Publish a new reviewed release containing the correction; never
+   move a published tag to repair Marketplace metadata.
 2. Open `action.yml` on GitHub and follow its publication banner, or open the
    reviewed draft release's edit form. If an eligible published release can
    be listed through its edit form, use that release without moving its tag.

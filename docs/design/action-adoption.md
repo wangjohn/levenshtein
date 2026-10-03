@@ -1,8 +1,9 @@
 # GitHub Action adoption plan
 
 Status: implementation PR #112 is merged and v0.3.0 is published; both consumer
-smoke cases passed their expected outcomes. Marketplace listing validation and
-listing links remain pending owner completion in the authenticated browser.
+smoke cases passed their expected outcomes. Marketplace publication requires
+a new reviewed release containing PR #114's shortened action description;
+listing validation and verified listing links remain pending.
 Created October 2, 2026.
 
 ## Goal
@@ -192,12 +193,17 @@ blocker should be recorded with GitHub's exact error and the remaining owner act
   annotation, and the annotation and job summary steps both completed successfully.
   The private test repository was archived after validation to preserve evidence.
 - Initial publication blocker: the available browser redirected the release
-  edit form to GitHub sign-in. At that point, no agreement was accepted, release
-  published, or Marketplace badge added.
+  edit form to GitHub sign-in. The owner subsequently signed in and accepted
+  Developer Agreement v2.4.
+- The authenticated release form rejected v0.2.0: “Description must be less
+  than 125 characters.” PR #114 shortens the description to 114 characters.
+  A new reviewed release must contain the correction; published tags stay intact.
 - Current release state: [v0.3.0](https://github.com/wangjohn/levenshtein/releases/tag/v0.3.0)
   is published at `a49d41322e457abb0ac453a575aa2763f3abd576`, with both `v0.3.0`
   and `runner/lint/v0.3.0` tags pointing to that commit. Marketplace listing
-  validation and its verified link still require owner completion through the
-  authenticated form. No Marketplace listing or agreement acceptance is claimed.
+  validation and its verified link remain pending. No Marketplace listing or
+  guessed badge URL was added.
 
 Merged implementation PR: [#112](https://github.com/wangjohn/levenshtein/pull/112).
+PR #112 merged as `7e9506eb807d37d62c98052bebaa90e3504fea81`; its ready-PR
+checks, including all four release platforms and release smoke, passed.

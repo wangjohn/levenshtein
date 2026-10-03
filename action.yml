@@ -1,8 +1,6 @@
 name: Levenshtein verify
 description: >-
-  Run a named Levenshtein verification run (branch, pre-merge, main, or one of
-  your own) against a checked-out repository. The pinned ref of this action is
-  the pinned revision of the shared checks. See docs/consumer-ci.md.
+  Run curated Go lint, vet, module, and dependency checks with caching, pull request annotations, and job summaries.
 author: wangjohn
 branding:
   icon: check-circle
