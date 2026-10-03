@@ -10,6 +10,11 @@ says which interfaces are versioned and what to expect when you bump your pin.
 
 ## [Unreleased]
 
+### Added
+
+- Direct links to the published GitHub Marketplace Action from the README and
+  consumer CI guide, with consumer examples pinned to v0.3.1.
+
 ## [0.3.1] - 2026-10-02
 
 ### Fixed
