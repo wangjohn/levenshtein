@@ -10,6 +10,8 @@ says which interfaces are versioned and what to expect when you bump your pin.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-02
+
 ### Fixed
 
 - Shortened the GitHub Action description to meet Marketplace metadata
