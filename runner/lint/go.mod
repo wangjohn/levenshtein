@@ -25,7 +25,7 @@ require (
 	github.com/maratori/testableexamples v1.0.1
 	github.com/moricho/tparallel v0.3.2
 	github.com/nishanths/exhaustive v0.13.0
-	github.com/nishanths/predeclared v0.2.2
+	github.com/nishanths/predeclared v0.3.0
 	github.com/polyfloyd/go-errorlint v1.8.0
 	github.com/raeperd/recvcheck v0.3.1
 	github.com/ryanrolds/sqlclosecheck v0.6.0
