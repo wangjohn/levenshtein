@@ -15,7 +15,8 @@ CLIENT_COMMIT = "fdf4c34a9a67d096aaeef79630017c9c7ff8fe8e"
 # generator is built before any module source is at hand.
 GO_IMAGE = "golang:1.27.2-trixie@sha256:e58d6f83b3416618d8bcac2b3dde1b7f7e3c4a77d25e88637f8bbae81536c48d"
 # The golang.org/x/tools version the generator is built with; it must read the
-# export data that GO_IMAGE's compiler writes. Matches runner/lint/go.mod.
+# export data that GO_IMAGE's compiler writes. TestPinsAgree in
+# runner/main_test.go keeps it equal to x/tools in runner/lint/go.mod.
 CODEGEN_X_TOOLS = "v0.50.0"
 LOG_MODULES = (
     "go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc",
