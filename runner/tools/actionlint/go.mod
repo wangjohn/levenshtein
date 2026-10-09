@@ -1,6 +1,6 @@
 module github.com/wangjohn/levenshtein/runner/tools/actionlint
 
-go 1.27.1
+go 1.27.2
 
 tool github.com/rhysd/actionlint/cmd/actionlint
 

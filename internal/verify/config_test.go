@@ -304,9 +304,9 @@ func TestCacheableCommandNeedsIdentityAndRerunArgs(t *testing.T) {
 		rerun    string
 		ok       bool
 	}{
-		"both":          {`,"identity":"go1.27.1"`, `,"rerun_args":["go","test","-count=1"]`, true},
+		"both":          {`,"identity":"go1.27.2"`, `,"rerun_args":["go","test","-count=1"]`, true},
 		"no identity":   {``, `,"rerun_args":["go","test","-count=1"]`, false},
-		"no rerun_args": {`,"identity":"go1.27.1"`, ``, false},
+		"no rerun_args": {`,"identity":"go1.27.2"`, ``, false},
 		"neither":       {``, ``, false},
 	} {
 		data := `{"version":1,"targets":{"app":{"dir":".","inputs":["."]}},"environments":{"host":{"executor":"native"` + tc.identity + `}},"checks":{"c":{"kind":"command","target":"app","environment":"host","command":{"args":["go","test"],"cache":true` + tc.rerun + `}}},"runs":{"branch":{"checks":["c"]}}}`

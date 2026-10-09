@@ -58,7 +58,7 @@ func TestMovedNamesAModuleRaisedByAnother(t *testing.T) {
 }
 
 func TestRequestsMustPinExactVersions(t *testing.T) {
-	valid := Request{Go: "1.27.1", Staticcheck: "v0.8.1", Community: "/community"}
+	valid := Request{Go: "1.27.2", Staticcheck: "v0.8.1", Community: "/community"}
 	for _, test := range []struct {
 		name    string
 		module  Module
@@ -169,7 +169,7 @@ func TestARaisedGoLineFailsTheBuild(t *testing.T) {
 		manifest string
 		message  string
 	}{
-		{"module m\n\ngo 1.27.1\n", ""},
+		{"module m\n\ngo 1.27.2\n", ""},
 		{"module m\n\ngo 1.28.0\n", "raised the go line to go 1.28.0"},
 		{"module m\n", "raised the go line to no go line"},
 	} {
@@ -178,7 +178,7 @@ func TestARaisedGoLineFailsTheBuild(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		err := checkGoLine(work, "1.27.1")
+		err := checkGoLine(work, "1.27.2")
 
 		if (test.message == "" && err != nil) || (test.message != "" && (err == nil || !strings.Contains(err.Error(), test.message))) {
 			t.Errorf("%q: got %v, want %q", test.manifest, err, test.message)

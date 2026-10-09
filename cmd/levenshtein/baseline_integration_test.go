@@ -46,7 +46,7 @@ func TestBaselineWithNativeGoLint(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := writeConfig(t, `, "baseline": ".levenshtein/baseline.json"`)
-	writeSource(t, source, "go.mod", "module example.com/app\n\ngo 1.27.1\n")
+	writeSource(t, source, "go.mod", "module example.com/app\n\ngo 1.27.2\n")
 	writeSource(t, source, "size.go", strings.ReplaceAll(deferBeforeCheck, "%s", "Size"))
 	cache := t.TempDir()
 	run := func(extra ...string) (int, string, string) {

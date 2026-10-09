@@ -1,6 +1,6 @@
 module github.com/wangjohn/levenshtein/runner/tools/gremlins
 
-go 1.27.1
+go 1.27.2
 
 tool github.com/go-gremlins/gremlins/cmd/gremlins
 

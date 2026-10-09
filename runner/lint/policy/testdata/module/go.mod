@@ -1,6 +1,6 @@
 module example.com/app
 
-go 1.27.1
+go 1.27.2
 
 require example.com/external v0.0.0
 

@@ -26,7 +26,7 @@ cp -R "$root/runner/testdata/vendored" "$temporary/workspace/app"
 mv "$temporary/workspace/app/vendor" "$temporary/workspace/vendor"
 { printf '## workspace\n'; cat "$temporary/workspace/vendor/modules.txt"; } > "$temporary/modules.txt"
 mv "$temporary/modules.txt" "$temporary/workspace/vendor/modules.txt"
-printf 'go 1.27.1\n\nuse ./app\n' > "$temporary/workspace/go.work"
+printf 'go 1.27.2\n\nuse ./app\n' > "$temporary/workspace/go.work"
 printf '{"version":1,"targets":{"app":{"dir":"app","workspace":".","inputs":["."]}},"environments":{"go":{"executor":"dagger"}},"checks":{"go-lint":{"kind":"go-lint","target":"app","environment":"go"}},"runs":{"go-lint":{"checks":["go-lint"]}}}\n' > "$temporary/workspace/levenshtein.json"
 "$root/verify" go-lint --source "$temporary/workspace"
 

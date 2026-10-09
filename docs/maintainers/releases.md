@@ -2,7 +2,7 @@
 
 This page is for Levenshtein's maintainers. To use a release, see [release archives](../releases.md).
 
-GoReleaser builds the CLI for macOS and Linux on amd64 and arm64, and creates archives with SHA-256 checksums. Using Go 1.27.1 and GoReleaser 2.18.1, validate and build locally:
+GoReleaser builds the CLI for macOS and Linux on amd64 and arm64, and creates archives with SHA-256 checksums. Using Go 1.27.2 and GoReleaser 2.18.1, validate and build locally:
 
 ```sh
 goreleaser check

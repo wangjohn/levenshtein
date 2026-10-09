@@ -18,7 +18,7 @@ func nativeGoEnvironment() Environment {
 		Identity: "worker-v1",
 		Env:      map[string]string{"CI": "true"},
 		PassEnv:  []string{"GOFLAGS"},
-		Tools:    []Tool{{Command: []string{"go", "version"}, Version: "go1.27.1"}},
+		Tools:    []Tool{{Command: []string{"go", "version"}, Version: "go1.27.2"}},
 	}
 }
 

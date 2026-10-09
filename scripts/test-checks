@@ -106,7 +106,7 @@ reported 'passes lock by value' 'passes lock by value'
 # from the same cache, and unformatting it again must bring the finding back.
 cached="$temporary/cached"
 mkdir -p "$cached/module"
-printf 'module example.com/cached\n\ngo 1.27.1\n' > "$cached/module/go.mod"
+printf 'module example.com/cached\n\ngo 1.27.2\n' > "$cached/module/go.mod"
 printf 'package cached\n' > "$cached/module/cached.go"
 printf '//go:build integration\n\npackage cached\nvar  x = 1\n' > "$cached/module/integration.go"
 if (cd "$cached/module" && STATICCHECK_CACHE="$cached/cache" "$temporary/lint" -checks=LV1005 ./...) > "$temporary/output" 2>&1; then
