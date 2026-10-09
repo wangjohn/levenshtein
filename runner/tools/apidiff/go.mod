@@ -1,6 +1,6 @@
 module github.com/wangjohn/levenshtein/runner/tools/apidiff
 
-go 1.27.1
+go 1.27.2
 
 tool golang.org/x/exp/cmd/apidiff
 

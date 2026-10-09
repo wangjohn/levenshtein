@@ -12,6 +12,11 @@ the project's pinned Go image. Generation and runtime compilation therefore
 use the same patched dependencies: logging 0.21.0 and core/exporters 1.45.0.
 The trace exporters also fix GO-2026-6505. Download and compiler caches are retained.
 
+The generator itself is built with `golang.org/x/tools` v0.50.0 rather than
+Dagger's v0.45.0. It type-checks the runner from `go list` export data, and Go
+1.27.2 writes export data version 5, which earlier `x/tools` cannot decode;
+the generator would then type every function parameter as `any`.
+
 Logging 0.21.0 removes `log.Value`, `log.KeyValue`, and their constructors in
 favor of `attribute.Value` and `attribute.KeyValue`. The pinned Dagger
 `otel-go` v1.43.0 still uses them, so `otel-go.patch` adapts its writers and OTLP

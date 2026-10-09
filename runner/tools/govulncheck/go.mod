@@ -1,6 +1,6 @@
 module github.com/wangjohn/levenshtein/runner/tools/govulncheck
 
-go 1.27.1
+go 1.27.2
 
 tool golang.org/x/vuln/cmd/govulncheck
 

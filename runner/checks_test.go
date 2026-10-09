@@ -79,7 +79,7 @@ func TestOnlyRepositoryStepsMountUntrustedCaches(t *testing.T) {
 // directories, but never one volume in common, and each repository's steps
 // mount volumes of their own.
 func TestToolAndUntrustedCachesAreDisjoint(t *testing.T) {
-	tools := toolchain{Go: "1.27.1"}
+	tools := toolchain{Go: "1.27.2"}
 	one, err := repositoryScope(strings.Repeat("a1", 32))
 	if err != nil {
 		t.Fatal(err)

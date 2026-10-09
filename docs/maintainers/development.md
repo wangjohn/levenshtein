@@ -4,7 +4,7 @@ This page is for working on Levenshtein itself: the pinned dependencies, the loc
 
 ## Tools
 
-Use Go 1.27.1, the version in `.go-version`, for development and native analysis. The source launcher can bootstrap its CLI build from Go 1.21+ with a reachable module proxy; that does not switch the host Go used by native checks. To develop the shared Dagger module or use `dagger check` directly, install the pinned Dagger CLI with the checked-in archive checksums:
+Use Go 1.27.2, the version in `.go-version`, for development and native analysis. The source launcher can bootstrap its CLI build from Go 1.21+ with a reachable module proxy; that does not switch the host Go used by native checks. To develop the shared Dagger module or use `dagger check` directly, install the pinned Dagger CLI with the checked-in archive checksums:
 
 ```sh
 ./scripts/install-dagger
@@ -26,8 +26,8 @@ Stable versions checked on September 15, 2026:
 
 | Dependency | Version | Pin |
 | --- | --- | --- |
-| Go for lint and local development | 1.27.1 | `.go-version`, root and `runner` `go.mod`, fixture modules, `runner/toolchain.json` |
-| Go container | 1.27.1 on Debian Trixie | Tag and immutable image digest in `runner/toolchain.json` |
+| Go for lint and local development | 1.27.2 | `.go-version`, root and `runner` `go.mod`, fixture modules, `runner/toolchain.json` |
+| Go container | 1.27.2 on Debian Trixie | Tag and immutable image digest in `runner/toolchain.json` |
 | Dagger CLI / engine / SDK | 0.21.9 | `.dagger-version`, `dagger.json`, root `go.mod`, generated module dependencies |
 | Staticcheck | 2026.2.1 (`honnef.co/go/tools` v0.8.1) | `runner/toolchain.json` |
 | actionlint, apidiff, gitleaks, govulncheck, gremlins | Per tool | One module each under `runner/tools`, whose `go.mod` is the only pin; Dependabot proposes each tool's updates in a pull request of its own |
@@ -43,7 +43,7 @@ and `full-ci` for the local ready-PR checks. [Contributor test tiers](../../CONT
 list prerequisites and the hosted checks that remain. The commands below are
 focused development tools; the entry point reuses them.
 
-Use Go 1.27.1 and the pinned Dagger CLI:
+Use Go 1.27.2 and the pinned Dagger CLI:
 
 ```sh
 dagger develop --compat=skip
@@ -53,7 +53,7 @@ GOTOOLCHAIN=local go test -race ./...
 ./scripts/test-consumers
 ```
 
-In this repository `./verify branch` and the per-kind runs of its static checks run natively and need no container runtime, only Go 1.27.1 and the generated SDK from `dagger develop`, since the `runner` module compiles against it. `pre-merge` adds `self-test`, which runs in Dagger. `./verify mutation` runs mutation testing of the branch's changed Go files in Dagger, outside `pre-merge`. `./verify branch-dagger` runs the same static checks in Dagger, and `./verify main` is the full hermetic audit. `levenshtein.json` names every run.
+In this repository `./verify branch` and the per-kind runs of its static checks run natively and need no container runtime, only Go 1.27.2 and the generated SDK from `dagger develop`, since the `runner` module compiles against it. `pre-merge` adds `self-test`, which runs in Dagger. `./verify mutation` runs mutation testing of the branch's changed Go files in Dagger, outside `pre-merge`. `./verify branch-dagger` runs the same static checks in Dagger, and `./verify main` is the full hermetic audit. `levenshtein.json` names every run.
 
 The generated Go SDK needs a Dagger session, including during unit tests. The deliberately broken Go module lives under `runner/testdata`, outside ordinary test discovery. The self-test requires good code, vendored dependencies, and embedded templates to pass, bad code to emit each intended rule, broken/empty modules to fail verification, the pinned zizmor to pass `workflow-secure` and report `workflow-insecure`'s template injection, `go test -race` to pass `test-pass`, report `test-fail` and `test-race` as findings, and refuse `test-build` as an error, the pinned ShellCheck to pass `shell-good` and report each of `shell-bad`'s diagnostics, gitleaks to pass `secrets-clean` and report `secrets-leaky`'s made-up key without its value, and osv-scanner to pass `deps-clean` and report `deps-vulnerable`'s two npm packages but not its Go module. A compiler failure cannot substitute for an expected lint finding.
 

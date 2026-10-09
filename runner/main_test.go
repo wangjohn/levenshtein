@@ -97,6 +97,10 @@ func TestPinsAgree(t *testing.T) {
 	if sdkImage == nil {
 		t.Fatal("sdk/patched-go/src/patched_go/__init__.py sets no GO_IMAGE")
 	}
+	sdkTools := regexp.MustCompile(`(?m)^CODEGEN_X_TOOLS = "([^"]*)"$`).FindStringSubmatch(readPinFile(t, "../sdk/patched-go/src/patched_go/__init__.py"))
+	if sdkTools == nil {
+		t.Fatal("sdk/patched-go/src/patched_go/__init__.py sets no CODEGEN_X_TOOLS")
+	}
 
 	for _, pin := range []struct {
 		name string
@@ -112,6 +116,7 @@ func TestPinsAgree(t *testing.T) {
 		{"the go directive of runner/community/go.mod", goDirective(t, "community/go.mod"), tools.Go},
 		{"Staticcheck in runner/lint/go.mod", goRequire(t, "lint/go.mod", "honnef.co/go/tools"), tools.Staticcheck},
 		{"Staticcheck in runner/community/go.mod", goRequire(t, "community/go.mod", "honnef.co/go/tools"), tools.Staticcheck},
+		{"CODEGEN_X_TOOLS in sdk/patched-go", sdkTools[1], goRequire(t, "lint/go.mod", "golang.org/x/tools")},
 		{"x/tools in runner/community/go.mod", goRequire(t, "community/go.mod", "golang.org/x/tools"), goRequire(t, "lint/go.mod", "golang.org/x/tools")},
 		{"engineVersion in dagger.json", readEngineVersion(t, "../dagger.json"), "v" + dagger},
 		{"engineVersion in sdk/patched-go/dagger.json", readEngineVersion(t, "../sdk/patched-go/dagger.json"), "v" + dagger},

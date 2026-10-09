@@ -93,7 +93,7 @@ func writeModule(t *testing.T, files map[string]string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files["go.mod"] = "module example.com/excluded\n\ngo 1.27.1\n"
+	files["go.mod"] = "module example.com/excluded\n\ngo 1.27.2\n"
 	for name, source := range files {
 		writeFile(t, filepath.Join(dir, name), source)
 	}

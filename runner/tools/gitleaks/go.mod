@@ -1,6 +1,6 @@
 module github.com/wangjohn/levenshtein/runner/tools/gitleaks
 
-go 1.27.1
+go 1.27.2
 
 tool github.com/zricethezav/gitleaks/v8
 

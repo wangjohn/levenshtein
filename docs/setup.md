@@ -4,7 +4,7 @@ Levenshtein's shared checks run pinned lint, vet, workflow, and vulnerability to
 
 ## Prerequisites
 
-The source launcher needs Go **1.21 or later** on `PATH`, which supports automatic toolchain switching: it sets `GOTOOLCHAIN` to the version in `.go-version` (**1.27.1**), so Go downloads and caches that toolchain itself when the host differs. That download needs a reachable module proxy. With `GOPROXY=off`, install Go 1.27.1 on `PATH` or provision its toolchain cache first; the CLI's module dependencies must also already be cached. The launcher sets `GOTOOLCHAIN` for its own build even if the caller sets it to `local`. This does not select the Go executable used by native checks.
+The source launcher needs Go **1.21 or later** on `PATH`, which supports automatic toolchain switching: it sets `GOTOOLCHAIN` to the version in `.go-version` (**1.27.2**), so Go downloads and caches that toolchain itself when the host differs. That download needs a reachable module proxy. With `GOPROXY=off`, install Go 1.27.2 on `PATH` or provision its toolchain cache first; the CLI's module dependencies must also already be cached. The launcher sets `GOTOOLCHAIN` for its own build even if the caller sets it to `local`. This does not select the Go executable used by native checks.
 
 What else you need depends on the executor of the environments your checks use:
 

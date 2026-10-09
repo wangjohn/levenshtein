@@ -218,7 +218,7 @@ func TestANamespaceMismatchFailsTheBuild(t *testing.T) {
 func proxyWork(t *testing.T) goCommand {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module "+generatedModule+"\n\ngo 1.27.1\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module "+generatedModule+"\n\ngo 1.27.2\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return goCommand{Dir: dir}
@@ -235,14 +235,14 @@ func TestPublishedPinsAreReadThroughTheProxy(t *testing.T) {
 	current := Module{Path: "github.com/uudashr/gocognit", Version: "v1.2.1"}
 	retracted := Module{Path: "github.com/uudashr/gocognit", Version: "v1.1.1"}
 
-	if err := checkGoVersion(t.Context(), g, "1.27.1", current); err != nil {
+	if err := checkGoVersion(t.Context(), g, "1.27.2", current); err != nil {
 		t.Errorf("a published module within the pinned Go must pass: %v", err)
 	}
 	if err := checkGoVersion(t.Context(), g, "1.10", current); err == nil || !strings.Contains(err.Error(), "but this release pins go 1.10") {
 		t.Errorf("a module newer than the pinned Go must be refused: %v", err)
 	}
 	missing := Module{Path: "github.com/uudashr/gocognit", Version: "v9.9.9"}
-	if err := checkGoVersion(t.Context(), g, "1.27.1", missing); err == nil || !strings.Contains(err.Error(), "downloading the module failed") {
+	if err := checkGoVersion(t.Context(), g, "1.27.2", missing); err == nil || !strings.Contains(err.Error(), "downloading the module failed") {
 		t.Errorf("a version the proxy does not have must be refused: %v", err)
 	}
 
