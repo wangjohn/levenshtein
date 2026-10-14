@@ -24,8 +24,8 @@ require (
 	github.com/ldez/usetesting v0.5.0
 	github.com/maratori/testableexamples v1.0.1
 	github.com/moricho/tparallel v0.3.2
-	github.com/nishanths/exhaustive v0.13.0
-	github.com/nishanths/predeclared v0.2.2
+	github.com/nishanths/exhaustive v0.14.0
+	github.com/nishanths/predeclared v0.3.0
 	github.com/polyfloyd/go-errorlint v1.8.0
 	github.com/raeperd/recvcheck v0.3.1
 	github.com/ryanrolds/sqlclosecheck v0.6.0
@@ -33,13 +33,13 @@ require (
 	github.com/sashamelentyev/usestdlibvars v1.29.0
 	github.com/sonatard/noctx v0.5.1
 	github.com/timakin/bodyclose v0.0.0-20260723120731-857993a2939c
-	github.com/timonwong/loggercheck v0.12.0
-	github.com/uudashr/gocognit v1.2.1
+	github.com/timonwong/loggercheck v0.12.1
+	github.com/uudashr/gocognit v1.3.0
 	github.com/ykadowak/zerologlint v0.1.5
 	go-simpler.org/musttag v0.14.0
 	go.augendre.info/fatcontext v0.10.1
 	golang.org/x/mod v0.41.0
-	golang.org/x/tools v0.50.0
+	golang.org/x/tools v0.51.0
 	honnef.co/go/tools v0.8.1
 	mvdan.cc/unparam v0.0.0-20260823230713-2fa3d841b0c8
 )
