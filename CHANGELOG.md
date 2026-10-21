@@ -27,6 +27,9 @@ says which interfaces are versioned and what to expect when you bump your pin.
   Go differs. The patched Dagger SDK now builds its
   module generator with `golang.org/x/tools` v0.50.0, which reads the export
   data Go 1.27.2 writes.
+- The patched Dagger SDK locks `certifi` 2026.10.19 (from 2026.7.22) for
+  GHSA-6q48-6c7w-9gw2 / PYSEC-2026-4320: earlier bundles trust emSign roots
+  whose intermediate CA keys were compromised, which `deps-vuln` reports.
 - The Dagger runner module requires `golang.org/x/net` v0.60.0 (from v0.58.0)
   for GO-2026-6603, GO-2026-6611, GO-2026-6612 and GO-2026-6617 in its HTTP/2
   client, which the generated-executable scan reports.
