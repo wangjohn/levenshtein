@@ -1,6 +1,6 @@
 module github.com/wangjohn/levenshtein/runner/lint
 
-go 1.27.2
+go 1.27.3
 
 require (
 	4d63.com/gocheckcompilerdirectives v1.4.0

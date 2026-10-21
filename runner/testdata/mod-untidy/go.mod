@@ -1,6 +1,6 @@
 module example.com/mod-untidy
 
-go 1.27.2
+go 1.27.3
 
 // Nothing imports this module, so tidy drops the requirement.
 require example.com/mod-untidy/unused v0.0.0

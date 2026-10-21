@@ -13,7 +13,7 @@ CLIENT_COMMIT = "fdf4c34a9a67d096aaeef79630017c9c7ff8fe8e"
 # runner/main_test.go fails until they match. This module's Dagger source is
 # sdk/patched-go, so runner/toolchain.json is outside its context, and the
 # generator is built before any module source is at hand.
-GO_IMAGE = "golang:1.27.2-trixie@sha256:e58d6f83b3416618d8bcac2b3dde1b7f7e3c4a77d25e88637f8bbae81536c48d"
+GO_IMAGE = "golang:1.27.3-trixie@sha256:1896654cfc5c2b5ad74c07f29cb36f5d2d1cbed42e3054070fbfe444e521e83c"
 # The golang.org/x/tools version the generator is built with; it must read the
 # export data that GO_IMAGE's compiler writes. TestPinsAgree in
 # runner/main_test.go keeps it equal to x/tools in runner/lint/go.mod.
@@ -82,7 +82,7 @@ def codegen_binary() -> dagger.File:
     for modfile in ("go.mod", "sdk/go/go.mod"):
         container = patched_dependencies(container, modfile)
 
-    # The generator type-checks the module from go list export data. Go 1.27.2
+    # The generator type-checks the module from go list export data. Go 1.27.3
     # writes export data version 5, which golang.org/x/tools before v0.50.0
     # (Dagger pins v0.45.0) cannot read; every parameter type then comes out
     # as `any` and the generated dagger.gen.go does not compile.

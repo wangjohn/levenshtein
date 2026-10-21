@@ -14,7 +14,7 @@ The trace exporters also fix GO-2026-6505. Download and compiler caches are reta
 
 The generator itself is built with `golang.org/x/tools` v0.50.0 rather than
 Dagger's v0.45.0. It type-checks the runner from `go list` export data, and Go
-1.27.2 writes export data version 5, which earlier `x/tools` cannot decode;
+1.27.3 writes export data version 5, which earlier `x/tools` cannot decode;
 the generator would then type every function parameter as `any`.
 
 Logging 0.21.0 removes `log.Value`, `log.KeyValue`, and their constructors in

@@ -1,3 +1,3 @@
 module go.uber.org/zap
 
-go 1.27.2
+go 1.27.3

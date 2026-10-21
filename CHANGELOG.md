@@ -17,13 +17,14 @@ says which interfaces are versioned and what to expect when you bump your pin.
 
 ### Security
 
-- Go toolchain bumped from 1.27.1 to 1.27.2 (`.go-version`, the `go.mod`
-  files, and the `golang:1.27.2-trixie` container pinned by digest) for the
+- Go toolchain bumped from 1.27.1 to 1.27.3 (`.go-version`, the `go.mod`
+  files, and the `golang:1.27.3-trixie` container pinned by digest) for the
   standard-library fixes in net/http, net/http/internal/http2, crypto/tls,
-  html/template and net/http/httputil. With 1.27.1, `go-vuln` reports those as
-  reachable in consumers that use the affected packages, so their verify
-  fails. Native Go analysis now needs Go 1.27.2; the source launcher
-  downloads it when the host Go differs. The patched Dagger SDK now builds its
+  html/template and net/http/httputil (1.27.2) and crypto/x509 (GO-2026-6809,
+  1.27.3). With an older toolchain, `go-vuln` reports those as reachable in
+  consumers that use the affected packages, so their verify fails. Native Go
+  analysis now needs Go 1.27.3; the source launcher downloads it when the host
+  Go differs. The patched Dagger SDK now builds its
   module generator with `golang.org/x/tools` v0.50.0, which reads the export
   data Go 1.27.2 writes.
 - The Dagger runner module requires `golang.org/x/net` v0.60.0 (from v0.58.0)

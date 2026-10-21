@@ -1,6 +1,6 @@
 module github.com/wangjohn/levenshtein
 
-go 1.27.2
+go 1.27.3
 
 require (
 	dagger.io/dagger v0.21.9
